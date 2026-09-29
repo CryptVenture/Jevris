@@ -217,7 +217,8 @@ test('the product writes policy-previous.json and a restore cannot widen past th
     const refused = await rollbackPolicy({ home, workspace });
     assert.equal(refused.ok, false);
     assert.equal(sameBytes(await readFile(activePath(home)), activeNarrow), true);
-    assert.equal(await exists(stagedPath(home)), false);
+    // JEV-0011: a refused rollback changes nothing, so the staged upgrade is still there.
+    assert.equal(await exists(stagedPath(home)), true);
     const project = join(workspace, 'project.json');
     await writeFile(
       project,
@@ -237,6 +238,68 @@ test('the product writes policy-previous.json and a restore cannot widen past th
     assert.equal(text.includes(KEY_CANARY), false);
     assert.equal(code === 0 || code === 2, true);
     assert.equal(sameBytes(await readFile(activePath(home)), activeNarrow), true);
+  });
+});
+
+test('rollback with no previous policy discards a staged upgrade and says so; with nothing staged it is refused and changes nothing (JEV-0011)', async () => {
+  await withRoots(async ({ home, workspace }) => {
+    await writeHost(home, validHost({ packPrivileges: ['advise'] }));
+    await loadHostPolicy({ home, workspace });
+    assert.equal(await exists(previousPath(home)), false, 'no previous policy in this scenario');
+    const activeBytes = await readFile(activePath(home));
+    const manifest = join(workspace, 'staged.json');
+    await writeFile(manifest, JSON.stringify(validManifest({ actions: ['advise'], requiresCapabilities: ['advise'] })));
+    await stagePackUpgrade({ home, workspace, manifestPath: manifest });
+    assert.equal(await exists(stagedPath(home)), true);
+
+    const discarded = await rollbackPolicy({ home, workspace });
+    assert.equal(discarded.ok, false, 'ok still means the previous policy was restored');
+    assert.equal(discarded.discardedStaged, true);
+    assert.equal(await exists(stagedPath(home)), false);
+    assert.equal(sameBytes(await readFile(activePath(home)), activeBytes), true);
+
+    // Nothing staged and nothing previous: a refusal, and nothing changes.
+    const nothing = await rollbackPolicy({ home, workspace });
+    assert.equal(nothing.ok, false);
+    assert.equal(nothing.discardedStaged, undefined);
+    assert.equal(sameBytes(await readFile(activePath(home)), activeBytes), true);
+
+    // The command: exit 0 with a note when it discards, exit 2 "refused" when it does nothing.
+    await stagePackUpgrade({ home, workspace, manifestPath: manifest });
+    let text = '';
+    let code = await main(['policy', 'rollback', '--home', home, '--workspace', workspace], (chunk) => {
+      text += chunk;
+    });
+    assert.equal(code, 0, text);
+    assert.match(text, /discarded the staged policy; there was no previous policy to restore/);
+    assert.equal(await exists(stagedPath(home)), false);
+    text = '';
+    code = await main(['policy', 'rollback', '--home', home, '--workspace', workspace], (chunk) => {
+      text += chunk;
+    });
+    assert.equal(code, 2);
+    assert.equal(text, 'refused\n');
+  });
+});
+
+test('a rollback that restores the previous policy also drops the staged upgrade, and reports ok (JEV-0011; kill-switch activate relies on ok)', async () => {
+  await withRoots(async ({ home, workspace }) => {
+    const narrow = validHost({ retention: { rawArtifactRetentionDays: 1, decisionRetentionDays: 1 }, budget: { maxRequestBytes: 2048 }, packPrivileges: ['advise'] });
+    const wide = validHost({ egress: 'approved-scoped', retention: { rawArtifactRetentionDays: 14, decisionRetentionDays: 60 }, budget: { maxRequestBytes: 8192 }, packPrivileges: ['advise', 'abstain'] });
+    await writeHost(home, narrow);
+    await loadHostPolicy({ home, workspace });
+    const narrowBytes = await readFile(activePath(home));
+    await writeHost(home, wide);
+    await loadHostPolicy({ home, workspace });
+    const manifest = join(workspace, 'staged.json');
+    await writeFile(manifest, JSON.stringify(validManifest({ actions: ['advise'], requiresCapabilities: ['advise'] })));
+    await stagePackUpgrade({ home, workspace, manifestPath: manifest });
+    assert.equal(await exists(stagedPath(home)), true);
+    const rolled = await rollbackPolicy({ home, workspace });
+    assert.equal(rolled.ok, true);
+    assert.equal(rolled.discardedStaged, undefined);
+    assert.equal(sameBytes(await readFile(activePath(home)), narrowBytes), true);
+    assert.equal(await exists(stagedPath(home)), false);
   });
 });
 

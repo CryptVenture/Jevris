@@ -41,7 +41,13 @@ export interface RollbackInput {
 }
 
 export interface RollbackResult {
+  /** True only when the previous policy was restored. The kill switch relies on that meaning. */
   readonly ok: boolean;
+  /**
+   * JEV-0011: there was no previous policy, so nothing was restored, but a staged upgrade was
+   * discarded. That is the one case where a rollback that is not `ok` still changed something.
+   */
+  readonly discardedStaged?: boolean;
 }
 
 const PRIVILEGE_FIELDS = ['actions', 'dataScopes', 'requiresCapabilities'] as const;
@@ -389,11 +395,16 @@ async function removeStaged(home: string): Promise<void> {
 
 export async function rollbackPolicy(input: RollbackInput): Promise<RollbackResult> {
   const previousPath = previousFile(input.home);
-  const activePath = activeFile(input.home);
   const previous = await readCapped(previousPath);
-  const active = await readCapped(activePath);
-  await removeStaged(input.home);
-  if (previous === 'missing' || previous === 'over') return { ok: false };
+  if (previous === 'missing') {
+    // JEV-0011: with no previous policy, rolling back means dropping a staged upgrade when there is one.
+    // With nothing staged either there is nothing to do, and the refusal changes nothing.
+    if ((await readCapped(stagedFile(input.home))) === 'missing') return { ok: false };
+    await removeStaged(input.home);
+    return { ok: false, discardedStaged: true };
+  }
+  // A refusal changes nothing: the staged upgrade is removed only once the previous policy is back.
+  if (previous === 'over') return { ok: false };
   const parsed = parseCapped(previous);
   if (parsed === 'invalid' || parsed === 'raw') return { ok: false };
   const snapshot = copyHostDocument(parsed);
@@ -401,10 +412,9 @@ export async function rollbackPolicy(input: RollbackInput): Promise<RollbackResu
   if (snapshot === undefined || host === undefined) return { ok: false };
   const merged = mergeOrganization(host, snapshot);
   if (!merged.ok) return { ok: false };
-  if (active !== 'missing' && active !== 'over') {
-    // The current active bytes stay when the snapshot would widen. A passing
-    // check still writes the product-written snapshot, not a project file.
-  }
-  await writePrivate(activePath, previous);
+  // The active bytes stay when the snapshot would widen (the merge refuses above). A passing
+  // check writes the product-written snapshot, not a project file.
+  await writePrivate(activeFile(input.home), previous);
+  await removeStaged(input.home);
   return { ok: true };
 }

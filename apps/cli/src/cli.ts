@@ -593,7 +593,13 @@ async function runPolicy(
   }
   if (sub === 'rollback') {
     const restored = await rollbackPolicy({ home, workspace });
-    if (!restored.ok) return refused(write);
+    if (!restored.ok) {
+      // JEV-0011: no previous policy, but a staged upgrade was there and is now discarded. Anything else is a refusal that changed nothing.
+      if (restored.discardedStaged !== true) return refused(write);
+      await recordCliAudit('policy.change', { action: 'rollback' }, home);
+      emit(write, 'policy rollback: discarded the staged policy; there was no previous policy to restore\n');
+      return 0;
+    }
     await recordCliAudit('policy.change', { action: 'rollback' }, home);
     return 0;
   }
