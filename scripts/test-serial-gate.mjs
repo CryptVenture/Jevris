@@ -7,8 +7,10 @@
 // - a serial file waits until every parallel file is done (or its process has gone), then takes
 //   the serial lock, so it runs alone: with no parallel file and no other serial file beside it.
 // One node --test run holds both, so coverage, the test events and the summary stay one run's.
-// A wait is capped (JEVRIS_SERIAL_GATE_WAIT_S, default 1200 s): a file that never starts cannot
-// hold the run forever, and the file then runs as it would have without the gate.
+// A parallel file that has not marked itself started a minute (JEVRIS_SERIAL_GATE_START_GRACE_S)
+// after a serial file began waiting never loaded the gate: node:test had started it by then.
+// A wait is capped (JEVRIS_SERIAL_GATE_WAIT_S, default 1200 s), so a file that never finishes
+// cannot hold the run forever. Either way the serial file names what it went ahead of.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -64,6 +66,42 @@ export function tryLock(dir) {
 
 const sleep = (ms) => new Promise((done) => setTimeout(done, ms));
 
+/**
+ * The parallel files a serial file is still waiting for when its wait ends: each with the
+ * pid it recorded (null: it never started) and whether that process is running. The serial file
+ * writes them to waited-<marker>.json in the gate folder and to stderr, and scripts/test.mjs
+ * prints them after the run, so a capped wait names what held it.
+ */
+export function unfinished(dir, parallel) {
+  const out = [];
+  for (const file of parallel) {
+    const marker = markerOf(file);
+    if (finished(dir, marker)) continue;
+    let pid = null;
+    try {
+      pid = Number(readFileSync(join(dir, `${marker}.start`), 'utf8'));
+    } catch {
+      pid = null;
+    }
+    out.push({ file, pid, running: pid !== null && alive(pid) });
+  }
+  return out;
+}
+
+/** One line per wait that ended with a parallel file unfinished, for the run's output. */
+export function describeWait(record) {
+  const held = record.unfinished.map((item) => `${item.file} (${item.pid === null ? 'never started' : `pid ${item.pid}${item.running ? ' still running' : ''}`})`);
+  return `serial gate: ${record.file} waited ${record.waitedS} s${record.capped === true ? ', its cap,' : ''} and went ahead of ${held.length} file(s): ${held.join(', ')}`;
+}
+
+/** True when the parallel file behind `marker` has marked itself started. */
+export function started(dir, marker) {
+  return existsSync(join(dir, `${marker}.start`));
+}
+
+/** How long a serial file waits for a parallel file to mark itself started (seconds). */
+export const START_GRACE_S = 60;
+
 if (typeof gate === 'string' && gate.length > 0 && (process.env.NODE_TEST_CONTEXT ?? '').length > 0 && typeof main === 'string' && main.length > 0) {
   let plan = null;
   try {
@@ -85,11 +123,31 @@ if (typeof gate === 'string' && gate.length > 0 && (process.env.NODE_TEST_CONTEX
       });
     } else if (plan.serial.includes(self)) {
       const waitS = Number(process.env.JEVRIS_SERIAL_GATE_WAIT_S ?? '1200');
-      const until = Date.now() + (Number.isFinite(waitS) && waitS > 0 ? waitS : 1200) * 1000;
+      const capMs = (Number.isFinite(waitS) && waitS > 0 ? waitS : 1200) * 1000;
+      const graceS = Number(process.env.JEVRIS_SERIAL_GATE_START_GRACE_S ?? String(START_GRACE_S));
+      const graceMs = (Number.isFinite(graceS) && graceS > 0 ? graceS : START_GRACE_S) * 1000;
+      const began = Date.now();
+      const until = began + capMs;
       const markers = plan.parallel.map(markerOf);
-      while (Date.now() < until && !markers.every((marker) => finished(gate, marker))) await sleep(250);
+      // node:test starts files in the order given, and the runner lists every parallel file
+      // first: when a serial file runs, every parallel file's process has been started. One that
+      // has not marked itself started within the grace never loaded this gate and is not waited on.
+      const settled = (marker) => finished(gate, marker) || (Date.now() - began > graceMs && !started(gate, marker));
+      while (Date.now() < until && !markers.every(settled)) await sleep(250);
+      const held = unfinished(gate, plan.parallel);
+      if (held.length > 0) {
+        const record = { file: self, waitedS: Math.round((Date.now() - began) / 1000), capped: Date.now() >= until, unfinished: held };
+        try {
+          writeFileSync(join(gate, `waited-${markerOf(self)}.json`), JSON.stringify(record));
+        } catch {
+          // the run's folder is gone
+        }
+        process.stderr.write(`${describeWait(record)}\n`);
+      }
+      // The lock has its own cap: a capped wait above still runs the serial files one at a time.
+      const lockUntil = Date.now() + capMs;
       let locked = false;
-      while (Date.now() < until && !(locked = tryLock(gate))) await sleep(250);
+      while (Date.now() < lockUntil && !(locked = tryLock(gate))) await sleep(250);
       if (locked) {
         process.on('exit', () => {
           rmSync(join(gate, 'serial.lock'), { recursive: true, force: true });

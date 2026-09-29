@@ -8,7 +8,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const { FILE_BOUND_URL, SERIAL_GATE_URL, fileBound, serialGate } = await import('../scripts/test.mjs');
+const { FILE_BOUND_URL, SERIAL_GATE_URL, fileBound, serialGate, testTimeoutArgs } = await import('../scripts/test.mjs');
 const { DEFAULT_FILE_SILENT_S, FILE_SILENT_REASON, descendants, silentBoundMs } = await import('../scripts/test-file-bound.mjs');
 
 /** The environment for a nested node --test run: none of this run's own test-process marks. */
@@ -71,7 +71,7 @@ test('a file that stays up on an open child after its tests is ended at the boun
     '});',
   ].join('\n'));
   writeFileSync(join(dir, 'ok.test.mjs'), "import { test } from 'node:test';\ntest('quick', () => {});\n");
-  const result = await run(['--test', 'hang.test.mjs', 'ok.test.mjs'], dir, nestedEnv({ NODE_OPTIONS: `--import=${FILE_BOUND_URL}`, JEVRIS_TEST_FILE_SILENT_S: '2' }));
+  const result = await run(['--test', '--test-reporter=spec', 'hang.test.mjs', 'ok.test.mjs'], dir, nestedEnv({ NODE_OPTIONS: `--import=${FILE_BOUND_URL}`, JEVRIS_TEST_FILE_SILENT_S: '2' }));
   const child = Number(readFileSync(join(dir, 'child.pid'), 'utf8'));
   t.after(() => { if (running(child)) process.kill(child, 'SIGKILL'); });
   assert.equal(result.signal, null, `the run exited on its own:\n${result.output}`);
@@ -93,9 +93,27 @@ test('a latency-bound file waiting its turn behind the serial gate is not cut by
   writeFileSync(serial, "import { test } from 'node:test';\ntest('ran after the slow file', () => {});\n");
   const gate = serialGate([slow], [serial], dir, { NODE_OPTIONS: '' });
   const bound = fileBound(gate, { JEVRIS_TEST_FILE_SILENT_S: '3' });
-  const result = await run(['--test', '--test-concurrency=2', slow, serial], dir, nestedEnv({ ...gate, ...bound }));
+  const result = await run(['--test', '--test-reporter=spec', '--test-concurrency=2', slow, serial], dir, nestedEnv({ ...gate, ...bound }));
   assert.equal(result.code, 0, result.output);
   assert.doesNotMatch(result.output, /FILE_SILENT_BOUND/);
   assert.match(result.output, /ℹ pass 2/);
   assert.equal(result.ms >= 4500, true, `the serial file waited for the slow one (${result.ms} ms)`);
+});
+
+// CI, Node 22.14.0: --test-timeout=120000 failed every file that ran past two minutes, the serial
+// files among them (their wait at the gate counted), because node:test before 24 bounds the whole
+// file with it. The runner passes it only where it bounds each test; the pair runs node's own
+// behaviour with a 1 s timeout, so a Node release that changes it fails here.
+test('the runner passes --test-timeout only on a Node that applies it to each test, not each file', async (t) => {
+  assert.deepEqual(testTimeoutArgs('22.14.0'), []);
+  assert.deepEqual(testTimeoutArgs('23.11.1'), []);
+  assert.deepEqual(testTimeoutArgs('24.0.0'), ['--test-timeout=120000']);
+  assert.deepEqual(testTimeoutArgs('26.5.0'), ['--test-timeout=120000']);
+  const dir = mkdtempSync(join(tmpdir(), 'file-bound-timeout-'));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  // Longer than the 1 s timeout in all, though each test is well inside its own 10 s.
+  writeFileSync(join(dir, 'long.test.mjs'), "import { test } from 'node:test';\nfor (let i = 0; i < 3; i += 1) test(`part ${i}`, { timeout: 10_000 }, async () => { await new Promise((r) => setTimeout(r, 500)); });\n");
+  const result = await run(['--test', '--test-reporter=spec', '--test-timeout=1000', 'long.test.mjs'], dir, nestedEnv({}));
+  const perTest = testTimeoutArgs().length > 0;
+  assert.equal(result.code, perTest ? 0 : 1, `Node ${process.versions.node}: --test-timeout ${perTest ? 'bounds each test' : 'bounds the whole file'}\n${result.output}`);
 });

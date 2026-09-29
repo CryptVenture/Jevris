@@ -8,7 +8,8 @@
  * - Runs every test file by default, or only the files named as arguments.
  * - Runs the latency-bound files (SERIAL_TEST_FILES) last and one at a time, with no other test
  *   file beside them, in the same node --test run (scripts/test-serial-gate.mjs).
- * - Bounds every test file: a file silent for JEVRIS_TEST_FILE_SILENT_S (default 600 s, well
+ * - Bounds every test (--test-timeout, 120 s, on Node 24 and later: see testTimeoutArgs) and
+ *   every test file: a file silent for JEVRIS_TEST_FILE_SILENT_S (default 600 s, well
  *   above --test-timeout) ends itself and every process it started, and fails with
  *   FILE_SILENT_BOUND (scripts/test-file-bound.mjs), so a file a leaked child keeps alive cannot
  *   hold the run, or the host suite lock, for good.
@@ -52,6 +53,7 @@ import { basename, delimiter, isAbsolute, join, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMain, runNode, tscPath, workspaces } from './build.mjs';
 import { DEFAULT_FILE_SILENT_S } from './test-file-bound.mjs';
+import { describeWait } from './test-serial-gate.mjs';
 
 const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 
@@ -118,6 +120,25 @@ export function fileBound(env, callerEnv = process.env) {
   const flag = `--import=${FILE_BOUND_URL}`;
   const without = current.split(/\s+/).filter((part) => part.length > 0 && part !== flag).join(' ');
   return { JEVRIS_TEST_FILE_SILENT_S: seconds, NODE_OPTIONS: `${without} ${flag}`.trim() };
+}
+
+/** The serial gate's capped waits in a run's gate folder, one line each (scripts/test-serial-gate.mjs). */
+export function cappedWaits(dir) {
+  const lines = [];
+  let names = [];
+  try {
+    names = readdirSync(dir).filter((name) => /^waited-[0-9a-f]+\.json$/.test(name)).sort();
+  } catch {
+    return lines;
+  }
+  for (const name of names) {
+    try {
+      lines.push(describeWait(JSON.parse(readFileSync(join(dir, name), 'utf8'))));
+    } catch {
+      lines.push(`serial gate: ${name} could not be read`);
+    }
+  }
+  return lines;
 }
 
 /** The files split into those that run in parallel and the serial ones (SERIAL_TEST_FILES), each in order. */
@@ -666,7 +687,7 @@ async function main(argv) {
     if (gate !== null) console.log(`test: ${serial.length} latency-bound file(s) run last, one at a time, after every other file (scripts/test-serial-gate.mjs)`);
     const bound = fileBound({ ...env, ...(gate ?? {}) });
     // A hung test fails after two minutes instead of stalling a CI cell for its job limit.
-    const result = spawnSync(process.execPath, ['--test', '--test-timeout=120000', ...coverageArgs(process.env), ...eventArgs(process.env), ...parallel, ...serial], {
+    const result = spawnSync(process.execPath, ['--test', ...testTimeoutArgs(), ...coverageArgs(process.env), ...eventArgs(process.env), ...parallel, ...serial], {
       cwd: repoRoot,
       env: {
         ...env,
@@ -681,6 +702,7 @@ async function main(argv) {
     });
     if (result.error !== undefined) throw result.error;
     code = result.status ?? 1;
+    if (gate !== null) for (const line of cappedWaits(gate.JEVRIS_SERIAL_GATE)) console.error(line);
   } finally {
     if (keep) console.error(`test: kept this run's temp dir ${runTemp} (JEVRIS_KEEP_TEST_DIRS=1)`);
     else rmSync(runTemp, { recursive: true, force: true, maxRetries: 3 });
@@ -717,6 +739,17 @@ async function main(argv) {
     }
   }
   return code;
+}
+
+/**
+ * `--test-timeout=120000` where node:test applies it to each test (Node 24 and later). Node 22
+ * and 23 apply it to each whole file instead (checked on 22.14.0, 22.23.3, 23.6.0 and 23.11.1):
+ * there it cut every file that ran longer than two minutes, including a latency-bound file
+ * waiting at the serial gate, so those runs pass none and rely on the per-file silence bound.
+ */
+export function testTimeoutArgs(version = process.versions.node) {
+  const major = Number.parseInt(String(version).split('.')[0] ?? '', 10);
+  return Number.isInteger(major) && major >= 24 ? ['--test-timeout=120000'] : [];
 }
 
 /** A run with no test file named is the full suite, and takes the host suite lock. */
