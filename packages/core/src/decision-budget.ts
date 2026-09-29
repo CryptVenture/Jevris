@@ -195,6 +195,15 @@ export class DecisionBudget {
           if (parent.length > 0) await mkdir(parent, { recursive: true, mode: 0o700 }).catch(() => undefined);
           continue;
         }
+        // On Windows a lock folder another process is removing is "delete pending": creating it
+        // then fails with EPERM, EACCES or EBUSY until the removal completes. That is contention
+        // like EEXIST, bounded by the same timeout; elsewhere those codes are a real refusal.
+        if (process.platform === 'win32' && (code === 'EPERM' || code === 'EACCES' || code === 'EBUSY')) {
+          if (this.#now() - started > this.#lockTimeoutMs) return 'LOCKED';
+          await sleep(delay);
+          delay = Math.min(50, delay * 2);
+          continue;
+        }
         if (code !== 'EEXIST') return 'LOCKED';
         try {
           const info = await stat(lock);

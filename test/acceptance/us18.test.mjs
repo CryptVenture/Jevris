@@ -18,6 +18,7 @@ story('US18', async ({ then, sandbox, evidence }) => {
   box.write('work/src/app.js', 'export const v = 1;\n');
   spawnSync(process.execPath, ['-e', `require('node:fs').rmSync(${JSON.stringify(join(box.work, '.git'))}, { recursive: true, force: true })`]);
   git(box.work, 'init', '-q');
+  git(box.work, 'config', 'core.autocrlf', 'false');
   git(box.work, 'add', '.');
   git(box.work, 'commit', '-q', '-m', 'earlier session');
   const up = box.startSidecar();

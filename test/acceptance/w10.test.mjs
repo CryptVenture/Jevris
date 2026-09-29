@@ -18,7 +18,7 @@ async function mcpAs(t, box, harness, cwd = box.work) {
   const transport = new StdioClientTransport({ command: process.execPath, args: [box.product.mcp, '--harness', harness], env: { ...box.env, CLAUDE_PROJECT_DIR: cwd }, cwd, stderr: 'ignore' });
   const client = new Client({ name: `jevris-w10-${harness}`, version: '1.0.0' });
   await client.connect(transport);
-  t.after(() => client.close().catch(() => {}));
+  box.closeAtTeardown(() => client.close().catch(() => {}));
   return async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
 }
 
@@ -36,6 +36,7 @@ workflow('W10', 'Moving from Claude Code to another harness', async ({ t, then, 
     checks: [{ id: 'unit', argv: [process.execPath, '-e', 'process.exit(1)'], mandatory: true, resultFormat: 'exit-code', description: 'report unit tests' }],
   });
   git(box.work, 'init', '-q');
+  git(box.work, 'config', 'core.autocrlf', 'false');
   git(box.work, 'add', '.');
   git(box.work, 'commit', '-q', '-m', 'report');
   assert.equal((await box.approveChecks()).code, 0);
@@ -107,6 +108,7 @@ workflow('W10', 'Moving from Claude Code to another harness', async ({ t, then, 
     const other = join(box.dir, 'other-repo');
     mkdirSync(other);
     git(other, 'init', '-q');
+    git(other, 'config', 'core.autocrlf', 'false');
     const elsewhere = await mcpAs(t, box, 'kilocode', other);
     const blocked = await elsewhere('jevris_handoff_import', { capsule: envelope });
     evidence(blocked);

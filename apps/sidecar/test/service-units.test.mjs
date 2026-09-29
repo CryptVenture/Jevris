@@ -176,13 +176,17 @@ test('jevris service through the CLI writes the unit for this Node and this Jevr
   delete process.env.XDG_CONFIG_HOME;
   try {
     const calls = [];
-    const serviceExec = (file, args) => (calls.push([file, ...args]), { status: 0, stdout: '', stderr: '' });
+    let unitPath = null;
+    // schtasks /Query /XML prints the registered task, which here is the unit file install wrote.
+    const registered = () => (unitPath !== null && existsSync(unitPath) ? { status: 0, stdout: readFileSync(unitPath).subarray(2).toString('utf16le'), stderr: '' } : { status: 1, stdout: '', stderr: 'not found' });
+    const serviceExec = (file, args) => (calls.push([file, ...args]), args[0] === '/Query' ? registered() : { status: 0, stdout: '', stderr: '' });
     let text = '';
     const run = (args, hooks) => runRuntimeCommand([...args, '--home', home], (chunk) => (text += chunk), hooks);
     if (!['darwin', 'linux', 'win32'].includes(process.platform)) return;
     assert.equal(await run(['service', 'install', '--json'], { serviceExec }), 0, text);
     const result = JSON.parse(text.trim());
     assert.equal(result.ok, true);
+    unitPath = result.unitPath;
     const unit = process.platform === 'win32' ? readFileSync(result.unitPath).subarray(2).toString('utf16le') : readFileSync(result.unitPath, 'utf8');
     assert.ok(unit.includes('--supervised'));
     assert.ok(unit.includes(process.platform === 'win32' ? '--home' : home), 'the non-default home is served');

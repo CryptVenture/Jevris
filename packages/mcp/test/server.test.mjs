@@ -24,7 +24,10 @@ const REQUIRED = [
   'jevris_configure',
 ];
 
-function server({ env = {}, answer, cwd = '/work/cwd', schemas } = {}) {
+// The working directory is resolved, so on Windows the default names a drive.
+const CWD = process.platform === 'win32' ? 'C:\\work\\cwd' : '/work/cwd';
+
+function server({ env = {}, answer, cwd = CWD, schemas } = {}) {
   const calls = [];
   const sent = [];
   const s = createServer({
@@ -86,7 +89,7 @@ test('a tool result mirrors the CLI result in structuredContent and the text blo
   assert.equal(r.result.isError, false);
   assert.deepEqual(r.result.structuredContent, cli);
   assert.deepEqual(JSON.parse(r.result.content[0].text), cli);
-  assert.deepEqual(calls[0], { op: 'route', args: { modelPin: 'claude-opus-4-7' }, workspace: '/work/cwd' });
+  assert.deepEqual(calls[0], { op: 'route', args: { modelPin: 'claude-opus-4-7' }, workspace: CWD });
   assert.equal(JSON.stringify(r).includes('credentialRef'), false);
   assert.equal(JSON.stringify(r).includes('presence'), false);
 });
@@ -154,7 +157,7 @@ test('the workspace comes from CLAUDE_PROJECT_DIR, else the client roots, else t
 
   const plain = server();
   await plain.s.handle(call(1, 'jevris_status', {}));
-  assert.equal(plain.calls[0].workspace, '/work/cwd');
+  assert.equal(plain.calls[0].workspace, CWD);
   assert.equal(rootPath('file:///C:/repo', 'win32'), 'C:/repo');
   assert.equal(rootPath('https://example.com/x', 'linux'), null);
 });

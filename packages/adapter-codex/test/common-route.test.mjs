@@ -8,11 +8,12 @@ import assert from 'node:assert/strict';
 import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join, posix } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = join(import.meta.dirname, '..', '..');
 const PACKAGES = ['adapter-claude-code', 'adapter-codex', 'adapter-kilocode', 'adapter-opencode', 'adapter-antigravity'];
-const cores = await Promise.all(PACKAGES.map(async (name) => ({ name, core: await import(join(root, name, 'dist', 'common.js')) })));
-const { RouteTurnPayloadContract } = await import(join(root, 'contracts', 'dist', 'index.js'));
+const cores = await Promise.all(PACKAGES.map(async (name) => ({ name, core: await import(pathToFileURL(join(root, name, 'dist', 'common.js')).href) })));
+const { RouteTurnPayloadContract } = await import(pathToFileURL(join(root, 'contracts', 'dist', 'index.js')).href);
 
 const HAIKU = { providerID: 'anthropic', modelID: 'claude-haiku-4-5', variant: null };
 const OPUS = { providerID: 'anthropic', modelID: 'claude-opus-5-5' };

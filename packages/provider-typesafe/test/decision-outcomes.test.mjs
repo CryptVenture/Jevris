@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,9 +16,16 @@ const { createSdkTransport, createMockFetch, CONFORMANCE_REQUEST, sidecarOps } =
 const { createDecisionEngine, decide, compileDecisionSpec, DecisionBudget } = core;
 const ops = Object.fromEntries(sidecarOps.map((def) => [def.op, def]));
 
-function temp(t) {
+// Folders go after every test of the file and its own after-hooks (the store closes): node:test
+// runs a test's after-hooks in the order they were added, and Windows refuses to remove a folder
+// that holds an open database.
+const temps = [];
+after(() => {
+  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+function temp() {
   const dir = mkdtempSync(join(tmpdir(), 'jevris-decision-outcomes-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  temps.push(dir);
   return dir;
 }
 function engine(dir) {
@@ -49,7 +56,7 @@ function label(ws, kind, atMs) {
 }
 
 test('explain and decision.get show the task outcome from the join; the journal record is unchanged', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const e = engine(dir);
   const host = openHost(dir);
   t.after(() => store.closeStore(host));
@@ -87,7 +94,7 @@ test('explain and decision.get show the task outcome from the join; the journal 
 });
 
 test('cost.report carries the local outcome report; without a store it is null', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const e = engine(dir);
   const host = openHost(dir);
   t.after(() => store.closeStore(host));
@@ -112,7 +119,7 @@ test('cost.report carries the local outcome report; without a store it is null',
 });
 
 test('a Jev decision records its answer probabilities, and calibration.export writes local cases from verified outcomes', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const e = engine(dir);
   const host = openHost(dir);
   t.after(() => store.closeStore(host));
@@ -141,7 +148,7 @@ test('a Jev decision records its answer probabilities, and calibration.export wr
 });
 
 test('P12: decision.feedback records a reasoned rejection of a known decision, the latest wins, and cost.report reports it without changing a policy', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const e = engine(dir);
   const host = openHost(dir);
   t.after(() => store.closeStore(host));

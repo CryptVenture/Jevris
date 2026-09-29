@@ -162,7 +162,10 @@ test('a process killed mid-migration leaves the old version and the next open re
       migration: { beforeCommit: (v) => { if (v === 3) process.kill(process.pid, 'SIGKILL'); } } });
   `;
   const child = spawnSync(process.execPath, ['--input-type=module', '-e', script], { encoding: 'utf8', timeout: 20_000 });
-  assert.equal(child.signal, 'SIGKILL', child.stderr);
+  // Windows has no signals: process.kill ends the process with TerminateProcess and exit code 1,
+  // which spawnSync reports as status 1 with no signal. The kill is just as abrupt.
+  if (process.platform === 'win32') assert.deepEqual([child.status, child.signal], [1, null], child.stderr);
+  else assert.equal(child.signal, 'SIGKILL', child.stderr);
   const mid = raw(path);
   assert.deepEqual(mid.prepare('SELECT version FROM schema_migrations ORDER BY version').all().map((r) => Number(r.version)), [1, 2]);
   assert.equal(Number(mid.prepare('SELECT schema_version AS v FROM schema_meta').get().v), 2);

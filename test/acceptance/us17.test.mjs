@@ -32,6 +32,7 @@ story('US17', async ({ then, sandbox, evidence }) => {
   });
   spawnSync(process.execPath, ['-e', `require('node:fs').rmSync(${JSON.stringify(join(box.work, '.git'))}, { recursive: true, force: true })`]);
   git(box.work, 'init', '-q');
+  git(box.work, 'config', 'core.autocrlf', 'false');
   git(box.work, 'add', '.');
   git(box.work, 'commit', '-q', '-m', 'revision A');
   const approve = await box.approveChecks();

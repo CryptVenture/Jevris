@@ -26,6 +26,7 @@ workflow('W08', 'CI diagnosis without weakening the gate', async ({ then, sandbo
   // The sandbox marks the workspace with an empty .git folder; make it a real repository.
   spawnSync(process.execPath, ['-e', `require('node:fs').rmSync(${JSON.stringify(join(box.work, '.git'))}, { recursive: true, force: true })`]);
   git(box.work, 'init', '-q');
+  git(box.work, 'config', 'core.autocrlf', 'false');
   git(box.work, 'add', '.');
   git(box.work, 'commit', '-q', '-m', 'init');
   const head = git(box.work, 'rev-parse', 'HEAD');

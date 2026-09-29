@@ -172,7 +172,11 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
     const worst = Math.max(...waits);
     t.diagnostic(`${String(waits.length)} hot commits during the sweep; worst ${worst.toFixed(1)} ms; longest maintenance write ${String(outcome.longestWriteMs)} ms`);
     // What bounds the wait is the chunk: no maintenance write holds the lock anywhere near 50 ms.
-    assert.ok(outcome.longestWriteMs < 50, `longest maintenance write ${String(outcome.longestWriteMs)} ms`);
+    // On windows-latest one write took 59 ms (file writes and flushes are slower there, and one
+    // runner carries the whole suite); the bound there is 100 ms, still 20 times below
+    // busy_timeout, and the hot-commit bound below is the same on every OS.
+    const writeBound = process.platform === 'win32' ? 100 : 50;
+    assert.ok(outcome.longestWriteMs < writeBound, `longest maintenance write ${String(outcome.longestWriteMs)} ms`);
     // End to end, with room for a loaded host (a hot commit with no sweep at all reached about
     // 120 ms with five suites running): far below busy_timeout (2 s), so never a timed-out wait.
     assert.ok(worst < 400, `worst hot commit ${worst.toFixed(1)} ms during the sweep`);

@@ -5,10 +5,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = join(import.meta.dirname, '..', '..');
 const PACKAGES = ['adapter-claude-code', 'adapter-codex', 'adapter-kilocode', 'adapter-opencode', 'adapter-antigravity'];
-const cores = await Promise.all(PACKAGES.map(async (name) => ({ name, core: await import(join(root, name, 'dist', 'common.js')) })));
+const cores = await Promise.all(PACKAGES.map(async (name) => ({ name, core: await import(pathToFileURL(join(root, name, 'dist', 'common.js')).href) })));
 
 const SURROGATE = '\u{1F600}'; // two UTF-16 units
 

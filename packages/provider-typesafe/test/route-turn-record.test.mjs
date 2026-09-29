@@ -3,7 +3,7 @@
 // session's link and whether the turn was switched (agreed with E). Explain shows the session's
 // mode and link for such a record (null link when the session was not linked), and neither for
 // any other decision.
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -22,9 +22,16 @@ const OPEN = { taskId: 'task-1', risk: 'low', sliceId: SLICE, turnActuation: 'bo
 const CURRENT = { providerID: 'anthropic', modelID: 'claude-opus-5-5' };
 const ops = Object.fromEntries(provider.sidecarOps.map((def) => [def.op, def]));
 
-function temp(t) {
+// Folders go after every test of the file and its own after-hooks (the store closes): node:test
+// runs a test's after-hooks in the order they were added, and Windows refuses to remove a folder
+// that holds an open database.
+const temps = [];
+after(() => {
+  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+function temp() {
   const dir = mkdtempSync(join(tmpdir(), 'jevris-turn-record-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  temps.push(dir);
   return dir;
 }
 
@@ -70,7 +77,7 @@ function recordedIds(traces) {
 }
 
 test('OD-8: a switched turn is recorded once per message, with its harness, mode, link and switch as reason codes', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const home = await promotedHome(dir);
   const e = engine(dir);
   const ws = openWorkspace(t, dir);
@@ -122,7 +129,7 @@ test('OD-8: a switched turn is recorded once per message, with its harness, mode
 });
 
 test('OD-8: a promoted model given as advice is recorded as advice; an unlinked session reads null; an abstention records nothing', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const home = await promotedHome(dir);
   const e = engine(dir);
   const ws = openWorkspace(t, dir);
@@ -159,7 +166,7 @@ test('OD-8: a promoted model given as advice is recorded as advice; an unlinked 
 });
 
 test('OD-8: with no store the record claims no link, and explain leaves sessionLink absent; other decisions have no turn trace', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const home = await promotedHome(dir);
   const e = engine(dir);
   const ids = [];

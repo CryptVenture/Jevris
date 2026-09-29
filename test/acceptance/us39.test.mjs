@@ -17,7 +17,7 @@ async function mcpAs(t, box, harness) {
   const transport = new StdioClientTransport({ command: process.execPath, args: [box.product.mcp, '--harness', harness], env: box.env, cwd: box.work, stderr: 'ignore' });
   const client = new Client({ name: `jevris-us39-${harness}`, version: '1.0.0' });
   await client.connect(transport);
-  t.after(() => client.close().catch(() => {}));
+  box.closeAtTeardown(() => client.close().catch(() => {}));
   return async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
 }
 
@@ -31,10 +31,12 @@ story('US39', async ({ t, then, sandbox, evidence }) => {
     checks: [{ id: 'unit', argv: [process.execPath, '-e', 'process.exit(1)'], mandatory: true, resultFormat: 'exit-code', description: 'parser unit tests' }],
   });
   git(box.work, 'init', '-q');
+  git(box.work, 'config', 'core.autocrlf', 'false');
   git(box.work, 'add', '.');
   git(box.work, 'commit', '-q', '-m', 'parser');
   assert.equal((await box.approveChecks()).code, 0);
-  box.jevris(['verify', '--check', 'unit'], { json: true });
+  const verified = box.jevris(['verify', '--check', 'unit'], { json: true });
+  assert.equal(verified.json?.result?.checks?.[0]?.outcome, 'failed', `the failing check did not record a failed receipt: ${JSON.stringify(verified.json) ?? verified.stdout} ${verified.stderr}`);
   const up = box.startSidecar();
   assert.equal(up.code, 0, `sidecar start failed: ${up.stdout} ${up.stderr}`);
   const checkpoint = box.jevris(['checkpoint', '--objective', 'Make the parser handle quoted fields', '--constraint', 'C1: keep the public parse() signature'], { json: true });

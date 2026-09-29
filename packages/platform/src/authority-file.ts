@@ -143,13 +143,15 @@ export type NoFollowRead =
 
 /**
  * Whether the open descriptor is the file `lstat` saw: the same device and inode, compared as
- * bigints (a 64-bit file id loses bits as a number). On Windows a path's stat can give the volume
- * serial number in 64 bits (the GetFileInformationByName path, as on windows-latest) where the
- * descriptor's gives its low 32, so there the device is compared on those 32 bits.
+ * bigints (a 64-bit file id loses bits as a number). On Windows, Node 22.14's `lstat` gives
+ * device 0 (seen on windows-latest: lstat dev 0, fstat dev 742408122, the same file id), so there
+ * a path device of 0 means "not reported" and the 64-bit file id alone must match; a device the
+ * path does report must match the descriptor's.
  */
 export function sameOpenedFile(byPath: BigIntStats, byFd: BigIntStats, platform: string = process.platform): boolean {
   if (byPath.ino !== byFd.ino) return false;
-  return platform === 'win32' ? (byPath.dev & 0xffffffffn) === (byFd.dev & 0xffffffffn) : byPath.dev === byFd.dev;
+  if (platform === 'win32' && byPath.dev === 0n) return true;
+  return byPath.dev === byFd.dev;
 }
 
 /**

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { removeTree } from '../../../scripts/remove-tree.mjs';
 
 // Domain B administration commands: kill switch (GOV-02..04), store (DATA-01, DATA-13),
 // audit (GOV-10), data purge (DATA-11) and authorize (GOV-09). Each runs against a real
@@ -30,13 +31,22 @@ async function withHome(fn) {
     const code = await runRuntimeCommand([...argv, '--home', home], out.write, { actor: 'tester', interactive: () => false, ...hooks });
     return { code, text: out.text() };
   };
+  let failed = false;
   try {
     await fn({ home, run });
+  } catch (error) {
+    failed = true;
+    throw error;
   } finally {
     await runRuntimeCommand(['sidecar', 'stop', '--home', home], () => undefined);
     if (previous === undefined) delete process.env.JEVRIS_SIDECAR_ENTRY;
     else process.env.JEVRIS_SIDECAR_ENTRY = previous;
-    rmSync(home, { recursive: true, force: true });
+    // A removal that fails after a failed test never hides that test's own error.
+    try {
+      removeTree(home);
+    } catch (error) {
+      if (!failed) throw error;
+    }
   }
 }
 

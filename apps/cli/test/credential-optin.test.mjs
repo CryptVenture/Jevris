@@ -59,9 +59,11 @@ test('the opt-in is read from exactly two named variables and never searched for
   assert.deepEqual(optInSourceOf({ [CREDENTIAL_FILE_ENV]: '/a', [CREDENTIAL_SYSTEMD_ENV]: 'b' }), { refused: 'both-set' });
   assert.deepEqual(optInSourceOf({ [CREDENTIAL_SYSTEMD_ENV]: 'jev' }), { refused: 'no-credentials-directory' });
   assert.deepEqual(optInSourceOf({ [CREDENTIAL_SYSTEMD_ENV]: '../jev', CREDENTIALS_DIRECTORY: '/run/c' }), { refused: 'bad-name' });
-  assert.deepEqual(optInSourceOf({ [CREDENTIAL_SYSTEMD_ENV]: 'jev', CREDENTIALS_DIRECTORY: '/run/c' }), {
+  // The credentials directory is resolved like the file path, so on Windows it names a drive.
+  const credentials = process.platform === 'win32' ? 'C:\\run\\c' : '/run/c';
+  assert.deepEqual(optInSourceOf({ [CREDENTIAL_SYSTEMD_ENV]: 'jev', CREDENTIALS_DIRECTORY: credentials }), {
     kind: 'systemd-creds',
-    path: join('/run/c', 'jev'),
+    path: join(credentials, 'jev'),
   });
 });
 

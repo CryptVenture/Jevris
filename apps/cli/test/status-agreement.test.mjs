@@ -47,7 +47,6 @@ function ports(forward) {
 
 test('status from the sidecar and the local reduced status agree on mode, model pin and workers', { skip: managedHostSkip() }, async (t) => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jevris-status-agree-')));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
   const home = join(dir, 'home');
   const workspace = join(dir, 'work');
   mkdirSync(home);
@@ -55,8 +54,12 @@ test('status from the sidecar and the local reduced status agree on mode, model 
   const config = jevrisPaths({ home }).config;
   mkdirSync(config, { recursive: true });
   const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+  // The daemon stops before its folder goes: Windows refuses to remove an open store.
+  t.after(async () => {
+    if (started.ok) await started.daemon.stop('test');
+    rmSync(dir, { recursive: true, force: true });
+  });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
-  t.after(() => started.daemon.stop('test'));
 
   const status = async (forward, extraEnv = {}) => {
     let text = '';

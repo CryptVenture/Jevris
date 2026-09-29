@@ -57,6 +57,9 @@ async function fixture({ writes, check = '0', scopes = ['mod', 'lib'] }) {
   writeFileSync(join(repo, 'mod', 'a.txt'), 'a\n');
   writeFileSync(join(repo, 'lib', 'b.txt'), 'b\n');
   git(repo, 'init', '-q');
+  // Line endings as written, whatever the host's git says: Git for Windows sets core.autocrlf in
+  // its system config, which would check out 'a2\r\n' here and not in a git run without it.
+  git(repo, 'config', 'core.autocrlf', 'false');
   git(repo, 'add', '.');
   git(repo, 'commit', '-q', '-m', 'base');
   const store = testStore(dir);

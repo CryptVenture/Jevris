@@ -86,14 +86,16 @@ test('on Windows the owner and mode are not checked; the link, file and work-tre
   assert.equal(readAuthorityFile(p.file, { home: p.home, platform: 'win32', uid: 12345 }, 1024).kind, 'ok');
 });
 
-// windows-latest: a path's stat gave the volume serial number in 64 bits and the descriptor's in
-// 32, so every read of host.json and access-limits.json there read as unreadable.
-test('the open descriptor is the file lstat saw: same inode, and on Windows the device on its low 32 bits', () => {
+// windows-latest on Node 22.14: lstat gave device 0 where fstat gave the volume serial number, so
+// every read of host.json and access-limits.json there read as unreadable.
+test('the open descriptor is the file lstat saw: same inode, and on Windows a path device of 0 is not reported', () => {
   const stats = (dev, ino) => ({ dev, ino });
-  assert.equal(sameOpenedFile(stats(0x1234_5678_9abc_def0n, 42n), stats(0x9abc_def0n, 42n), 'win32'), true);
-  assert.equal(sameOpenedFile(stats(0x1234_5678_9abc_def0n, 42n), stats(0x9abc_def0n, 42n), 'linux'), false);
+  assert.equal(sameOpenedFile(stats(0n, 42n), stats(742408122n, 42n), 'win32'), true);
+  assert.equal(sameOpenedFile(stats(0n, 42n), stats(742408122n, 42n), 'linux'), false);
+  assert.equal(sameOpenedFile(stats(0n, 42n), stats(742408122n, 43n), 'win32'), false, 'another file');
   assert.equal(sameOpenedFile(stats(7n, 42n), stats(7n, 43n), 'win32'), false, 'another file');
   assert.equal(sameOpenedFile(stats(7n, 42n), stats(8n, 42n), 'win32'), false, 'another volume');
+  assert.equal(sameOpenedFile(stats(7n, 42n), stats(7n, 42n), 'win32'), true);
   // File ids above 2^53 stay exact as bigints.
   assert.equal(sameOpenedFile(stats(7n, 2n ** 60n + 1n), stats(7n, 2n ** 60n), 'darwin'), false);
 });

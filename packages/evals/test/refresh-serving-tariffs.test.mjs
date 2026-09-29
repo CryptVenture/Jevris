@@ -4,10 +4,10 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const scriptPath = join(dirname(fileURLToPath(import.meta.url)), '..', 'scripts', 'refresh-serving-tariffs.mjs');
-const lib = await import(scriptPath);
+const lib = await import(pathToFileURL(scriptPath).href);
 const { scaledDecimal, microUsd, exactMultiplier, tariffFromCost, kiloGatewayAgrees, baseModelOf, linkBaseModel, sameModel, buildServings, servingsModule } = lib;
 const contracts = await import('@jevris/contracts');
 const core = await import('@jevris/core');

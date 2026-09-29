@@ -158,7 +158,8 @@ test('model offer v2: a v1 file reads with no spelling and no host; the next wri
   assert.equal(await recordModelRun(home, { harness: 'kilocode', authMode: 'unknown', modelId: 'kimi-k3', raw: 'openrouter/moonshotai/kimi-k3', servingHost: 'openrouter', nowMs: T + 1000 }), true);
   const written = JSON.parse(await readFile(file, 'utf8'));
   assert.equal(written.schema, 'jevris-model-offer-2');
-  assert.equal((await stat(file)).mode & 0o777, 0o600);
+  // Mode bits are POSIX: Windows reports 0o666 for any writable file (see the check above).
+  if (process.platform !== 'win32') assert.equal((await stat(file)).mode & 0o777, 0o600);
   // The v1 row and the new spelling are two rows: the same model through a known host is new evidence.
   const v2 = await readModelOffer(home);
   assert.deepEqual(v2.runs.map((r) => [r.modelId, r.raw, r.servingHost]).sort((a, b) => String(a[1]).localeCompare(String(b[1]))), [['kimi-k3', null, null], ['kimi-k3', 'openrouter/moonshotai/kimi-k3', 'openrouter']]);

@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, posix, win32 } from 'node:path';
 import { isAbsoluteFor, runSync } from '@jevris/platform';
 
 /**
@@ -78,7 +78,8 @@ export function windowsArg(value: string): string {
 
 export function launchAgentPlist(input: ServiceInput): string {
   const args = input.argv.map((arg) => `    <string>${xmlEscape(arg)}</string>`).join('\n');
-  const log = xmlEscape(join(input.stateDir, 'logs', 'service.log'));
+  // The plist is macOS text whatever host renders it, so its log path uses POSIX separators.
+  const log = xmlEscape(posix.join(input.stateDir, 'logs', 'service.log'));
   const env = input.jevrisHome !== undefined ? `  <key>EnvironmentVariables</key>\n  <dict>\n    <key>JEVRIS_HOME</key>\n    <string>${xmlEscape(input.jevrisHome)}</string>\n  </dict>\n` : '';
   return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -221,7 +222,7 @@ function defaultExec(env: { readonly [key: string]: string | undefined } | undef
 
 function tool(platform: ServicePlatform, name: 'launchctl' | 'systemctl' | 'schtasks', env: ServiceInput['env']): string {
   if (name === 'launchctl') return '/bin/launchctl';
-  if (name === 'schtasks') return join(env?.['SystemRoot'] ?? env?.['SYSTEMROOT'] ?? 'C:\\Windows', 'System32', 'schtasks.exe');
+  if (name === 'schtasks') return win32.join(env?.['SystemRoot'] ?? env?.['SYSTEMROOT'] ?? 'C:\\Windows', 'System32', 'schtasks.exe');
   return platform === 'linux' ? 'systemctl' : name;
 }
 

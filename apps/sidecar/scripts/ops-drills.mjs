@@ -34,7 +34,6 @@
  */
 import { spawnSync } from 'node:child_process';
 import { chmodSync, closeSync, existsSync, mkdirSync, mkdtempSync, openSync, readFileSync, realpathSync, rmSync, writeFileSync, writeSync } from 'node:fs';
-import { createRequire } from 'node:module';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -233,6 +232,15 @@ async function diskFull(d) {
   d.step('healthy after space is freed and a restart', d.sidecar().store?.state === 'ok');
 }
 
+/** Writes a migration lock row with the installed package's own better-sqlite3, in a child process. */
+const MIGRATION_LOCK_SCRIPT = `
+const [pkg, db, pid, at] = process.argv.slice(1);
+const Database = require('node:module').createRequire(pkg)('better-sqlite3');
+const conn = new Database(db);
+conn.prepare('INSERT INTO migration_lock (id, holder, holder_pid, acquired_at_ms) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET holder = excluded.holder, holder_pid = excluded.holder_pid, acquired_at_ms = excluded.acquired_at_ms').run('interrupted-update', Number(pid), Number(at));
+conn.close();
+`;
+
 async function interruptedUpdate(d) {
   d.jevris(['sidecar', 'start']);
   const before = d.sidecar();
@@ -243,17 +251,11 @@ async function interruptedUpdate(d) {
   const gone = deadPid();
   // A spawner the update killed held the spawn lock.
   writeFileSync(join(d.paths.runtime, 'spawn.lock'), JSON.stringify({ pid: gone, atMs: Date.now() }), { mode: 0o600 });
-  // A migration the update started holds the migration lock.
-  try {
-    const require = createRequire(join(d.packageDir, 'package.json'));
-    const Database = require('better-sqlite3');
-    const db = new Database(d.db);
-    db.prepare('INSERT INTO migration_lock (id, holder, holder_pid, acquired_at_ms) VALUES (1, ?, ?, ?) ON CONFLICT(id) DO UPDATE SET holder = excluded.holder, holder_pid = excluded.holder_pid, acquired_at_ms = excluded.acquired_at_ms').run('interrupted-update', gone, Date.now());
-    db.close();
-    d.step('migration lock left behind', true);
-  } catch (error) {
-    d.step('migration lock left behind', false, error instanceof Error ? error.message : String(error));
-  }
+  // A migration the update started holds the migration lock. The package's driver is loaded in a
+  // child process: a native addon never unloads, and on Windows one loaded here would keep the
+  // installed package's files from being removed until this process ends.
+  const locked = spawnSync(process.execPath, ['-e', MIGRATION_LOCK_SCRIPT, join(d.packageDir, 'package.json'), d.db, String(gone), String(Date.now())], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+  d.step('migration lock left behind', locked.status === 0, `${String(locked.status)} ${(locked.stderr ?? '').trim().slice(-300)}`);
   const status = d.jevris(['status', '--json']);
   d.step('the next command answers from a fresh sidecar', status.code === 0 && status.json?.sidecar?.state === 'running', status.stdout.slice(0, 200));
   const after = d.sidecar();

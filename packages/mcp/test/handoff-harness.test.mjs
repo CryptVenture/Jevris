@@ -27,7 +27,7 @@ async function client(t, box, args, extraEnv = {}) {
   const transport = new StdioClientTransport({ command: process.execPath, args: [box.product.mcp, ...args], env: { ...box.env, ...extraEnv }, cwd: box.work, stderr: 'ignore' });
   const c = new Client({ name: 'jevris-handoff-test', version: '1.0.0' });
   await c.connect(transport);
-  t.after(() => c.close().catch(() => {}));
+  box.closeAtTeardown(() => c.close().catch(() => {}));
   return async (name, args2) => (await c.callTool({ name, arguments: args2 })).structuredContent;
 }
 

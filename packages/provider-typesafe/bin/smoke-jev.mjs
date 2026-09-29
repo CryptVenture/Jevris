@@ -19,7 +19,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '..', '..', '..');
@@ -56,7 +56,7 @@ if (mock) {
   transport = provider.createSdkTransport({ apiKey: 'mock-key', fetch: provider.createMockFetch({ scenario: 'valid' }) });
   badKeyTransport = provider.createSdkTransport({ apiKey: 'mock-key', fetch: provider.createMockFetch({ scenario: 'http-401' }) });
 } else {
-  const { resolveProviderCredential, openHostEntry } = await import(join(repoRoot, 'apps', 'cli', 'dist', 'credential.js'));
+  const { resolveProviderCredential, openHostEntry } = await import(pathToFileURL(join(repoRoot, 'apps', 'cli', 'dist', 'credential.js')).href);
   const resolved = await resolveProviderCredential(openHostEntry);
   if (resolved.mode === 'rules-only' || typeof resolved.apiKey !== 'string') {
     process.stderr.write('smoke:jev: no provider key in the OS keystore. Run: jevris credential set\n');

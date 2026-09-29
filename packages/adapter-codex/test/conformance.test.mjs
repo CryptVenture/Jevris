@@ -4,10 +4,11 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = join(import.meta.dirname, '..', '..');
 const PACKAGES = ['adapter-claude-code', 'adapter-codex', 'adapter-kilocode', 'adapter-opencode', 'adapter-antigravity'];
-const adapters = await Promise.all(PACKAGES.map(async (name) => ({ name, mod: await import(join(root, name, 'dist', 'index.js')) })));
+const adapters = await Promise.all(PACKAGES.map(async (name) => ({ name, mod: await import(pathToFileURL(join(root, name, 'dist', 'index.js')).href) })));
 const A = Object.fromEntries(adapters.map(({ mod }) => [mod.LAUNCHER_NAME, mod]));
 
 const KIND = /^[a-z][a-z0-9-]{0,31}(?:\.[a-z][a-z0-9-]{0,31}){1,3}$/;

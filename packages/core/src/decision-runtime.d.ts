@@ -14,6 +14,7 @@ declare global {
   function setTimeout(callback: () => void, ms: number): DecisionEngineTimerHandle;
   function clearTimeout(handle: DecisionEngineTimerHandle | undefined): void;
   const performance: { now(): number };
+  const process: { readonly platform: string };
   class TextEncoder {
     encode(input?: string): Uint8Array;
   }

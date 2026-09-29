@@ -1,4 +1,4 @@
-import test from 'node:test';
+import test, { after } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -12,9 +12,16 @@ const { createDeadline } = await import('@jevris/platform');
 const { createSdkTransport, createMockFetch, CONFORMANCE_REQUEST, sidecarOps, workerModelOf } = provider;
 const { createDecisionEngine, decide, compileDecisionSpec, DecisionBudget, observeModel } = core;
 
-function temp(t) {
+// Folders go after every test of the file and its own after-hooks (the store closes): node:test
+// runs a test's after-hooks in the order they were added, and Windows refuses to remove a folder
+// that holds an open database.
+const temps = [];
+after(() => {
+  for (const dir of temps.splice(0)) rmSync(dir, { recursive: true, force: true });
+});
+function temp() {
   const dir = mkdtempSync(join(tmpdir(), 'jevris-worker-model-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  temps.push(dir);
   return dir;
 }
 
@@ -47,7 +54,7 @@ function openHost(dir) {
 const ops = Object.fromEntries(sidecarOps.map((def) => [def.op, def]));
 
 test('US12: explain separates the requested and observed model of the decision session (store session row)', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const e = engine(dir);
   const host = openHost(dir);
   t.after(() => store.closeStore(host));
@@ -73,7 +80,7 @@ test('US12: explain separates the requested and observed model of the decision s
 });
 
 test('US12: a missing observation is unknown and claims no cost precision', async (t) => {
-  const dir = temp(t);
+  const dir = temp();
   const e = engine(dir);
   const host = openHost(dir);
   t.after(() => store.closeStore(host));

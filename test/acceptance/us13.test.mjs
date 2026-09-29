@@ -21,6 +21,7 @@ story('US13', async ({ then, sandbox, evidence }) => {
   box.write('work/src/index.js', 'export const x = 1;\n');
   spawnSync(process.execPath, ['-e', `require('node:fs').rmSync(${JSON.stringify(join(box.work, '.git'))}, { recursive: true, force: true })`]);
   assert.equal(spawnSync('git', ['init', '-q'], { cwd: box.work }).status, 0);
+  assert.equal(spawnSync('git', ['config', 'core.autocrlf', 'false'], { cwd: box.work }).status, 0);
 
   // Given: the capsule holds a compatibility and a security constraint.
   const checkpoint = box.jevris(['checkpoint', '--objective', 'Ship the parser', '--constraint', COMPAT, '--constraint', SECURITY], { json: true });

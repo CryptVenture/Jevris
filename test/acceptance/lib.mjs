@@ -165,6 +165,14 @@ export async function sandbox(t, options = {}) {
       closers.push(() => client.close().catch(() => {}));
       return client;
     },
+    /**
+     * Registers `close` to run at teardown before the sidecar stops and the sandbox is removed
+     * (an MCP client a story connects itself, say). A story's own t.after would run after the
+     * removal, and on Windows the live process would keep the folder.
+     */
+    closeAtTeardown(close) {
+      closers.push(close);
+    },
     startSidecar() {
       // The CLI waits 5 s by default, then answers "starting" while the sidecar keeps starting.
       // A loaded CI cell can take longer to boot it, so the sandbox waits up to 60 s: a start
@@ -197,7 +205,10 @@ export async function sandbox(t, options = {}) {
     /** Makes the workspace a real git repository with one commit of its current files (owned worktrees need one). */
     gitInit() {
       rmSync(join(work, '.git'), { recursive: true, force: true });
-      for (const args of [['init', '-q'], ['add', '-A'], ['commit', '-q', '--allow-empty', '-m', 'base']]) {
+      // core.autocrlf off in the repository itself, so the product's own git (which reads the
+      // host's config) keeps line endings as written too: Git for Windows turns it on in its
+      // system config, and a checkout would then turn '\n' into '\r\n'.
+      for (const args of [['init', '-q'], ['config', 'core.autocrlf', 'false'], ['add', '-A'], ['commit', '-q', '--allow-empty', '-m', 'base']]) {
         const out = box.git(...args);
         assert.equal(out.code, 0, `git ${args[0]}: ${out.stderr}`);
       }

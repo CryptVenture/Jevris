@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { spawnSync } from 'node:child_process';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { buildLauncherPlan } from '../dist/launcher.js';
 import { acceptAnalyzerManifest, triageUnknownStack } from '../dist/manifest.js';
@@ -24,6 +24,24 @@ function sha256(value) {
 
 function tempDir() {
   return mkdtempSync(join(tmpdir(), 'jevris-languages-'));
+}
+
+/**
+ * Opens a test store in a fresh folder, runs `fn`, and always closes the store before the folder
+ * goes: Windows refuses to remove an open database, and a removal error must never hide the
+ * assertion that failed first.
+ */
+function withTestStore(name, fn) {
+  const dir = tempDir();
+  let opened;
+  try {
+    opened = openTest(join(dir, name), openStore);
+    assert.equal(opened.ok, true);
+    if (opened.ok) fn(dir, opened);
+  } finally {
+    if (opened?.ok) closeStore(opened);
+    rmSync(dir, { recursive: true, force: true });
+  }
 }
 
 function openTest(path, openStore) {
@@ -160,12 +178,7 @@ test('a launcher in a path with spaces runs on this OS and receives its argument
 });
 
 test('an unknown stack gets triage and checkpoints without a receipt', () => {
-  const dir = tempDir();
-  const dbPath = join(dir, 'unknown.sqlite');
-  try {
-    const opened = openTest(dbPath, openStore);
-    assert.equal(opened.ok, true);
-    if (!opened.ok) return;
+  withTestStore('unknown.sqlite', (dir, opened) => {
     const result = triageUnknownStack();
     assert.equal(result.triage, 'allowed');
     assert.equal(result.checkpoint.applied, false);
@@ -179,10 +192,7 @@ test('an unknown stack gets triage and checkpoints without a receipt', () => {
     assert.equal(current.ok, true);
     if (!current.ok) return;
     assert.equal(current.rows.length, 0);
-    closeStore(opened);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
 });
 
 test('Windows absolute commands, including C:\\Program Files (x86), are accepted on win32 (BLD-07)', () => {
@@ -245,12 +255,7 @@ test('a relative command, a shell metacharacter, and a Jev command field are ref
 });
 
 test('a passed frame is refused before spawn and a model sentence is not a passed claim', () => {
-  const dir = tempDir();
-  const dbPath = join(dir, 'frame.sqlite');
-  try {
-    const opened = openTest(dbPath, openStore);
-    assert.equal(opened.ok, true);
-    if (!opened.ok) return;
+  withTestStore('frame.sqlite', (dir, opened) => {
     const passed = manifest(dir, 'passed-frame');
     const refused = runDeclaredCheck(opened, passed.value, { passed: true });
     assert.equal(refused.ok, false);
@@ -269,7 +274,7 @@ test('a passed frame is refused before spawn and a model sentence is not a passe
     const marker = join(dir, 'shell-ran');
     const write = `require('node:fs').writeFileSync(${JSON.stringify(marker)}, 'ran')`;
     const command = `${process.execPath} -e ${JSON.stringify(write)};true`;
-    assert.equal(command.startsWith('/'), true);
+    assert.equal(isAbsolute(process.execPath), true);
     assert.equal(command.includes(';'), true);
     const shell = manifest(dir, 'unused-shell', {
       receiptId: 'rcptShell',
@@ -299,8 +304,5 @@ test('a passed frame is refused before spawn and a model sentence is not a passe
     });
     assert.equal(runDeclaredCheck(opened, jev.value).ok, false);
     assert.equal(existsSync(jev.marker), false);
-    closeStore(opened);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
+  });
 });

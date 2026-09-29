@@ -75,7 +75,8 @@ test('an exhausted window pauses the Codex sign-in until its reported reset, by 
   assert.deepEqual(accessUsageLines(kept.readings), ['codex subscription: short window used up (resets 2026-09-28T14:00Z); weekly window under 50% used (resets 2026-10-02T12:00Z) (read 2026-09-28T12:00Z)']);
   const raw = await readFile(accessUsagePath(home), 'utf8');
   assert.doesNotMatch(raw, /usedPercent|windowMinutes|certified/);
-  assert.equal((await stat(accessUsagePath(home))).mode & 0o777, 0o600);
+  // Mode bits are POSIX: Windows reports 0o666 for any writable file.
+  if (process.platform !== 'win32') assert.equal((await stat(accessUsagePath(home))).mode & 0o777, 0o600);
 });
 
 test('both windows exhausted: the one that ends last is the pause; no reset uses the rule (OP-11 base, weekly 7 days)', async (t) => {

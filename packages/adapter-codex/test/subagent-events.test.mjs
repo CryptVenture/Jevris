@@ -8,13 +8,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { join } from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const root = join(import.meta.dirname, '..', '..');
 const CORES = ['adapter-claude-code', 'adapter-codex', 'adapter-kilocode', 'adapter-opencode', 'adapter-antigravity'];
-const cores = await Promise.all(CORES.map(async (name) => ({ name, core: await import(join(root, name, 'dist', 'common.js')) })));
-const claude = await import(join(root, 'adapter-claude-code', 'dist', 'index.js'));
-const codex = await import(join(root, 'adapter-codex', 'dist', 'index.js'));
-const plugins = await Promise.all(['adapter-kilocode', 'adapter-opencode'].map(async (name) => ({ name, adapter: await import(join(root, name, 'dist', 'index.js')) })));
+const cores = await Promise.all(CORES.map(async (name) => ({ name, core: await import(pathToFileURL(join(root, name, 'dist', 'common.js')).href) })));
+const claude = await import(pathToFileURL(join(root, 'adapter-claude-code', 'dist', 'index.js')).href);
+const codex = await import(pathToFileURL(join(root, 'adapter-codex', 'dist', 'index.js')).href);
+const plugins = await Promise.all(['adapter-kilocode', 'adapter-opencode'].map(async (name) => ({ name, adapter: await import(pathToFileURL(join(root, name, 'dist', 'index.js')).href) })));
 
 function event(adapter, native) {
   const result = adapter.normalize(native);
