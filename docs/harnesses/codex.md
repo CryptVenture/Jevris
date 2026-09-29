@@ -192,10 +192,15 @@ account, so this is a request Codex makes to OpenAI. No model runs, and nothing 
   listing as it was. `jevris doctor` shows the last reading.
 
 
-Owned workers here are the `worker.route` certification feature, "certified pending first use".
+In 1.2, certification does not gate the launch of an owned worker. A submitted task whose model
+runs here starts on its approved model either way. The `worker.route` feature, "certified
+pending first use", decides only whether route learning may change the model or effort.
 `jevris certify --harness codex` checks, with no model call, that `codex exec --help` lists every
 flag the worker passes (`--json`, `--model`, `--sandbox`, `--skip-git-repo-check`, `--config`)
-and that the worker port passes the nine conformance cases against a stand-in. Codex's stream
+and that the worker port passes the nine conformance cases against a stand-in, never the real
+`codex`. The real binary runs only in the stub cases, against a local stub provider with a
+dummy key and a simpler command line than a worker's. So certify does not prove the exact
+worker launch against your installed Codex. Codex's stream
 names no working directory, model or permissions, so the first-use check is only that the first
 event is `thread.started`; the rest is the command line Jevris builds. A failed check is
 recorded and demotes `worker.route` for that Codex version, but does not stop the run. Doctor's

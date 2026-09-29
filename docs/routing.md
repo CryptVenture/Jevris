@@ -257,13 +257,27 @@ An owned worker is a headless run of an installed harness that Jevris starts to 
 
 ### When one starts
 
-Owned work comes from a submitted plan (`jevris plan --submit`, CLI only; a new root budget needs a person at a terminal or a terminal authorization, see [security.md](security.md#changes-that-need-a-person-at-a-terminal)) or, in owned mode, from `jevris_submit_task` (see [mcp.md](mcp.md#owned-mode-only)). A worker starts only when all of these hold:
+Owned work starts only after an explicit submit. There are two ways to submit:
+
+- `jevris plan --submit`, from the CLI only. A new root budget needs a person at a terminal or a single-use terminal authorization (see [security.md](security.md#changes-that-need-a-person-at-a-terminal)).
+- The MCP tool `jevris_submit_task`, only while owned mode is on for the workspace. It needs the id of a root budget that already exists there (see [mcp.md](mcp.md#owned-mode-only)).
+
+A worker starts only when all of these hold:
 
 - `mode` is `bounded-auto`, `orchestration.enabled` is `true` and `routing.managedWorkers` is `bounded-auto`, all the defaults from install (see [settings.md](settings.md#workers));
 - the kill switch is clear;
 - the task has a model to run (below).
 
 Otherwise the task is queued (`QUEUED`, or `QUEUED_NO_MODEL` when workers are automatic but no model is found for the task).
+
+At launch, two more checks apply. The harness must hold a sign-in for the model's provider. The provider must have consent where it needs one ([privacy.md](privacy.md#consent-per-model-provider)). A run that fails either check is refused before it starts (see [Which harness runs it](#which-harness-runs-it)).
+
+After a submit, later work starts on its own under the same conditions:
+
+- When a task is verified, the tasks that were waiting on it start. So the next wave of the plan needs no new submit.
+- When `recover` finds a failed owned task failing the same way again, Jevris relaunches it once on the next stronger model the task approved. This is the one bounded escalation. A new passing check result is still the only way it completes.
+
+Certification of `worker.route` is not one of these conditions in 1.2. It decides only whether route learning may change the model or effort ([below](#certification-of-worker-routing)).
 
 ### Which models a task may use
 
@@ -329,7 +343,7 @@ The harness guides describe each driver's limits: [Codex](harnesses/codex.md), [
 
 ### Certification of worker routing
 
-Starting an owned worker on a harness is the `worker.route` feature of that harness's certification record. It is "certified pending first use": `jevris certify` proves everything it can without a model call, and the first real run proves the rest.
+`worker.route` is the feature of a harness's certification record that covers owned workers. In 1.2 it does not gate the launch. A submitted task starts on its approved model whether or not the harness is certified. The feature decides only whether route learning may change that model or its effort ([below](#routing-acts-only-on-a-certified-harness)). It is "certified pending first use": `jevris certify` checks what it can without a model call, and the first real run checks the rest.
 
 What `jevris certify --harness <name>` checks for `worker.route` (no model call):
 
@@ -365,9 +379,20 @@ harness claude worker: not certified here (WORKER_FLAG_MISSING); fix: jevris cer
 harness claude worker: not certified yet: the record for 2.1.283 predates owned-worker certification; fix: jevris certify --harness claude
 ```
 
-**Routing acts only on a certified harness.** Before route learning swaps the model or sets an effort, Jevris checks that the harness the model would run on is certified for `worker.route`. When it is not, routing only advises: the router's choice is recorded as a counterfactual, `ACTUATOR_UNCERTIFIED` is traced, and the task runs on its approved model at the model's default effort. A route is never launched onto an uncertified harness, and a failed check counts as uncertified.
-
 The Antigravity line adds that a read-only grant is enforced after the fact. A record written before `worker.route` existed starts one background re-check, so an upgrade of Jevris certifies it with no step from you. The `actuator worker.route` row reads `certified` and names the harnesses whose record covers it, or `unsupported` with the fix `jevris certify --harness all` (no model call).
+
+### Routing acts only on a certified harness
+
+Before route learning swaps the model or sets an effort, Jevris checks that the harness the model would run on is certified for `worker.route`. When it is not, routing only advises. The router's choice is recorded as a counterfactual, and `ACTUATOR_UNCERTIFIED` is traced. The task still runs, on its approved model at the model's default effort. That model runs on the harness chosen as usual ([Which harness runs it](#which-harness-runs-it)), certified or not. The router's choice is never launched on an uncertified harness, and a failed check counts as uncertified.
+
+### What certification covers for owned workers in 1.2
+
+Certification of owned workers has two limits in 1.2:
+
+- **The worker cases never run your harness.** Certify's nine worker cases run each worker port against a Node stand-in for the harness's headless stream. The real binary is used only to read its help for the worker's flags.
+- **The real binary runs only a simplified launch.** It runs, with a dummy key against a local stub provider, only in the stub cases: `worker-actual-model` on Codex, OpenCode and Kilo, and the access-limit cases on Claude Code, Codex, OpenCode and Kilo. Those runs use a simpler command line than a real worker does. Antigravity has no stub case.
+
+So on your machine, certify does not prove the exact worker launch against your installed harness. The first real run's first-use check is the first proof of it.
 
 ## Route learning
 

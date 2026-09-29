@@ -161,11 +161,20 @@ There is no certify case for Antigravity sessions, so `access.session` stays uns
 ## Owned workers
 
 Jevris can run a task as an owned worker in the Antigravity CLI (never the app): one
-`agy --input-format stream-json --output-format stream-json` turn in the task's worktree
+`agy --input-format stream-json --output-format stream-json` turn
 (`@jevris/cli/antigravity-worker`), with `--sandbox` and the model and effort chosen at start.
-A registry model goes as its Antigravity slug, which names the effort (for example
-`gemini-3.8-flash-low`), so no `--effort` goes with it; a model id the registry does not know
-runs as given, with `--effort`. The prompt goes on stdin as one user event.
+You never start it yourself. It starts only after you submit work (`jevris plan --submit`, or
+`jevris_submit_task` in owned mode), under a lease, when Antigravity is the harness chosen for
+the task's model ([routing.md](../routing.md#which-harness-runs-it)).
+
+- The run works in the task's own git worktree, on its own branch, with the worktree as its
+  working directory.
+- The prompt goes on stdin as one user event, never on the command line.
+- A registry model goes as its Antigravity slug, which names the effort (for example
+  `gemini-3.8-flash-low`), so no `--effort` goes with it. A model id the registry does not
+  know runs as given, with `--effort`.
+- Jevris stops the run past 40 tool steps or after 30 minutes (`--print-timeout`). The CLI
+  reports tokens, not money, so the run cannot be stopped at the task's budget.
 
 Least privilege is weaker here than in the other harnesses:
 
@@ -211,17 +220,21 @@ Antigravity sign-in. Gemini models in OpenCode or Kilo are different: they follo
 terms for the sign-in used there.
 
 
-**Status in this build.** The orchestrator starts owned workers on this port once
-`worker.route` is certified for your agy version.
+**Status in this build.** Certification does not gate the launch in 1.2. A submitted task whose
+model runs here starts on its approved model whether or not `worker.route` is certified for
+your agy version. Without it, route learning only advises: it does not change the model or set
+an effort.
 
 Certification (`worker.route`, "certified pending first use"): `jevris certify --harness agy`
 checks, with no model call, that `agy --help` lists every flag the worker passes and that the
-worker port passes the nine conformance cases against a stand-in. The record also states that a
+worker port passes the nine conformance cases against a stand-in, never the real `agy`.
+Antigravity has no stub case, so certify never runs a worker turn on `agy` at all. It does not
+prove the exact worker launch against your installed Antigravity. The record also states that a
 read-only grant is enforced after the fact. On first use, the `init` event is checked before any
 tool runs: `permission_mode`, the working directory and the model. A mismatch stops the run,
 demotes `worker.route` for that version and starts one background re-check. Doctor's
 `harness antigravity worker:` line shows the state, and adds that a read-only grant is enforced
-after the fact. See [routing.md](../routing.md#certification-of-worker-routing).
+after the fact. See [routing.md](../routing.md#what-certification-covers-for-owned-workers-in-12).
 
 ## Unsupported here
 

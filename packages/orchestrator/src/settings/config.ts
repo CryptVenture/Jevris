@@ -37,8 +37,10 @@ export const DEFAULT_CONFIG: JevrisConfig = Object.freeze({
   // is switched only under D's gate (approved-scope.ts) and C's route-learning rules; every other
   // harness's main session stays advice-only.
   routing: { mainSession: 'plugin-bounded-auto', managedWorkers: 'bounded-auto', respectHumanPins: true, calibrationArtifact: null, modelListing: MODEL_LISTING_DEFAULT },
-  // Orchestration is on from install (owner decision 5f7053f): owned workers still start only when a person
-  // submits a plan, bounded by its budget, the kill switch, native permissions and worker.route certification.
+  // Orchestration is on from install (owner decision 5f7053f): owned workers still start only after an explicit
+  // submit (plan.submit, or task.submit in owned mode), bounded by its budget, the kill switch and native
+  // permissions. worker.route certification does not gate the launch; it gates only route learning's model and
+  // effort choice (task-ops.ts startOwnedWork).
   orchestration: { enabled: true, maxConcurrentWorkers: 2, maxWorkerDepth: 1, maxRepairAttempts: 2, maxStopContinuationsPerCondition: 1 },
   compaction: { nativeAutoDeferral: false, preserveMandatoryFacts: true, rawTranscriptEditing: false },
   packs: ['jevris.observability', 'jevris.memory', 'jevris.skill-advice'],

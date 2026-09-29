@@ -252,7 +252,7 @@ Advice on the main-session model and on managed workers. It never switches a mod
 
 #### `jevris_recover`
 
-Classifies repeated failures, oscillation and environment failures, and names one next action. It is advice only: nothing is run or restored.
+Classifies repeated failures, oscillation and environment failures, and names one next action. It is advice: nothing is run or restored for you, with one exception. The exception is a failed owned task, named by `taskId`, whose failures repeat. When workers are automatic and the task has not escalated before, Jevris relaunches it once on the next stronger model the task approved ([routing.md](routing.md#when-one-starts)).
 
 - **Arguments:**
   - `fingerprints`: up to 256 short failure descriptions, in order;
@@ -313,10 +313,12 @@ Checks a capsule from another session and pins its facts as context. The checks 
 
 #### `jevris_submit_task`
 
-Submits a task for Jevris-owned orchestration. The tool is always listed, but it works only while owned mode is on for the workspace. Only the CLI turns it on (`jevris configure owned-mode on --workspace <dir>`); no environment variable does. The sidecar checks it on every request, and the kill switch, or turning owned mode off, revokes it at the next request.
+Submits a task for Jevris-owned orchestration. The tool is always listed, but it works only while owned mode is on for the workspace. Only a person at an interactive terminal turns it on, with `jevris configure owned-mode on --workspace <dir>` and a y answer; `--yes` and environment variables do not. The sidecar checks it on every request, and the kill switch, or turning owned mode off, revokes it at the next request.
 
-- **Arguments:** `task` (required): one task object.
-- **Result:** `{ accepted, taskId, leaseIds, reasonCode }`. It lists only the leases actually granted. `OWNED_MODE_UNAVAILABLE` means nothing was granted.
+The task runs under a root budget that already exists in the workspace. This tool cannot create one; a new root budget comes only from `jevris plan --submit` at a terminal. A submitted task starts a worker when the usual conditions hold ([routing.md](routing.md#when-one-starts)); otherwise it is queued.
+
+- **Arguments:** `task` (required): one task object, with `rootBudgetId`, the id of that existing root budget.
+- **Result:** `{ accepted, taskId, leaseIds, reasonCode }`. It lists only the leases actually granted. `OWNED_MODE_UNAVAILABLE` means nothing was granted. `NO_ROOT_BUDGET` means no root budget with that id exists in this workspace, and nothing was submitted. A task with no `rootBudgetId` is refused as `INVALID_TASK`.
 
 ## Resources
 

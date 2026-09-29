@@ -262,17 +262,21 @@ certified when certify passes there.
 ## Owned workers
 
 Jevris can run a task as an owned worker in OpenCode: one headless `opencode run --format json`
-turn in the task's worktree (`@jevris/cli/opencode-worker`). You never start it yourself;
-`jevris` does, under a lease, when a task's model is best served here.
+turn (`@jevris/cli/opencode-worker`). You never start it yourself. It starts only after you
+submit work (`jevris plan --submit`, or `jevris_submit_task` in owned mode), under a lease, when
+OpenCode is the harness chosen for the task's model
+([routing.md](../routing.md#which-harness-runs-it)).
 
+- The run works in the task's own git worktree, on its own branch, with the worktree as its
+  directory (`--dir`).
 - The prompt goes on stdin, never on the command line.
 - The run uses a Jevris agent given in `OPENCODE_CONFIG_CONTENT`. It denies every tool, then
   allows only the tools the task was granted. Web tools, subagents and paths outside the
   worktree stay denied. The same rules go in `OPENCODE_PERMISSION` for every agent. Your own
   config cannot widen them. If the Jevris agent did not load, the run is refused.
 - A permission ask is rejected, never approved on your behalf. Jevris never passes `--auto`.
-- The agent's `steps` caps the model steps. Jevris also stops the run past the step cap or the
-  budget. Effort is `--variant`.
+- The agent's `steps` caps the model steps at 40. Jevris also stops the run past the step cap,
+  past the task's budget, or after 30 minutes. Effort is `--variant`.
 - On a subscription, every provider key is removed from the run's environment, so it uses the
   login OpenCode stored (for Grok, a SuperGrok login works). With `api-key`, the model's
   provider key must be set, and `OPENCODE_AUTH_CONTENT={}` hides stored logins from the run.
@@ -297,16 +301,21 @@ turn in the task's worktree (`@jevris/cli/opencode-worker`). You never start it 
   environment, so a run that still uses the config's key is refused and paused again.
 
 
-**Status in this build.** The orchestrator starts owned workers on this port once
-`worker.route` is certified for your opencode version.
+**Status in this build.** Certification does not gate the launch in 1.2. A submitted task whose
+model runs here starts on its approved model whether or not `worker.route` is certified for
+your opencode version. Without it, route learning only advises: it does not change the model
+or set an effort.
 
 Certification (`worker.route`, "certified pending first use"): `jevris certify --harness opencode`
 checks, with no model call, that `opencode run --help` lists every flag the worker passes
 (`--format`, `--model`, `--agent`, `--dir`, `--variant`) and that the worker port passes the nine
-conformance cases against a stand-in. On first use, the first event must be a `step_start` of
+conformance cases against a stand-in, never the real `opencode`. The real binary runs only in
+the stub cases, against a local stub provider with a dummy key and a simpler command line than
+a worker's. So certify does not prove the exact worker launch against your installed OpenCode.
+On first use, the first event must be a `step_start` of
 one session and the Jevris agent must have loaded. A failed check demotes `worker.route` for
 that OpenCode version and starts one background re-check. Doctor's `harness opencode worker:`
-line shows the state. See [routing.md](../routing.md#certification-of-worker-routing).
+line shows the state. See [routing.md](../routing.md#what-certification-covers-for-owned-workers-in-12).
 
 OpenCode's JSON events do not name the model that answered. Certify's
 `opencode.worker-actual-model` case checks, against the loopback stub, that an owned run's
