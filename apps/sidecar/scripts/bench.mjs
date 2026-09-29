@@ -146,6 +146,12 @@ async function worker(counts) {
     if (!value.ok) failures.push(`cold start: ${value.message}`);
     else cold.push(ms);
   }
+  // No sidecar ever answered: every later series would wait out its timeouts and the run
+  // would end at the parent's 10-minute limit with nothing said. Stop here with the reason.
+  if (counts.cold > 0 && cold.length === 0) {
+    await sidecar.stopSidecarProcess(home);
+    return { results: { coldStartMs: null, warmStartMs: null, ipcRoundTripMs: null, hotRulesDecisionMs: null, backgroundRulesDecisionMs: null, semanticDecisionMs: null }, failures };
+  }
   const warm = [];
   for (let i = 0; i < counts.warm; i += 1) {
     // A running sidecar: find it, then the first authenticated answer (hello, key proof, health).

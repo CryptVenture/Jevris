@@ -71,6 +71,12 @@ jobs:
         run: npm run check:clean
       - name: Lint
         run: npm run lint
+      # BLD-08: the one test that runs the real icacls and whoami, first on Windows, so an
+      # owner-only ACL failure (which fails every private write after it) shows in seconds with
+      # both raw outputs, not at the end of a suite that times out.
+      - name: Owner-only ACL on this host (BLD-08)
+        if: runner.os == 'Windows'
+        run: node scripts/test.mjs --no-build packages/platform/test/owner-only.test.mjs apps/cli/test/output-path.test.mjs
       - name: Test
         run: npm test
       # IPC-06, GOV-14: a real second OS user can neither connect to the sidecar nor read its
