@@ -1,3 +1,19 @@
+<div align="center">
+
+<img src="media/GithubBanner.png" alt="Jevris: a local decision control plane for AI-assisted development, for Claude Code, Codex, Kilo, OpenCode and Antigravity" width="100%">
+
+**Decide · Verify · Route · Build locally**
+
+[![CI](https://github.com/CryptVenture/Jevris/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/CryptVenture/Jevris/actions/workflows/ci.yml)
+[![CodeQL](https://github.com/CryptVenture/Jevris/actions/workflows/codeql.yml/badge.svg?branch=main)](https://github.com/CryptVenture/Jevris/actions/workflows/codeql.yml)
+[![npm](https://img.shields.io/npm/v/@webventures/jevris/next.svg?label=npm%40next)](https://www.npmjs.com/package/@webventures/jevris)
+[![Node](https://img.shields.io/badge/node-%5E22.14.0%20%7C%7C%20%3E%3D23.6.0-339933.svg)](docs/installation.md)
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+
+[Quick start](#quick-start) · [Jevris in simple terms](docs/jevris-in-simple-terms.md) · [Documentation](docs/README.md) · [CLI reference](docs/cli.md) · [Changelog](CHANGELOG.md)
+
+</div>
+
 # Jevris
 
 A local decision control plane for AI-assisted development.
@@ -6,13 +22,23 @@ Jevris sits beside your coding harness (Claude Code, Kilocode, Codex, OpenCode o
 
 New to Jevris? Start with [Jevris in simple terms](docs/jevris-in-simple-terms.md): what it does and does not do, what it costs, and whether it suits your workflow.
 
-[![npm](https://img.shields.io/npm/v/@webventures/jevris/next.svg?label=npm%40next)](https://www.npmjs.com/package/@webventures/jevris)
-[![Node](https://img.shields.io/badge/node-%5E22.14.0%20%7C%7C%20%3E%3D23.6.0-339933.svg)](docs/installation.md)
-[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+## How it fits together
+
+```mermaid
+flowchart LR
+  H["Your harness<br/>Claude Code · Codex · Kilo<br/>OpenCode · Antigravity"] -- "hooks, skills, MCP" --> S["Jevris sidecar<br/>(on your machine)"]
+  S -- "rules, budgets,<br/>permissions, ledger" --> S
+  S -. "bounded question<br/>(no source without your consent)" .-> J["Jev<br/>(TypeSafe System One)"]
+  S -- "advice and context,<br/>within your mode" --> H
+  V["jevris verify<br/>(your approved checks)"] -- "receipts" --> S
+```
+
+Everything except the dotted call to Jev runs on your machine. Without a Jev key, Jevris runs rules-only: it still observes, verifies and advises from its rules.
 
 ## Quick start
 
-Version 1.2.0 is a release candidate. It is not on the npm registry yet (see [RELEASING.md](RELEASING.md)). Until the release, install from a checkout:
+> [!NOTE]
+> Version 1.2.0 is a release candidate. It is not on the npm registry yet (see [RELEASING.md](RELEASING.md)). Until the release, install from a checkout.
 
 ```sh
 git clone https://github.com/CryptVenture/Jevris.git

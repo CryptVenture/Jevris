@@ -1,3 +1,5 @@
+<p align="center"><img src="../media/JevrisLogo.png" alt="Jevris logo" width="160"></p>
+
 # Jevris documentation
 
 If a page and the product disagree, the product wins and the page is a bug: [report it](../CONTRIBUTING.md). `cli.md` and `platform-support.md` are generated from the product, and `npm run lint` checks that every page names only commands and flags the CLI has.
