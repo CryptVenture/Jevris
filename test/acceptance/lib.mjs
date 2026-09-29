@@ -297,14 +297,40 @@ export async function sandbox(t, options = {}) {
       const survived = alive(pid);
       if (survived) process.kill(pid, 'SIGKILL');
       await sweepSandboxSidecars(dir, t);
-      if (options.keep !== true) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+      if (options.keep !== true) removeSandbox(dir);
       assert.equal(survived, false, `the sandbox sidecar ${pid} survived sidecar stop and SIGTERM`);
       return;
     }
     await sweepSandboxSidecars(dir, t);
-    if (options.keep !== true) rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
+    if (options.keep !== true) removeSandbox(dir);
   });
   return box;
+}
+
+/**
+ * Removes a sandbox. Windows refuses to remove a folder that is a live process's working folder
+ * or holds a file it has open (EBUSY, EPERM): the removal is retried for about 5 s, and if it
+ * still fails on Windows the error names the processes then running whose command line names
+ * the sandbox, and every node and PowerShell process with its parent, so the holder is known.
+ */
+function removeSandbox(dir) {
+  try {
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+  } catch (error) {
+    if (process.platform !== 'win32') throw error;
+    const listed = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress'], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
+    let rows = [];
+    try {
+      rows = JSON.parse(listed.stdout);
+    } catch {
+      rows = [];
+    }
+    const lower = dir.toLowerCase();
+    const holders = (Array.isArray(rows) ? rows : [rows])
+      .filter((row) => row !== null && typeof row === 'object' && (String(row.CommandLine ?? '').toLowerCase().includes(lower) || /^(node|powershell|pwsh|cmd)\.exe$/i.test(String(row.Name ?? ''))))
+      .map((row) => `pid ${row.ProcessId} (parent ${row.ParentProcessId}) ${row.Name}: ${String(row.CommandLine ?? '').slice(0, 300)}`);
+    throw new Error(`${error.code ?? 'error'} removing ${dir}; this process is ${process.pid}; processes now:\n${holders.join('\n')}`, { cause: error });
+  }
 }
 
 /**
