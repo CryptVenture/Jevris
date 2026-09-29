@@ -306,7 +306,8 @@ export function closeStore(store: OpenedStore): void {
  *   process can never open it, and neither can a CLI next to a running sidecar.
  * - It never migrates, adopts a host scope or re-stamps anything: the schema must be exactly the
  *   latest (`store-unavailable`) and the host scope the one given (`host-scope-mismatch`).
- * - WAL, foreign keys and the same busy timeout as the writer, with `secure_delete` on.
+ * - WAL with synchronous NORMAL, foreign keys and the same busy timeout as the writer, with
+ *   `secure_delete` on.
  * - `closeStore` closes it and never touches the writer lock.
  */
 export function openMaintenanceStore(input: { readonly path: string; readonly hostScope: string; readonly workspaceId?: string }): OpenStoreResult {
@@ -331,6 +332,7 @@ export function openMaintenanceStore(input: { readonly path: string; readonly ho
   try {
     driver.defaultSafeIntegers(true);
     driver.pragma('journal_mode = WAL');
+    driver.pragma('synchronous = NORMAL');
     driver.pragma('foreign_keys = ON');
     driver.pragma('busy_timeout = 2000');
     driver.pragma('secure_delete = ON');
@@ -473,6 +475,13 @@ export function openStore(input: OpenStoreInput): OpenStoreResult {
     // reusing its free pages.
     if (realFile && tableCount(driver) === 0 && Number(pragmaSimple(driver, 'page_count')) === 0) driver.pragma('auto_vacuum = INCREMENTAL');
     driver.pragma('journal_mode = WAL');
+    // Every connection commits without a sync of its own: the WAL is synced when it is
+    // checkpointed, and a crash loses no committed transaction (a power loss can lose the last
+    // ones, never the database). The build defaults a connection that opens a WAL store to this,
+    // but a connection that switches a new file to WAL stayed at FULL: the first sidecar of a new
+    // store synced every commit, and a maintenance chunk writing beside such a sync waited for the
+    // disk (79 ms on ubuntu-latest at 5c5b566, against a chunk target of 8 ms).
+    driver.pragma('synchronous = NORMAL');
     driver.pragma('foreign_keys = ON');
     driver.pragma('busy_timeout = 2000');
     const journalMode = pragmaSimple(driver, 'journal_mode');

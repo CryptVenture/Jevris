@@ -310,3 +310,34 @@ test('the addon is not a dependency of core, the CLI, or the provider', async ()
   assert.ok(refusalReasons.includes('path-refused'));
   assert.equal(refusalReasons.includes('sidecar'), false);
 });
+
+test('every store connection commits with synchronous NORMAL, the one that makes a new file WAL too', async () => {
+  const { createRequire } = await import('node:module');
+  const Database = createRequire(import.meta.url)('better-sqlite3');
+  const dir = tempDir();
+  const dbPath = join(dir, 'sync.sqlite');
+  try {
+    for (const which of ['new file', 'existing file']) {
+      let driver;
+      const opened = openStore(
+        openArgs(dbPath, {
+          loadDriver(path) {
+            driver = new Database(path);
+            return driver;
+          },
+        }),
+      );
+      assert.equal(opened.ok, true, JSON.stringify(opened));
+      try {
+        // 1 is NORMAL. The build's WAL default gives an existing WAL file NORMAL, but a
+        // connection that switches a new file to WAL keeps FULL (2) unless the store sets it.
+        assert.equal(Number(driver.pragma('synchronous', { simple: true })), 1, which);
+        assert.equal(String(driver.pragma('journal_mode', { simple: true })), 'wal', which);
+      } finally {
+        closeStore(opened);
+      }
+    }
+  } finally {
+    removeTempDir(dir);
+  }
+});

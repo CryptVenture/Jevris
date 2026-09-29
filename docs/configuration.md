@@ -182,7 +182,7 @@ The counts go with the next event that reaches the launcher, which appends one l
 
 | File | Purpose |
 | --- | --- |
-| `jevris.db-wal`, `jevris.db-shm` | SQLite's write-ahead log. |
+| `jevris.db-wal`, `jevris.db-shm` | SQLite's write-ahead log. Every connection commits with `synchronous = NORMAL`: the log is synced when it is checkpointed, not on each commit, so a crash of Jevris loses no committed write and a power loss can lose only the last few, never the database. |
 | `jevris.db.writer` | The single-writer lock: pid, machine and role of the process that holds the store. The machine is a hash of the stable machine id, so a stale lock from before a network name change is still recognised as this machine's. |
 | `jevris.db.authz-key` | The key that signs single-use authorizations (`jevris authorize`). Never exported. |
 | `jevris.db.diagnostic.json` | Written when the store fails (disk full, corruption, read-only); `jevris sidecar status` shows it. |
