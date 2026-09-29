@@ -49,7 +49,7 @@ import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { writeFileSync, chmodSync } from 'node:fs';
-import { basename, delimiter, isAbsolute, join, resolve, sep } from 'node:path';
+import { basename, delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMain, runNode, tscPath, workspaces } from './build.mjs';
 import { DEFAULT_FILE_SILENT_S } from './test-file-bound.mjs';
@@ -123,6 +123,29 @@ export function fileBound(env, callerEnv = process.env) {
 }
 
 /** The serial gate's capped waits in a run's gate folder, one line each (scripts/test-serial-gate.mjs). */
+/** The `count` slowest test files of a gated run, each with its time from start to exit (gate included). */
+export function slowestFiles(dir, count = 15) {
+  const rows = [];
+  let names = [];
+  try {
+    names = readdirSync(dir).filter((name) => /^took-[0-9a-f]+\.json$/.test(name));
+  } catch {
+    return rows;
+  }
+  for (const name of names) {
+    try {
+      const row = JSON.parse(readFileSync(join(dir, name), 'utf8'));
+      if (typeof row.file === 'string' && Number.isFinite(row.ms)) rows.push(row);
+    } catch {
+      // a file cut off mid-write
+    }
+  }
+  return rows
+    .sort((a, b) => b.ms - a.ms)
+    .slice(0, count)
+    .map((row) => `test: slow file ${Math.round(row.ms / 1000)} s ${relative(repoRoot, row.file).split(sep).join('/')}`);
+}
+
 export function cappedWaits(dir) {
   const lines = [];
   let names = [];
@@ -706,7 +729,7 @@ async function main(argv) {
     });
     if (result.error !== undefined) throw result.error;
     code = result.status ?? 1;
-    if (gate !== null) for (const line of cappedWaits(gate.JEVRIS_SERIAL_GATE)) console.error(line);
+    if (gate !== null) for (const line of [...slowestFiles(gate.JEVRIS_SERIAL_GATE), ...cappedWaits(gate.JEVRIS_SERIAL_GATE)]) console.error(line);
   } finally {
     if (keep) console.error(`test: kept this run's temp dir ${runTemp} (JEVRIS_KEEP_TEST_DIRS=1)`);
     else rmSync(runTemp, { recursive: true, force: true, maxRetries: 3 });

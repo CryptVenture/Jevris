@@ -3,13 +3,13 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
-const { SERIAL_GATE_URL, SERIAL_TEST_FILES, cappedWaits, serialGate, splitSerial } = await import('../scripts/test.mjs');
+const { SERIAL_GATE_URL, SERIAL_TEST_FILES, cappedWaits, serialGate, slowestFiles, splitSerial } = await import('../scripts/test.mjs');
 const { alive, finished, lockHeld, markerOf, tryLock, unfinished } = await import('../scripts/test-serial-gate.mjs');
 
 test('the listed latency-bound files exist, and a run lists them after every other file', () => {
@@ -175,6 +175,26 @@ test('a serial file does not wait for a parallel file that has not started; a pa
     assert.match(waited.output, /\S/);
     const ran = Number(/ran (\d+)/.exec(readFileSync(log, 'utf8'))?.[1]);
     assert.ok(ran >= released - 50, `the parallel file ran after the lock was let go (${ran - released} ms)`);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('the slowest files are named from the times each gated file records at exit, slowest first', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gate-took-'));
+  try {
+    const file = join(dir, 'fast.test.mjs');
+    writeFileSync(file, "import test from 'node:test';\ntest('fast', () => {});\n");
+    const { gate } = await gatedAlone(dir, [file], [join(dir, 'serial.test.mjs')], file);
+    const took = readdirSync(gate).filter((name) => name.startsWith('took-'));
+    assert.equal(took.length, 1, 'the file recorded its time');
+    writeFileSync(join(gate, 'took-aaaa.json'), JSON.stringify({ file: join(root, 'apps', 'slow.test.mjs'), ms: 120_400 }));
+    writeFileSync(join(gate, 'took-bbbb.json'), '{"file":');
+    const lines = slowestFiles(gate, 2);
+    assert.equal(lines.length, 2);
+    assert.equal(lines[0], 'test: slow file 120 s apps/slow.test.mjs');
+    assert.match(lines[1], /^test: slow file \d+ s /);
+    assert.deepEqual(slowestFiles(join(dir, 'missing')), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }

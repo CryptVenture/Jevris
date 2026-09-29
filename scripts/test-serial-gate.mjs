@@ -129,6 +129,15 @@ if (typeof gate === 'string' && gate.length > 0 && (process.env.NODE_TEST_CONTEX
     plan = null;
   }
   const self = resolve(main);
+  // Each file's own time, from its process start to its exit, for the runner's slowest-files line.
+  const began = Date.now();
+  process.on('exit', () => {
+    try {
+      writeFileSync(join(gate, `took-${markerOf(self)}.json`), JSON.stringify({ file: self, ms: Date.now() - began }));
+    } catch {
+      // the run's folder is gone
+    }
+  });
   if (plan !== null && Array.isArray(plan.parallel) && Array.isArray(plan.serial)) {
     if (plan.parallel.includes(self)) {
       const marker = markerOf(self);

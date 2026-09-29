@@ -37,7 +37,11 @@ jobs:
   test:
     name: test (${{ matrix.os }}, ${{ matrix.node }})
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 30
+    # windows-latest: in 30 minutes the suite reached only the files sorted up to apps/cli/test/i*
+    # (run 36572630206, about 700 of 3200 tests), so the cell was cancelled before it could say
+    # what fails. Process starts cost far more there. The limit is raised to measure the whole
+    # suite (the runner prints the slowest files); it is set from that measurement afterwards.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 120 || 30 }}
     strategy:
       fail-fast: false
       matrix:
