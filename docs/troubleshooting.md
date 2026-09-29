@@ -132,7 +132,7 @@ Jevris's native modules (better-sqlite3 and the keychain binding) need Node-API 
 jevris: the OS keyring binding could not be loaded. Jevris continues rules-only: ...
 ```
 
-The prebuilt binary for your platform did not load. Usually the Node version changed after install (for example a version manager switched to another major). Reinstall under the Node you use: from a checkout, `node bin/jevris.mjs install --yes`; after the release, `npm i -g @cryptventure/jevris` or `npx @cryptventure/jevris@latest install --yes`. The tested platforms are x64 and arm64 on macOS, Windows and glibc Linux ([platform-support.md](platform-support.md)); on anything else, such as Alpine Linux (musl), a prebuilt binary may be missing.
+The prebuilt binary for your platform did not load. Usually the Node version changed after install (for example a version manager switched to another major). Reinstall under the Node you use: from a checkout, `node bin/jevris.mjs install --yes`; after the release, `npm i -g @webventures/jevris` or `npx @webventures/jevris@latest install --yes`. The tested platforms are x64 and arm64 on macOS, Windows and glibc Linux ([platform-support.md](platform-support.md)); on anything else, such as Alpine Linux (musl), a prebuilt binary may be missing.
 
 ## The keychain is unavailable
 
@@ -306,7 +306,7 @@ Every install and uninstall backs up the files it changes under `<data>/backups/
 
 ## Windows
 
-- **`npx` is blocked in PowerShell** ("running scripts is disabled", after the release): use `npx.cmd @cryptventure/jevris ...`, or run from Command Prompt.
+- **`npx` is blocked in PowerShell** ("running scripts is disabled", after the release): use `npx.cmd @webventures/jevris ...`, or run from Command Prompt.
 - **`EPERM` or `EBUSY` while installing**: antivirus or an indexer briefly holds a file. Jevris retries atomic writes a few times; if it still fails, run the command again.
 - **Long paths**: a very deep home or `JEVRIS_HOME` can exceed the 260-character limit in older tools. Enable long paths (`LongPathsEnabled`) or use a shorter `JEVRIS_HOME`.
 - **A harness installed as a `.cmd` shim** (for example `codex.cmd` from npm) is found through `PATHEXT`. If `doctor` cannot find the harness, check that its folder is on your user `PATH` in a new terminal.

@@ -1,6 +1,6 @@
 # Installation
 
-Jevris is one npm package, [`@cryptventure/jevris`](https://www.npmjs.com/package/@cryptventure/jevris). Version 1.2.0 is a release candidate and is not on the npm registry yet: its release gates have not passed (see [RELEASING.md](../RELEASING.md)). Until the release, install from a checkout, as in [Install from a checkout](#install-from-a-checkout-until-the-release). After the release, it installs into your coding harnesses from the npm registry: no clone, no build, no compiler.
+Jevris is one npm package, [`@webventures/jevris`](https://www.npmjs.com/package/@webventures/jevris). Version 1.2.0 is a release candidate and is not on the npm registry yet: its release gates have not passed (see [RELEASING.md](../RELEASING.md)). Until the release, install from a checkout, as in [Install from a checkout](#install-from-a-checkout-until-the-release). After the release, it installs into your coding harnesses from the npm registry: no clone, no build, no compiler.
 
 ## Before you start
 
@@ -35,13 +35,13 @@ The build needs no compiler: the native modules ship prebuilt. `node bin/jevris.
 These steps work once 1.2.0 is on the npm registry.
 
 ```sh
-npx @cryptventure/jevris install --dry-run
+npx @webventures/jevris install --dry-run
 ```
 
 `--dry-run` prints every file Jevris would create, edit or remove, per harness, and changes nothing. When the plan looks right:
 
 ```sh
-npx @cryptventure/jevris install --yes
+npx @webventures/jevris install --yes
 ```
 
 Without `--dry-run` or `--yes`, an interactive terminal prints the plan and asks `Apply these changes? [y/N]`; a no changes nothing and exits 2. A non-interactive run (a script, CI) prints the plan, changes nothing and exits 0, with a last line telling you to re-run with `--yes`.
@@ -49,7 +49,7 @@ Without `--dry-run` or `--yes`, an interactive terminal prints the plan and asks
 One harness only:
 
 ```sh
-npx @cryptventure/jevris install --harness claude --yes      # claude | kilo | codex | opencode | antigravity
+npx @webventures/jevris install --harness claude --yes      # claude | kilo | codex | opencode | antigravity
 ```
 
 After a successful install, Jevris certifies each harness it installed, exactly as `jevris certify --harness all` does. This calls no model provider, and each harness runs in a throwaway profile. For Claude Code, Codex, Kilo and OpenCode, certify also runs a few short turns against a stub provider that Jevris starts on 127.0.0.1 with a dummy key, so the harness's model requests never leave your machine and nothing is billed. They check, among other things, whether a hook can route a subagent to another model, and whether a run's hooks report the model it actually ran on. For Codex, the probe hooks are passed for that one run with `--dangerously-bypass-hook-trust`, or for the one `codex app-server` thread with its `bypass_hook_trust` setting, so nothing is added to Codex's hook trust. These `stub case` lines are reported only, with one exception: Codex's `hooks.route` is certified only when its `codex.subagent-route` case passes. That case runs a turn in `codex app-server` with approval policy `on-request` and the read-only sandbox. A probe hook gives the parent's `spawn_agent` call the exact answer the installed Codex adapter renders for a route. The case passes only when the subagent then runs on the routed model, its request to write outside the sandbox still reaches Codex's approval prompt, and the write, declined, does not happen. Antigravity has no setting for another endpoint, so it has no such turn. A `certify <harness>:` line reports each result. A harness that does not certify never fails the install: its line names the reason and the `jevris certify --harness <name>` command that fixes it. `--no-certify` skips this step. Doctor then shows each certified harness straight away. Antigravity's hooks are written switched off until a certification record covers your Antigravity version. So when this step certifies Antigravity, the install switches its hooks on in the same run and prints `antigravity hooks: enabled (certified in this run)`. If they stay off, the line says so and names `jevris install --harness antigravity`. Claude Code's `StopFailure` hook, which notices when an account runs out, works the same way: it is registered only once a record certifies `access.session` for your Claude Code version. When this step certifies it, the install registers it in the same run and prints `claude hooks: StopFailure registered (certified in this run)`.
@@ -91,7 +91,7 @@ Install also gives you a `jevris` command, however you installed (npx, a source 
 Then check the result:
 
 ```sh
-jevris doctor              # or, after the release: npx @cryptventure/jevris doctor
+jevris doctor              # or, after the release: npx @webventures/jevris doctor
 ```
 
 In a terminal, each doctor line is marked `✓` (works), `i` (information, nothing to do), `!` (a problem you can fix; the line names the command) or `✗` (something failed). See [troubleshooting.md](troubleshooting.md#reading-the-doctor).
@@ -99,7 +99,7 @@ In a terminal, each doctor line is marked `✓` (works), `i` (information, nothi
 ## Install globally (after the release)
 
 ```sh
-npm i -g @cryptventure/jevris
+npm i -g @webventures/jevris
 jevris install --dry-run
 jevris install --yes
 jevris doctor
@@ -155,7 +155,7 @@ The Jev key is only for Jevris's own decisions. Your harnesses keep their own si
 ## Windows
 
 - Use Node from nodejs.org, winget (`winget install OpenJS.NodeJS.LTS`) or a version manager such as fnm or nvm-windows. Node 22.14.0 or later.
-- After the release, PowerShell may block `npx.ps1` under a restricted execution policy. Run `npx.cmd @cryptventure/jevris ...` instead, or use Command Prompt. From a checkout, `node bin\jevris.mjs` works in both.
+- After the release, PowerShell may block `npx.ps1` under a restricted execution policy. Run `npx.cmd @webventures/jevris ...` instead, or use Command Prompt. From a checkout, `node bin\jevris.mjs` works in both.
 - Config is under `%APPDATA%\Jevris`, data under `%LOCALAPPDATA%\Jevris`. Roaming profiles carry only the config.
 - The sidecar listens on a named pipe that only your user can open. Its name is random per start and is recorded in an owner-checked file under `%LOCALAPPDATA%\Jevris\run`.
 - The Jev key goes to Windows Credential Manager under your account.
@@ -171,7 +171,7 @@ To test exactly what npm would publish, pack and install the tarball into a scra
 
 ```sh
 npm pack
-npm i -g --prefix <scratch-dir> ./cryptventure-jevris-<version>.tgz
+npm i -g --prefix <scratch-dir> ./webventures-jevris-<version>.tgz
 ```
 
 `npm run smoke:pack` does this end to end under a temporary home and prefix. See [development.md](development.md) and [testing.md](testing.md).

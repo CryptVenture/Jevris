@@ -18,12 +18,12 @@ jevris doctor
 After the release:
 
 ```sh
-npx @cryptventure/jevris@latest install --dry-run    # see what changes
-npx @cryptventure/jevris@latest install --yes
+npx @webventures/jevris@latest install --dry-run    # see what changes
+npx @webventures/jevris@latest install --yes
 jevris doctor
 ```
 
-With a global install (after the release), `npm i -g @cryptventure/jevris@latest` first, then `jevris install --yes`. The `jevris` launcher that install writes moves to the new runtime on each install. Updating the global package alone does not move your harnesses: they keep running the runtime copy they were installed with until you run `install` again.
+With a global install (after the release), `npm i -g @webventures/jevris@latest` first, then `jevris install --yes`. The `jevris` launcher that install writes moves to the new runtime on each install. Updating the global package alone does not move your harnesses: they keep running the runtime copy they were installed with until you run `install` again.
 
 What `install` does on an upgrade:
 
@@ -42,7 +42,7 @@ A running sidecar keeps the code it started with, even when you reinstall the sa
 
 `jevris doctor` flags a sidecar still on an older build, with the fix `jevris sidecar restart`.
 
-After the release, pre-release versions are published under the `next` tag: `npx @cryptventure/jevris@next install --yes`.
+After the release, pre-release versions are published under the `next` tag: `npx @webventures/jevris@next install --yes`.
 
 ## When a harness upgrades
 
@@ -62,7 +62,7 @@ node bin/jevris.mjs install --yes
 After the release, from npm:
 
 ```sh
-npx @cryptventure/jevris@<version> install --yes
+npx @webventures/jevris@<version> install --yes
 ```
 
 Files and harness registrations roll back cleanly. The decision store may not: an older Jevris never writes a store schema it does not understand. If a newer version migrated the store, the older version refuses it with `schema-newer`, and its sidecar runs rules-only until you restore a store it knows. `jevris doctor` and `jevris status` say so. To get the older version's decisions back, restore a backup taken before the upgrade, as described in [Store migrations](#store-migrations).
@@ -129,7 +129,7 @@ It also leaves the Jev key in the OS keychain unless the scope names `credential
 The launcher install wrote is removed by `jevris uninstall` (see above). A checkout is yours to delete once you have uninstalled; the harnesses never ran from it. For a global npm install (after the release):
 
 ```sh
-npm rm -g @cryptventure/jevris      # a global install
+npm rm -g @webventures/jevris      # a global install
 npm cache clean --force             # optional: drop npx's cached copy
 ```
 

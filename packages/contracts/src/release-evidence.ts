@@ -38,7 +38,7 @@ import { CertificationRecordSchema } from './certification.js';
 import * as S from './schema.js';
 
 export const EVIDENCE_SCHEMA_VERSION = 'jevris.evidence/1' as const;
-export const RELEASE_PACKAGE = '@cryptventure/jevris' as const;
+export const RELEASE_PACKAGE = '@webventures/jevris' as const;
 
 export const EVIDENCE_KINDS = [
   'api-live-suite',

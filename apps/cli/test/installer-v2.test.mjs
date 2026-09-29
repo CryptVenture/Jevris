@@ -368,7 +368,7 @@ test('data delete after uninstall leaves no Jevris path in the home', { skip: ma
 // ---------------------------------------------------------------- runtime manifest (ADM-03)
 
 test('the runtime manifest refuses unsafe entries, and only other-platform prebuilds are pruned', () => {
-  const base = { schemaVersion: 1, name: '@cryptventure/jevris', version: '1.2.0', engines: {}, entries: { mcp: 'plugins/shared/mcp.js', hook: 'dist/hook.mjs', cli: 'dist/cli.mjs' }, files: ['dist/'], runtimeDependencies: {}, optionalDependencies: {} };
+  const base = { schemaVersion: 1, name: '@webventures/jevris', version: '1.2.0', engines: {}, entries: { mcp: 'plugins/shared/mcp.js', hook: 'dist/hook.mjs', cli: 'dist/cli.mjs' }, files: ['dist/'], runtimeDependencies: {}, optionalDependencies: {} };
   assert.notEqual(parseRuntimeManifest(JSON.stringify(base)), null);
   assert.equal(parseRuntimeManifest(JSON.stringify({ ...base, entries: { ...base.entries, mcp: '../escape.js' } })), null);
   assert.equal(parseRuntimeManifest(JSON.stringify({ ...base, entries: { ...base.entries, mcp: '/abs.js' } })), null);

@@ -31,7 +31,7 @@ export const COMMAND_RECEIPT = 'jevris-command-receipt.json';
 export const BLOCK_BEGIN = '# >>> jevris PATH >>>';
 export const BLOCK_END = '# <<< jevris PATH <<<';
 const BLOCK_NOTE = '# Added by jevris install; jevris uninstall removes this block.';
-const REINSTALL = 'npx @cryptventure/jevris install --yes';
+const REINSTALL = 'npx @webventures/jevris install --yes';
 const READ_CAP = 65536;
 
 /** Stands in for `reg.exe` (tests inject it; the real one runs only on Windows for the account's own home). */
@@ -445,9 +445,9 @@ async function classify(path: string): Promise<OtherKind> {
   } catch {
     /* keep the path */
   }
-  if (/[\\/]node_modules[\\/]@cryptventure[\\/]jevris[\\/]/.test(real)) return 'npm global install';
+  if (/[\\/]node_modules[\\/]@webventures[\\/]jevris[\\/]/.test(real)) return 'npm global install';
   const text = await readCapped(path);
-  if (text !== null && /node_modules[\\/]@cryptventure[\\/]jevris[\\/]/.test(text)) return 'npm global install';
+  if (text !== null && /node_modules[\\/]@webventures[\\/]jevris[\\/]/.test(text)) return 'npm global install';
   if (text !== null && text.includes(LAUNCHER_MARKER)) return 'Jevris launcher from another home';
   return 'another program';
 }

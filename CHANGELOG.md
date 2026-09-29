@@ -1,6 +1,6 @@
 # Changelog
 
-Versions follow [semantic versioning](https://semver.org). Releases are published to npm as [`@cryptventure/jevris`](https://www.npmjs.com/package/@cryptventure/jevris) under the `next` tag and promoted to `latest` only when every release gate passes on evidence (see [RELEASING.md](RELEASING.md)). The `v1.0` and `v1.1` entries are milestones of the private workspace; `1.2.0` is the first published version.
+Versions follow [semantic versioning](https://semver.org). Releases are published to npm as [`@webventures/jevris`](https://www.npmjs.com/package/@webventures/jevris) under the `next` tag and promoted to `latest` only when every release gate passes on evidence (see [RELEASING.md](RELEASING.md)). The `v1.0` and `v1.1` entries are milestones of the private workspace; `1.2.0` is the first published version.
 
 ## 1.2.0
 
@@ -8,7 +8,7 @@ The first public release: one package that installs into five coding harnesses o
 
 ### Install and platforms
 
-- Published as `@cryptventure/jevris`. `npx @cryptventure/jevris` and `npm i -g` work without a clone, a build or a compiler, on Node `^22.14.0 || >=23.6.0` (Node-API 10). Older Node exits with one plain line.
+- Published as `@webventures/jevris`. `npx @webventures/jevris` and `npm i -g` work without a clone, a build or a compiler, on Node `^22.14.0 || >=23.6.0` (Node-API 10). Older Node exits with one plain line.
 - One bundled package: every workspace is bundled into `dist/`; the only runtime dependencies are `better-sqlite3`, `@napi-rs/keyring` and `@typesafe-ai/sdk`. The Claude Agent SDK is an optional peer. An SBOM, third-party notices and `SHA256SUMS` ship with each release, which is published with npm provenance.
 - `install` covers Claude Code, Kilocode, Codex, OpenCode and Antigravity (Gemini CLI support is retired). It copies a versioned runtime to the Jevris data folder and points every harness there, never at the npm cache. `--dry-run` prints every change; `--yes` applies it; on a terminal install asks before it applies, and without a terminal or `--yes` it prints the plan, changes nothing and exits 0. After a successful install it certifies each harness it installed, with no model call (`--no-certify` skips this); a harness that does not certify never fails the install, and its `certify` line names the fix. Install detects each harness's sign-in mode, asks once on a terminal for one it cannot detect (recorded in `workers.json`), and lists only the steps left to you: restarting Claude Code and trusting the hooks in Codex. Every changed file is backed up and restored on failure, and other tools' settings in shared config files are kept byte for byte.
 - Install writes no settings file, so a fresh install runs on the defaults: mode `bounded-auto`, with orchestration and owned workers on.

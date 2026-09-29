@@ -169,7 +169,7 @@ jobs:
           registry-url: https://registry.npmjs.org
           cache: npm
       - name: npm supports trusted publishing
-        run: node -e "const [a,b]=process.argv[1].split('.').map(Number); if (a<11||(a===11&&b<5)) { console.error('npm '+process.argv[1]+' is older than 11.5 and cannot use trusted publishing'); process.exit(1); }" "$(npm --version)"
+        run: node -e "const [a,b,c]=process.argv[1].split('.').map((n)=>parseInt(n,10)); if (a<11||(a===11&&(b<5||(b===5&&c<1)))) { console.error('npm '+process.argv[1]+' is older than 11.5.1 and cannot use trusted publishing'); process.exit(1); }" "$(npm --version)"
       - name: npm ci
         run: npm ci
       - name: Build
@@ -182,7 +182,7 @@ jobs:
           npm pack --ignore-scripts --pack-destination release-assets
       - name: Release assets
         run: |
-          cp dist/sbom.cdx.json "release-assets/cryptventure-jevris-$VERSION.cdx.json"
+          cp dist/sbom.cdx.json "release-assets/webventures-jevris-$VERSION.cdx.json"
           cp dist/THIRD_PARTY_NOTICES.md release-assets/THIRD_PARTY_NOTICES.md
           node scripts/checksums.mjs release-assets/*.tgz release-assets/*.cdx.json release-assets/THIRD_PARTY_NOTICES.md --out release-assets/SHA256SUMS
           node scripts/checksums.mjs --check release-assets/SHA256SUMS
@@ -192,10 +192,10 @@ jobs:
           path: release-inputs
       - name: Publish dry run
         if: env.DRY_RUN == 'true'
-        run: npm publish "release-assets/cryptventure-jevris-$VERSION.tgz" --dry-run --access public --tag next
+        run: npm publish "release-assets/webventures-jevris-$VERSION.tgz" --dry-run --access public --tag next
       - name: Publish to next with provenance
         if: env.DRY_RUN != 'true'
-        run: npm publish "release-assets/cryptventure-jevris-$VERSION.tgz" --provenance --access public --tag next
+        run: npm publish "release-assets/webventures-jevris-$VERSION.tgz" --provenance --access public --tag next
       - name: GitHub release
         if: env.DRY_RUN != 'true'
         env:

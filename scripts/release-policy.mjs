@@ -4,7 +4,7 @@
  * scripts/pack-smoke.mjs and the release tests read these constants.
  */
 
-export const PACKAGE_NAME = '@cryptventure/jevris';
+export const PACKAGE_NAME = '@webventures/jevris';
 
 /** The only runtime dependencies of the published package. Exact pins. */
 export const RUNTIME_EXTERNALS = ['better-sqlite3', '@typesafe-ai/sdk', '@napi-rs/keyring'];

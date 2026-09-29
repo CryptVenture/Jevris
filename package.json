@@ -1,5 +1,5 @@
 {
-  "name": "@cryptventure/jevris",
+  "name": "@webventures/jevris",
   "version": "1.2.0",
   "description": "Local decision control plane for AI coding harnesses: bounded advice, independent verification and native permissions kept authoritative.",
   "type": "module",

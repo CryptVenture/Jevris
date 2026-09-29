@@ -7,7 +7,7 @@
  *   node scripts/promote.mjs --version 1.2.0 --evidence <dir> --commit <sha> --apply    # owner, npm 2FA
  *
  * Run from a checkout of the release tag after `npm ci && npm run build`: the gates are judged by
- * that exact build. --apply runs `npm dist-tag add @cryptventure/jevris@<version> latest` with the
+ * that exact build. --apply runs `npm dist-tag add @webventures/jevris@<version> latest` with the
  * owner's own npm login (it prompts for the 2FA code); CI never holds a token that can move latest.
  */
 import { spawnSync } from 'node:child_process';

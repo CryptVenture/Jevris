@@ -4,7 +4,7 @@
 
 | Version | Supported |
 | --- | --- |
-| The latest `1.x` release of `@cryptventure/jevris` (npm tags `latest` and `next`) | Yes |
+| The latest `1.x` release of `@webventures/jevris` (npm tags `latest` and `next`) | Yes |
 | Earlier `1.x` releases | Upgrade first; fixes land in the next patch release |
 | The `v1.0` and `v1.1` workspace milestones | No (never published) |
 

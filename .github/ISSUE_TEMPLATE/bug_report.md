@@ -21,7 +21,7 @@ Paste the command with home paths redacted. Do not paste source, tokens, pack co
 ## Environment
 
 - Jevris version (`jevris --version`):
-- Installed with (`npx @cryptventure/jevris`, `npm i -g`, or from source at commit `git rev-parse --short HEAD`):
+- Installed with (`npx @webventures/jevris`, `npm i -g`, or from source at commit `git rev-parse --short HEAD`):
 - Node version (`node -v`):
 - OS and architecture:
 - Harness and its version, as `jevris doctor` prints them:

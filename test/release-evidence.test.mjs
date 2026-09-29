@@ -67,7 +67,7 @@ test('release-evidence signs the owner and reviewer records, which the gates exc
     assert.match(p0.out, /not in assets\/trust\/release-keys\.json as an owner key, so the gates exclude the record/);
     const p0Record = JSON.parse(readFileSync(join(out, 'p0-register.json'), 'utf8'));
     assert.equal(p0Record.kind, 'p0-register');
-    assert.deepEqual(p0Record.subject, { package: '@cryptventure/jevris', version: '1.2.0', commit: COMMIT });
+    assert.deepEqual(p0Record.subject, { package: '@webventures/jevris', version: '1.2.0', commit: COMMIT });
 
     const report = join(dir, 'report.pdf');
     writeFileSync(report, 'independent review report');

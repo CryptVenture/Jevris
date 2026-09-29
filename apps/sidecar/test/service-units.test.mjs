@@ -17,7 +17,7 @@ const WIN_INPUT = {
   platform: 'win32',
   osHome: 'C:\\Users\\dev',
   stateDir: 'C:\\Users\\dev\\AppData\\Local\\Jevris\\state',
-  argv: ['C:\\Program Files\\nodejs\\node.exe', 'C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@cryptventure\\jevris\\dist\\sidecar.mjs', '--supervised', '--home', 'C:\\Users\\dev\\Jevris Home\\'],
+  argv: ['C:\\Program Files\\nodejs\\node.exe', 'C:\\Users\\dev\\AppData\\Roaming\\npm\\node_modules\\@webventures\\jevris\\dist\\sidecar.mjs', '--supervised', '--home', 'C:\\Users\\dev\\Jevris Home\\'],
   windowsUser: 'DEVBOX\\dev',
   env: {},
 };

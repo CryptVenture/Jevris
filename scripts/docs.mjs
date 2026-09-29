@@ -78,7 +78,7 @@ export function renderCli({ help, version, commands }) {
     'Every command runs from the published package, with no clone and no build:',
     '',
     '```sh',
-    'npx @cryptventure/jevris <command> [options]      # or, after npm i -g @cryptventure/jevris: jevris <command>',
+    'npx @webventures/jevris <command> [options]      # or, after npm i -g @webventures/jevris: jevris <command>',
     '```',
     '',
     '`--home` is optional everywhere: it defaults to `JEVRIS_HOME`, then to your home directory. Exit codes are the same for every command: `0` answered, `1` a negative answer (not found, not verified, an invalid plan, a failed gate), `2` a usage error or a refused request. Output is plain text; `--json` prints the result as JSON where a command supports it. Nothing is colour-only.',

@@ -123,7 +123,7 @@ test('verify:fresh clones HEAD from a path with spaces, applies the overlay, run
     if (step.id === 'lint') return { code: 0, output: SUMMARY(110, 110, 0, 0) };
     if (step.id === 'test') return { code: 0, output: SUMMARY(2181, 2180, 0, 1) };
     if (step.id === 'future') return { code: 0, output: '# tests 5\n# pass 5\n# fail 0\n# skipped 0\n' };
-    if (step.id === 'pack') return { code: 0, output: 'x\ntarball ok: @cryptventure/jevris@1.2.0, 119 files\n' };
+    if (step.id === 'pack') return { code: 0, output: 'x\ntarball ok: @webventures/jevris@1.2.0, 119 files\n' };
     return { code: 0, output: '' };
   };
   const parent = join(base, 'work area');
@@ -133,7 +133,7 @@ test('verify:fresh clones HEAD from a path with spaces, applies the overlay, run
   assert.equal(report.head, head);
   assert.ok(lines.includes('verify:fresh: lint: ok 110 tests, 110 pass, 0 fail, 0 skipped (0s)'), lines.join('\n'));
   assert.ok(lines.includes('verify:fresh: test: ok 2181 tests, 2180 pass, 0 fail, 1 skipped (0s)'), lines.join('\n'));
-  assert.ok(lines.some((line) => line.startsWith('verify:fresh: pack: ok tarball ok: @cryptventure/jevris@1.2.0, 119 files')), lines.join('\n'));
+  assert.ok(lines.some((line) => line.startsWith('verify:fresh: pack: ok tarball ok: @webventures/jevris@1.2.0, 119 files')), lines.join('\n'));
   assert.equal(lines.at(-1), `verify:fresh: PASS at ${head} with 3 overlay path(s): 2 copied, 1 removed`);
   assert.equal(existsSync(report.clone), false, 'the clone was removed');
   assert.equal(existsSync(report.logs), false, 'a passing run leaves nothing behind');

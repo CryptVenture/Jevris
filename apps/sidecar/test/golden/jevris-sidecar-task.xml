@@ -43,7 +43,7 @@
   <Actions Context="Author">
     <Exec>
       <Command>C:\Program Files\nodejs\node.exe</Command>
-      <Arguments>C:\Users\dev\AppData\Roaming\npm\node_modules\@cryptventure\jevris\dist\sidecar.mjs --supervised --home &quot;C:\Users\dev\Jevris Home\\&quot;</Arguments>
+      <Arguments>C:\Users\dev\AppData\Roaming\npm\node_modules\@webventures\jevris\dist\sidecar.mjs --supervised --home &quot;C:\Users\dev\Jevris Home\\&quot;</Arguments>
     </Exec>
   </Actions>
 </Task>

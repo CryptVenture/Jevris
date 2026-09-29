@@ -190,7 +190,7 @@ test('the release workflow publishes a checked tag to next with provenance and n
   const publish = jobBlock(release, 'publish');
   assert.match(publish, /needs: \[check, ci, gates\]/);
   assert.deepEqual(jobPermissions(publish), ['contents: write', 'id-token: write']);
-  assert.match(publish, /npm publish "release-assets\/cryptventure-jevris-\$VERSION\.tgz" --provenance --access public --tag next$/m);
+  assert.match(publish, /npm publish "release-assets\/webventures-jevris-\$VERSION\.tgz" --provenance --access public --tag next$/m);
   assert.match(publish, /node scripts\/checksums\.mjs --check/);
   assert.match(publish, /sbom\.cdx\.json/);
   assert.match(publish, /THIRD_PARTY_NOTICES\.md/);

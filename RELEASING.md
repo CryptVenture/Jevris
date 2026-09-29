@@ -1,18 +1,19 @@
 # Releasing Jevris
 
-Jevris is published to npm as one package, [`@cryptventure/jevris`](https://www.npmjs.com/package/@cryptventure/jevris). A release is a pushed tag. GitHub Actions builds the tag, publishes it with provenance to the `next` dist-tag, and attaches the release assets. Moving `latest` is a separate step, taken by the owner only when every release gate passes on evidence.
+Jevris is published to npm as one package, [`@webventures/jevris`](https://www.npmjs.com/package/@webventures/jevris). A release is a pushed tag. GitHub Actions builds the tag, publishes it with provenance to the `next` dist-tag, and attaches the release assets. Moving `latest` is a separate step, taken by the owner only when every release gate passes on evidence.
 
-Nobody publishes from a laptop, and no workflow holds an npm token.
+Apart from the one-time placeholder below, nobody publishes from a laptop, and no workflow holds an npm token.
 
 ## One-time setup (repository owner)
 
 | Step | Command or place |
 | --- | --- |
-| npm trusted publishing | On npmjs.com, package `@cryptventure/jevris`, Settings, Trusted publishing: GitHub Actions, repository `CryptVenture/Jevris`, workflow `release.yml`, environment `npm`. |
+| First publish (once) | npm sets a trusted publisher only on a package that already exists ([npm/cli#8544](https://github.com/npm/cli/issues/8544), open when checked on 29 September 2026). Before the first release, the owner publishes one placeholder version of `@webventures/jevris` (for example `0.0.0`, holding only a README that points to this repository) from their own npm account with two-factor authentication, as a member of the `@webventures` organization. Every real release then comes from the workflow. |
+| npm trusted publishing | On npmjs.com, package `@webventures/jevris`, Settings, Trusted publishing: GitHub Actions, repository `CryptVenture/Jevris`, workflow `release.yml`, environment `npm`. |
 | GitHub environment `npm` | Repository Settings, Environments, `npm`. Restrict it to tags matching `v*.*.*` and add required reviewers. |
 | GitHub environment `live-api` | Holds the secret `JEVRIS_JEV_API_KEY` for the manual live Jev suite (`live-jev.yml`). Add required reviewers. |
 | Branch protection | `node scripts/branch-protection.mjs` prints the payload; `node scripts/branch-protection.mjs --apply` applies it with your own `gh` login. |
-| Reserve the unscoped name | `node scripts/reserve-unscoped.mjs --publish` publishes a placeholder `jevris` whose only job is to point at `@cryptventure/jevris`. |
+| Reserve the unscoped name | `node scripts/reserve-unscoped.mjs --publish` publishes a placeholder `jevris` whose only job is to point at `@webventures/jevris`. |
 | Signing keys | Generate each key pair offline: `node scripts/release-evidence.mjs keygen --role <owner\|security-reviewer\|certification\|calibration> --key-id <id> --out <private dir>`. It writes the private key (owner-only, never commit it) and prints the public trust entry; `--add-trust` appends that entry to `assets/trust/release-keys.json` for you to commit in a reviewed change. Only evidence signed by a key in that file counts. It holds one key per role today: `cryptventure-owner-2026-09` (owner), `cryptventure-certification-2026-09` (certification), `cryptventure-calibration-2026-09` (calibration) and `cryptventure-security-reviewer-2026-09` (security-reviewer). The private keys stay with the owner. |
 
 ## Cut a release
@@ -55,7 +56,7 @@ Nobody publishes from a laptop, and no workflow holds an npm token.
 | `ci` | The whole CI workflow: nine test cells (three operating systems, Node 22.14.0, 24 and latest), the coverage job, the installed pack smoke on three operating systems and the benchmark job on three operating systems. A failed job stops the release, except a benchmark regression: `release.yml` calls CI with `bench-advisory`, so the bench job records the result, reports it in the job summary and still passes. Performance is gated by the sidecar-load gate below. |
 | `gates` | Builds the tag, checks that the generated plugin files and docs are current, writes the story, workflow and runtime-gate reports (`scripts/acceptance-report.mjs`), then runs `jevris gates` over them, the pack-smoke evidence and the signed records in `release-evidence/`. The report is attached to the release. A failed gate does not stop the publish to `next`; it stops promotion to `latest`. This report cannot see the owner-made records, which are committed after the tag (below), so it is not the verdict: `promote.mjs` is. |
 | `publish` | `npm publish --provenance --access public --tag next` through npm trusted publishing (OIDC). Then a GitHub prerelease with the tarball, `SHA256SUMS`, the CycloneDX SBOM, `THIRD_PARTY_NOTICES.md` and the gates report. |
-| `verify` | On macOS, Linux and Windows with Node 22.14.0: `npx @cryptventure/jevris@<version>` from the registry prints the version and runs `doctor` under a temporary home, and `npm audit signatures` verifies the registry signature and the provenance attestation. The registry can lag, so a missing version is retried with backoff. |
+| `verify` | On macOS, Linux and Windows with Node 22.14.0: `npx @webventures/jevris@<version>` from the registry prints the version and runs `doctor` under a temporary home, and `npm audit signatures` verifies the registry signature and the provenance attestation. The registry can lag, so a missing version is retried with backoff. |
 
 A manual run of the workflow from a tag ref defaults to a dry run: everything except the publish and the GitHub release.
 
@@ -165,11 +166,11 @@ node scripts/promote.mjs --version 1.3.0 --evidence <dir> --commit <full sha> --
 
 npm versions are immutable. To take a bad release out of use:
 
-1. Point `latest` back at the previous good version: `npm dist-tag add @cryptventure/jevris@<previous> latest`.
-2. Deprecate the bad version with a reason users will see on install: `npm deprecate @cryptventure/jevris@<bad> "Broken: <what>. Use <previous> or <fixed>."`.
+1. Point `latest` back at the previous good version: `npm dist-tag add @webventures/jevris@<previous> latest`.
+2. Deprecate the bad version with a reason users will see on install: `npm deprecate @webventures/jevris@<bad> "Broken: <what>. Use <previous> or <fixed>."`.
 3. Fix forward with a patch release. Do not unpublish; it breaks installs that pinned the version and cannot be reused.
 
-Installed copies keep working after a rollback: each install runs from its own versioned runtime copy under the Jevris data directory, never from the npm cache. Users move with `npx @cryptventure/jevris@<version> install` (see [docs/upgrade.md](docs/upgrade.md)).
+Installed copies keep working after a rollback: each install runs from its own versioned runtime copy under the Jevris data directory, never from the npm cache. Users move with `npx @webventures/jevris@<version> install` (see [docs/upgrade.md](docs/upgrade.md)).
 
 ## Rotate a secret or key
 

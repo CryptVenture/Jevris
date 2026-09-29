@@ -4,7 +4,7 @@
   "id": "api-live-suite-20260925191803",
   "producedAt": "2026-09-25T19:18:03.935Z",
   "subject": {
-    "package": "@cryptventure/jevris",
+    "package": "@webventures/jevris",
     "version": "1.2.0",
     "commit": "a633ce6e3cadc9aa8b96e68680b4491b099dcd13"
   },

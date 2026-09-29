@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * The unscoped `jevris` npm name (PKG-14, E-38). Jevris publishes only as @cryptventure/jevris.
+ * The unscoped `jevris` npm name (PKG-14, E-38). Jevris publishes only as @webventures/jevris.
  * This builds a placeholder `jevris` package whose bin tells the user the right command and exits
  * non-zero, so an old `npx jevris` instruction cannot run someone else's code.
  *

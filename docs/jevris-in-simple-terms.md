@@ -105,7 +105,7 @@ A **certification record** is a signed file that says "on this harness, in this 
 | Add a saved memory capsule back into the model's context when a session resumes after a compaction | Claude Code and Codex (as added context). Kilo and OpenCode: Jevris saves the capsule at compaction, but adds no lines to it yet. Antigravity has no compaction event; its one-message context channel is rendered, but nothing proposes a message yet, and a capsule comes back through the `jevris_handoff_export` tool | `hooks.context` |
 | One Stop reminder asking for missing verification | Claude Code, Codex and Antigravity (its Stop `continue`, first stop only) | `hooks.context` |
 | Show Jevris advice to the model on each turn | Kilo and OpenCode, on the turn's system prompt | `hooks.context` |
-| Start an owned worker with a chosen model and effort | All five harnesses | `worker.route`, plus you turning owned workers on |
+| Start an owned worker with a chosen model and effort | All five harnesses | A task you submit (`jevris plan --submit`, or `jevris_submit_task` with owned mode on); `worker.route` certifies the model and effort routing, not the start |
 | Choose a subagent's model when the subagent starts | Claude Code (the Agent tool); Codex (`spawn_agent`), Kilo and OpenCode (the child session's first message), each once its `<harness>.subagent-route` stub case passes on your binary | `hooks.route` |
 
 The first three rows count as advice, so they also run in `advise` mode, still only where certified. Starting owned workers and choosing a subagent's model need `bounded-auto`.
@@ -349,7 +349,7 @@ See [platform-support.md](platform-support.md) and [installation.md](installatio
 - **Your user account is the security boundary.** The sidecar keeps other users and the network out. It cannot contain something already running as you: a compromised OS account is outside what a same-user sidecar can reliably contain ([security.md](security.md)).
 - **Performance targets are unmeasured.** The design targets (rules-only answers under 25 ms, launcher under 100 ms, Jev decisions under 800 ms inside the 900 ms budget) have not been benchmarked. They are not promises.
 - **No live benchmark exists yet.** No live Jev benchmark, no measured end-to-end coding quality or cost result, and no seed run. Jevris makes no speed or cost claim; learning in your workspace is the only evidence it acts on.
-- **Release status.** Version 1.2.0 is a release candidate and is not on npm yet; `npx @cryptventure/jevris` works only once it is. The release gates (`jevris gates`) do not pass yet: they need external evidence such as release-signed certification records per harness and OS (the [platform support](platform-support.md) table lists which exist), the live Jev suite, an independent security review, and Linux and Windows drills. See [RELEASING.md](../RELEASING.md).
+- **Release status.** Version 1.2.0 is a release candidate and is not on npm yet; `npx @webventures/jevris` works only once it is. The release gates (`jevris gates`) do not pass yet: they need external evidence such as release-signed certification records per harness and OS (the [platform support](platform-support.md) table lists which exist), the live Jev suite, an independent security review, and Linux and Windows drills. See [RELEASING.md](../RELEASING.md).
 - **Owned workers on subscriptions carry account risk** (section 5).
 
 ## 12. Should you use it?
@@ -381,7 +381,7 @@ See [platform-support.md](platform-support.md) and [installation.md](installatio
 
 ### Getting started in 10 minutes
 
-Until 1.2.0 is on npm, run from a checkout of this repository (`npm ci`, `npm run build`, then `node bin/jevris.mjs` in place of `jevris` for the first install; install puts a `jevris` command on your PATH). Once released, `npx @cryptventure/jevris` works the same way.
+Until 1.2.0 is on npm, run from a checkout of this repository (`npm ci`, `npm run build`, then `node bin/jevris.mjs` in place of `jevris` for the first install; install puts a `jevris` command on your PATH). Once released, `npx @webventures/jevris` works the same way.
 
 ```sh
 jevris --version

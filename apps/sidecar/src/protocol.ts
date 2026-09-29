@@ -589,7 +589,7 @@ export function jevrisPackage(from: string = import.meta.url): { readonly root: 
     if (raw !== undefined) {
       try {
         const parsed = JSON.parse(raw) as { readonly name?: unknown; readonly version?: unknown };
-        if ((parsed.name === 'jevris' || parsed.name === '@cryptventure/jevris') && typeof parsed.version === 'string') {
+        if ((parsed.name === 'jevris' || parsed.name === '@webventures/jevris') && typeof parsed.version === 'string') {
           found = { root: dir, version: parsed.version };
           break;
         }

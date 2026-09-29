@@ -38,11 +38,11 @@ test('the real better-sqlite3 loads in this checkout (BLD-13)', () => {
 test('the package root is found from a module URL, and assets resolve under it (BLD-03, BLD-04)', (t) => {
   const root = mkdtempSync(join(tmpdir(), 'jpr-'));
   t.after(() => rmSync(root, { recursive: true, force: true }));
-  // An installed layout: node_modules/@cryptventure/jevris/packages/platform/dist/x.js
-  const pkg = join(root, 'node_modules', '@cryptventure', 'jevris');
+  // An installed layout: node_modules/@webventures/jevris/packages/platform/dist/x.js
+  const pkg = join(root, 'node_modules', '@webventures', 'jevris');
   const dist = join(pkg, 'packages', 'platform', 'dist');
   mkdirSync(dist, { recursive: true });
-  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@cryptventure/jevris' }));
+  writeFileSync(join(pkg, 'package.json'), JSON.stringify({ name: '@webventures/jevris' }));
   writeFileSync(join(pkg, 'packages', 'platform', 'package.json'), JSON.stringify({ name: '@jevris/platform' }));
   writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'someone-else' }));
   assert.equal(findPackageRoot(pathToFileURL(join(dist, 'x.js')).href), pkg);

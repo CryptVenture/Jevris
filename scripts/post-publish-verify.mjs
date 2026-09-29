@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Post-publish verification (PKG-13): after a publish, `npx @cryptventure/jevris@<version>`
+ * Post-publish verification (PKG-13): after a publish, `npx @webventures/jevris@<version>`
  * resolves from the registry, prints its version and runs doctor under a temporary HOME, and
  * the installed package carries verified registry signatures and a provenance attestation.
  *
  *   node scripts/post-publish-verify.mjs --version 1.2.0              # from the npm registry
- *   node scripts/post-publish-verify.mjs --version 1.2.0 --package ./cryptventure-jevris-1.2.0.tgz
+ *   node scripts/post-publish-verify.mjs --version 1.2.0 --package ./webventures-jevris-1.2.0.tgz
  *                                                                     # local rehearsal (no provenance)
  *   ... --report post-publish.json --retries 10
  *

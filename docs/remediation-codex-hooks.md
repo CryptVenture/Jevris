@@ -83,11 +83,11 @@ From v1.2, a legacy v1 receipt is handled conservatively:
 - A folder the old receipt lists is removed only when it holds a Jevris plugin manifest, or is the old Jevris hook runtime.
 - Everything else the old receipt listed stays in place, and the command says so.
 
-So with v1.2 you can run either command safely (until the release, run `node bin/jevris.mjs` from a checkout instead of `npx @cryptventure/jevris`):
+So with v1.2 you can run either command safely (until the release, run `node bin/jevris.mjs` from a checkout instead of `npx @webventures/jevris`):
 
 ```bash
-npx @cryptventure/jevris uninstall             # remove everything
-npx @cryptventure/jevris install --yes         # or reinstall: the old install is removed first
+npx @webventures/jevris uninstall             # remove everything
+npx @webventures/jevris install --yes         # or reinstall: the old install is removed first
 ```
 
 ## 5. Leftovers to check by hand

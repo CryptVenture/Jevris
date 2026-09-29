@@ -71,8 +71,8 @@ test('configProblems refuses the repository path and the npx cache on any OS spe
 test('shim and package locations follow npm global prefix layout per OS', () => {
   assert.equal(shimPath('/p', 'linux'), join('/p', 'bin', 'jevris'));
   assert.equal(shimPath('C:\\p', 'win32'), join('C:\\p', 'jevris.cmd'));
-  assert.equal(installedPackageDir('/p', 'darwin'), join('/p', 'lib', 'node_modules', '@cryptventure', 'jevris'));
-  assert.equal(installedPackageDir('/p', 'win32'), join('/p', 'node_modules', '@cryptventure', 'jevris'));
+  assert.equal(installedPackageDir('/p', 'darwin'), join('/p', 'lib', 'node_modules', '@webventures', 'jevris'));
+  assert.equal(installedPackageDir('/p', 'win32'), join('/p', 'node_modules', '@webventures', 'jevris'));
 });
 
 test('parseArgs accepts the documented modes and refuses anything else', () => {

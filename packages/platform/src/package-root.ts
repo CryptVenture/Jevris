@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
  * runtime assets from `<package root>/assets`, never from ssot_docs/ or fixtures/.
  */
 
-export const PACKAGE_NAMES: readonly string[] = ['jevris', '@cryptventure/jevris'];
+export const PACKAGE_NAMES: readonly string[] = ['jevris', '@webventures/jevris'];
 
 export interface PackageRootOptions {
   readonly names?: readonly string[];

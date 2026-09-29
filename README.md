@@ -6,7 +6,7 @@ Jevris sits beside your coding harness (Claude Code, Kilocode, Codex, OpenCode o
 
 New to Jevris? Start with [Jevris in simple terms](docs/jevris-in-simple-terms.md): what it does and does not do, what it costs, and whether it suits your workflow.
 
-[![npm](https://img.shields.io/npm/v/@cryptventure/jevris/next.svg?label=npm%40next)](https://www.npmjs.com/package/@cryptventure/jevris)
+[![npm](https://img.shields.io/npm/v/@webventures/jevris/next.svg?label=npm%40next)](https://www.npmjs.com/package/@webventures/jevris)
 [![Node](https://img.shields.io/badge/node-%5E22.14.0%20%7C%7C%20%3E%3D23.6.0-339933.svg)](docs/installation.md)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 
@@ -28,16 +28,16 @@ jevris doctor                             # what works on this machine, and what
 After the release, the same steps need no clone and no build:
 
 ```sh
-npx @cryptventure/jevris --version
-npx @cryptventure/jevris install --dry-run
-npx @cryptventure/jevris install --yes
-npx @cryptventure/jevris doctor
+npx @webventures/jevris --version
+npx @webventures/jevris install --dry-run
+npx @webventures/jevris install --yes
+npx @webventures/jevris doctor
 ```
 
 Install also puts a `jevris` command on your PATH (`~/.local/bin/jevris`, or `%LOCALAPPDATA%\Jevris\bin\jevris.cmd` on Windows). If that folder is not on your PATH, an interactive install asks once before adding it to your shell profile, and otherwise prints the line to add; `jevris uninstall` removes it again. After the release you can also install the command globally:
 
 ```sh
-npm i -g @cryptventure/jevris
+npm i -g @webventures/jevris
 jevris --help
 ```
 

@@ -97,7 +97,7 @@ test('the launcher says clearly when the node that ran install is gone, and doct
   assert.equal(written.ok, true);
   const ran = spawnSync(written.path, ['a'], { encoding: 'utf8' });
   assert.equal(ran.status, 127);
-  assert.match(ran.stderr, /^jevris: the Node\.js that installed Jevris is gone: .*no-such-node\. Install Node\.js again, then run: npx @cryptventure\/jevris install --yes$/m);
+  assert.match(ran.stderr, /^jevris: the Node\.js that installed Jevris is gone: .*no-such-node\. Install Node\.js again, then run: npx @webventures\/jevris install --yes$/m);
   assert.match(await launcher.commandDoctorLine(place, true), /^jevris command: broken: the Node\.js that installed Jevris \(.*\) is gone; fix: /);
 
   // With a real node, "$@" reaches the program as written: no word splitting, no expansion.
@@ -169,9 +169,9 @@ test('when the folder is on PATH doctor and install say so; a global npm jevris 
   const line = JSON.parse(doctor.text).lines.find((item) => item.text.startsWith('jevris command: '));
   assert.deepEqual(line, { text: 'jevris command: on PATH (~/.local/bin/jevris)', severity: 'ok' });
 
-  // A global npm install: <prefix>/bin/jevris -> <prefix>/lib/node_modules/@cryptventure/jevris/bin/jevris.mjs
+  // A global npm install: <prefix>/bin/jevris -> <prefix>/lib/node_modules/@webventures/jevris/bin/jevris.mjs
   const prefix = tempDir(t, 'jevris-npm-prefix-');
-  const pkgBin = join(prefix, 'lib', 'node_modules', '@cryptventure', 'jevris', 'bin');
+  const pkgBin = join(prefix, 'lib', 'node_modules', '@webventures', 'jevris', 'bin');
   mkdirSync(pkgBin, { recursive: true });
   mkdirSync(join(prefix, 'bin'));
   writeFileSync(join(pkgBin, 'jevris.mjs'), '#!/usr/bin/env node\n');

@@ -1497,7 +1497,7 @@ export async function installGlobal(input: InstallOptions, certified: HookCertif
   const hooks: TxnHooks = input.afterConfigRead === undefined ? {} : { afterConfigRead: input.afterConfigRead };
   const dryRun = input.dryRun === true;
   const manifest = await readRuntimeManifest(input.root);
-  if (manifest === null) return refusedReport(`no runtime manifest in ${input.root}; reinstall @cryptventure/jevris or run npm run build`);
+  if (manifest === null) return refusedReport(`no runtime manifest in ${input.root}; reinstall @webventures/jevris or run npm run build`);
   let dataRoot: string;
   try {
     dataRoot = await resolveDataRoot(pair);

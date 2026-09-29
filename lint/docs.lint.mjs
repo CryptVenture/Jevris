@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
  * User documentation stays true to the product (UDOC-09).
  *
  * - Stale claims: no page says the package is private or unpublished, names the old Node
- *   range, or tells users to run `npx jevris` (the package is `@cryptventure/jevris`).
+ *   range, or tells users to run `npx jevris` (the package is `@webventures/jevris`).
  * - Commands: every `jevris <command>` in a code span or block is a command in the generated
  *   CLI reference (docs/cli.md), and every subcommand or flag written after it appears in that
  *   command's help text. A page cannot document a command the product does not have.
@@ -27,7 +27,7 @@ export const STALE_CLAIMS = [
   { id: 'old-node-range', pattern: /Node(?:\.js)? \**22\** or \**24\**|>=22\.13 <25|Node 26 fails|Node 20, 25, and 26/ },
   { id: 'v1.0-only', pattern: /\bv1\.0 only\b|[Mm]ilestone \*\*v1\.0\*\* is/ },
   { id: 'unscoped-npx', pattern: /\bnpx jevris\b/ },
-  { id: 'wrong-scope', pattern: /@antigravity\/jevris/ },
+  { id: 'wrong-scope', pattern: /@antigravity\/jevris|@cryptventure\/jevris/ },
 ];
 
 function walkMarkdown(dir, out = []) {
@@ -231,10 +231,10 @@ test('the doc checks catch what they are for (UDOC-09)', () => {
   assert.deepEqual(staleClaims('This repository is private and is not an npm package.').map((hit) => hit.id), ['private-package']);
   assert.deepEqual(staleClaims('- Node.js **22** or **24**').map((hit) => hit.id), ['old-node-range']);
   assert.deepEqual(staleClaims('npx jevris install --home "$HOME"').map((hit) => hit.id), ['unscoped-npx']);
-  assert.deepEqual(staleClaims('npx @cryptventure/jevris install; owner-only private files'), []);
+  assert.deepEqual(staleClaims('npx @webventures/jevris install; owner-only private files'), []);
   const sections = cliSections('## jevris --help\n\n  --version\n\n## jevris install\n\nUsage: jevris install [--harness <name>] [--yes]\n\n## jevris data delete\n\nUsage: jevris data delete\n');
   const check = (code) => invocations(code).flatMap((inv) => invocationProblems(inv, sections));
-  assert.deepEqual(check('npx @cryptventure/jevris install --yes'), []);
+  assert.deepEqual(check('npx @webventures/jevris install --yes'), []);
   assert.deepEqual(check('jevris install --harness claude --dry-run'), ['jevris install --dry-run: the flag is not in its help text']);
   assert.deepEqual(check('jevris data delete'), []);
   assert.deepEqual(check('jevris evidence get <handle>'), ['jevris evidence is not a command in docs/cli.md']);

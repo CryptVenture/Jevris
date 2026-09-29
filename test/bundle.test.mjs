@@ -19,7 +19,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8'));
 const readJson = (rel) => JSON.parse(readFileSync(join(root, rel), 'utf8'));
 
-test('the root manifest is the public @cryptventure/jevris package (PKG-09)', () => {
+test('the root manifest is the public @webventures/jevris package (PKG-09)', () => {
   assert.equal(pkg.name, PACKAGE_NAME);
   assert.equal(pkg.private, undefined);
   assert.equal(pkg.publishConfig.access, 'public');
