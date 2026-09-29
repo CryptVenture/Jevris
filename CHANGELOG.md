@@ -86,6 +86,7 @@ The first public release: one package that installs into five coding harnesses o
 - The perf gate reads `npm run bench:load` on the reference machine: 13 locked sidecar load targets under 20 and 50 concurrent subagents.
 - A model the router still recommends that may retire within 30 days, or is deprecated, is a release WARN and a `registry:check` warning; the gate fails only on release data that contradicts itself. [docs/model-refresh.md](docs/model-refresh.md) is the refresh procedure.
 - A tag-driven release workflow with provenance, a post-publish check on three operating systems, and promotion to `latest` only through the gates.
+- Releases are staged on npm (`npm stage publish`, a stage-only trusted publisher) and become installable only when a maintainer approves them with 2FA; the post-publish check then runs by hand (`post-publish.yml`) on the approved version.
 - Seeded property, crash-point, race and fuzz suites; no wall-clock windows under 2 s and no negative-lock tests.
 - Acceptance tests for all 40 user stories and 12 workflows of the specification, and an installed-package smoke that ends with the doctor proof: install, `certify --harness all`, then `doctor --json` must read full, certified and passed.
 - The build, lints and tests read only the repository: the specification's examples, schemas, user stories and reference suite are in `fixtures/ssot/`, and the model and cost registry proposals in `fixtures/registry/`.

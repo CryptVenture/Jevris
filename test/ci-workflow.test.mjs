@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { spawnSync } from 'node:child_process';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -180,7 +181,7 @@ function jobPermissions(job) {
   return block === null ? null : block[1].trim().split('\n').map((line) => line.trim()).sort();
 }
 
-test('the release workflow publishes a checked tag to next with provenance and no secrets (PKG-11)', () => {
+test('the release workflow stages a checked tag for next with provenance and no secrets (PKG-11)', () => {
   const release = read('.github', 'workflows', 'release.yml');
   assert.match(release, /^ {2}push:\n {4}tags: \['v\*\.\*\.\*'\]$/m);
   assert.match(release, /^ {6}dry-run:\n(?: {8}.+\n)*? {8}default: true$/m);
@@ -189,18 +190,53 @@ test('the release workflow publishes a checked tag to next with provenance and n
   assert.match(jobBlock(release, 'ci'), /uses: \.\/\.github\/workflows\/ci\.yml/);
   const publish = jobBlock(release, 'publish');
   assert.match(publish, /needs: \[check, ci, gates\]/);
+  assert.match(publish, /^ {4}environment: npm$/m);
   assert.deepEqual(jobPermissions(publish), ['contents: write', 'id-token: write']);
-  assert.match(publish, /npm publish "release-assets\/webventures-jevris-\$VERSION\.tgz" --provenance --access public --tag next$/m);
   assert.match(publish, /node scripts\/checksums\.mjs --check/);
   assert.match(publish, /sbom\.cdx\.json/);
   assert.match(publish, /THIRD_PARTY_NOTICES\.md/);
   assert.match(publish, /gh release create "\$TAG"/);
   assert.doesNotMatch(release, /NODE_AUTH_TOKEN|NPM_TOKEN|dist-tag add|--tag latest/);
-  for (const job of ['check', 'gates', 'verify']) assert.equal(jobPermissions(jobBlock(release, job)), null, `${job} keeps read-only defaults`);
+  for (const job of ['check', 'gates']) assert.equal(jobPermissions(jobBlock(release, job)), null, `${job} keeps read-only defaults`);
   assert.equal((release.match(/id-token: write/g) ?? []).length, 1);
 });
 
-test('the release gates read the pack-smoke evidence and post-publish runs on three OSes (RLS-04, PKG-13)', () => {
+test('the publish job stages with npm stage publish and never runs a plain npm publish (PKG-11)', () => {
+  const release = read('.github', 'workflows', 'release.yml');
+  const publish = jobBlock(release, 'publish');
+  // The trusted publisher is stage-only: a staged version joins next only after a maintainer's 2FA approval.
+  assert.match(publish, /^ {8}run: npm stage publish "release-assets\/webventures-jevris-\$VERSION\.tgz" --provenance --access public --tag next$/m);
+  assert.match(publish, /^ {8}run: npm stage publish "release-assets\/webventures-jevris-\$VERSION\.tgz" --dry-run --access public --tag next$/m);
+  const runs = [...release.matchAll(/^\s*run: (.*)$/gm)].map((match) => match[1]);
+  assert.equal(runs.some((line) => /(^|[;&|]\s*)npm publish\b/.test(line)), false, 'no plain npm publish');
+  assert.doesNotMatch(release.replace(/^\s*#.*$/gm, ''), /(?<!stage )npm publish\b/);
+  // The next steps land in the job summary after staging: approve with 2FA, post-publish, promote.
+  const stage = publish.indexOf('--provenance --access public --tag next');
+  const summary = publish.indexOf('- name: Next steps');
+  assert.ok(stage > 0 && summary > stage, 'the summary follows the staging');
+  const steps = publish.slice(summary, publish.indexOf('- name:', summary + 1));
+  assert.match(steps, /GITHUB_STEP_SUMMARY/);
+  assert.match(steps, /npm stage approve <stage-id>/);
+  assert.match(steps, /npm stage reject <stage-id>/);
+  assert.match(steps, /post-publish\.yml/);
+  assert.match(steps, /node scripts\/promote\.mjs/);
+});
+
+test('the publish job requires npm 11.15.0 or later for staged publishing (PKG-11)', () => {
+  const publish = jobBlock(read('.github', 'workflows', 'release.yml'), 'publish');
+  const at = publish.indexOf('- name: npm supports trusted publishing');
+  assert.ok(at > 0 && at < publish.indexOf('npm stage publish'), 'the check runs before staging');
+  const step = publish.slice(at, publish.indexOf('- name:', at + 1));
+  const script = /run: node -e "(.+)" "\$\(npm --version\)"$/m.exec(step);
+  assert.notEqual(script, null, 'the check runs node -e on npm --version');
+  assert.match(step, /older than 11\.15\.0/);
+  // Run the check itself on versions either side of the floor.
+  const check = (version) => spawnSync(process.execPath, ['-e', script[1], version], { encoding: 'utf8' }).status;
+  for (const version of ['11.15.0', '11.19.0', '11.20.0', '12.1.0']) assert.equal(check(version), 0, version);
+  for (const version of ['11.14.9', '11.5.1', '10.9.2']) assert.equal(check(version), 1, version);
+});
+
+test('the registry checks run only in the manual post-publish workflow, after approval (RLS-04, PKG-13)', () => {
   const release = read('.github', 'workflows', 'release.yml');
   const gates = jobBlock(release, 'gates');
   assert.match(gates, /pattern: installed-e2e-\*/);
@@ -208,10 +244,36 @@ test('the release gates read the pack-smoke evidence and post-publish runs on th
   // The story and workflow reports (RLS-02, RLS-03) are produced on the tag, before the gates read them.
   assert.ok(gates.indexOf('node scripts/acceptance-report.mjs --no-build --out gate-evidence --commit "$GITHUB_SHA"') > 0);
   assert.ok(gates.indexOf('scripts/acceptance-report.mjs') < gates.indexOf('bin/jevris.mjs gates'));
-  const verify = jobBlock(release, 'verify');
+  // A staged version is not on the registry until the owner approves it, so release.yml reads nothing from it.
+  assert.deepEqual([...release.matchAll(/^ {2}([\w-]+):$/gm)].map((match) => match[1]).filter((name) => !['push', 'workflow_dispatch'].includes(name)), ['check', 'ci', 'gates', 'publish']);
+  assert.doesNotMatch(release, /post-publish-verify|npm audit signatures|npm (?:exec|view)|npx @webventures/);
+  const post = read('.github', 'workflows', 'post-publish.yml');
+  const triggers = /^on:\n((?: {2}.*\n)+)/m.exec(post)[1];
+  assert.deepEqual([...triggers.matchAll(/^ {2}(\w[\w-]*):/gm)].map((match) => match[1]), ['workflow_dispatch']);
+  assert.match(triggers, /^ {6}version:\n(?: {8}.+\n)*? {8}required: true$/m);
+  assert.match(post, /^permissions:\n {2}contents: read$/m);
+  assert.doesNotMatch(post, /id-token|contents: write|secrets\.|environment:/);
+  const verify = jobBlock(post, 'verify');
+  assert.match(verify, /^ {4}name: post-publish \(\$\{\{ matrix\.os \}\}\)$/m);
   assert.match(verify, new RegExp(`^ {8}os: \\[${OSES.join(', ')}\\]$`, 'm'));
-  assert.match(verify, /node scripts\/post-publish-verify\.mjs --version "\$VERSION"/);
+  assert.match(verify, /fail-fast: false/);
+  assert.match(verify, /node-version: '22\.14\.0'/);
   assert.match(verify, /shell: bash/);
+  // The input reaches a shell only through the environment, and is checked before the checkout uses it.
+  assert.match(verify, /VERSION: \$\{\{ inputs\.version \}\}/);
+  assert.equal([...verify.matchAll(/^\s*run:.*\$\{\{\s*inputs\./gm)].length, 0, 'no input expression in a run line');
+  const guard = verify.indexOf('- name: Refuse a malformed version');
+  assert.ok(guard > 0 && guard < verify.indexOf('actions/checkout@'), 'the version is checked before the checkout');
+  assert.match(verify, /ref: v\$\{\{ inputs\.version \}\}/);
+  assert.match(verify, /run: node scripts\/post-publish-verify\.mjs --version "\$VERSION" --report "post-publish-\$\{\{ matrix\.os \}\}\.json"/);
+  assert.match(verify, /actions\/upload-artifact@/);
+  // Every action in it is pinned by a full commit SHA (BLD-12 also checks all workflows).
+  const uses = [...post.matchAll(/uses: (\S+)(.*)$/gm)];
+  assert.ok(uses.length >= 3);
+  for (const match of uses) {
+    assert.match(match[1], /^[\w.-]+\/[\w./-]+@[0-9a-f]{40}$/, match[1]);
+    assert.match(match[2], /^ # v\d+\.\d+\.\d+$/, `${match[1]} version comment`);
+  }
 });
 
 test('the live Jev suite runs by hand only, in a protected environment, with the key kept out of argv (PRV-10)', () => {

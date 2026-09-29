@@ -1,15 +1,16 @@
 # Releasing Jevris
 
-Jevris is published to npm as one package, [`@webventures/jevris`](https://www.npmjs.com/package/@webventures/jevris). A release is a pushed tag. GitHub Actions builds the tag, publishes it with provenance to the `next` dist-tag, and attaches the release assets. Moving `latest` is a separate step, taken by the owner only when every release gate passes on evidence.
+Jevris is published to npm as one package, [`@webventures/jevris`](https://www.npmjs.com/package/@webventures/jevris). A release is a pushed tag. GitHub Actions builds the tag, stages it on npm with provenance for the `next` dist-tag, and attaches the release assets. A staged version is not installable until a maintainer approves it on npm with two-factor authentication (2FA). Moving `latest` is a separate step, taken by the owner only when every release gate passes on evidence.
 
-Apart from the one-time placeholder below, nobody publishes from a laptop, and no workflow holds an npm token.
+Apart from the one-time placeholder below, nobody publishes from a laptop, and no workflow holds an npm token. The workflow cannot publish on its own either: its trusted publisher may only stage ([npm staged publishing](https://docs.npmjs.com/staged-publishing), npm 11.15.0 or later), and every version reaches the registry through a maintainer's 2FA approval.
 
 ## One-time setup (repository owner)
 
 | Step | Command or place |
 | --- | --- |
 | First publish (once) | npm sets a trusted publisher only on a package that already exists ([npm/cli#8544](https://github.com/npm/cli/issues/8544), open when checked on 29 September 2026). Before the first release, the owner publishes one placeholder version of `@webventures/jevris` (for example `0.0.0`, holding only a README that points to this repository) from their own npm account with two-factor authentication, as a member of the `@webventures` organization. Every real release then comes from the workflow. |
-| npm trusted publishing | On npmjs.com, package `@webventures/jevris`, Settings, Trusted publishing: GitHub Actions, repository `CryptVenture/Jevris`, workflow `release.yml`, environment `npm`. |
+| npm trusted publishing (stage-only) | On npmjs.com, package `@webventures/jevris`, Settings, Trusted publishing: GitHub Actions, repository `CryptVenture/Jevris`, workflow `release.yml`, environment `npm`, with `npm stage publish` allowed and `npm publish` not allowed, as npm recommends. From the CLI (npm 11.15.0 or later): `npm trust github --file release.yml --repository CryptVenture/Jevris --environment npm --allow-stage-publish @webventures/jevris`, without `--allow-publish`; `npm trust list @webventures/jevris` shows it. |
+| npm package access | On npmjs.com, package `@webventures/jevris`, Settings, Publishing access: require two-factor authentication and disallow tokens. Approving or rejecting a staged version then always takes the maintainer's 2FA. |
 | GitHub environment `npm` | Repository Settings, Environments, `npm`. Restrict it to tags matching `v*.*.*` and add required reviewers. |
 | GitHub environment `live-api` | Holds the secret `JEVRIS_JEV_API_KEY` for the manual live Jev suite (`live-jev.yml`). Add required reviewers. |
 | Branch protection | `node scripts/branch-protection.mjs` prints the payload; `node scripts/branch-protection.mjs --apply` applies it with your own `gh` login. |
@@ -46,6 +47,20 @@ Apart from the one-time placeholder below, nobody publishes from a laptop, and n
 
    Release tags are full semver with a `v` prefix (`v1.3.0`, `v1.3.1-rc.1`). A two-part tag such as `v1.0` never triggers a release.
 
+5. The release workflow stages the version for `next` (below). Its `publish` job summary lists these next steps. Nothing is installable yet.
+6. Inspect the staged version, then approve it with 2FA. The `npm stage` commands need npm 11.15.0 or later and your own npm login:
+
+   ```sh
+   npm stage list @webventures/jevris      # the staged versions and their stage ids
+   npm stage view <stage-id>               # its details, such as the version and the tag
+   npm stage download <stage-id>           # the tarball, to compare with the release's SHA256SUMS
+   npm stage approve <stage-id>            # prompts for 2FA, then publishes it to next
+   ```
+
+   Approving on npmjs.com (the package's Staged Packages) is the same. A staged version that is wrong is rejected instead ([Reject a staged version](#reject-a-staged-version)).
+7. Run the post-publish workflow for the approved version: GitHub, Actions, `post-publish`, Run workflow, version `1.3.0` (or `gh workflow run post-publish.yml -f version=1.3.0`). It needs every OS job to pass.
+8. Promote to `latest` when every gate passes ([Promote to latest](#promote-to-latest)). A prerelease stays on `next`.
+
 ## What the release workflow does
 
 `.github/workflows/release.yml` runs on the tag:
@@ -55,10 +70,15 @@ Apart from the one-time placeholder below, nobody publishes from a laptop, and n
 | `release-check` | The ref is a tag on a commit that is on `main`. The tag equals `v` plus the `package.json` version. The manifest is public-ready: name, `publishConfig.tag` `next`, exact runtime pins, optional Agent SDK peer. `CHANGELOG.md` has a section for the version; it becomes the release notes. |
 | `ci` | The whole CI workflow: nine test cells (three operating systems, Node 22.14.0, 24 and latest), the coverage job, the installed pack smoke on three operating systems and the benchmark job on three operating systems. A failed job stops the release, except a benchmark regression: `release.yml` calls CI with `bench-advisory`, so the bench job records the result, reports it in the job summary and still passes. Performance is gated by the sidecar-load gate below. |
 | `gates` | Builds the tag, checks that the generated plugin files and docs are current, writes the story, workflow and runtime-gate reports (`scripts/acceptance-report.mjs`), then runs `jevris gates` over them, the pack-smoke evidence and the signed records in `release-evidence/`. The report is attached to the release. A failed gate does not stop the publish to `next`; it stops promotion to `latest`. This report cannot see the owner-made records, which are committed after the tag (below), so it is not the verdict: `promote.mjs` is. |
-| `publish` | `npm publish --provenance --access public --tag next` through npm trusted publishing (OIDC). Then a GitHub prerelease with the tarball, `SHA256SUMS`, the CycloneDX SBOM, `THIRD_PARTY_NOTICES.md` and the gates report. |
-| `verify` | On macOS, Linux and Windows with Node 22.14.0: `npx @webventures/jevris@<version>` from the registry prints the version and runs `doctor` under a temporary home, and `npm audit signatures` verifies the registry signature and the provenance attestation. The registry can lag, so a missing version is retried with backoff. |
+| `publish` | Checks that npm is 11.15.0 or later, then `npm stage publish --provenance --access public --tag next` through npm trusted publishing (OIDC). The version is staged, not published. Then a GitHub prerelease with the tarball, `SHA256SUMS`, the CycloneDX SBOM, `THIRD_PARTY_NOTICES.md` and the gates report, and a job summary with the next steps: approve on npm with 2FA, run post-publish, promote. |
 
-A manual run of the workflow from a tag ref defaults to a dry run: everything except the publish and the GitHub release.
+The registry checks cannot run until the owner approves the staged version, so they are a separate, manual workflow, `.github/workflows/post-publish.yml`, run with the approved version:
+
+| Job | What it checks |
+| --- | --- |
+| `post-publish (<os>)` | On macOS, Linux and Windows with Node 22.14.0, from a checkout of the release tag: `npx @webventures/jevris@<version>` from the registry prints the version and runs `doctor` under a temporary home, and `npm audit signatures` verifies the registry signature and the provenance attestation (`scripts/post-publish-verify.mjs`). The registry can lag, so a missing version is retried with backoff; a version that is still staged fails after the retries. Each OS uploads its report. |
+
+A manual run of the release workflow from a tag ref defaults to a dry run: everything except the staging and the GitHub release, with `npm stage publish --dry-run` in place of the staging.
 
 Verify a downloaded tarball yourself:
 
@@ -152,7 +172,7 @@ The calibration release is also route learning's day-1 baseline: its priors come
 
 ## Promote to latest
 
-Only after the gates pass on the release candidate:
+Only after the owner has approved the staged version, the post-publish workflow has passed on all three operating systems, and the gates pass on the release candidate:
 
 ```sh
 git checkout v1.3.0 && npm ci && npm run build
@@ -160,7 +180,18 @@ node scripts/promote.mjs --version 1.3.0 --evidence <dir> --commit <full sha>   
 node scripts/promote.mjs --version 1.3.0 --evidence <dir> --commit <full sha> --apply    # npm dist-tag add … latest (your npm login, 2FA)
 ```
 
-`<dir>` is the release run's `gate-evidence/` merged with the `release-evidence/` records committed after the tag, and `--commit` is the tag's commit (see [Evidence and the gates](#evidence-and-the-gates)). `promote.mjs` refuses a checkout whose `package.json` is another version, and runs `jevris gates` on that exact build first; with `--apply` it also refuses a prerelease, a missing `--commit` and a version the registry does not have. It is the only way `latest` moves.
+`<dir>` is the release run's `gate-evidence/` merged with the `release-evidence/` records committed after the tag, and `--commit` is the tag's commit (see [Evidence and the gates](#evidence-and-the-gates)). `promote.mjs` refuses a checkout whose `package.json` is another version, and runs `jevris gates` on that exact build first; with `--apply` it also refuses a prerelease, a missing `--commit` and a version the public registry does not serve. It asks the registry anonymously, so a staged version that nobody has approved counts as absent, like a rejected one. It is the only way `latest` moves.
+
+## Reject a staged version
+
+A staged version that should not ship, for example because `npm stage download` does not match the release's `SHA256SUMS` or the build is wrong, is rejected before anyone can install it:
+
+```sh
+npm stage list @webventures/jevris
+npm stage reject <stage-id>             # prompts for 2FA and removes the staged version
+```
+
+Rejecting on npmjs.com (Staged Packages) is the same. A rejected version was never installable, so there is nothing to deprecate. Mark the GitHub prerelease for that tag as withdrawn in its notes, then fix forward with a new patch version and a new tag; never move a tag that was pushed.
 
 ## Roll back
 
@@ -176,7 +207,7 @@ Installed copies keep working after a rollback: each install runs from its own v
 
 | Secret | Rotation |
 | --- | --- |
-| npm publishing | None to rotate: trusted publishing uses a short-lived OIDC token per run. If the trusted publisher setting is compromised, remove and re-add it on npmjs.com, and review the `npm` environment's reviewers. |
+| npm publishing | None to rotate: trusted publishing uses a short-lived OIDC token per run, and that token can only stage. If the trusted publisher setting is compromised, reject any staged version you did not expect (`npm stage reject <stage-id>`), remove and re-add the trusted publisher on npmjs.com as stage-only, and review the `npm` environment's reviewers. |
 | `JEVRIS_JEV_API_KEY` | Issue a new key with the vendor, replace the secret in the `live-api` environment, revoke the old key with the vendor. |
 | A signing key | Generate a new Ed25519 key pair offline, add the public key to `assets/trust/release-keys.json` in a release commit, re-sign the records that must stay valid, then remove the old public key. A removed key's records stop counting at once. |
 | A user's own Jev key | `jevris credential set` replaces it in the OS keychain; `jevris credential clear` removes it. |

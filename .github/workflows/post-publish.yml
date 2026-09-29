@@ -1,0 +1,72 @@
+# Post-publish verification (PKG-13), run by hand after a maintainer approves a staged version.
+# release.yml stages each release (npm stage publish); a staged version is not on the registry
+# until the owner approves it on npm with 2FA, so the registry checks cannot run in the release
+# run. After `npm stage approve <stage-id>`, run this workflow with that version. On macOS, Linux
+# and Windows with Node 22.14.0 it checks out the release tag, then `npx @webventures/jevris@<v>`
+# from the registry prints the version and runs doctor under a temporary home, and
+# `npm audit signatures` verifies the registry signature and the provenance attestation. Then
+# promote to latest (node scripts/promote.mjs, RELEASING.md). No secrets and no write access.
+name: post-publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: The approved version to verify, without the v (for example 1.2.0)
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: post-publish-${{ inputs.version }}
+  cancel-in-progress: false
+
+jobs:
+  verify:
+    name: post-publish (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Refuse a malformed version
+        run: |
+          if ! [[ "$VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "version must be semver without the v prefix" >&2
+            exit 1
+          fi
+      - name: Check out the release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: v${{ inputs.version }}
+          persist-credentials: false
+      - name: Set up Node 22.14.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.14.0'
+      - name: npx from the registry, signatures and provenance
+        run: node scripts/post-publish-verify.mjs --version "$VERSION" --report "post-publish-${{ matrix.os }}.json"
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: post-publish-${{ matrix.os }}
+          path: post-publish-${{ matrix.os }}.json
+          if-no-files-found: error
+      - name: Next step
+        if: success() && matrix.os == 'ubuntu-latest'
+        run: |
+          {
+            echo "### @webventures/jevris@$VERSION passed post-publish on this OS"
+            echo ""
+            echo "When all three OS jobs pass, promote to latest from a checkout of v$VERSION: \`node scripts/promote.mjs --version $VERSION --evidence <dir> --commit <tag sha> --apply\` (RELEASING.md)."
+          } >> "$GITHUB_STEP_SUMMARY"

@@ -23,7 +23,7 @@ test('the root manifest is the public @webventures/jevris package (PKG-09)', () 
   assert.equal(pkg.name, PACKAGE_NAME);
   assert.equal(pkg.private, undefined);
   assert.equal(pkg.publishConfig.access, 'public');
-  // A plain `npm publish` lands on next; latest is promoted only after the gates (RLS-12).
+  // A publish, staged or plain, lands on next; latest is promoted only after the gates (RLS-12).
   assert.equal(pkg.publishConfig.tag, 'next');
   assert.match(pkg.version, /^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$/);
   assert.equal(pkg.bin.jevris, './bin/jevris.mjs');

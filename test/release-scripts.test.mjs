@@ -6,7 +6,7 @@ import test from 'node:test';
 import { protectionPayload, requiredChecks } from '../scripts/branch-protection.mjs';
 import { checksums, verify } from '../scripts/checksums.mjs';
 import { isPropagationError, packageSpec, parseArgs as parsePostPublish } from '../scripts/post-publish-verify.mjs';
-import { distTagCommand, parseArgs as parsePromote } from '../scripts/promote.mjs';
+import { distTagCommand, parseArgs as parsePromote, PUBLIC_REGISTRY, registryHasVersion, registryViewCommand } from '../scripts/promote.mjs';
 import { manifestProblems, tagProblems } from '../scripts/release-check.mjs';
 import { PACKAGE_NAME } from '../scripts/release-policy.mjs';
 import { bumpFor, changelogSection, isReleaseTag, nextVersion, parseCommit, prependChangelog, releaseRelevant, renderNotes } from '../scripts/release-version.mjs';
@@ -150,6 +150,22 @@ test('promotion to latest needs a release commit and never takes a prerelease (R
   assert.throws(() => parsePromote(['--version', '1.3.0-rc.1', '--evidence', 'ev', '--commit', sha, '--apply']), /prerelease/);
   assert.throws(() => parsePromote(['--version', '1.2.0', '--evidence', 'ev', '--commit', 'abc']), /40-character/);
   assert.throws(() => parsePromote(['--version', '1.2.0']), /--evidence/);
+});
+
+test('promotion refuses a version the public registry does not serve, so an unapproved staged version counts as absent (RLS-12)', () => {
+  assert.equal(PUBLIC_REGISTRY, 'https://registry.npmjs.org/');
+  assert.deepEqual(registryViewCommand('1.2.0'), ['view', `${PACKAGE_NAME}@1.2.0`, 'version', '--registry', PUBLIC_REGISTRY]);
+  assert.equal(registryHasVersion({ status: 0, stdout: '1.2.0\n' }, '1.2.0'), true);
+  // A staged version is not in the public metadata: npm view prints nothing, or E404 on npm 11.
+  assert.equal(registryHasVersion({ status: 0, stdout: '' }, '1.2.0'), false);
+  assert.equal(registryHasVersion({ status: 1, stdout: '' }, '1.2.0'), false);
+  assert.equal(registryHasVersion({ status: 0, stdout: '1.2.0-rc.1\n' }, '1.2.0'), false);
+  assert.equal(registryHasVersion({ status: 1, stdout: '1.2.0\n' }, '1.2.0'), false);
+  const script = readFileSync(new URL('../scripts/promote.mjs', import.meta.url), 'utf8');
+  // The registry is asked before latest moves, with an empty user config so no login can reveal a staged version.
+  assert.ok(script.indexOf('registryHasVersion(viewAnonymously(') < script.indexOf('...command]'));
+  assert.match(script, /npm_config_userconfig: join\(dir, 'npmrc'\)/);
+  assert.match(script, /npm stage approve <stage-id>/);
 });
 
 test('the unscoped placeholder only points at the scoped package and exits non-zero (PKG-14)', () => {

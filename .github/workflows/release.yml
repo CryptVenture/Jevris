@@ -6,15 +6,18 @@
 #            a p95 regression is recorded and reported but does not stop the publish
 #   gates    the acceptance reports, then jevris gates over them, the pack-smoke and threat-model
 #            evidence and the signed records in release-evidence/. A failed gate does not stop the
-#            publish to next; it stops promotion to latest
-#   publish  npm publish --provenance --tag next through npm trusted publishing (OIDC), then a
-#            GitHub release with the tarball, SHA256SUMS, the CycloneDX SBOM, the third-party
+#            staged publish to next; it stops promotion to latest
+#   publish  npm stage publish --provenance --tag next through npm trusted publishing (OIDC), then
+#            a GitHub prerelease with the tarball, SHA256SUMS, the CycloneDX SBOM, the third-party
 #            notices and the gates report
-#   verify   post-publish: npx from the registry on three OSes, registry signatures and attestation
-# Every publish lands on the next dist-tag. Promotion to latest is a separate owner step:
+# The trusted publisher is stage-only: the workflow can stage a version but never publish one. A
+# staged version is not installable until a maintainer approves it on npm with 2FA
+# (npm stage approve <stage-id>, or npmjs.com, Staged Packages). After approval the owner runs
+# post-publish.yml (npx from the registry on three OSes, registry signatures and attestation),
+# then promotes to latest as a separate owner step:
 # node scripts/promote.mjs --version <v> --evidence <dir> --commit <sha> --apply (RELEASING.md).
 # No secrets: npm authenticates the publish job by its OIDC token, and gh uses the job's GITHUB_TOKEN.
-# A manual run from a tag ref with dry-run true (the default) builds and packs but publishes nothing.
+# A manual run from a tag ref with dry-run true (the default) builds and packs but stages nothing.
 name: release
 
 on:
@@ -23,7 +26,7 @@ on:
   workflow_dispatch:
     inputs:
       dry-run:
-        description: Build, check and pack without publishing
+        description: Build, check and pack without staging a publish
         type: boolean
         default: true
 
@@ -168,8 +171,10 @@ jobs:
           node-version: '24'
           registry-url: https://registry.npmjs.org
           cache: npm
+      # Staged publishing needs npm 11.15.0 or later (trusted publishing itself needs 11.5.1).
+      # Node 24.18.0 and later bundle npm 11.16.0 or later (24.21.0 bundles 11.19.0).
       - name: npm supports trusted publishing
-        run: node -e "const [a,b,c]=process.argv[1].split('.').map((n)=>parseInt(n,10)); if (a<11||(a===11&&(b<5||(b===5&&c<1)))) { console.error('npm '+process.argv[1]+' is older than 11.5.1 and cannot use trusted publishing'); process.exit(1); }" "$(npm --version)"
+        run: node -e "const [a,b]=process.argv[1].split('.').map((n)=>parseInt(n,10)); if (a<11||(a===11&&b<15)) { console.error('npm '+process.argv[1]+' is older than 11.15.0 and cannot stage a publish (npm stage publish); use a Node 24 release that bundles npm 11.15.0 or later'); process.exit(1); }" "$(npm --version)"
       - name: npm ci
         run: npm ci
       - name: Build
@@ -190,12 +195,27 @@ jobs:
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           path: release-inputs
-      - name: Publish dry run
+      # The trusted publisher allows npm stage publish only. The staged version joins next, and
+      # becomes installable, only when a maintainer approves it on npm with 2FA.
+      - name: Stage publish dry run
         if: env.DRY_RUN == 'true'
-        run: npm publish "release-assets/webventures-jevris-$VERSION.tgz" --dry-run --access public --tag next
-      - name: Publish to next with provenance
+        run: npm stage publish "release-assets/webventures-jevris-$VERSION.tgz" --dry-run --access public --tag next
+      - name: Stage publish to next with provenance
         if: env.DRY_RUN != 'true'
-        run: npm publish "release-assets/webventures-jevris-$VERSION.tgz" --provenance --access public --tag next
+        run: npm stage publish "release-assets/webventures-jevris-$VERSION.tgz" --provenance --access public --tag next
+      - name: Next steps
+        if: env.DRY_RUN != 'true'
+        run: |
+          {
+            echo "### Staged @webventures/jevris@$VERSION for next"
+            echo ""
+            echo "The version is staged, not published: nobody can install it until a maintainer approves it."
+            echo ""
+            echo "1. Inspect it: \`npm stage list @webventures/jevris\`, \`npm stage view <stage-id>\`, \`npm stage download <stage-id>\`."
+            echo "2. Approve it with 2FA: \`npm stage approve <stage-id>\` (or npmjs.com, Staged Packages). A bad one: \`npm stage reject <stage-id>\`."
+            echo "3. Run the post-publish workflow (post-publish.yml) with version \`$VERSION\`: npx from the registry, signatures and provenance on three OSes."
+            echo "4. Promote to latest when every gate passes: \`node scripts/promote.mjs --version $VERSION --evidence <dir> --commit $GITHUB_SHA --apply\` (RELEASING.md). A prerelease stays on next."
+          } >> "$GITHUB_STEP_SUMMARY"
       - name: GitHub release
         if: env.DRY_RUN != 'true'
         env:
@@ -203,37 +223,3 @@ jobs:
         run: >-
           gh release create "$TAG" release-assets/* release-inputs/gates/gates-report.json
           --title "$TAG" --notes-file release-inputs/release-notes/release-notes.md --prerelease --verify-tag
-
-  verify:
-    name: post-publish (${{ matrix.os }})
-    needs: [check, publish]
-    if: github.event_name == 'push'
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 20
-    defaults:
-      run:
-        shell: bash
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    steps:
-      - name: Check out
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          persist-credentials: false
-      - name: Set up Node 22.14.0
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version: '22.14.0'
-      - name: npx from the registry, signatures and provenance
-        env:
-          VERSION: ${{ needs.check.outputs.version }}
-        run: node scripts/post-publish-verify.mjs --version "$VERSION" --report "post-publish-${{ matrix.os }}.json"
-      - name: Upload report
-        if: always()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
-        with:
-          name: post-publish-${{ matrix.os }}
-          path: post-publish-${{ matrix.os }}.json
-          if-no-files-found: error
