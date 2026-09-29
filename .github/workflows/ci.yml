@@ -131,7 +131,7 @@ jobs:
       - name: Build
         run: npm run build
       - name: File primitives and sandbox teardown on this host (BLD-08, SR-16)
-        run: node scripts/test.mjs --no-build packages/platform/test/owner-only.test.mjs packages/platform/test/authority-file.test.mjs apps/cli/test/output-path.test.mjs apps/cli/test/access-limits-deletion.test.mjs apps/cli/test/doctor-egress.test.mjs apps/cli/test/egress-command.test.mjs apps/cli/test/autostart-off.test.mjs
+        run: node scripts/test.mjs --no-build packages/platform/test/owner-only.test.mjs packages/platform/test/authority-file.test.mjs apps/cli/test/output-path.test.mjs apps/cli/test/access-limits-deletion.test.mjs apps/cli/test/doctor-egress.test.mjs apps/cli/test/egress-command.test.mjs apps/cli/test/autostart-off.test.mjs test/remove-tree.test.mjs
 
   coverage:
     name: coverage

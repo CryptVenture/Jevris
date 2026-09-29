@@ -41,6 +41,7 @@ import { tmpdir } from 'node:os';
 import { delimiter, dirname, join, relative, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { isMain, runNode } from './build.mjs';
+import { removeTree } from './remove-tree.mjs';
 import { guardStdin } from './child-stdin.mjs';
 import { OPTIONAL_EXTERNALS, PACKAGE_NAME, RUNTIME_EXTERNALS, SIZE_BUDGET } from './release-policy.mjs';
 import { testEnvironment, writeHarnessStubs } from './test.mjs';
@@ -785,8 +786,15 @@ async function main(argv) {
   } catch (error) {
     rec.record('smoke', false, error instanceof Error ? error.stack ?? error.message : String(error));
   } finally {
-    if (!options.keep) rmSync(work, { recursive: true, force: true, maxRetries: 3 });
-    else console.log(`kept ${work}`);
+    if (!options.keep) {
+      // A process that still runs from the installed package (a sidecar a step did not stop)
+      // holds its native addon on Windows: a step fails naming it, instead of the smoke crashing.
+      try {
+        removeTree(work);
+      } catch (error) {
+        rec.record('work folder removed (no process left running from it)', false, error instanceof Error ? error.message : String(error));
+      }
+    } else console.log(`kept ${work}`);
   }
   return finish(rec, options, pkg);
 }

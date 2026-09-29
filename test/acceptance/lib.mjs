@@ -30,6 +30,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { removeTree } from '../../scripts/remove-tree.mjs';
 import { withStubPath, writeHarnessStubs } from '../../scripts/test.mjs';
 import { managedHostSkip } from '../managed-host.mjs';
 
@@ -131,6 +132,11 @@ export async function sandbox(t, options = {}) {
     CLAUDE_PROJECT_DIR: work,
     ...(options.env ?? {}),
   });
+  // What the story started that runs on (MCP clients, long-running product processes): closed at
+  // teardown before the sandbox is removed. Windows refuses to remove a folder that is a live
+  // process's working folder, and node:test runs after-hooks in the order they were added, so a
+  // hook of their own would run after the removal.
+  const closers = [];
   const box = {
     dir,
     home,
@@ -156,7 +162,7 @@ export async function sandbox(t, options = {}) {
       const transport = new StdioClientTransport({ command: process.execPath, args: [target.mcp], env: { ...env, ...extraEnv }, cwd: work, stderr: 'ignore' });
       const client = new Client({ name: 'jevris-acceptance', version: '1.0.0' });
       await client.connect(transport);
-      t.after(() => client.close().catch(() => {}));
+      closers.push(() => client.close().catch(() => {}));
       return client;
     },
     startSidecar() {
@@ -265,13 +271,17 @@ export async function sandbox(t, options = {}) {
     /** Starts a long-running product process (for cancellation and crash scenarios). */
     spawn(file, args, opts = {}) {
       const child = spawn(process.execPath, [file, ...args], { env: { ...env, ...(opts.env ?? {}) }, cwd: opts.cwd ?? work, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true });
-      t.after(() => {
-        if (child.exitCode === null) child.kill();
+      closers.push(async () => {
+        if (child.exitCode !== null || child.signalCode !== null) return;
+        const exited = new Promise((resolve) => child.once('exit', resolve));
+        child.kill();
+        await Promise.race([exited, new Promise((resolve) => setTimeout(resolve, 5000))]);
       });
       return child;
     },
   };
   t.after(async () => {
+    for (const close of closers.splice(0)) await close();
     // Any jevris command can start the sidecar on demand, so it is always stopped here, whether
     // or not the story started it; stopping one that is not running is harmless.
     box.stopSidecar();
@@ -297,41 +307,16 @@ export async function sandbox(t, options = {}) {
       const survived = alive(pid);
       if (survived) process.kill(pid, 'SIGKILL');
       await sweepSandboxSidecars(dir, t);
-      if (options.keep !== true) removeSandbox(dir);
+      if (options.keep !== true) removeTree(dir);
       assert.equal(survived, false, `the sandbox sidecar ${pid} survived sidecar stop and SIGTERM`);
       return;
     }
     await sweepSandboxSidecars(dir, t);
-    if (options.keep !== true) removeSandbox(dir);
+    if (options.keep !== true) removeTree(dir);
   });
   return box;
 }
 
-/**
- * Removes a sandbox. Windows refuses to remove a folder that is a live process's working folder
- * or holds a file it has open (EBUSY, EPERM): the removal is retried for about 5 s, and if it
- * still fails on Windows the error names the processes then running whose command line names
- * the sandbox, and every node and PowerShell process with its parent, so the holder is known.
- */
-function removeSandbox(dir) {
-  try {
-    rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
-  } catch (error) {
-    if (process.platform !== 'win32') throw error;
-    const listed = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress'], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
-    let rows = [];
-    try {
-      rows = JSON.parse(listed.stdout);
-    } catch {
-      rows = [];
-    }
-    const lower = dir.toLowerCase();
-    const holders = (Array.isArray(rows) ? rows : [rows])
-      .filter((row) => row !== null && typeof row === 'object' && (String(row.CommandLine ?? '').toLowerCase().includes(lower) || /^(node|powershell|pwsh|cmd)\.exe$/i.test(String(row.Name ?? ''))))
-      .map((row) => `pid ${row.ProcessId} (parent ${row.ParentProcessId}) ${row.Name}: ${String(row.CommandLine ?? '').slice(0, 300)}`);
-    throw new Error(`${error.code ?? 'error'} removing ${dir}; this process is ${process.pid}; processes now:\n${holders.join('\n')}`, { cause: error });
-  }
-}
 
 /**
  * Ends every sidecar whose command line names this sandbox folder: one the pid file does not
