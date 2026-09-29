@@ -43,7 +43,8 @@
  * text, which can name an account. B's sidecar schedules the refresh, and C's
  * `recordModelListing` writes `<data>/route-learning/model-offer.json`.
  */
-import { lstat, mkdir, readdir } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { MODEL_ID_PATTERN, SECRET_PATTERNS, type ModelRegistry } from '@jevris/contracts';
 import { BUNDLED_MODEL_REGISTRY, loadModelRegistry, recordAccessUsageReading, resolveSpelling, type AccessUsageWindowInput } from '@jevris/core';
@@ -238,6 +239,33 @@ export const CLAUDE_LISTING_ARGV: readonly string[] = [
   '--settings',
   '{"disableAllHooks":true}',
 ];
+
+/** The per-run settings the listing passes to Claude Code (the last item of CLAUDE_LISTING_ARGV). */
+export const CLAUDE_LISTING_SETTINGS = '{"disableAllHooks":true}';
+
+/**
+ * The listing argv with `--settings` naming a file that holds CLAUDE_LISTING_SETTINGS. Windows
+ * uses it: an npm-installed Claude Code is a `claude.cmd` shim, and a cmd shim never carries an
+ * argument with a double quote (planSpawn refuses it, so the JSON form reads as not installed).
+ */
+export function claudeListingArgv(settingsFile?: string): readonly string[] {
+  return settingsFile === undefined ? CLAUDE_LISTING_ARGV : [...CLAUDE_LISTING_ARGV.slice(0, -1), settingsFile];
+}
+
+/** Windows: a private temp folder with the listing's settings file; null when it cannot be written. */
+async function listingSettingsFile(): Promise<{ readonly file: string; readonly remove: () => Promise<void> } | null> {
+  let dir: string | null = null;
+  try {
+    dir = await mkdtemp(join(tmpdir(), 'jevris-listing-'));
+    const file = join(dir, 'settings.json');
+    await writeFile(file, `${CLAUDE_LISTING_SETTINGS}\n`, { flag: 'wx', mode: 0o600 });
+    const made = dir;
+    return { file, remove: () => rm(made, { recursive: true, force: true }).catch(() => undefined) };
+  } catch {
+    if (dir !== null) await rm(dir, { recursive: true, force: true }).catch(() => undefined);
+    return null;
+  }
+}
 
 /** The listing's own argv (after any command prefix). */
 export function listingArgv(harness: GlobalHarness): readonly string[] | null {
@@ -501,6 +529,15 @@ export function parseCodexRateLimits(result: unknown): CodexUsageRead | null {
 
 /** Claude Code's listing: one `initialize` control request on an idle print session, then stop. */
 async function claudeListing(input: RawListingInput): Promise<RawListing> {
+  const settings = process.platform === 'win32' ? await listingSettingsFile() : null;
+  try {
+    return await claudeListingWith(input, claudeListingArgv(settings?.file));
+  } finally {
+    await settings?.remove();
+  }
+}
+
+async function claudeListingWith(input: RawListingInput, argv: readonly string[]): Promise<RawListing> {
   const { file, prefix } = commandOf(input.harness, input.command);
   let bytes = 0;
   let result: RawListing | null = null;
@@ -536,7 +573,7 @@ async function claudeListing(input: RawListingInput): Promise<RawListing> {
     const models = parseClaudeInitialize(response['response']);
     settle(models === null ? { ok: false, reasonCode: 'LISTING_MALFORMED' } : { ok: true, models, ...(session?.pid === undefined ? {} : { pid: session.pid }) });
   };
-  session = launchInteractive(file, [...prefix, ...CLAUDE_LISTING_ARGV], {
+  session = launchInteractive(file, [...prefix, ...argv], {
     ...(input.cwd === undefined ? {} : { cwd: input.cwd }),
     env: listingEnv('claude', input.env),
     onLine,

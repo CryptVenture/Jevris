@@ -215,7 +215,8 @@ models your sign-in offers. It starts an idle
 `claude -p --input-format stream-json` and sends only the `initialize` control request, which
 answers with the model list. No user message is sent, so no model runs and nothing is billed.
 The run saves no session, loads no MCP server or command, and turns hooks off for itself only.
-The account part of the answer is never read. Certify proves in its throwaway profile that, after a warm-up run, the
+On Windows that setting is passed as a file in a temporary folder, removed after the run, since
+an npm-installed `claude.cmd` cannot be handed an argument with quotes. The account part of the answer is never read. Certify proves in its throwaway profile that, after a warm-up run, the
 listing writes nothing but caches, logs and Claude Code's own entry for the listing process in
 `.claude/sessions/`. The warm-up run's own entry may be removed, and
 `.claude/plugins/known_marketplaces.json.lock` may be left only empty or gone. Until then, a Claude model becomes eligible after it

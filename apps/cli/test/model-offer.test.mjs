@@ -212,6 +212,22 @@ test('the listing argv and environment: no --refresh, the no-update variables, C
   assert.deepEqual([offer.listingEnv('kilocode', {}).KILO_DISABLE_AUTOUPDATE, offer.listingEnv('kilocode', {}).KILO_NO_DAEMON], ['1', '1']);
 });
 
+// windows-latest, pack-smoke doctor proof: through the claude.cmd stand-in the listing read as
+// HARNESS_NOT_INSTALLED, because a cmd shim never carries the JSON's double quotes.
+test('on Windows the Claude listing names a settings file, which a claude.cmd shim can carry', async () => {
+  const { planSpawn } = await import('../../../packages/platform/dist/index.js');
+  const shim = 'C:\\npm\\claude.cmd';
+  const options = { platform: 'win32', env: { PATH: 'C:\\npm', PATHEXT: '.COM;.EXE;.BAT;.CMD' }, isExecutableFile: (path) => path.toLowerCase() === shim.toLowerCase() };
+  assert.deepEqual(planSpawn(shim, [...offer.listingArgv('claude')], options), { ok: false, reason: 'unsafe-argument' });
+  const file = 'C:\\Users\\ada\\AppData\\Local\\Temp\\jevris-listing-x\\settings.json';
+  const argv = offer.claudeListingArgv(file);
+  assert.deepEqual(argv, [...offer.listingArgv('claude').slice(0, -1), file]);
+  assert.equal(argv[argv.indexOf('--settings') + 1], file);
+  assert.equal(planSpawn(shim, [...argv], options).ok, true);
+  assert.deepEqual(JSON.parse(offer.CLAUDE_LISTING_SETTINGS), { disableAllHooks: true });
+  assert.equal(offer.listingArgv('claude').at(-1), offer.CLAUDE_LISTING_SETTINGS);
+});
+
 test('listOfferedModels gates: an unknown harness is unsupported, a test run never starts the real binary, an uncertified version never lists', async () => {
   await withBox(async (dir) => {
     assert.deepEqual(await offer.listOfferedModels({ home: dir, harness: 'claude', env: { ...process.env, JEVRIS_TEST: '1' } }), { ok: false, reasonCode: 'LISTING_REFUSED' }, 'Claude Code lists now (G13), behind the same gates');

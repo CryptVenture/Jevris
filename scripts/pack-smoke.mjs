@@ -26,7 +26,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
-  chmodSync,
   existsSync,
   lstatSync,
   mkdirSync,
@@ -539,7 +538,7 @@ function probeRuntimeModules(rec, label, dir, home, env, work) {
 
 /** `<data>/runtime` for the sandbox home, per OS, from the shipped platform paths. */
 async function runtimeDirFor(home, env) {
-  const { jevrisPaths } = await import(pathToFileURL(join(repoRoot, 'packages', 'platform', 'dist', 'index.js')).href);
+  const { ensurePrivateDir, jevrisPaths, writePrivateFile } = await import(pathToFileURL(join(repoRoot, 'packages', 'platform', 'dist', 'index.js')).href);
   return join(jevrisPaths({ home, env }).data, 'runtime');
 }
 
@@ -688,7 +687,7 @@ async function doctorProof(rec, shim, work) {
   const { home, env } = sandbox(work, 'proof-home');
   const { writeCertifiableHarnessStubs } = await import(pathToFileURL(join(repoRoot, 'apps', 'cli', 'test', 'harness-cli-stubs.mjs')).href);
   const { doctorProofProblems, standInOnlyAction } = await import('./doctor-proof.mjs');
-  const { jevrisPaths } = await import(pathToFileURL(join(repoRoot, 'packages', 'platform', 'dist', 'index.js')).href);
+  const { ensurePrivateDir, jevrisPaths, writePrivateFile } = await import(pathToFileURL(join(repoRoot, 'packages', 'platform', 'dist', 'index.js')).href);
   const stand = await writeCertifiableHarnessStubs(join(env.TMPDIR, 'harness-bin'));
   const pathKey = Object.keys(env).find((name) => name.toUpperCase() === 'PATH') ?? 'PATH';
   const proofEnv = { ...env, [pathKey]: `${stand}${delimiter}${env[pathKey] ?? ''}`, JEVRIS_LIVE_HARNESS: '1' };
@@ -697,10 +696,15 @@ async function doctorProof(rec, shim, work) {
   if (!rec.record('doctor proof: install into the five stand-in harnesses', installed.status === 0, `${installed.status} ${installed.stderr.trim().slice(0, 300)}`, started)) return;
   // Kilo and OpenCode report no auth mode of their own; a user states it once (docs/harnesses).
   const config = jevrisPaths({ home, env: proofEnv }).config;
-  // Owner-only, as a user following the guide would keep it (doctor flags anything looser).
-  mkdirSync(config, { recursive: true, mode: 0o700 });
-  if (process.platform !== 'win32') chmodSync(config, 0o700);
-  writeFileSync(join(config, 'workers.json'), `${JSON.stringify({ schemaVersion: 'jevris-workers-1', auth: { kilo: 'subscription', opencode: 'subscription' } })}\n`, { mode: 0o600 });
+  // Owner-only, as a user following the guide would keep it (doctor flags anything looser): mode
+  // 0700 and 0600 on POSIX, an owner-only ACL on Windows, where a plain mkdir and write leave
+  // SYSTEM and Administrators on both.
+  const privateConfig = await ensurePrivateDir(config, { repair: true });
+  const workers = await writePrivateFile(join(config, 'workers.json'), `${JSON.stringify({ schemaVersion: 'jevris-workers-1', auth: { kilo: 'subscription', opencode: 'subscription' } })}\n`);
+  if (!privateConfig.ok || !workers.ok) {
+    rec.record('doctor proof: workers.json written owner-only', false, `${JSON.stringify(privateConfig)} ${JSON.stringify(workers)}`, started);
+    return;
+  }
   started = Date.now();
   const certified = await runShim(shim, ['certify', '--harness', 'all', '--home', home, '--json'], proofEnv);
   let certDetail = `${certified.status} ${certified.stderr.trim().slice(0, 300)}`;
