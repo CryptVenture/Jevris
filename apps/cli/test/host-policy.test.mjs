@@ -325,6 +325,26 @@ test('organization intersection keeps the tighter egress and passes it as source
   });
 });
 
+test('policy check --would-send-source says allowed, not refused, when source egress is approved (JEV-0024)', async () => {
+  await withRoots(async ({ home, workspace }) => {
+    await writeHost(home, validHost({ egress: 'approved-scoped' }));
+    const counter = countingFetch();
+    const screened = await screenSemanticDecision({ home, workspace, wouldSendSource: true, fetch: counter.fetch });
+    assert.equal(screened.decision, 'allow');
+    assert.match(screened.explanation, /^Egress allowed: /);
+    assert.equal(screened.sent, false);
+    assert.equal(screened.providerCalls, 0);
+    let text = '';
+    const code = await main(['policy', 'check', '--would-send-source', '--home', home, '--workspace', workspace], (chunk) => {
+      text += chunk;
+    }, { fetch: counter.fetch });
+    assert.equal(code, 0, text);
+    assert.match(text, /^Egress allowed: /);
+    assert.equal(/refused/i.test(text), false, text);
+    assert.equal(counter.calls(), 0, 'a check never calls the provider');
+  });
+});
+
 test('a widening organization file is not applied and does not replace active policy', async () => {
   await withRoots(async ({ home, workspace }) => {
     const host = validHost();

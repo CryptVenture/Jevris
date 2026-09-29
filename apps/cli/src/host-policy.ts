@@ -362,6 +362,13 @@ function screened(loaded: LoadedHostPolicy, decision: 'deny' | 'allow', explanat
   };
 }
 
+/**
+ * JEV-0024: what `jevris policy check --would-send-source` says when the gate allows egress. It
+ * must be non-empty: the command treats an empty explanation as a refusal, and an approved
+ * workspace used to be reported as "refused" (exit 2) for that reason.
+ */
+export const EGRESS_ALLOWED = 'Egress allowed: source egress is approved for this workspace. Nothing was sent; each request is still screened for secrets and size caps before it leaves the machine.';
+
 export async function screenSemanticDecision(input: ScreenInput): Promise<ScreenResult> {
   const loaded = await loadHostPolicy({
     home: input.home,
@@ -383,7 +390,7 @@ export async function screenSemanticDecision(input: ScreenInput): Promise<Screen
   if (decision.decision === 'deny') {
     return screened(loaded, 'deny', decision.explanation);
   }
-  return screened(loaded, 'allow', '');
+  return screened(loaded, 'allow', EGRESS_ALLOWED);
 }
 
 
