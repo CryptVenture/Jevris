@@ -28,7 +28,7 @@ export const BY_DESIGN_ACTIONS = [
  * start no turn, so these can never pass there; the owner's live certify run proves them. A harness
  * line that asks for an action only because of these is a limit of the stand-ins, not of the install.
  */
-export const STAND_IN_UNPROVABLE = ['hooks.route', 'session.route', 'models.list-hosts', 'route.host'];
+export const STAND_IN_UNPROVABLE = ['hooks.route', 'session.route', 'models.list-hosts', 'route.host', 'worker.actual-model'];
 
 /**
  * True when a harness line's only action is `not certified here:` for stand-in-unprovable features.
@@ -79,7 +79,9 @@ export function doctorProofProblems(json) {
     const text = String(line.text ?? '');
     if (line.severity === 'action' && BY_DESIGN_ACTIONS.some((item) => item.pattern.test(text))) continue;
     if (line.severity === 'action' && standInOnlyAction(text)) continue;
-    problems.push(`${line.severity}: ${text.slice(0, 240)}`);
+    // A harness line's miss comes after its long certified list: name the harness and the miss.
+    const miss = /; (not certified here: [^;]*)/.exec(text);
+    problems.push(`${line.severity}: ${miss === null ? text.slice(0, 240) : `${text.split('; ')[0]}; ${miss[1]}`}`);
   }
   const loose = json.privateFiles?.loose;
   if (!Array.isArray(loose)) problems.push('doctor --json has no privateFiles.loose[]');

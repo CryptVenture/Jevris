@@ -57,6 +57,9 @@ test('a harness line that misses only stub-turn features is a stand-in limit; an
   const head = 'harness kilocode: installed; version 7.7.9; certification records: 1; certified for >=7.7.9 <7.8.0 (last verified 7.7.9, 2026-09-28): plugin.install, mcp.tools';
   const standIn = `${head}; not certified here: hooks.route (ROUTE_CASE_FAILED), session.route (SESSION_ROUTE_CASE_FAILED), models.list-hosts (MODELS_LIST_HOSTS_FAILED), route.host (ROUTE_HOST_NEEDS_SESSION_ROUTE); optional, not certified here: access.detect (ACCESS_DETECT_CASE_FAILED); fix: jevris certify --harness kilo`;
   assert.equal(standInOnlyAction(standIn), true);
+  // worker.actual-model (K8) is certified by a stub-model turn too: the Codex line the pack smoke read.
+  const codex = 'harness codex: installed; version 0.157.1; certification records: 1; certified for >=0.157.1 <0.158.0 (last verified 0.157.1, 2026-09-29): plugin.install, mcp.tools, skills.discovery, hooks.observe, hooks.context, worker.route, models.list; not certified here: hooks.route (ROUTE_CASE_FAILED), worker.actual-model (WORKER_ACTUAL_MODEL_CASE_FAILED); optional, not certified here: access.detect (ACCESS_DETECT_CASE_FAILED), access.usage-read (ACCESS_USAGE_CASE_FAILED); fix: jevris certify --harness codex';
+  assert.equal(standInOnlyAction(codex), true);
   const hooks = `${head}; not certified here: hooks.route (ROUTE_CASE_FAILED), hooks.context (HOOKS_NOT_RUNNING); fix: jevris certify --harness kilo`;
   assert.equal(standInOnlyAction(hooks), false);
   assert.equal(standInOnlyAction(`${head}; something else went wrong; fix: jevris certify --harness kilo`), false);
@@ -65,5 +68,5 @@ test('a harness line that misses only stub-turn features is a stand-in limit; an
   const report = certified();
   report.lines.push({ text: standIn, severity: 'action' });
   report.lines.push({ text: hooks, severity: 'action' });
-  assert.deepEqual(doctorProofProblems(report), [`action: ${hooks.slice(0, 240)}`]);
+  assert.deepEqual(doctorProofProblems(report), ['action: harness kilocode: installed; not certified here: hooks.route (ROUTE_CASE_FAILED), hooks.context (HOOKS_NOT_RUNNING)'], 'the miss is named, not cut off after the certified list');
 });

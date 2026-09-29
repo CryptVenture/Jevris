@@ -85,7 +85,10 @@ function appServer() {
         continue;
       }
       if (message.method === 'initialize') out(JSON.stringify({ id: message.id, result: { userAgent: 'codex-stub' } }) + '\\n');
-      if (message.method === 'model/list') out(JSON.stringify({ id: message.id, result: { data: [{ id: 'gpt-5.5', model: 'gpt-5.5', hidden: false }, { id: 'hidden-one', model: 'hidden-one', hidden: true }], nextCursor: null } }) + '\\n');
+      else if (message.method === 'model/list') out(JSON.stringify({ id: message.id, result: { data: [{ id: 'gpt-5.5', model: 'gpt-5.5', hidden: false }, { id: 'hidden-one', model: 'hidden-one', hidden: true }], nextCursor: null } }) + '\\n');
+      // A stand-in starts no thread or turn. It refuses such a request at once, as the app-server
+      // answers any request it does not serve, so the stub-turn case fails now instead of at its timeout.
+      else if (message.id !== undefined && typeof message.method === 'string') out(JSON.stringify({ id: message.id, error: { code: -32601, message: 'the stand-in starts no thread' } }) + '\\n');
     }
   });
   process.stdin.on('end', () => process.exit(0));
