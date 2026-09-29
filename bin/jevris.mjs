@@ -15,4 +15,14 @@ if (process.platform !== 'win32') process.umask(0o077);
 // The published package ships one bundled CLI file (PKG-06); scripts/build.mjs writes it.
 const { main } = await import('../dist/cli.mjs');
 const code = await main(process.argv.slice(2));
+
+// process.exit drops what a pipe has not taken yet: stdout and stderr to a pipe are asynchronous
+// on macOS, so a long answer (route --help, doctor --json) was cut at the pipe's buffer (8 KiB on
+// a loaded host). Exit once both streams have handed everything over, or cannot (a closed pipe).
+const drained = (stream) =>
+  new Promise((resolve) => {
+    if (stream.destroyed || !stream.writable) return resolve();
+    stream.write('', () => resolve());
+  });
+await Promise.all([drained(process.stdout), drained(process.stderr)]);
 process.exit(code);

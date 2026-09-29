@@ -97,6 +97,31 @@ test('bin/jevris.mjs exits 2 with a plain message when N-API is below 10 (FIX-09
   assert.equal(/^import\s/m.test(source), false, 'bin/jevris.mjs must not statically import the CLI before the guard');
 });
 
+// CI (macOS, Node 22.14.0): a pipe is asynchronous there, and process.exit dropped what it had not
+// taken, so piped `route --help` and `doctor --json` stopped at 8192 bytes. The preload makes every
+// stdout write finish later, as a slow pipe does; the whole answer must still arrive.
+test('bin/jevris.mjs hands a slow pipe the whole answer before it exits', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'jevris-slow-pipe-'));
+  try {
+    const preload = join(dir, 'slow-stdout.mjs');
+    writeFileSync(preload, [
+      'const write = process.stdout._write.bind(process.stdout);',
+      'process.stdout._writev = undefined;',
+      'process.stdout._write = (chunk, encoding, done) => setTimeout(() => write(chunk, encoding, done), 50);',
+      '',
+    ].join('\n'));
+    const argv = [join(root, 'bin', 'jevris.mjs'), 'route', '--help'];
+    const direct = spawnSync(process.execPath, argv, { encoding: 'utf8', shell: false });
+    assert.equal(direct.status, 0, direct.stderr);
+    assert.ok(direct.stdout.length > 8192, `route --help is ${direct.stdout.length} bytes, so it spans a small pipe buffer`);
+    const slow = spawnSync(process.execPath, ['--import', pathToFileURL(preload).href, ...argv], { encoding: 'utf8', shell: false });
+    assert.equal(slow.status, 0, slow.stderr);
+    assert.equal(slow.stdout, direct.stdout);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('the files allowlist and the tarball check keep sources out and runtime in (FIX-10, PKG-06)', async () => {
   assert.equal(Array.isArray(pkg.files), true);
   const { PUBLIC_SKILLS, SKILL_TREES, checkPackList } = await import(pathToFileURL(join(root, 'scripts', 'check-pack.mjs')).href);
