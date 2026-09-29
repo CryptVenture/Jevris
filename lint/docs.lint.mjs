@@ -182,6 +182,33 @@ test('every jevris command, subcommand and flag in the docs is in the CLI refere
   assert.deepEqual(found, []);
 });
 
+function walkSkillFiles(dir, out = []) {
+  if (!existsSync(dir)) return out;
+  for (const name of readdirSync(dir)) {
+    const full = join(dir, name);
+    if (statSync(full).isDirectory()) walkSkillFiles(full, out);
+    else if (name.endsWith('.md')) out.push(full);
+  }
+  return out;
+}
+
+test('every jevris command, subcommand and flag a skill tells the model or user to run is in the CLI reference (JEV-0032, JEV-0033)', () => {
+  const sections = cliSections(readFileSync(join(root, 'docs', 'cli.md'), 'utf8'));
+  assert.ok(sections.size > 10, 'docs/cli.md has the generated command sections');
+  const found = [];
+  let mentions = 0;
+  for (const file of walkSkillFiles(join(root, 'plugins', 'shared', 'skills'))) {
+    for (const fragment of codeFragments(readFileSync(file, 'utf8'))) {
+      for (const inv of invocations(fragment.code)) {
+        mentions += 1;
+        for (const problem of invocationProblems(inv, sections)) found.push(`${rel(file)}:${fragment.line} ${problem}`);
+      }
+    }
+  }
+  assert.ok(mentions >= 3, `the skills mention too few jevris commands to check (${String(mentions)})`);
+  assert.deepEqual(found, []);
+});
+
 test('every relative link in the docs resolves (UDOC-09)', () => {
   const found = [];
   for (const file of userPages()) {
