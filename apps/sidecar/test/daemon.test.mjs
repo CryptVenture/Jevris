@@ -1683,7 +1683,9 @@ test('a full hot pool answers BUSY at once while a background op is still admitt
 
 test('status shows the queue depth when the surface contract carries it, and always a valid body (P4)', async () => {
   const { surfacePayloadContract } = await import('@jevris/contracts');
-  await withDaemon({}, async ({ home }) => {
+  // Without the startup harness re-check: that job runs in the background executor after start,
+  // and on a slow host it was still running (running: 1) when status asked (ubuntu, Node 22.14.0).
+  await withDaemon({ liveCertification: false }, async ({ home }) => {
     const res = await sidecarRequest({ home, op: 'status', scope: 'mcp', body: {} });
     assert.equal(res.ok, true, JSON.stringify(res));
     const contract = surfacePayloadContract('status');

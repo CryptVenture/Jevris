@@ -46,7 +46,7 @@
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { writeFileSync, chmodSync } from 'node:fs';
 import { basename, delimiter, isAbsolute, join, resolve, sep } from 'node:path';
@@ -667,8 +667,12 @@ async function main(argv) {
   const tempGuard = process.env.JEVRIS_TEMP_GUARD !== 'off';
   // Everything the run creates lives in one dir under the real temp dir (short name: socket
   // paths have a length limit): the temp HOME, the harness stubs, and the TMPDIR every test
-  // process gets. The harness tripwire accepts only binaries inside that TMPDIR.
-  const runTemp = mkdtempSync(join(realTemp, 'jt-'));
+  // process gets. The harness tripwire accepts only binaries inside that TMPDIR. On Windows the
+  // temp folder can be an 8.3 name (C:\Users\RUNNER~1 on windows-latest) while the product
+  // resolves a workspace through realpath.native to the long name; the run folder is given in
+  // its long form, so a test's paths and the product's agree.
+  const made = mkdtempSync(join(realTemp, 'jt-'));
+  const runTemp = process.platform === 'win32' ? realpathSync.native(made) : made;
   const tempHome = join(runTemp, 'h');
   mkdirSync(join(tempHome, '.config'), { recursive: true });
   const stubDir = writeHarnessStubs(join(runTemp, 'bin'));
@@ -681,10 +685,10 @@ async function main(argv) {
   let code;
   try {
     const env = testEnvironment(tempHome, realHome, stubDir, runTemp);
-    // The latency-bound files run last, each alone (node:test starts files in the order given).
+    // The latency-bound files are listed last and each runs alone (scripts/test-serial-gate.mjs).
     const { parallel, serial } = splitSerial(files);
     const gate = serialGate(parallel, serial, runTemp, env);
-    if (gate !== null) console.log(`test: ${serial.length} latency-bound file(s) run last, one at a time, after every other file (scripts/test-serial-gate.mjs)`);
+    if (gate !== null) console.log(`test: ${serial.length} latency-bound file(s) each run alone (scripts/test-serial-gate.mjs)`);
     const bound = fileBound({ ...env, ...(gate ?? {}) });
     // A hung test fails after two minutes instead of stalling a CI cell for its job limit.
     const result = spawnSync(process.execPath, ['--test', ...testTimeoutArgs(), ...coverageArgs(process.env), ...eventArgs(process.env), ...parallel, ...serial], {
