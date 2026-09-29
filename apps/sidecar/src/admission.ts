@@ -11,6 +11,9 @@ import { join } from 'node:path';
  *   gives back its hot slot and holds an overrun slot until it settles. Overrun work counts
  *   against the background pool, and when it reaches the hot pool's size, new hot requests are
  *   answered BUSY: the loop is saturated, and a prompt BUSY is better than a late DEADLINE.
+ * - The answer lane (ededdba, K3): a SessionStart restore, a Stop reminder or a PreCompact capsule
+ *   is admitted from kept hot slots when the pool is full, and while one runs, new ordinary hot
+ *   requests are admitted only below `duringAnswer`, so the loop is mostly the answer's.
  * - No shedding (owner): observe-only background work is never dropped or coalesced. It runs
  *   through a bounded executor, FIFO per key (workspace, session, agent, subscriber), and starts
  *   only when no hot request is in flight, or when nothing else of its own runs, so it always
@@ -29,9 +32,18 @@ export interface AdmissionLimits {
    * loop is saturated with overrun work, so load never turns its answer into BUSY.
    */
   readonly answer: number;
+  /**
+   * Ordinary hot requests admitted while an answer-lane request is in flight (owner decision
+   * ededdba, K3). One event loop serves every request, so an answer's own steps wait behind every
+   * other request's: with the pool full of subagent hooks, a restore or Stop took more than its
+   * deadline on a slower host (windows-latest). While an answer runs, new ordinary hot requests
+   * are admitted only below this count and the rest read BUSY at once; those already running
+   * finish.
+   */
+  readonly duringAnswer: number;
 }
 
-export const DEFAULT_ADMISSION: AdmissionLimits = { hot: 24, background: 8, answer: 8 };
+export const DEFAULT_ADMISSION: AdmissionLimits = { hot: 24, background: 8, answer: 8, duringAnswer: 4 };
 
 export interface AdmitOptions {
   /** The request is on the answer lane (a MAC'd frame flag the service has checked). */
@@ -70,10 +82,13 @@ export function createAdmission(input: Partial<AdmissionLimits> = {}): Admission
     hot: positive(input.hot, DEFAULT_ADMISSION.hot),
     background: positive(input.background, DEFAULT_ADMISSION.background),
     answer: positive(input.answer, DEFAULT_ADMISSION.answer),
+    duringAnswer: positive(input.duringAnswer, DEFAULT_ADMISSION.duringAnswer),
   };
   let hot = 0;
   let background = 0;
   let answer = 0;
+  /** Answer-lane requests holding an ordinary hot slot (the rest hold kept ones, in `answer`). */
+  let answerInHot = 0;
   const overrun = new Set<Promise<unknown>>();
   const listeners: (() => void)[] = [];
   const settled = (): void => {
@@ -90,9 +105,13 @@ export function createAdmission(input: Partial<AdmissionLimits> = {}): Admission
     admit(cls, options = {}) {
       // An answer-lane request takes an ordinary hot slot while there is one, else a kept slot.
       let pool: 'hot' | 'background' | 'answer';
+      const lane = cls === 'hot' && options.answer === true;
       if (cls === 'hot') {
+        // An answer in flight: ordinary hot work gives it the loop (duringAnswer).
+        const answering = answer + answerInHot > 0;
+        if (!lane && answering && hot - answerInHot >= limits.duringAnswer) return undefined;
         if (hot < limits.hot && overrun.size < limits.hot) pool = 'hot';
-        else if (options.answer === true && answer < limits.answer) pool = 'answer';
+        else if (lane && answer < limits.answer) pool = 'answer';
         else return undefined;
       } else {
         if (background + overrun.size >= limits.background) return undefined;
@@ -101,10 +120,12 @@ export function createAdmission(input: Partial<AdmissionLimits> = {}): Admission
       if (pool === 'hot') hot += 1;
       else if (pool === 'answer') answer += 1;
       else background += 1;
+      if (pool === 'hot' && lane) answerInHot += 1;
       let done = false;
       const free = (): boolean => {
         if (done) return false;
         done = true;
+        if (pool === 'hot' && lane) answerInHot -= 1;
         if (pool === 'hot') hot -= 1;
         else if (pool === 'answer') answer -= 1;
         else background -= 1;

@@ -54,6 +54,7 @@ function nativeEvent(kind, { session, agent = null }) {
 async function hook(native) {
   const normalized = normalize(native, {});
   if (!normalized.ok) return { kind: native.hook_event_name, code: 'NORMALIZE_' + normalized.reasonCode };
+  const began = Date.now();
   const answer = await sidecarRequest({
     op: 'event',
     workspace: work,
@@ -66,7 +67,7 @@ async function hook(native) {
   const queued = answer.ok && Array.isArray(answer.result?.queued) ? answer.result.queued : [];
   const code = answer.ok ? (queued.length > 0 ? 'OK_QUEUED' : answer.result?.duplicate ? 'OK_DUP' : 'OK') : (answer.reasonCode ?? 'SIDECAR_' + String(answer.reason).toUpperCase());
   const outcome = answer.ok ? answer.result?.results?.orchestrator?.hookOutcome ?? null : null;
-  return { kind: native.hook_event_name, session: native.session_id, code, queued, outcome: outcome === null ? null : { kind: outcome.kind ?? null, reasonCode: outcome.reasonCode ?? null, text: typeof outcome.text === 'string' ? outcome.text.slice(0, 200) : null } };
+  return { kind: native.hook_event_name, session: native.session_id, code, queued, ms: Date.now() - began, outcome: outcome === null ? null : { kind: outcome.kind ?? null, reasonCode: outcome.reasonCode ?? null, text: typeof outcome.text === 'string' ? outcome.text.slice(0, 200) : null } };
 }
 async function subagents(session) {
   const out = [];
@@ -143,7 +144,9 @@ test('K3: compact restores and Stop reminders are never queued while 50 subagent
   const answers = lifecycle.filter((s) => s.kind === 'SessionStart' || s.kind === 'Stop');
   assert.equal(answers.length, 2 * ROUNDS * SESSIONS, 'every restore and Stop was sent');
   assert.equal(load.length, ROUNDS * SUBAGENTS * 8, 'every subagent hook was sent');
-  const report = `lifecycle ${JSON.stringify(tally(lifecycle.map((s) => `${s.kind}:${s.code}`)))}; subagent hooks ${JSON.stringify(tally(load))}`;
+  // The slowest answer of each lifecycle kind, in ms: what the load cost them.
+  const slowest = lifecycle.reduce((acc, s) => ({ ...acc, [s.kind]: Math.max(acc[s.kind] ?? 0, s.ms) }), {});
+  const report = `lifecycle ${JSON.stringify(tally(lifecycle.map((s) => `${s.kind}:${s.code}`)))}; slowest ${JSON.stringify(slowest)} ms; subagent hooks ${JSON.stringify(tally(load))}`;
   t.diagnostic(report);
 
   // The locked target: under load, a restore or a Stop is never answered from the queue.

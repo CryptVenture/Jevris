@@ -84,6 +84,25 @@ test('the answer lane: a full or saturated hot pool still admits an answer reque
   assert.deepEqual(admission.counts(), { hot: 0, background: 1, overrun: 0, answer: 0 });
 });
 
+test('while an answer runs, new ordinary hot requests are admitted only below duringAnswer; those running finish, and the cap lifts when it ends (ededdba, K3)', () => {
+  const admission = createAdmission({ hot: 10, background: 1, answer: 2, duringAnswer: 2 });
+  const running = [admission.admit('hot'), admission.admit('hot'), admission.admit('hot')];
+  assert.ok(running.every(Boolean), 'with no answer in flight the whole pool is open');
+  const answer = admission.admit('hot', { answer: true });
+  assert.ok(answer, 'an answer takes an ordinary slot while there is one');
+  assert.equal(admission.admit('hot'), undefined, 'three ordinary requests already run: a fourth is BUSY while the answer runs');
+  running[0].release();
+  running[1].release();
+  const one = admission.admit('hot');
+  assert.ok(one, 'below duringAnswer an ordinary request is admitted');
+  assert.equal(admission.admit('hot'), undefined, 'and at it, BUSY again');
+  assert.ok(admission.admit('hot', { answer: true }), 'another answer is never held back by the cap');
+  answer.release();
+  assert.equal(admission.admit('hot'), undefined, 'the second answer still runs');
+  const counts = admission.counts();
+  assert.deepEqual([counts.hot, counts.answer], [3, 0]);
+});
+
 test('jobs of one key run in order, one at a time; keys interleave within the concurrency bound; nothing is dropped (K2)', async () => {
   let hot = false;
   const executor = createBackgroundExecutor({ concurrency: 2, hotBusy: () => hot });
