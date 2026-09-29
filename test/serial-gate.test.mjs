@@ -10,7 +10,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('..', import.meta.url));
 const { SERIAL_GATE_URL, SERIAL_TEST_FILES, cappedWaits, serialGate, splitSerial } = await import('../scripts/test.mjs');
-const { alive, finished, markerOf, tryLock, unfinished } = await import('../scripts/test-serial-gate.mjs');
+const { alive, finished, lockHeld, markerOf, tryLock, unfinished } = await import('../scripts/test-serial-gate.mjs');
 
 test('the listed latency-bound files exist, and a run lists them after every other file', () => {
   for (const file of SERIAL_TEST_FILES) assert.equal(existsSync(join(root, file)), true, `${file} exists`);
@@ -101,84 +101,76 @@ test('in one node --test run, each serial file starts after every parallel file 
   }
 });
 
-// CI (Linux and macOS, Node 24 and later): the serial files waited out the 1200 s cap and the run
-// did not say for what. A capped wait now names each parallel file it waited for, with its state.
-test('a capped wait names the parallel files it waited for, and the runner prints them after the run', async () => {
+/** Runs `file` alone under a gate whose plan lists `parallel` and `serial`, with extra variables. */
+async function gatedAlone(dir, parallel, serial, file, extra = {}) {
+  const gate = serialGate(parallel, serial, dir, { NODE_OPTIONS: process.env.NODE_OPTIONS ?? '' });
+  const { NODE_TEST_CONTEXT: _context, ...env } = process.env;
+  const started = Date.now();
+  let output = '';
+  await new Promise((done, fail) => {
+    const child = spawn(process.execPath, ['--test', '--test-reporter=dot', file], { env: { ...env, ...gate, ...extra }, stdio: ['ignore', 'pipe', 'pipe'] });
+    child.stdout.on('data', (chunk) => { output += chunk; });
+    child.stderr.on('data', (chunk) => { output += chunk; });
+    child.on('error', fail);
+    child.on('close', done);
+  });
+  return { gate: gate.JEVRIS_SERIAL_GATE, ms: Date.now() - started, output };
+}
+
+const testFile = (dir, name, body = '') => {
+  const path = join(dir, `${name}.test.mjs`);
+  writeFileSync(path, `import test from 'node:test';\nimport { appendFileSync } from 'node:fs';\ntest(${JSON.stringify(name)}, () => { ${body} });\n`);
+  return path;
+};
+
+// CI (Node 24 and latest): the five serial files waited out the 20-minute cap. node:test had
+// sorted the files and started them early; waiting for parallel files not yet started, they held
+// every slot, so those files never started. A serial file now waits only for running parallel
+// files, and a capped wait names them, with its state, here and after the run.
+test('a capped wait names the running parallel files it went ahead of, and the runner prints them after the run', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gate-cap-'));
   try {
-    const never = join(dir, 'never.test.mjs');
-    const serial = join(dir, 'serial.test.mjs');
-    writeFileSync(never, "import test from 'node:test';\ntest('never run here', () => {});\n");
-    writeFileSync(serial, "import test from 'node:test';\ntest('ran after its capped wait', () => {});\n");
-    const gate = serialGate([never], [serial], dir, { NODE_OPTIONS: process.env.NODE_OPTIONS ?? '' });
-    const { NODE_TEST_CONTEXT: _context, ...env } = process.env;
-    const stderr = await new Promise((done, fail) => {
-      // Only the serial file runs: the parallel one never starts, so the wait is capped at 1 s.
-      const child = spawn(process.execPath, ['--test', '--test-reporter=dot', serial], { env: { ...env, ...gate, JEVRIS_SERIAL_GATE_WAIT_S: '1' }, stdio: ['ignore', 'pipe', 'pipe'] });
-      let text = '';
-      child.stdout.on('data', (chunk) => { text += chunk; });
-      child.stderr.on('data', (chunk) => { text += chunk; });
-      child.on('error', fail);
-      child.on('close', () => done(text));
-    });
-    const lines = cappedWaits(gate.JEVRIS_SERIAL_GATE);
-    assert.equal(lines.length, 1, stderr);
-    assert.match(lines[0], /^serial gate: .*serial\.test\.mjs waited [12] s, its cap, and went ahead of 1 file\(s\): .*never\.test\.mjs \(never started\)$/);
-    const record = JSON.parse(readFileSync(join(gate.JEVRIS_SERIAL_GATE, `waited-${markerOf(serial)}.json`), 'utf8'));
-    assert.deepEqual(record.unfinished, [{ file: never, pid: null, running: false }]);
-    assert.equal(record.capped, true);
-    // Pair: a parallel file with a live process is named as still running; a finished one is not named.
-    writeFileSync(join(gate.JEVRIS_SERIAL_GATE, `${markerOf(never)}.start`), String(process.pid));
-    assert.deepEqual(unfinished(gate.JEVRIS_SERIAL_GATE, [never]), [{ file: never, pid: process.pid, running: true }]);
-    writeFileSync(join(gate.JEVRIS_SERIAL_GATE, `${markerOf(never)}.done`), '');
-    assert.deepEqual(unfinished(gate.JEVRIS_SERIAL_GATE, [never]), []);
+    const busy = testFile(dir, 'busy');
+    const serial = testFile(dir, 'serial');
+    const plan = serialGate([busy], [serial], dir, {});
+    // The parallel file marked itself started, and its process (this one) is running.
+    writeFileSync(join(plan.JEVRIS_SERIAL_GATE, `${markerOf(busy)}.start`), String(process.pid));
+    const run = await gatedAlone(dir, [busy], [serial], serial, { JEVRIS_SERIAL_GATE_WAIT_S: '2' });
+    assert.ok(run.ms >= 1500, `the running parallel file was waited for until the cap (${run.ms} ms)`);
+    const lines = cappedWaits(run.gate);
+    assert.equal(lines.length, 1, run.output);
+    assert.match(lines[0], new RegExp(`^serial gate: .*serial\\.test\\.mjs waited [23] s, its cap, and went ahead of 1 unfinished parallel file\\(s\\): .*busy\\.test\\.mjs \\(pid ${process.pid}, still running\\)$`));
+    const record = JSON.parse(readFileSync(join(run.gate, `waited-${markerOf(serial)}.json`), 'utf8'));
+    assert.deepEqual(record.unfinished, [{ file: busy, pid: process.pid, running: true }]);
+    assert.equal(record.locked, true);
+    // Pair: a finished parallel file is not waited for and not named.
+    writeFileSync(join(run.gate, `${markerOf(busy)}.done`), '');
+    assert.deepEqual(unfinished(run.gate, [busy]), []);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
 });
 
-/** Runs `serial` alone under a gate whose plan also lists `parallel`, with extra gate variables. */
-async function gatedAlone(dir, parallel, serial, extra) {
-  const gate = serialGate(parallel, [serial], dir, { NODE_OPTIONS: process.env.NODE_OPTIONS ?? '' });
-  const { NODE_TEST_CONTEXT: _context, ...env } = process.env;
-  const started = Date.now();
-  await new Promise((done, fail) => {
-    const child = spawn(process.execPath, ['--test', '--test-reporter=dot', serial], { env: { ...env, ...gate, ...extra }, stdio: 'ignore' });
-    child.on('error', fail);
-    child.on('close', done);
-  });
-  return { gate, ms: Date.now() - started };
-}
-
-// node:test has started every parallel file by the time a serial file runs, so one that never
-// marked itself started never loaded the gate: the serial file goes ahead after the start grace,
-// not after the 20-minute cap, and says so. Pair: a started, running file is still waited for.
-test('a parallel file that never marked itself started is not waited for past the start grace; a running one is', async () => {
-  const dir = mkdtempSync(join(tmpdir(), 'gate-grace-'));
+test('a serial file does not wait for a parallel file that has not started; a parallel file that starts waits while a serial file holds the lock', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gate-lock-'));
   try {
-    const never = join(dir, 'never.test.mjs');
-    const serial = join(dir, 'serial.test.mjs');
-    writeFileSync(never, "import test from 'node:test';\ntest('never run here', () => {});\n");
-    writeFileSync(serial, "import test from 'node:test';\ntest('ran after the grace', () => {});\n");
-    const quick = await gatedAlone(dir, [never], serial, { JEVRIS_SERIAL_GATE_WAIT_S: '120', JEVRIS_SERIAL_GATE_START_GRACE_S: '1' });
-    assert.ok(quick.ms < 60_000, `went ahead after the grace (${quick.ms} ms), not the cap`);
-    const record = JSON.parse(readFileSync(join(quick.gate.JEVRIS_SERIAL_GATE, `waited-${markerOf(serial)}.json`), 'utf8'));
-    assert.equal(record.capped, false);
-    assert.deepEqual(record.unfinished, [{ file: never, pid: null, running: false }]);
+    const log = join(dir, 'log.txt');
+    const later = testFile(dir, 'later', `appendFileSync(${JSON.stringify(log)}, 'ran ' + Date.now() + '\\n');`);
+    const serial = testFile(dir, 'serial');
+    const quick = await gatedAlone(dir, [later], [serial], serial, { JEVRIS_SERIAL_GATE_WAIT_S: '120' });
+    assert.ok(quick.ms < 30_000, `no wait for a file node:test has not started (${quick.ms} ms)`);
+    assert.deepEqual(cappedWaits(quick.gate), []);
+    assert.equal(lockHeld(quick.gate), false, 'the serial file let the lock go at exit');
 
-    const other = mkdtempSync(join(tmpdir(), 'gate-grace-running-'));
-    try {
-      const gate = serialGate([never], [serial], other, {});
-      // The parallel file marked itself started, and its process (this one) is running.
-      writeFileSync(join(gate.JEVRIS_SERIAL_GATE, `${markerOf(never)}.start`), String(process.pid));
-      const held = await gatedAlone(other, [never], serial, { JEVRIS_SERIAL_GATE_WAIT_S: '3', JEVRIS_SERIAL_GATE_START_GRACE_S: '1' });
-      assert.ok(held.ms >= 2500, `a running parallel file is waited for until the cap (${held.ms} ms)`);
-      const capped = JSON.parse(readFileSync(join(held.gate.JEVRIS_SERIAL_GATE, `waited-${markerOf(serial)}.json`), 'utf8'));
-      assert.equal(capped.capped, true);
-      assert.deepEqual(capped.unfinished, [{ file: never, pid: process.pid, running: true }]);
-    } finally {
-      rmSync(other, { recursive: true, force: true });
-    }
+    // A live serial file (this process) holds the lock: the parallel file waits for it.
+    mkdirSync(join(quick.gate, 'serial.lock'));
+    writeFileSync(join(quick.gate, 'serial.lock', 'pid'), String(process.pid));
+    const released = Date.now() + 1500;
+    setTimeout(() => rmSync(join(quick.gate, 'serial.lock'), { recursive: true, force: true }), 1500);
+    const waited = await gatedAlone(dir, [later], [serial], later, { JEVRIS_SERIAL_GATE_WAIT_S: '120' });
+    assert.match(waited.output, /\S/);
+    const ran = Number(/ran (\d+)/.exec(readFileSync(log, 'utf8'))?.[1]);
+    assert.ok(ran >= released - 50, `the parallel file ran after the lock was let go (${ran - released} ms)`);
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
