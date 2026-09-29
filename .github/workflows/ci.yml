@@ -75,15 +75,6 @@ jobs:
         run: npm run check:clean
       - name: Lint
         run: npm run lint
-      # Windows first: the tests of the file primitives every private write and every authority
-      # read rest on (the real icacls and whoami for BLD-08; the path and descriptor stats for
-      # SR-16), and two sandboxed CLI tests whose teardown names what holds a folder it cannot
-      # remove. A failure there shows in a minute with the raw outputs. While the Windows cells
-      # are being brought up it does not stop the job, so the full suite still runs after it.
-      - name: File primitives on this host (BLD-08, SR-16)
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: node scripts/test.mjs --no-build packages/platform/test/owner-only.test.mjs packages/platform/test/authority-file.test.mjs apps/cli/test/output-path.test.mjs apps/cli/test/access-limits-deletion.test.mjs apps/cli/test/doctor-egress.test.mjs apps/cli/test/egress-command.test.mjs apps/cli/test/autostart-off.test.mjs
       - name: Test
         run: npm test
       # IPC-06, GOV-14: a real second OS user can neither connect to the sidecar nor read its
@@ -110,6 +101,37 @@ jobs:
         run: npm run check:pack
       - name: Registry signatures
         run: npm audit signatures
+
+  # Windows first: the tests of the file primitives every private write and every authority read
+  # rest on (the real icacls and whoami for BLD-08; the path and descriptor stats for SR-16), and
+  # sandboxed CLI tests whose teardown names what holds a folder it cannot remove. A job of its
+  # own, so its result and log arrive in minutes while the Windows test cells run the whole suite.
+  windows-first:
+    name: windows-first
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - name: Keep checkout bytes exact
+        run: git config --global core.autocrlf false
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      # Lockfile installs drop better-sqlite3's gypfile:false and run node-gyp, which needs a
+      # C++ toolchain, for a package that loads its bundled prebuilt binary (docs/development.md).
+      - name: npm ci
+        run: npm ci --ignore-scripts
+      - name: Dependency install scripts
+        run: npm rebuild esbuild
+      - name: Build
+        run: npm run build
+      - name: File primitives and sandbox teardown on this host (BLD-08, SR-16)
+        run: node scripts/test.mjs --no-build packages/platform/test/owner-only.test.mjs packages/platform/test/authority-file.test.mjs apps/cli/test/output-path.test.mjs apps/cli/test/access-limits-deletion.test.mjs apps/cli/test/doctor-egress.test.mjs apps/cli/test/egress-command.test.mjs apps/cli/test/autostart-off.test.mjs
 
   coverage:
     name: coverage
