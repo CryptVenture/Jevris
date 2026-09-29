@@ -7,6 +7,8 @@ import { resolveSync } from './test-keyring-hooks.mjs';
 import './test-clock-shift.mjs';
 // Process hygiene: a process a test started ends once that test file's process has gone.
 import { installOwnerWatch } from './test-owner-watch.mjs';
+// Windows: a teardown's removal of this run's temp folders waits out a handle that closes late.
+import './test-windows-remove.mjs';
 
 if (typeof nodeModule.registerHooks === 'function') {
   nodeModule.registerHooks({ resolve: resolveSync });

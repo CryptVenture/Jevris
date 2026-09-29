@@ -60,6 +60,12 @@ export interface ServiceLimits {
   readonly idleMs: number;
   readonly frameMs: number;
   readonly budgetMs: { readonly [K in SidecarBudgetClass]: number };
+  /**
+   * The answer lane's budget (ANSWER_BUDGET_MS by default). Limits that set `budgetMs` and not this
+   * give the answer lane the hot budget, so a caller that sets the hot budget sets it for every
+   * hot request.
+   */
+  readonly answerBudgetMs?: number;
 }
 
 /** How long a refused socket may wait for its last line to flush before it is closed. */
@@ -88,6 +94,15 @@ const LISTEN_BACKLOG = 511;
  * reads NODE_PENDING_PIPE_INSTANCES when it creates the pipe server, so it is set around listen.
  */
 const PIPE_PENDING_INSTANCES = 128;
+/**
+ * The budget of an answer-lane request (owner decision ededdba, K3): a SessionStart restore, a Stop
+ * reminder or a PreCompact capsule is not a Jev decision, and the harness waits the hook's whole
+ * deadline for it, so it may use that deadline (the launcher's longest is 4000 ms) instead of the
+ * 900 ms hot budget. The budget counts from the hook's start, and on a loaded host starting the
+ * hook process alone can take most of 900 ms, which left a restore a slice too short to answer
+ * (SUBSCRIBER_QUEUED). The client's deadline still shortens it, as for every request.
+ */
+const ANSWER_BUDGET_MS = 4000;
 
 export const DEFAULT_LIMITS: ServiceLimits = {
   maxConnections: 64,
@@ -190,6 +205,7 @@ function outcomeFail(reasonCode: string, message?: string): SidecarOpOutcome {
 
 export async function startService(options: ServiceOptions): Promise<SidecarService> {
   const limits: ServiceLimits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
+  const answerBudgetMs = options.limits?.answerBudgetMs ?? (options.limits?.budgetMs !== undefined ? limits.budgetMs.hot : ANSWER_BUDGET_MS);
   const admission: Admission =
     options.admission ?? createAdmission({ hot: Math.max(1, limits.maxInFlight - Math.floor(limits.maxInFlight / 4)), background: Math.max(1, Math.floor(limits.maxInFlight / 4)) });
   const bootKey = options.bootKey ?? new Uint8Array(randomBytes(32));
@@ -474,7 +490,7 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
     const mode = options.hooks.modeOf?.(workspace);
     const off = mode !== undefined && !modeAllows(mode, 'record');
     if (off && MODE_OFF_REFUSED_OPS.includes(input.op)) return outcomeFail(MODE_OFF_REASON, modeOffMessage(input.op));
-    const budgetMs = limits.budgetMs[definition.budget === 'background' ? 'background' : input.budget];
+    const budgetMs = input.answer ? answerBudgetMs : limits.budgetMs[definition.budget === 'background' ? 'background' : input.budget];
     const alreadyElapsed = elapsedSinceForeignStart(input.eventAtMs, input.wall, budgetMs);
     // IPC-15: the sidecar stops when the client stops waiting, less a margin for the answer to
     // travel. A client deadline can only shorten the budget, never extend it.

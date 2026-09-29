@@ -153,3 +153,28 @@ test('with every connection taken, a Stop still reaches the lane on a connection
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('an answer-lane event may use the hook deadline, not only the 900 ms hot budget, counted from the hook start; an ordinary event may not (ededdba, K3)', { skip: managedHostSkip() }, async () => {
+  const home = tempHome();
+  const root = join(home, 'ws');
+  mkdirSync(root);
+  // A subscriber that needs 300 ms, reached by an event whose hook started 800 ms earlier (a
+  // loaded host's process start): inside the hot budget only 100 ms would be left.
+  const slow = { name: 'slow-answer', handle: async () => (await new Promise((resolve) => setTimeout(resolve, 300)), { answered: true }) };
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers: [slow], log: () => undefined });
+  assert.equal(started.ok, true, started.ok ? '' : started.message);
+  try {
+    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
+    assert.equal(registered.ok, true, JSON.stringify(registered));
+    const event = (key, kind) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: key, envelope: envelope(kind, `s-${key}`) }, timeoutMs: 2_000, eventAtMs: Date.now() - 800, budget: 'hot' });
+    const stop = await event('late-1', 'turn.stopped');
+    assert.equal(stop.ok, true, JSON.stringify(stop));
+    assert.deepEqual([stop.result.results['slow-answer'], stop.result.queued], [{ answered: true }, undefined], `a Stop answered in its slice: ${JSON.stringify(stop.result)}`);
+    const tool = await event('late-2', 'tool.finished');
+    const answered = tool.ok && tool.result.queued === undefined;
+    assert.equal(answered, false, `an ordinary event keeps the 900 ms hot budget: ${JSON.stringify(tool)}`);
+  } finally {
+    await started.daemon.stop('test');
+    rmSync(home, { recursive: true, force: true });
+  }
+});
