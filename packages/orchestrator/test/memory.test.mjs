@@ -190,6 +190,80 @@ test('loops: environment failures ask a focused question; oscillation restores w
   }
 });
 
+test('recover: one fresh failure is not a stall and is not classified by Jev (JEV-0027)', async () => {
+  const f = fixture();
+  try {
+    const calls = [];
+    const a = await assessLoop(f.ws, { taskId: 'S', fingerprints: ['TypeError at parse.ts:40'], nowMs: 1_800_000_000_000, engine: engine({ choice: 'repeated_failure' }, calls) });
+    assert.equal(a.classification, 'progress');
+    assert.equal(a.source, 'rules');
+    assert.equal(calls.length, 0, 'a decisive rule needs no Jev call');
+    assert.equal(a.rejectedApproaches.length, 0);
+    // Rules only, no engine: the same answer.
+    assert.equal((await assessLoop(f.ws, { taskId: 'S2', fingerprints: ['TypeError at parse.ts:40'], nowMs: 1_800_000_000_000 })).classification, 'progress');
+    // Three different failures are progress too, never a repeat.
+    const three = await assessLoop(f.ws, { taskId: 'S3', fingerprints: ['TypeError: a is undefined', 'RangeError: index out of bounds', 'SyntaxError: unexpected token'], nowMs: 1_800_000_000_000 });
+    assert.notEqual(three.classification, 'repeated-failure');
+    assert.equal(three.signals.maxRepeat, 1);
+  } finally {
+    f.done();
+  }
+});
+
+test('recover: a Jev class the counted facts do not support is not accepted (JEV-0027)', async () => {
+  const f = fixture();
+  try {
+    // A real stall (the first signal is old), so the rules ask Jev; the failures are all different.
+    await recordSignals(f.ws, signalsFrom(f.ws.workspaceId, { taskId: 'G', atMs: 1000, command: 'npm test', failed: true, output: 'TypeError: a is undefined', diffHash: null }));
+    const budgets = { perTask: 6, perFamily: 3, stallMs: 100 };
+    const repeat = await assessLoop(f.ws, { taskId: 'G', fingerprints: ['RangeError: index out of bounds'], nowMs: 1_000_000, budgets, engine: engine({ choice: 'repeated_failure' }) });
+    assert.equal(repeat.signals.maxRepeat, 1);
+    assert.equal(repeat.classification, 'no-progress', 'no repeated failure was counted');
+    assert.equal(repeat.source, 'rules');
+    assert.equal(repeat.rejectedApproaches.length, 0, 'an unsupported class records no rejected approach');
+    const osc = await assessLoop(f.ws, { taskId: 'G', fingerprints: ['RangeError: index out of bounds'], nowMs: 1_000_000, budgets, engine: engine({ choice: 'patch_oscillation' }) });
+    assert.equal(osc.classification, 'no-progress');
+    // A supported answer is still taken.
+    const stall = await assessLoop(f.ws, { taskId: 'G', fingerprints: ['RangeError: index out of bounds'], nowMs: 1_000_000, budgets, engine: engine({ choice: 'progress' }) });
+    assert.equal(stall.classification, 'progress');
+    assert.equal(stall.source, 'jev');
+  } finally {
+    f.done();
+  }
+});
+
+test('recover: failures taking turns (A B A B) are patch oscillation, with restore and approval, even past the repair budget (JEV-0028)', async () => {
+  const f = fixture();
+  try {
+    const A = 'TypeError: cannot read properties of undefined';
+    const B = 'RangeError: index out of bounds';
+    const calls = [];
+    const a = await assessLoop(f.ws, { taskId: 'osc-1', fingerprints: [A, B, A, B], nowMs: 1_800_000_000_000, engine: engine({ choice: 'progress' }, calls) });
+    assert.equal(a.classification, 'patch-oscillation');
+    assert.equal(a.action, 'restore-checkpoint-with-approval');
+    assert.match(a.advice, /approval/);
+    assert.equal(a.source, 'rules');
+    assert.equal(calls.length, 0);
+    assert.equal(a.rejectedApproaches.length, 1, 'the oscillating change is kept as a rejected approach');
+    // Four failures is over the default repair budget (3), and the budget does not replace the restore.
+    const over = await assessLoop(f.ws, { taskId: 'osc-2', fingerprints: [A, B, A, B], nowMs: 1_800_000_000_000, budgets: { perTask: 3, perFamily: 9, stallMs: 1e9 } });
+    assert.equal(over.budgetExhausted, 'task');
+    assert.equal(over.action, 'restore-checkpoint-with-approval', 'restoring acts only with a person\'s approval');
+    assert.match(over.advice, /approval/);
+    assert.match(over.advice, /budget is used up/);
+    // Not alternation: A A B B, A B C A, A B A (too short).
+    for (const [i, seq] of [[A, A, B, B], [A, B, 'SyntaxError: unexpected token', A], [A, B, A]].entries()) {
+      const r = await assessLoop(f.ws, { taskId: `neg-${String(i)}`, fingerprints: seq, nowMs: 1_800_000_000_000 });
+      assert.notEqual(r.classification, 'patch-oscillation', seq.join(' | '));
+    }
+    // A budget stop for a non-oscillating run is unchanged.
+    const stop = await assessLoop(f.ws, { taskId: 'B2', fingerprints: Array.from({ length: 5 }, (_, i) => `TypeError: x${String(i)} is undefined`), budgets: { perTask: 3, perFamily: 9, stallMs: 1e9 } });
+    assert.equal(stop.action, 'stop-and-report');
+  } finally {
+    f.done();
+  }
+});
+
 // -------------------------------------------------------------------------------- capsule
 
 test('capsule v2: constraints, changed files, open checks and hypotheses come from Jevris state with epistemic classes', async () => {
@@ -210,6 +284,23 @@ test('capsule v2: constraints, changed files, open checks and hypotheses come fr
     assert.ok(kinds('unresolved').some((i) => i.text.includes('unit failed')));
     assert.equal(capsule.approvals[0].status, 'historical', 'an expired approval is history only');
     assert.match(capsule.contentHash, /^sha256:[0-9a-f]{64}$/);
+  } finally {
+    f.done();
+  }
+});
+
+test('capsule: a receipt made stale by an edit is an open check at checkpoint time (JEV-0009)', async () => {
+  const f = fixture();
+  try {
+    const m = parseManifest({ id: 'unit', argv: [process.execPath, '-e', 'process.exit(0)'], resultFormat: 'exit-code' }).manifest;
+    await approveManifests(f.ws, [m], { unit: manifestHash(m) }, 'test');
+    await runVerification(f.ws, { taskId: null, checkIds: [] });
+    const before = (await assembleCapsule(f.ws, { taskId: null })).capsule;
+    assert.equal(before.items.some((i) => i.kind === 'open-check'), false, 'a current passing receipt is not open');
+    writeFileSync(join(f.repo, 'a.txt'), 'edited after the check\n');
+    const after = (await assembleCapsule(f.ws, { taskId: null })).capsule;
+    assert.ok(after.items.some((i) => i.kind === 'open-check' && i.text.includes('unit') && i.text.includes('stale receipt')));
+    assert.ok(after.items.some((i) => i.kind === 'next-action' && i.text.includes('unit')));
   } finally {
     f.done();
   }
@@ -388,6 +479,22 @@ test('rehydrate: resolves from Jevris state, flags a moved HEAD and keeps expire
 });
 
 // -------------------------------------------------------------------------------- handoff
+
+test('handoff: exporting an unknown task id is not found and never exports an unrelated capsule (JEV-0014)', async () => {
+  const f = fixture();
+  try {
+    await declare(f.ws, null, { objective: 'Port the parser' });
+    await writeCapsule(f.ws, { taskId: null });
+    await writeCapsule(f.ws, { taskId: 'T1' });
+    const unknown = exportPortable(f.ws, { capsuleId: null, taskId: 'nope' });
+    assert.equal(unknown.ok, false);
+    assert.equal(unknown.reasonCode, 'NOT_FOUND');
+    assert.equal(exportPortable(f.ws, { capsuleId: null, taskId: 'T1' }).ok, true, 'a task with its own capsule exports it');
+    assert.equal(exportPortable(f.ws, { capsuleId: null, taskId: null }).ok, true, 'no task id exports the newest workspace capsule');
+  } finally {
+    f.done();
+  }
+});
 
 test('handoff: Claude to OpenCode and Claude to Codex negotiate actuate, advice-only and unresolved tool refs', async () => {
   const f = fixture();

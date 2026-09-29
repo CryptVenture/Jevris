@@ -199,6 +199,25 @@ function oscillates(diffs: readonly string[]): boolean {
   return false;
 }
 
+/**
+ * Two failures taking turns: A, B, A, B (at least four in a row, exactly two distinct). This is the
+ * oscillation the recover command can see from failure fingerprints alone, because the hook
+ * records no diff hash. A, A, B, B and A, B, C, A are not alternation.
+ */
+export function alternatesFingerprints(hashes: readonly string[]): boolean {
+  const n = hashes.length;
+  if (n < 4) return false;
+  const a = hashes[n - 1] as string;
+  const b = hashes[n - 2] as string;
+  if (a === b) return false;
+  let run = 2;
+  for (let i = n - 3; i >= 0; i -= 1) {
+    if (hashes[i] !== (run % 2 === 0 ? a : b)) break;
+    run += 1;
+  }
+  return run >= 4;
+}
+
 export interface AssessInput {
   readonly taskId: string | null;
   /** Extra fingerprints from the caller (the recover command line), in order. */
@@ -242,19 +261,24 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
   for (const d of diagnostics) families.set(d.family ?? 'other', (families.get(d.family ?? 'other') ?? 0) + 1);
   const lastEvidence = Math.max(0, ...all.filter((s) => s.kind === 'evidence' || s.kind === 'diff').map((s) => s.atMs));
   const lastAny = Math.max(0, ...all.map((s) => s.atMs));
+  // The stall clock starts at the last evidence or diff, or, with none at all, at the first signal seen.
+  // It never starts at the epoch: a single fresh failure has not stalled anything (JEV-0027).
+  const firstAny = all.length === 0 ? 0 : Math.min(...all.map((s) => s.atMs));
+  const stallBaseline = all.some((s) => s.kind === 'evidence' || s.kind === 'diff') ? lastEvidence : firstAny;
+  const alternating = alternatesFingerprints(diagnostics.map((s) => s.hash));
 
   // Deterministic rules first.
   let rules: LoopClass;
   let decisive = true;
   if (all.length === 0) rules = 'no-signal';
   else if (envFailures > 0 && envFailures * 2 >= diagnostics.length) rules = 'environment-failure';
-  else if (oscillates(diffs)) rules = 'patch-oscillation';
+  else if (oscillates(diffs) || alternating) rules = 'patch-oscillation';
   else if (maxRepeat >= 3) rules = 'repeated-failure';
   else if (maxRepeat === 2 && distinct >= 2) {
     rules = 'flaky-suspected';
     decisive = false;
   } else if (maxRepeatOf(commands) >= 3 && diffs.length === 0 && lastEvidence < lastAny - 1) rules = 'no-progress';
-  else if (lastAny > 0 && nowMs - Math.max(lastEvidence, 0) > budgets.stallMs && diagnostics.length > 0) {
+  else if (lastAny > 0 && nowMs - stallBaseline > budgets.stallMs && diagnostics.length > 0) {
     rules = 'no-progress';
     decisive = false;
   } else if (diagnostics.length === 0) rules = 'no-signal';
@@ -283,8 +307,15 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
       ...(input.remainingMs === undefined ? {} : { remainingMs: input.remainingMs }),
       rules: () => ({ choice: rules.replace(/-/g, '_'), reasonCode: 'RULES' }),
     });
-    classification = consult.value.replace(/_/g, '-') as LoopClass;
-    source = consult.source;
+    const answered = consult.value.replace(/_/g, '-') as LoopClass;
+    // Jev's answer is advice about facts Jevris already counted. A class the counts do not support
+    // (a repeat with no repeated failure, an oscillation with no alternation) is not accepted.
+    const supported =
+      (answered !== 'repeated-failure' || maxRepeat >= 2) &&
+      (answered !== 'patch-oscillation' || oscillates(diffs) || alternating) &&
+      (answered !== 'environment-failure' || envFailures > 0);
+    classification = supported ? answered : rules;
+    source = supported ? consult.source : 'rules';
     decisionId = consult.decisionId;
   }
 
@@ -293,7 +324,12 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
   let budgetExhausted: LoopAssessment['budgetExhausted'] = null;
   if (diagnostics.length > budgets.perTask) budgetExhausted = 'task';
   else if ([...families.entries()].some(([fam, n]) => fam !== 'environment' && n > budgets.perFamily) && classification !== 'progress') budgetExhausted = 'family';
-  if (budgetExhausted !== null && action !== 'ask-focused-question') {
+  if (budgetExhausted !== null && classification === 'patch-oscillation') {
+    // Restoring a checkpoint is not another retry, and it acts only with a person's approval, so an
+    // exhausted budget does not replace it with stop-and-report: no authority is widened. The advice
+    // still says the budget is used up.
+    advice = `${advice} The ${budgetExhausted === 'task' ? 'task repair' : 'error-family retry'} budget is used up, so after the restore stop and report rather than retry.`;
+  } else if (budgetExhausted !== null && action !== 'ask-focused-question') {
     action = 'stop-and-report';
     advice = `The ${budgetExhausted === 'task' ? 'task repair' : 'error-family retry'} budget is used up. Stop and report what was tried; do not keep retrying.`;
   }

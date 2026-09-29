@@ -17,6 +17,8 @@
 import type { MemoryCapsule } from '@jevris/contracts';
 import type { WorkspaceServices } from '../workspace.js';
 import { approvedManifests } from '../verify/service.js';
+import { refreshFreshness } from '../verify/completion.js';
+import { receiptScopeOf } from '../verify/receipt-scope.js';
 import { nodeGit, snapshotRevision, type GitPort } from '../verify/revision.js';
 import { listTasks } from '../orchestration/tasks.js';
 import { rejectedApproaches } from '../orchestration/loops.js';
@@ -204,8 +206,11 @@ export async function gatherItems(ws: WorkspaceServices, taskId: string | null, 
       items.push(item('unresolved', `task-${t.node.id}`, `Task ${t.node.id} is ${t.node.state}: ${t.stateReason ?? 'no reason recorded'}.`, { mandatory: true }));
     }
   }
+  // Stale receipts are invalidated against the current revision before open checks are read, or a
+  // receipt for an edited file would still count as passing. Its snapshot is the one used below
+  // (one git status on this path, as in rehydrate).
+  const { snapshot } = await refreshFreshness({ workspaceRoot: ws.workspaceRoot, workspaceId: ws.workspaceId, receipts: ws.receipts, state: ws.state, git, scope: receiptScopeOf(ws) });
   // Changed files with hashes, from git.
-  const snapshot = await snapshotRevision(ws.workspaceRoot, git);
   for (const f of snapshot.dirty.slice(0, 200)) items.push(item('changed-file', `file-${sha256(f.path).slice(0, 12)}`, `${f.path} (${f.status.trim() || 'changed'}) sha256:${f.hash.slice(0, 16)}`, { source: 'git', refs: [f.hash] }));
   // Open checks: approved checks with no current passing receipt.
   const latest = ws.receipts.latest(ws.workspaceId, taskId);

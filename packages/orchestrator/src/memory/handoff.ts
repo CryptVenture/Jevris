@@ -155,9 +155,21 @@ export function envelopeHash(envelope: PortableEnvelope): string {
   return `sha256:${sha256(canonicalJson(rest))}`;
 }
 
+/**
+ * The newest capsule for a task. A task with no capsule of its own falls back to the workspace-wide
+ * capsule only when that capsule's task graph names the task; an unknown task id is not found
+ * (it never exports an unrelated capsule).
+ */
+function capsuleForTask(ws: WorkspaceServices, taskId: string | null): CapsuleV2 | undefined {
+  const own = latestCapsule(ws, taskId);
+  if (own !== undefined || taskId === null) return own;
+  const global = latestCapsule(ws, null);
+  return global !== undefined && global.taskGraph.some((t) => t.id === taskId) ? global : undefined;
+}
+
 export function exportPortable(ws: WorkspaceServices, input: ExportInput): ExportResult {
   const nowMs = input.nowMs ?? Date.now();
-  const capsule = input.capsuleId !== null ? getCapsule(ws, input.capsuleId) : latestCapsule(ws, input.taskId) ?? (input.taskId === null ? undefined : latestCapsule(ws, null));
+  const capsule = input.capsuleId !== null ? getCapsule(ws, input.capsuleId) : capsuleForTask(ws, input.taskId);
   if (capsule === undefined) return { ok: false, reasonCode: 'NOT_FOUND' };
   const validUntil = new Date(nowMs + Math.max(60_000, Math.min(input.validForMs ?? 7 * 86_400_000, 90 * 86_400_000))).toISOString();
   const v1 = toV1(capsule, validUntil);
