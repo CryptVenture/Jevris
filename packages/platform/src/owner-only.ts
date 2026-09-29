@@ -47,14 +47,22 @@ export type PrivateResult = { readonly ok: true } | { readonly ok: false; readon
 export const PRIVATE_FILE_MODE = 0o600;
 export const PRIVATE_DIR_MODE = 0o700;
 
+// One port per system folder, so currentUser's cache (keyed by port) runs whoami once per process.
+const defaultExecs = new Map<string, ExecPort>();
+
 function defaultExec(env: EnvLike, platform: string): ExecPort {
-  return (file, args) => {
-    const system = envValue(env, 'SystemRoot', platform) ?? 'C:\\Windows';
+  const system = envValue(env, 'SystemRoot', platform) ?? 'C:\\Windows';
+  const key = `${platform}\0${system}`;
+  const known = defaultExecs.get(key);
+  if (known !== undefined) return known;
+  const exec: ExecPort = (file, args) => {
     const api = pathApiFor(platform);
     const full = api.isAbsolute(file) ? file : api.join(system, 'System32', file);
     const result = spawnSync(full, args, { encoding: 'utf8', shell: false, windowsHide: true, timeout: 15_000 });
     return { status: result.status, stdout: typeof result.stdout === 'string' ? result.stdout : '' };
   };
+  defaultExecs.set(key, exec);
+  return exec;
 }
 
 function errorCode(error: unknown): string {
@@ -110,7 +118,8 @@ export function currentUser(exec: ExecPort): CurrentUser | null {
   if (userCache.has(exec)) return userCache.get(exec) ?? null;
   const result = exec('whoami.exe', ['/user', '/fo', 'csv', '/nh']);
   const user = result.status === 0 ? parseWhoami(result.stdout) : null;
-  userCache.set(exec, user);
+  // A failed lookup is asked again next time: the default port lives as long as the process.
+  if (user !== null) userCache.set(exec, user);
   return user;
 }
 
@@ -165,7 +174,17 @@ export function aclIsOwnerOnly(entries: readonly AclEntry[], user: CurrentUser):
   return entries.every((entry) => isCurrentUser(entry.principal, user) && entry.rights.includes('F'));
 }
 
-/** Replaces the ACL with one full-control ACE for the current user (inheritable on a directory). */
+/** An ACL principal as `icacls /remove:g` takes it: a bare SID (an unresolved account) gets its `*`. */
+function removable(principal: string): string {
+  return /^S-1-[0-9-]+$/.test(principal) ? `*${principal}` : principal;
+}
+
+/**
+ * Replaces the ACL with one full-control ACE for the current user (inheritable on a directory).
+ * `/inheritance:r` drops inherited ACEs only, and `/grant:r` replaces only this user's, so an
+ * explicit ACE for anyone else survives both. A new directory on windows-latest carries explicit
+ * SYSTEM and Administrators ACEs, so those are removed by name, and the result is read back.
+ */
 export function applyOwnerOnlyAcl(path: string, isDirectory: boolean, options: OwnerOnlyOptions = {}): boolean {
   const { exec } = ports(options);
   const user = currentUser(exec);
@@ -173,9 +192,17 @@ export function applyOwnerOnlyAcl(path: string, isDirectory: boolean, options: O
   const grant = isDirectory ? `*${user.sid}:(OI)(CI)F` : `*${user.sid}:F`;
   const result = exec('icacls.exe', [path, '/inheritance:r', '/grant:r', grant, '/q']);
   if (result.status !== 0) return false;
-  const listed = exec('icacls.exe', [path]);
+  let listed = exec('icacls.exe', [path]);
   if (listed.status !== 0) return false;
-  const entries = parseIcacls(listed.stdout, path);
+  let entries = parseIcacls(listed.stdout, path);
+  if (entries === null) return false;
+  const others = [...new Set(entries.filter((entry) => !isCurrentUser(entry.principal, user)).map((entry) => removable(entry.principal)))];
+  if (others.length > 0) {
+    if (exec('icacls.exe', [path, '/remove:g', ...others, '/q']).status !== 0) return false;
+    listed = exec('icacls.exe', [path]);
+    if (listed.status !== 0) return false;
+    entries = parseIcacls(listed.stdout, path);
+  }
   return entries !== null && aclIsOwnerOnly(entries, user);
 }
 

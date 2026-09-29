@@ -30,10 +30,13 @@ if (typeof realTemp === 'string' && realTemp.length > 0 && typeof ledger === 'st
   const fs = require('node:fs');
   const { syncBuiltinESMExports } = require('node:module');
   const roots = new Set([resolve(realTemp)]);
-  try {
-    roots.add(fs.realpathSync(realTemp));
-  } catch {
-    // keep the plain path
+  // realpathSync.native also expands a Windows 8.3 name (C:\Users\RUNNER~1 on windows-latest).
+  for (const real of [fs.realpathSync, fs.realpathSync.native]) {
+    try {
+      roots.add(real(realTemp));
+    } catch {
+      // keep the plain path
+    }
   }
   const append = fs.appendFileSync;
   const note = (path) => {
@@ -91,10 +94,14 @@ if (typeof realHome === 'string' && realHome.length > 0 && typeof homeLedger ===
   const { fileURLToPath } = require('node:url');
   const both = (path) => {
     const out = [resolve(path)];
-    try {
-      out.push(fs.realpathSync(path));
-    } catch {
-      // keep the plain path
+    // The native form expands a Windows 8.3 name: TEMP is C:\Users\RUNNER~1\... on
+    // windows-latest, and a path a test resolved through realpath is C:\Users\runneradmin\...
+    for (const real of [fs.realpathSync, fs.realpathSync.native]) {
+      try {
+        out.push(real(path));
+      } catch {
+        // keep the plain path
+      }
     }
     return [...new Set(out)];
   };

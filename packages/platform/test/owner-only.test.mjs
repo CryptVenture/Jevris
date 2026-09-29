@@ -40,10 +40,19 @@ function fakeWindows(initial = {}) {
       const body = [`${path} ${first}`, ...more.map((ace) => `${pad}${ace}`)].join('\r\n');
       return { status: 0, stdout: `${body}\r\n\r\nSuccessfully processed 1 files; Failed processing 0 files\r\n` };
     }
+    const current = acls.get(path) ?? ['BUILTIN\\Administrators:(I)(F)', 'NT AUTHORITY\\SYSTEM:(I)(F)', 'DESKTOP-ADA\\ada:(I)(F)'];
+    const principal = (ace) => ace.slice(0, ace.lastIndexOf(':')).toLowerCase();
     if (rest[0] === '/inheritance:r' && rest[1] === '/grant:r') {
-      // icacls lists the granted SID by account name, with each right in parentheses.
+      // As icacls does: /inheritance:r drops the inherited ACEs only, /grant:r replaces this
+      // user's explicit ones, and the granted SID is listed by account name, each right in parentheses.
       const rights = rest[2].slice(rest[2].indexOf(':') + 1).replace(/F$/, '(F)');
-      acls.set(path, [`DESKTOP-ADA\\ada:${rights}`]);
+      const kept = current.filter((ace) => !ace.includes('(I)') && principal(ace) !== 'desktop-ada\\ada');
+      acls.set(path, [...kept, `DESKTOP-ADA\\ada:${rights}`]);
+      return { status: 0, stdout: '' };
+    }
+    if (rest[0] === '/remove:g') {
+      const names = new Set(rest.slice(1).filter((arg) => arg !== '/q').map((name) => name.replace(/^\*/, '').toLowerCase()));
+      acls.set(path, current.filter((ace) => !names.has(principal(ace))));
       return { status: 0, stdout: '' };
     }
     return { status: 87, stdout: '' };
@@ -90,6 +99,21 @@ test('win32: a private directory gets a protected, inheritable owner-only ACL (B
   assert.deepEqual(result, { ok: true });
   assert.deepEqual(win.calls.find((call) => call[2] === '/inheritance:r'), ['icacls.exe', dir, '/inheritance:r', '/grant:r', `*${SID}:(OI)(CI)F`, '/q']);
   assert.deepEqual(await assertOwnerOnly(dir, { platform: 'win32', exec: win.exec, lstat: winStat(true) }), { ok: true });
+});
+
+// windows-latest, 2026-09-29: a new directory in the runner's temp folder listed explicit
+// SYSTEM and Administrators ACEs after /inheritance:r /grant:r, and every private write failed.
+test('win32: explicit ACEs for others that survive /inheritance:r are removed, then read back (BLD-08)', async () => {
+  const dir = 'C:\\Users\\RUNNER~1\\AppData\\Local\\Temp\\private dir';
+  const win = fakeWindows({ [dir]: ['NT AUTHORITY\\SYSTEM:(OI)(CI)(F)', 'BUILTIN\\Administrators:(OI)(CI)(F)', 'DESKTOP-ADA\\ada:(OI)(CI)(F)', 'S-1-5-21-9-9-9-1234:(RX)'] });
+  assert.equal(applyOwnerOnlyAcl(dir, true, { platform: 'win32', exec: win.exec }), true);
+  assert.deepEqual(win.acls.get(dir), ['DESKTOP-ADA\\ada:(OI)(CI)(F)']);
+  assert.deepEqual(win.calls.find((call) => call[2] === '/remove:g'), ['icacls.exe', dir, '/remove:g', 'NT AUTHORITY\\SYSTEM', 'BUILTIN\\Administrators', '*S-1-5-21-9-9-9-1234', '/q']);
+  assert.deepEqual(await assertOwnerOnly(dir, { platform: 'win32', exec: win.exec, lstat: winStat(true) }), { ok: true });
+  // A removal icacls refuses fails closed.
+  const refusing = fakeWindows({ [dir]: ['NT AUTHORITY\\SYSTEM:(OI)(CI)(F)'] });
+  const exec = (file, args) => (args[1] === '/remove:g' ? { status: 5, stdout: '' } : refusing.exec(file, args));
+  assert.equal(applyOwnerOnlyAcl(dir, true, { platform: 'win32', exec }), false);
 });
 
 test('win32: assertOwnerOnly reports inherited broad ACEs and a symlink (BLD-08)', async () => {
@@ -141,7 +165,11 @@ test('win32, real icacls: a private directory and a private file get owner-only 
     // As JSON, so an encoding the parser does not expect (UTF-16, a code page) shows as it is.
     return `${file} ${args.join(' ')} -> ${result.status}: ${JSON.stringify(String(result.stdout))} ${JSON.stringify(String(result.stderr))}`;
   };
-  const dir = join(tempDir(t), 'private dir');
+  const parent = tempDir(t);
+  const plain = join(parent, 'plain dir');
+  mkdirSync(plain);
+  t.diagnostic(`a plain new folder: ${raw('icacls.exe', [plain])}`);
+  const dir = join(parent, 'private dir');
   const made = await ensurePrivateDir(dir);
   const seen = () => `${raw('whoami.exe', ['/user', '/fo', 'csv', '/nh'])}\n${raw('icacls.exe', [dir])}`;
   assert.deepEqual(made, { ok: true }, seen());
