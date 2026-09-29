@@ -316,6 +316,16 @@ test('a database on a network filesystem is refused on every platform (DATA-10)'
   assert.equal(win('C:\\Users\\u\\AppData', 'Fixed').kind, 'local');
   assert.equal(win('\\\\?\\C:\\Users\\u', 'Fixed').kind, 'local');
   assert.equal(win('C:\\x', undefined).kind, 'unknown');
+
+  // The real probe does not start PowerShell for the system drive: it is the boot volume.
+  const saved = process.env.SystemDrive;
+  process.env.SystemDrive = 'Q:';
+  try {
+    assert.deepEqual(filesystemKind('q:\\Users\\u', { platform: 'win32', realpath: (x) => x }), { kind: 'local', label: 'fixed' });
+  } finally {
+    if (saved === undefined) delete process.env.SystemDrive;
+    else process.env.SystemDrive = saved;
+  }
 });
 
 test('the real detector classifies this machine\'s temp directory without refusing it (DATA-10)', () => {

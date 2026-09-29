@@ -6,7 +6,8 @@
  * - Linux: `statfs` magic numbers of network filesystems.
  * - macOS: the filesystem type of the longest mount point containing the directory, from
  *   `/sbin/mount`.
- * - Windows: a UNC path, or a drive whose `DriveInfo.DriveType` is `Network`.
+ * - Windows: a UNC path, or a drive whose `DriveInfo.DriveType` is `Network` (the system drive
+ *   is local and is not asked).
  *
  * Detection that cannot run reports `unknown`; the store opens and shows `unknown` in
  * health rather than refuse a local disk it failed to classify.
@@ -93,6 +94,10 @@ function darwinKind(dir: string, deps: FsKindDeps): FsKindResult {
 }
 
 function defaultDriveType(letter: string): string | undefined {
+  // The system drive is the volume Windows booted from, never a mapped network drive, so it
+  // needs no PowerShell: that start alone is a second or more of a sidecar's cold start.
+  const system = /^([A-Za-z]):\\?$/.exec(process.env['SystemDrive'] ?? '')?.[1];
+  if (system !== undefined && system.toUpperCase() === letter) return 'Fixed';
   const root = process.env['SystemRoot'] ?? 'C:\\Windows';
   const ps = `${root}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe`;
   const result = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-Command', `[System.IO.DriveInfo]::new('${letter}').DriveType`], {

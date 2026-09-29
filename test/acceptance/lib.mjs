@@ -105,10 +105,12 @@ export async function sandbox(t, options = {}) {
   const work = join(dir, 'work');
   mkdirSync(home);
   mkdirSync(join(work, '.git'), { recursive: true });
+  // The runner's JEVRIS_SIDECAR_WAIT_MS is kept: it acts only in a test run, and lets a loaded
+  // host's slower sidecar cold start (Windows) outlast the CLI's product wait.
   const env = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value !== 'string') continue;
-    if (/^(JEVRIS_|CLAUDE_|CODEX_|XDG_)/.test(key) && !/^JEVRIS_(TEST|NO_LIVE_HARNESS|HARNESS_STUB_DIR|STUB_LOG)$/.test(key)) continue;
+    if (/^(JEVRIS_|CLAUDE_|CODEX_|XDG_)/.test(key) && !/^JEVRIS_(TEST|NO_LIVE_HARNESS|HARNESS_STUB_DIR|STUB_LOG|SIDECAR_WAIT_MS)$/.test(key)) continue;
     env[key] = value;
   }
   // Defence in depth: scripts/test.mjs already puts its harness stubs first on PATH; a story run
