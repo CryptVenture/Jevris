@@ -84,6 +84,20 @@ test('pr-readiness is assembled from receipts and the task graph, and opening or
   assert.equal(extra.isError, true, 'an unknown input is refused, not ignored');
 });
 
+test('pr-readiness with no approved check names that as the blocker instead of "0 blockers" (JEV-0012)', { skip: managedHostSkip() }, async (t) => {
+  const box = await repo(t, { 'src/a.js': 'export const a = 1;\n' });
+  const out = delivery(box, 'pr-readiness');
+  assert.equal(out.code, 1, 'no mandatory check is a negative answer');
+  assert.equal(out.json.result.recommendation, 'not-ready');
+  assert.deepEqual(out.json.result.ranked.map((item) => item.id), ['verification:unsupported']);
+  assert.match(out.json.result.ranked[0].reason, /jevris verify (profile|approve)/);
+  assert.doesNotMatch(out.json.result.summary, /\b0 blockers/);
+  const human = box.jevris(['delivery', 'pr-readiness']);
+  assert.equal(human.code, 1);
+  assert.match(human.stdout, /^Pull-request readiness: Not ready: 1 blockers\.$/m);
+  assert.match(human.stdout, /no mandatory check to verify against/);
+});
+
 test('ci-triage routes a failing CI receipt from its evidence and changes nothing in CI (DLV-02)', { skip: managedHostSkip() }, async (t) => {
   const box = await repo(t, { 'src/a.js': 'export const a = 1;\n' });
   const none = delivery(box, 'ci-triage');

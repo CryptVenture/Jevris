@@ -10,7 +10,7 @@
  * activated, and repository exceptions and managed restrictions are kept.
  */
 import { profileWorkspace } from '@jevris/languages';
-import { approvedManifests, verificationStatus } from '../verify/service.js';
+import { approvedManifests, verificationStatus, verificationSupport } from '../verify/service.js';
 import { inScopes } from '../verify/revision.js';
 import { listTasks } from '../orchestration/tasks.js';
 import { readEffectiveConfig } from '../settings/config.js';
@@ -43,7 +43,20 @@ const C57: CapabilityDefinition = {
     const open = listTasks(cx.ws).filter((t) => !['verified', 'cancelled'].includes(t.node.state));
     const changed = await changedFiles(cx.git, cx.ws.workspaceRoot, baseOf(input)) ?? [];
     const comments = typeof input['unresolvedComments'] === 'number' && Number.isInteger(input['unresolvedComments']) ? Math.max(0, input['unresolvedComments']) : null;
+    // With no mandatory check nothing can be verified, so the report is never ready; say that
+    // rather than answer "0 blockers" (an unapproved repository reads the doctor's own fix).
+    const support = report.mandatoryCheckIds.length === 0 ? verificationSupport(cx.ws) : null;
     const blockers: RankedItem[] = [
+      ...(support === null
+        ? []
+        : [
+            {
+              id: 'verification:unsupported',
+              label: 'no mandatory check to verify against',
+              score: 1,
+              reason: support.state === 'unsupported' ? support.reason : 'no approved check is mandatory and no acceptance check or requirement was named',
+            },
+          ]),
       ...report.checks.filter((c) => c.mandatory && c.status !== 'passed').map((c) => ({ id: `check:${c.checkId}`, label: `${c.checkId}: ${c.status}`, score: 1, reason: 'mandatory check without a current pass' })),
       ...report.uncoveredRequirements.map((r) => ({ id: `requirement:${r}`, label: `${r}: no check`, score: 0.9, reason: 'uncovered requirement' })),
       ...open.slice(0, 32).map((t) => ({ id: `task:${t.node.id}`, label: `${t.node.id}: ${t.node.state}`, score: 0.7, reason: 'task not verified' })),
