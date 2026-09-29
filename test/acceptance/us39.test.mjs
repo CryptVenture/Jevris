@@ -35,10 +35,12 @@ story('US39', async ({ t, then, sandbox, evidence }) => {
   git(box.work, 'add', '.');
   git(box.work, 'commit', '-q', '-m', 'parser');
   assert.equal((await box.approveChecks()).code, 0);
-  const verified = box.jevris(['verify', '--check', 'unit'], { json: true });
-  assert.equal(verified.json?.result?.checks?.[0]?.outcome, 'failed', `the failing check did not record a failed receipt: ${JSON.stringify(verified.json) ?? verified.stdout} ${verified.stderr}`);
+  // The sidecar runs before the check does: a cold start that outlasts the CLI's own wait (seen
+  // on windows-latest) would leave verify rules-only, with no receipt.
   const up = box.startSidecar();
   assert.equal(up.code, 0, `sidecar start failed: ${up.stdout} ${up.stderr}`);
+  const verified = box.jevris(['verify', '--check', 'unit'], { json: true });
+  assert.equal(verified.json?.result?.checks?.[0]?.outcome, 'failed', `the failing check did not record a failed receipt: ${JSON.stringify(verified.json) ?? verified.stdout} ${verified.stderr}`);
   const checkpoint = box.jevris(['checkpoint', '--objective', 'Make the parser handle quoted fields', '--constraint', 'C1: keep the public parse() signature'], { json: true });
   assert.equal(checkpoint.code, 0, `checkpoint failed: ${checkpoint.stdout} ${checkpoint.stderr}`);
 

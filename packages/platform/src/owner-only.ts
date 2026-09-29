@@ -23,6 +23,9 @@ export type ExecPort = (file: string, args: readonly string[]) => ExecResult;
 export interface PrivateStat {
   readonly mode: number;
   readonly uid?: number;
+  /** The file id and creation time, when known: a folder removed and made again is another one. */
+  readonly ino?: number | bigint;
+  readonly birthtimeMs?: number;
   isSymbolicLink(): boolean;
   isDirectory(): boolean;
   isFile(): boolean;
@@ -268,6 +271,48 @@ export async function assertOwnerOnly(path: string, options: OwnerOnlyOptions = 
  * Windows the ACL is applied when the directory is created, or when `repair` is set.
  */
 export async function ensurePrivateDir(path: string, options: OwnerOnlyOptions & { readonly repair?: boolean } = {}): Promise<PrivateResult> {
+  const dir = await privateDir(path, options, false);
+  return dir.ok ? { ok: true } : dir;
+}
+
+/**
+ * Windows: the private folders this process gave, or read back as having, an owner-only ACL whose
+ * ACE files inherit, by exec port, path and folder identity. A file made in one inherits that ACL,
+ * so it needs no icacls of its own; a folder removed and made again is not in the set.
+ */
+const inheritingDirs = new Map<ExecPort, Map<string, string>>();
+
+function identity(st: PrivateStat): string | null {
+  return st.ino === undefined || st.birthtimeMs === undefined ? null : `${String(st.ino)}:${String(st.birthtimeMs)}`;
+}
+
+function rememberInheriting(exec: ExecPort, path: string, st: PrivateStat): void {
+  const id = identity(st);
+  if (id === null) return;
+  let known = inheritingDirs.get(exec);
+  if (known === undefined) {
+    known = new Map();
+    inheritingDirs.set(exec, known);
+  }
+  known.set(path, id);
+}
+
+/** Whether files made in `path` inherit an owner-only ACL: known, or read back once (one icacls). */
+function inheritsOwnerOnly(path: string, st: PrivateStat, exec: ExecPort): boolean {
+  const id = identity(st);
+  if (id !== null && inheritingDirs.get(exec)?.get(path) === id) return true;
+  const user = currentUser(exec);
+  if (user === null) return false;
+  const listed = exec('icacls.exe', [path]);
+  if (listed.status !== 0) return false;
+  const entries = parseIcacls(listed.stdout, path);
+  // Owner-only, and the user's full-control ACE is inherited by files ((OI), not inherit-only for folders).
+  const inherits = entries !== null && aclIsOwnerOnly(entries, user) && entries.some((entry) => entry.rights.includes('(OI)'));
+  if (inherits) rememberInheriting(exec, path, st);
+  return inherits;
+}
+
+async function privateDir(path: string, options: OwnerOnlyOptions & { readonly repair?: boolean }, forFiles: boolean): Promise<{ readonly ok: true; readonly inherits: boolean } | { readonly ok: false; readonly code: string }> {
   const p = ports(options);
   const api = pathApiFor(p.platform);
   let created = false;
@@ -296,8 +341,11 @@ export async function ensurePrivateDir(path: string, options: OwnerOnlyOptions &
   if (p.platform === 'win32') {
     if (created || options.repair === true) {
       if (!applyOwnerOnlyAcl(path, true, options)) return { ok: false, code: 'EACL' };
+      // The grant is (OI)(CI) full control for this user alone, read back by applyOwnerOnlyAcl.
+      rememberInheriting(p.exec, path, st);
+      return { ok: true, inherits: true };
     }
-    return { ok: true };
+    return { ok: true, inherits: forFiles && inheritsOwnerOnly(path, st, p.exec) };
   }
   if ((st.mode & 0o077) !== 0) {
     const uid = options.uid ?? (typeof process.getuid === 'function' ? process.getuid() : undefined);
@@ -308,10 +356,15 @@ export async function ensurePrivateDir(path: string, options: OwnerOnlyOptions &
       return { ok: false, code: errorCode(error) };
     }
   }
-  return { ok: true };
+  return { ok: true, inherits: false };
 }
 
-/** Writes a private file: private parent, exclusive 0600 temp, ACL on Windows, atomic replace. */
+/**
+ * Writes a private file: private parent, exclusive 0600 temp, atomic replace. On Windows the temp
+ * gets its own owner-only ACL before the rename, unless the parent is a private folder whose
+ * owner-only ACL files inherit (made or read back by this process): then the temp already has
+ * it, and the write starts no icacls.
+ */
 export async function writePrivateFile(
   path: string,
   data: Uint8Array | string,
@@ -319,13 +372,13 @@ export async function writePrivateFile(
 ): Promise<DurableWriteResult> {
   const p = ports(options);
   const api = pathApiFor(p.platform);
-  const dir = await ensurePrivateDir(api.dirname(path), options);
+  const dir = await privateDir(api.dirname(path), options, true);
   if (!dir.ok) return dir;
   return durableWrite(path, data, {
     ...options,
     platform: p.platform,
     mode: PRIVATE_FILE_MODE,
-    ...(p.platform === 'win32' ? { beforeRename: (temp: string) => applyOwnerOnlyAcl(temp, false, options) } : {}),
+    ...(p.platform === 'win32' && !dir.inherits ? { beforeRename: (temp: string) => applyOwnerOnlyAcl(temp, false, options) } : {}),
   });
 }
 

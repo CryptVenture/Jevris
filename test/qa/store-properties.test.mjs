@@ -38,14 +38,25 @@ const require = createRequire(import.meta.url);
 const SIGNED_MAX = 2n ** 63n - 1n;
 const here = fileURLToPath(new URL('.', import.meta.url));
 
+/**
+ * Runs `fn` with a store path in a fresh folder, removed once `fn` is done: for an async `fn`,
+ * once its promise settles (and its store is closed), since Windows refuses to remove an open
+ * database.
+ */
 function withStore(fn) {
   const dir = mkdtempSync(join(tmpdir(), 'jevris-qa-store-'));
   const path = join(dir, 'store.sqlite');
+  const remove = () => rmSync(dir, { recursive: true, force: true });
+  let result;
   try {
-    return fn(path);
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
+    result = fn(path);
+  } catch (error) {
+    remove();
+    throw error;
   }
+  if (result !== null && typeof result === 'object' && typeof result.then === 'function') return Promise.resolve(result).finally(remove);
+  remove();
+  return result;
 }
 
 function open(path, workspaceId) {
@@ -176,7 +187,9 @@ test('a process killed at a random commit leaves only whole decisions (QA-03 cra
           timeout: 60_000,
           env: process.env,
         });
-        assert.equal(child.signal, 'SIGKILL', `the child dies inside commit ${killAt}: ${child.stderr}`);
+        // Windows has no signals: the kill is TerminateProcess with exit code 1 and no signal.
+        if (process.platform === 'win32') assert.deepEqual([child.status, child.signal], [1, null], `the child dies inside commit ${killAt}: ${child.stderr}`);
+        else assert.equal(child.signal, 'SIGKILL', `the child dies inside commit ${killAt}: ${child.stderr}`);
         const db = new Database(path, { readonly: true, fileMustExist: true });
         try {
           assert.equal(db.pragma('integrity_check', { simple: true }), 'ok');

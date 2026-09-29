@@ -30,7 +30,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { removeTree } from '../../scripts/remove-tree.mjs';
+import { removeTree, windowsProcesses } from '../../scripts/remove-tree.mjs';
 import { withStubPath, writeHarnessStubs } from '../../scripts/test.mjs';
 import { managedHostSkip } from '../managed-host.mjs';
 
@@ -317,13 +317,11 @@ export async function sandbox(t, options = {}) {
       for (let i = 0; i < 100 && alive(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
       const survived = alive(pid);
       if (survived) process.kill(pid, 'SIGKILL');
-      await sweepSandboxSidecars(dir, t);
-      if (options.keep !== true) removeTree(dir);
+      await sweepAndRemove(dir, t, options.keep === true);
       assert.equal(survived, false, `the sandbox sidecar ${pid} survived sidecar stop and SIGTERM`);
       return;
     }
-    await sweepSandboxSidecars(dir, t);
-    if (options.keep !== true) removeTree(dir);
+    await sweepAndRemove(dir, t, options.keep === true);
   });
   return box;
 }
@@ -335,16 +333,47 @@ export async function sandbox(t, options = {}) {
  * otherwise outlive the test with its folder deleted. Each one found is named on stderr with
  * the test, so the story that leaks it can be fixed. POSIX `ps` only.
  */
-async function sweepSandboxSidecars(dir, t) {
-  if (process.platform === 'win32') return;
-  const names = [dir, dir.replace(/^\/private(?=\/)/, '')];
+/** Every process's pid and command line: `ps` on POSIX, CIM on Windows. */
+function commandLines() {
+  if (process.platform === 'win32') return windowsProcesses().map((row) => ({ pid: row.pid, args: row.commandLine }));
   const ps = spawnSync('ps', ['-Ao', 'pid=,args='], { encoding: 'utf8', shell: false });
-  if (ps.status !== 0) return;
-  const pids = ps.stdout
+  if (ps.status !== 0) return [];
+  return ps.stdout
     .split('\n')
     .map((line) => /^\s*(\d+)\s+(.*)$/.exec(line))
-    .filter((match) => match !== null && match[2].includes('sidecar') && names.some((name) => match[2].includes(name)))
-    .map((match) => Number(match[1]))
+    .filter((match) => match !== null)
+    .map((match) => ({ pid: Number(match[1]), args: match[2] }));
+}
+
+/**
+ * Ends any sidecar still running for this sandbox that the pid file did not name (one a client
+ * with another locality started, say), then removes the sandbox. On Windows, where listing the
+ * processes costs a PowerShell start, the sweep runs only when the removal fails: a sidecar
+ * running there holds its store, so a removal that succeeds leaves none behind.
+ */
+async function sweepAndRemove(dir, t, keep) {
+  if (process.platform !== 'win32') {
+    await sweepSandboxSidecars(dir, t);
+    if (!keep) removeTree(dir);
+    return;
+  }
+  if (keep) return;
+  try {
+    removeTree(dir);
+  } catch {
+    await sweepSandboxSidecars(dir, t);
+    removeTree(dir);
+  }
+}
+
+async function sweepSandboxSidecars(dir, t) {
+  const names = process.platform === 'win32' ? [dir.toLowerCase()] : [dir, dir.replace(/^\/private(?=\/)/, '')];
+  const pids = commandLines()
+    .filter(({ args }) => {
+      const text = process.platform === 'win32' ? args.toLowerCase() : args;
+      return text.includes('sidecar') && names.some((name) => text.includes(name));
+    })
+    .map(({ pid }) => pid)
     .filter((pid) => pid > 1 && pid !== process.pid);
   for (const pid of pids) {
     process.stderr.write(`acceptance: ${t.name}: ended a leftover sandbox sidecar ${pid} that the pid file did not name\n`);
@@ -360,11 +389,13 @@ async function sweepSandboxSidecars(dir, t) {
   }
 }
 
-/** True when `pid` is a live sidecar started for this sandbox home (POSIX `ps`; never on Windows). */
+/** True when `pid` is a live sidecar started for this sandbox home. */
 function sandboxSidecar(pid, home) {
-  if (process.platform === 'win32' || !alive(pid)) return false;
-  const ps = spawnSync('ps', ['-o', 'args=', '-p', String(pid)], { encoding: 'utf8', shell: false });
-  return ps.status === 0 && ps.stdout.includes('sidecar') && ps.stdout.includes(home);
+  if (!alive(pid)) return false;
+  const row = commandLines().find((entry) => entry.pid === pid);
+  if (row === undefined) return false;
+  const args = process.platform === 'win32' ? row.args.toLowerCase() : row.args;
+  return args.includes('sidecar') && args.includes(process.platform === 'win32' ? home.toLowerCase() : home);
 }
 
 /** True while a process with this pid exists. */

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { acquireHostSuiteLock, acquireSuiteLock, HELD_ENV, HOST_DIR_ENV, HOST_HELD_ENV, hostLockPath, liveTickets, LOCK_DIR, queuePath, readOwner, TICKET_STALE_MS, WAIT_ENV, writeTicket } from '../scripts/suite-lock.mjs';
 import { needsHostLock, parseArgs as parseCellArgs } from '../scripts/ci-cell.mjs';
@@ -218,7 +218,7 @@ test('a waiter says how many are ahead; tickets of dead or silent waiters are sw
   assert.throws(() => acquireHostSuiteLock({ env: env(), waitMs: 80, pollMs: 20, say: (line) => lines.push(line) }), (error) => error.code === 'SUITE_LOCK_TIMEOUT' && /1 waiter\(s\) ahead/.test(error.message));
   assert.deepEqual(lines, ['host suite lock: waiting: 1 ahead']);
   assert.equal(existsSync(live), true, "another waiter's live ticket is never removed");
-  assert.deepEqual(readdirSync(queuePath(lockPath)).sort(), [live.split('/').at(-1)].sort(), 'the timed-out waiter removed its own ticket');
+  assert.deepEqual(readdirSync(queuePath(lockPath)).sort(), [basename(live)].sort(), 'the timed-out waiter removed its own ticket');
   rmSync(live);
   // A dead waiter's ticket, and one not refreshed for TICKET_STALE_MS, are swept; then the lock is taken.
   const dead = writeTicket(lockPath, { arrivedMs: 2, pid: deadPid(), startedAt: '2026-09-28T01:00:00.000Z', token: 'dead' });

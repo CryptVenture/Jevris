@@ -162,6 +162,35 @@ test('win32: a private file write applies the file ACL to the temp before the re
   assert.deepEqual(renamed, [[grants[0][1], file]]);
 });
 
+test('win32: a file in a private folder whose owner-only ACL files inherit gets no icacls of its own; a folder made again is read again (BLD-08)', async () => {
+  const dir = 'C:\\Users\\ada\\AppData\\Local\\Jevris\\run';
+  const file = `${dir}\\endpoint.json`;
+  const win = fakeWindows({ [dir]: ['DESKTOP-ADA\\ada:(OI)(CI)(F)'] });
+  let birth = 1000;
+  const stat = async () => ({ mode: 0o666, ino: 42, birthtimeMs: birth, isSymbolicLink: () => false, isDirectory: () => true, isFile: () => false });
+  const fs = {
+    lstat: () => Promise.reject(Object.assign(new Error('missing'), { code: 'ENOENT' })),
+    readdir: async () => [],
+    open: async () => ({ writeFile: async () => undefined, sync: async () => undefined, close: async () => undefined }),
+    rename: async () => undefined,
+    rm: async () => undefined,
+  };
+  const write = () => writePrivateFile(file, '{}', { platform: 'win32', exec: win.exec, lstat: stat, fs });
+  assert.deepEqual(await write(), { ok: true });
+  assert.deepEqual(win.calls.filter((call) => call[0] === 'icacls.exe'), [['icacls.exe', dir]], 'the folder is read once, and the file gets no ACL of its own');
+  assert.deepEqual(await write(), { ok: true });
+  assert.equal(win.calls.filter((call) => call[0] === 'icacls.exe').length, 1, 'a second write in the same folder starts no icacls');
+  // The folder is removed and made again: it is another folder, read again.
+  birth = 2000;
+  assert.deepEqual(await write(), { ok: true });
+  assert.equal(win.calls.filter((call) => call[0] === 'icacls.exe').length, 2);
+  // A folder whose ACL files do not inherit (no (OI)) gives each file its own ACL.
+  const other = 'C:\\Users\\ada\\AppData\\Local\\Jevris\\state';
+  const flat = fakeWindows({ [other]: ['DESKTOP-ADA\\ada:(F)'] });
+  assert.deepEqual(await writePrivateFile(`${other}\\x.json`, '{}', { platform: 'win32', exec: flat.exec, lstat: stat, fs }), { ok: true });
+  assert.equal(flat.calls.filter((call) => call[2] === '/inheritance:r').length, 1);
+});
+
 // The fakes above are the icacls output as documented; this is the real icacls and whoami on a
 // Windows host (CI's windows-latest), in the run's temp folder. A miss names both outputs.
 test('win32, real icacls: a private directory and a private file get owner-only ACLs (BLD-08)', { skip: process.platform === 'win32' ? false : 'needs Windows icacls and whoami' }, async (t) => {

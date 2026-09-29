@@ -32,19 +32,26 @@ export function silentBoundMs(env) {
   return Number(raw) * 1000;
 }
 
-/** The pids of every process below `root`, deepest last, from one `ps` listing (POSIX only). */
+/**
+ * The pids of every process below `root`, deepest last, from one process listing of
+ * [pid, ppid] or [pid, ppid, created] entries. Windows reuses pids and keeps a dead parent's pid
+ * on its children, so where creation times are known a child must not predate its parent.
+ */
 export function descendants(root, listing = psListing) {
   const children = new Map();
-  for (const [pid, ppid] of listing()) {
+  const created = new Map();
+  for (const [pid, ppid, at] of listing()) {
     if (!children.has(ppid)) children.set(ppid, []);
     children.get(ppid).push(pid);
+    if (typeof at === 'number') created.set(pid, at);
   }
   const out = [];
   const queue = [root];
   while (queue.length > 0) {
-    const next = children.get(queue.shift()) ?? [];
-    for (const pid of next) {
+    const parent = queue.shift();
+    for (const pid of children.get(parent) ?? []) {
       if (pid === root || out.includes(pid)) continue;
+      if (created.has(pid) && created.has(parent) && created.get(pid) < created.get(parent)) continue;
       out.push(pid);
       queue.push(pid);
     }
@@ -53,14 +60,17 @@ export function descendants(root, listing = psListing) {
 }
 
 function psListing() {
-  if (process.platform === 'win32') return [];
-  const result = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', shell: false, windowsHide: true });
+  // Windows has no ps: the process table comes from CIM, "pid ppid created" per line, the
+  // creation time as a Windows file time.
+  const result = process.platform === 'win32'
+    ? spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | ForEach-Object { "$($_.ProcessId) $($_.ParentProcessId) $($_.CreationDate.ToFileTimeUtc())" }'], { encoding: 'utf8', shell: false, windowsHide: true, timeout: 30_000 })
+    : spawnSync('ps', ['-A', '-o', 'pid=,ppid='], { encoding: 'utf8', shell: false, windowsHide: true });
   if (result.status !== 0) return [];
   const pairs = [];
-  for (const line of result.stdout.split('\n')) {
-    const match = /^\s*(\d+)\s+(\d+)\s*$/.exec(line);
-    // The ps process itself is gone by now: never count it.
-    if (match !== null && Number(match[1]) !== result.pid) pairs.push([Number(match[1]), Number(match[2])]);
+  for (const line of result.stdout.split(/\r?\n/)) {
+    const match = /^\s*(\d+)\s+(\d+)(?:\s+(\d+))?\s*$/.exec(line);
+    // The listing process itself is gone by now: never count it.
+    if (match !== null && Number(match[1]) !== result.pid) pairs.push(match[3] === undefined ? [Number(match[1]), Number(match[2])] : [Number(match[1]), Number(match[2]), Number(match[3])]);
   }
   return pairs;
 }

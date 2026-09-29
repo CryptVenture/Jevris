@@ -34,7 +34,8 @@ test('a simulated managed host skips the tests that need an unmanaged one instea
   const where = realManagedPolicyDir();
   const skipped = run.stdout.split('\n').filter((line) => /# SKIP this machine has a real managed Jevris policy at /.test(line));
   assert.equal(skipped.length, 3, run.stdout);
-  for (const line of skipped) assert.ok(line.includes(where), line);
+  // The TAP reporter escapes a backslash in a skip reason as two (a Windows path).
+  for (const line of skipped) assert.ok(line.includes(where.replace(/\\/g, '\\\\')), line);
   assert.match(run.stdout, /^# fail 0$/m);
   // The tests that do not depend on the host still run.
   assert.match(run.stdout, /^ok \d+ - managed locations per OS/m);

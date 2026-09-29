@@ -13,8 +13,9 @@
 // starts. Every file keeps making progress: a serial file waits only for running parallel files,
 // a parallel file only for the serial file that holds the lock.
 // One node --test run holds both, so coverage, the test events and the summary stay one run's.
-// Each wait is capped (JEVRIS_SERIAL_GATE_WAIT_S, default 1200 s), and a serial file names the
-// parallel files a capped wait went ahead of.
+// Each wait is capped (JEVRIS_SERIAL_GATE_WAIT_S, default 3600 s: on windows-latest the parallel
+// files alone run for more than 20 minutes, and a serial file that went ahead at a 1200 s cap ran
+// beside them), and a serial file names the parallel files a capped wait went ahead of.
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
@@ -117,8 +118,8 @@ export function lockHeld(dir) {
 
 /** The cap on each wait, in milliseconds. */
 function capMs() {
-  const waitS = Number(process.env.JEVRIS_SERIAL_GATE_WAIT_S ?? '1200');
-  return (Number.isFinite(waitS) && waitS > 0 ? waitS : 1200) * 1000;
+  const waitS = Number(process.env.JEVRIS_SERIAL_GATE_WAIT_S ?? '3600');
+  return (Number.isFinite(waitS) && waitS > 0 ? waitS : 3600) * 1000;
 }
 
 if (typeof gate === 'string' && gate.length > 0 && (process.env.NODE_TEST_CONTEXT ?? '').length > 0 && typeof main === 'string' && main.length > 0) {

@@ -115,7 +115,8 @@ test('verify:fresh clones HEAD from a path with spaces, applies the overlay, run
   const run = async (step, cwd, logPath) => {
     seen.push(step.id);
     assert.notEqual(realpathSync(cwd), realpathSync(main), `${step.id} ran in the main checkout`);
-    assert.equal(git(cwd, 'rev-parse', '--show-toplevel'), realpathSync(cwd));
+    // git prints the top level with '/' on Windows too: compare the real paths.
+    assert.equal(realpathSync.native(git(cwd, 'rev-parse', '--show-toplevel')), realpathSync.native(cwd));
     assert.equal(readFileSync(join(cwd, 'src dir', 'a file.txt'), 'utf8'), 'edited in the working tree\n', 'the overlay copy reached the clone');
     assert.equal(readFileSync(join(cwd, 'new file.txt'), 'utf8'), 'untracked\n');
     assert.equal(existsSync(join(cwd, 'gone.txt')), false, 'a deleted overlay path is deleted in the clone');

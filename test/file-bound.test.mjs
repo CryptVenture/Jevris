@@ -48,6 +48,8 @@ test('the bound reads a whole number of seconds, walks the process tree below a 
   // 10 -> 11 -> 13, 10 -> 12; 20 is another tree.
   assert.deepEqual(descendants(10, () => [[11, 10], [12, 10], [13, 11], [20, 1], [21, 20]]), [11, 12, 13]);
   assert.deepEqual(descendants(10, () => []), []);
+  // Windows: 30 names a parent that died before 10 took its pid, so it is not 10's child.
+  assert.deepEqual(descendants(10, () => [[10, 1, 500], [11, 10, 600], [30, 10, 100], [31, 30, 700]]), [11]);
   assert.equal(DEFAULT_FILE_SILENT_S > 120, true, 'above --test-timeout, so a slow test is never cut');
   const gated = { NODE_OPTIONS: `--import=preload --import=${SERIAL_GATE_URL}` };
   const bound = fileBound(gated, {});
@@ -60,7 +62,12 @@ test('the bound reads a whole number of seconds, walks the process tree below a 
 
 test('a file that stays up on an open child after its tests is ended at the bound, fails with FILE_SILENT_BOUND, and its child is ended; the run exits', async (t) => {
   const dir = mkdtempSync(join(tmpdir(), 'file-bound-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  let child = 0;
+  // A child still running keeps the folder on Windows: it is ended before the folder goes.
+  t.after(() => {
+    if (child > 0 && running(child)) process.kill(child, 'SIGKILL');
+    rmSync(dir, { recursive: true, force: true, maxRetries: 10 });
+  });
   writeFileSync(join(dir, 'hang.test.mjs'), [
     "import { test } from 'node:test';",
     "import { spawn } from 'node:child_process';",
@@ -72,15 +79,14 @@ test('a file that stays up on an open child after its tests is ended at the boun
   ].join('\n'));
   writeFileSync(join(dir, 'ok.test.mjs'), "import { test } from 'node:test';\ntest('quick', () => {});\n");
   const result = await run(['--test', '--test-reporter=spec', 'hang.test.mjs', 'ok.test.mjs'], dir, nestedEnv({ NODE_OPTIONS: `--import=${FILE_BOUND_URL}`, JEVRIS_TEST_FILE_SILENT_S: '2' }));
-  const child = Number(readFileSync(join(dir, 'child.pid'), 'utf8'));
-  t.after(() => { if (running(child)) process.kill(child, 'SIGKILL'); });
+  child = Number(readFileSync(join(dir, 'child.pid'), 'utf8'));
   assert.equal(result.signal, null, `the run exited on its own:\n${result.output}`);
   assert.equal(result.code, 1, result.output);
   assert.match(result.output, new RegExp(`test file bound: hang\\.test\\.mjs was silent for 2 s \\(JEVRIS_TEST_FILE_SILENT_S\\); it and the 1 process\\(es\\) it started were ended \\(${FILE_SILENT_REASON}\\)`));
   assert.match(result.output, /✖ hang\.test\.mjs/);
   assert.match(result.output, /ℹ pass 2/);
   assert.match(result.output, /ℹ fail 1/);
-  if (process.platform !== 'win32') assert.equal(running(child), false, 'the child that held the pipes was ended');
+  assert.equal(running(child), false, 'the child that held the pipes was ended');
 });
 
 test('a latency-bound file waiting its turn behind the serial gate is not cut by the bound; a file that keeps writing is not either', async (t) => {

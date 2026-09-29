@@ -56,18 +56,45 @@ if (typeof realTemp === 'string' && realTemp.length > 0 && typeof ledger === 'st
     };
   };
   wrapSync('mkdtempSync', (_args, out) => out);
-  // A recursive mkdir returns the first directory it created, which is the one to attribute.
-  const firstMade = (args, out) => (typeof out === 'string' ? out : args[0]);
-  wrapSync('mkdirSync', firstMade);
+  // A recursive mkdir creates from the first missing folder on the way, which is the one to
+  // attribute; it is found beforehand, since what the call returns differs on Windows.
+  const firstMissing = (path) => {
+    let first = null;
+    try {
+      let current = resolve(String(path));
+      while (!fs.existsSync(current)) {
+        first = current;
+        const up = dirname(current);
+        if (up === current) break;
+        current = up;
+      }
+    } catch {
+      // attribution never breaks a test
+    }
+    return first;
+  };
+  const recursive = (args) => args[1] !== null && typeof args[1] === 'object' && args[1].recursive === true;
+  const mkdirSync = fs.mkdirSync;
+  fs.mkdirSync = function wrapped(...args) {
+    const missing = recursive(args) ? firstMissing(args[0]) : null;
+    const out = mkdirSync.apply(this, args);
+    note(missing ?? (typeof out === 'string' ? out : args[0]));
+    return out;
+  };
   const promises = fs.promises;
-  for (const [name, pick] of [['mkdtemp', (_args, out) => out], ['mkdir', firstMade]]) {
-    const original = promises[name];
-    promises[name] = async function wrapped(...args) {
-      const out = await original.apply(this, args);
-      note(pick(args, out));
-      return out;
-    };
-  }
+  const mkdtemp = promises.mkdtemp;
+  promises.mkdtemp = async function wrapped(...args) {
+    const out = await mkdtemp.apply(this, args);
+    note(out);
+    return out;
+  };
+  const mkdir = promises.mkdir;
+  promises.mkdir = async function wrapped(...args) {
+    const missing = recursive(args) ? firstMissing(args[0]) : null;
+    const out = await mkdir.apply(this, args);
+    note(missing ?? (typeof out === 'string' ? out : args[0]));
+    return out;
+  };
   syncBuiltinESMExports();
 }
 // Home-write attribution (QA-07). Every write, removal, rename, copy, link, mkdir or open for

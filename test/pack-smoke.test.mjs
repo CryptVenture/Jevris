@@ -222,7 +222,8 @@ test('install receipts are checked against the files they list, not scanned as h
     };
     const skill = '# skill\n';
     write('.config/kilo/skills/jevris-plan/SKILL.md', skill);
-    write('.config/kilo/kilo.json', JSON.stringify({ mcp: { jevris: { command: [join(home, '.jevris', 'runtime', 'mcp.mjs')] } } }));
+    // The same path text as the splice below, whose tail is written with '/' on every OS.
+    write('.config/kilo/kilo.json', JSON.stringify({ mcp: { jevris: { command: [`${home}/.jevris/runtime/mcp.mjs`] } } }));
     const splice = JSON.stringify({ command: ['${JEVRIS_HOME_JSON}/.jevris/runtime/mcp.mjs'] }).slice(12, -1);
     const receipt = {
       schemaVersion: '2.1',

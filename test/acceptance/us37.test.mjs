@@ -26,10 +26,12 @@ function fakeRoot(dir, { container }) {
 
 story('US37', async ({ t, then, sandbox, evidence }) => {
   const roots = realpathSync(mkdtempSync(join(tmpdir(), 'jevris-us37-')));
-  t.after(() => rmSync(roots, { recursive: true, force: true }));
   const containerRoot = fakeRoot(join(roots, 'container'), { container: true });
   const hostRoot = fakeRoot(join(roots, 'host'), { container: false });
   const box = await sandbox({ env: { JEVRIS_TEST: '1', JEVRIS_TEST_LOCALITY_ROOT: containerRoot } });
+  // Added after the sandbox's own teardown, so it runs after it (node:test runs after-hooks in
+  // the order added): the teardown's sidecar stop still sees the container it started in.
+  t.after(() => rmSync(roots, { recursive: true, force: true }));
   const host = { JEVRIS_TEST_LOCALITY_ROOT: hostRoot };
 
   assert.equal(box.startSidecar().code, 0, 'the sidecar did not start in the container');

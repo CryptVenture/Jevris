@@ -6,8 +6,8 @@
 import { spawnSync } from 'node:child_process';
 import { rmSync } from 'node:fs';
 
-/** Processes that may hold `dir` on Windows, one line each; empty elsewhere or when unreadable. */
-export function windowsHolders(dir) {
+/** The Windows process table (pid, parent pid, name, command line); empty elsewhere or when unreadable. */
+export function windowsProcesses() {
   if (process.platform !== 'win32') return [];
   const listed = spawnSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', 'Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId,Name,CommandLine | ConvertTo-Json -Compress'], { encoding: 'utf8', windowsHide: true, timeout: 30_000 });
   let rows = [];
@@ -16,10 +16,17 @@ export function windowsHolders(dir) {
   } catch {
     return [];
   }
-  const lower = dir.toLowerCase();
   return (Array.isArray(rows) ? rows : [rows])
-    .filter((row) => row !== null && typeof row === 'object' && (String(row.CommandLine ?? '').toLowerCase().includes(lower) || /^(node|powershell|pwsh|cmd)\.exe$/i.test(String(row.Name ?? ''))))
-    .map((row) => `pid ${row.ProcessId} (parent ${row.ParentProcessId}) ${row.Name}: ${String(row.CommandLine ?? '').slice(0, 300)}`);
+    .filter((row) => row !== null && typeof row === 'object')
+    .map((row) => ({ pid: Number(row.ProcessId), ppid: Number(row.ParentProcessId), name: String(row.Name ?? ''), commandLine: String(row.CommandLine ?? '') }));
+}
+
+/** Processes that may hold `dir` on Windows, one line each; empty elsewhere or when unreadable. */
+export function windowsHolders(dir) {
+  const lower = dir.toLowerCase();
+  return windowsProcesses()
+    .filter((row) => row.commandLine.toLowerCase().includes(lower) || /^(node|powershell|pwsh|cmd)\.exe$/i.test(row.name))
+    .map((row) => `pid ${row.pid} (parent ${row.ppid}) ${row.name}: ${row.commandLine.slice(0, 300)}`);
 }
 
 /** rmSync(dir, recursive, force) with the retries and, on a Windows failure, the holders named. */
