@@ -129,3 +129,27 @@ test('with the hot pool full, a Stop is answered on the lane and an ordinary eve
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('with every connection taken, a Stop still reaches the lane on a connection past the cap, and an ordinary event there reads BUSY', { skip: managedHostSkip() }, async () => {
+  const home = tempHome();
+  const root = join(home, 'ws');
+  mkdirSync(root);
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, limits: { maxConnections: 2 }, log: () => undefined });
+  assert.equal(started.ok, true, started.ok ? '' : started.message);
+  const held = [];
+  try {
+    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
+    assert.equal(registered.ok, true, JSON.stringify(registered));
+    // Two open, idle connections fill the served cap.
+    held.push(await rawSession(home, 'hook'), await rawSession(home, 'hook'));
+    const event = (key, kind) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: key, envelope: envelope(kind) }, timeoutMs: 5_000 });
+    const stop = await event('cap-1', 'turn.stopped');
+    assert.equal(stop.ok, true, `a Stop past the connection cap is served on the answer lane: ${JSON.stringify(stop)}`);
+    const tool = await event('cap-2', 'tool.finished');
+    assert.deepEqual([tool.ok, tool.reasonCode], [false, 'BUSY'], 'an ordinary event past the connection cap is BUSY');
+  } finally {
+    for (const session of held) session.close();
+    await started.daemon.stop('test');
+    rmSync(home, { recursive: true, force: true });
+  }
+});

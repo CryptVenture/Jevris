@@ -256,7 +256,8 @@ export function receiptLeftovers(home, receipts) {
   if (receipts === undefined) return ['(no receipts were read after install)'];
   const files = receipts.listed.files.filter((path) => existsSync(path));
   const dirs = receipts.listed.dirs.filter((path) => existsSync(path) && readdirSync(path).length === 0);
-  return [...files, ...dirs].map((path) => relative(home, path));
+  // Written as the receipts write them: '/' on every OS.
+  return [...files, ...dirs].map((path) => relative(home, path).split(sep).join('/'));
 }
 
 /** Absolute filesystem paths named in a config (POSIX or Windows spelling). */

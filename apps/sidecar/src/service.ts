@@ -34,6 +34,7 @@ import {
   clientKey,
   compareVersions,
   isClientKind,
+  isNamedPipe,
   macEquals,
   newNonce,
   parseLine,
@@ -66,11 +67,27 @@ const FLUSH_GUARD_MS = 1_000;
 /** Connections past the served cap that may still be open while they read BUSY. */
 const REFUSAL_HEADROOM = 256;
 /**
+ * Connections past the served cap kept for the answer lane (owner decision ededdba, K3): one is
+ * accepted, and its request is served only if it is on the answer lane (a SessionStart restore, a
+ * Stop reminder, a PreCompact capsule); any other request on it reads BUSY, and one that sends no
+ * hello reads BUSY at the hello timeout. The cap therefore never turns a lifecycle answer into
+ * BUSY, also where closed connections leave slowly (Windows named pipes under load). As many as
+ * the admission's kept answer slots.
+ */
+const ANSWER_CONNECTIONS = 8;
+/**
  * The listen backlog: connections the OS holds until the loop accepts them. The OS may cap it
  * (macOS kern.ipc.somaxconn is 128 by default); a hook that still meets a full backlog retries
  * within its deadline (client.ts).
  */
 const LISTEN_BACKLOG = 511;
+/**
+ * Windows ignores the backlog for a named pipe: what holds connections the loop has not accepted
+ * yet is the server's pending pipe instances, 4 by default in libuv. A burst of hooks past four
+ * then waits in the client for a free instance (CONNECT_TIMEOUT under 50 subagents, K3). Node
+ * reads NODE_PENDING_PIPE_INSTANCES when it creates the pipe server, so it is set around listen.
+ */
+const PIPE_PENDING_INSTANCES = 128;
 
 export const DEFAULT_LIMITS: ServiceLimits = {
   maxConnections: 64,
@@ -186,6 +203,7 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
   const log = options.log ?? (() => undefined);
   const nonces = new NonceCache(SKEW_MS * 2, 100_000);
   const sockets = new Set<Socket>();
+  const answerOnly = new WeakSet<Socket>();
   const pending = new Set<Pending>();
   const background = new Set<Promise<unknown>>();
   let closing = false;
@@ -196,13 +214,15 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
       endAfterFlush(socket);
       return;
     }
-    if (sockets.size >= limits.maxConnections) {
+    if (sockets.size >= limits.maxConnections + ANSWER_CONNECTIONS) {
       // Connection cap (IPC-04): refuse at once rather than queue. The BUSY line is flushed
       // before the socket closes, so the client reads BUSY, never CLOSED (audit K7).
       writeLine(socket, { t: 'error', reasonCode: 'BUSY' });
       endAfterFlush(socket);
       return;
     }
+    // Past the served cap, only the answer lane is served on this connection.
+    if (sockets.size >= limits.maxConnections) answerOnly.add(socket);
     sockets.add(socket);
     socket.on('close', () => {
       sockets.delete(socket);
@@ -239,6 +259,10 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
     if (helloLine.kind !== 'line') {
       if (helloLine.kind === 'oversize') {
         writeLine(socket, { t: 'error', reasonCode: 'OVERSIZE' });
+        endAfterFlush(socket);
+      } else if (answerOnly.has(socket)) {
+        // A connection past the cap that asked nothing reads BUSY, as one refused at once does (K7).
+        writeLine(socket, { t: 'error', reasonCode: 'BUSY' });
         endAfterFlush(socket);
       } else socket.destroy();
       return;
@@ -352,6 +376,8 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
     // The answer lane (ededdba, K3): only a hook's hot `event` may ask for it; the event kind is
     // checked in dispatch once the body is parsed, before anything runs.
     if (priority !== null && (kind !== 'hook' || op !== 'event' || cls !== 'hot')) return reject(socket, id, 'PRIORITY_REFUSED', kind, op);
+    // A connection accepted past the cap serves the answer lane only (ANSWER_CONNECTIONS).
+    if (priority === null && answerOnly.has(socket)) return reject(socket, id, 'BUSY', kind, op);
     const slot = admission.admit(cls, priority === null ? {} : { answer: true });
     if (slot === undefined) {
       options.hooks.requestDone?.({ rid: id, op, client: kind, ok: false, reasonCode: 'BUSY', ms: 0, budget });
@@ -530,10 +556,20 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
       reject(error);
     };
     server.once('error', onError);
-    server.listen({ path: options.endpoint, readableAll: false, writableAll: false, backlog: LISTEN_BACKLOG }, () => {
-      server.removeListener('error', onError);
-      resolve();
-    });
+    const pipe = process.platform === 'win32' && isNamedPipe(options.endpoint);
+    const previous = process.env['NODE_PENDING_PIPE_INSTANCES'];
+    if (pipe) process.env['NODE_PENDING_PIPE_INSTANCES'] = String(PIPE_PENDING_INSTANCES);
+    try {
+      server.listen({ path: options.endpoint, readableAll: false, writableAll: false, backlog: LISTEN_BACKLOG }, () => {
+        server.removeListener('error', onError);
+        resolve();
+      });
+    } finally {
+      if (pipe) {
+        if (previous === undefined) delete process.env['NODE_PENDING_PIPE_INSTANCES'];
+        else process.env['NODE_PENDING_PIPE_INSTANCES'] = previous;
+      }
+    }
   });
   // The OS-level ceiling sits above the served cap, so a connection past the cap still reaches
   // the handler and reads BUSY; at the ceiling itself Node closes it unread (audit K7).

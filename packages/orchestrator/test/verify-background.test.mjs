@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { surfacePayloadContract } from '@jevris/contracts';
 import {
@@ -25,6 +25,7 @@ import {
 } from '../dist/index.js';
 import { closeTestStore, testStore } from './store-fixture.mjs';
 import { tempDir } from './temp-dirs.mjs';
+import { removeTree } from '../../../scripts/remove-tree.mjs';
 
 const NODE = process.execPath;
 const POSIX_ONLY = process.platform === 'win32' ? 'file-mode masks are POSIX' : false;
@@ -72,7 +73,9 @@ function fixture() {
     traces,
     done: () => {
       closeTestStore(store);
-      rmSync(dir, { recursive: true, force: true });
+      // A check's process may still be ending as its receipt lands: Windows then refuses the
+      // removal for a moment, so it is retried (and names the holder if it never ends).
+      removeTree(dir);
     },
   };
 }

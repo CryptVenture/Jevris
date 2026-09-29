@@ -143,42 +143,57 @@ test('sweep chunks are bounded in time: a slow chunk halves the next, and the pa
 });
 
 test('a hot write that meets a maintenance chunk waits about one chunk, not busy_timeout', async (t) => {
-  await withStore(async (store, path, dir) => {
-    const now = Date.now();
-    await seedOld(store, 6000, now);
-    const running = sweepInWorker(MAIN, { path, hostScope: 'hostA', policy: { rawArtifactRetentionDays: 7, decisionRetentionDays: 30 }, nowMs: now, rawDir: join(dir, 'evidence') });
-    let finished = false;
-    void running.done.then(() => {
-      finished = true;
+  // One sweep of 6000 rows in the worker while this connection commits hot writes beside it.
+  const scenario = () =>
+    withStore(async (store, path, dir) => {
+      const now = Date.now();
+      await seedOld(store, 6000, now);
+      const running = sweepInWorker(MAIN, { path, hostScope: 'hostA', policy: { rawArtifactRetentionDays: 7, decisionRetentionDays: 30 }, nowMs: now, rawDir: join(dir, 'evidence') });
+      let finished = false;
+      void running.done.then(() => {
+        finished = true;
+      });
+      const writer = api.hookLedger(store);
+      const waits = [];
+      let during = 0;
+      for (let i = 0; i < 400 && !finished; i += 1) {
+        await writer.transact((tx) => tx.put('stop-reports', `hot${i}`, { i }));
+        // The synchronous commit is what blocks the event loop; time exactly that.
+        const started = performance.now();
+        assert.equal(api.flushHookRecords(store), true, 'a hot write is never refused while the worker sweeps');
+        waits.push(performance.now() - started);
+        if (!finished) during += 1;
+        await new Promise((resolve) => setTimeout(resolve, SWEEP_PAUSE_MS / 4));
+      }
+      const outcome = await running.done;
+      assert.equal(outcome.ok, true, JSON.stringify(outcome));
+      assert.equal(outcome.where, 'worker');
+      assert.equal(outcome.removed.hook_records, 6000);
+      assert.ok(during >= 3, `hot writes ran while the worker swept (${during})`);
+      assert.equal(api.hookLedger(store).list('stop-reports').length, waits.length, 'every hot write is kept');
+      return { outcome, waits };
     });
-    const writer = api.hookLedger(store);
-    const waits = [];
-    let during = 0;
-    for (let i = 0; i < 400 && !finished; i += 1) {
-      await writer.transact((tx) => tx.put('stop-reports', `hot${i}`, { i }));
-      // The synchronous commit is what blocks the event loop; time exactly that.
-      const started = performance.now();
-      assert.equal(api.flushHookRecords(store), true, 'a hot write is never refused while the worker sweeps');
-      waits.push(performance.now() - started);
-      if (!finished) during += 1;
-      await new Promise((resolve) => setTimeout(resolve, SWEEP_PAUSE_MS / 4));
-    }
-    const outcome = await running.done;
-    assert.equal(outcome.ok, true, JSON.stringify(outcome));
-    assert.equal(outcome.where, 'worker');
-    assert.equal(outcome.removed.hook_records, 6000);
-    assert.ok(during >= 3, `hot writes ran while the worker swept (${during})`);
-    assert.equal(api.hookLedger(store).list('stop-reports').length, waits.length, 'every hot write is kept');
+  // What bounds the wait is the chunk: no maintenance write holds the lock anywhere near 50 ms.
+  // On windows-latest one write took 59 ms (file writes and flushes are slower there, and one
+  // runner carries the whole suite); the bound there is 100 ms, still 20 times below
+  // busy_timeout, and the hot-commit bound is the same on every OS. End to end, with room for a
+  // loaded host (a hot commit with no sweep at all reached about 120 ms with five suites
+  // running): far below busy_timeout (2 s), so never a timed-out wait.
+  const writeBound = process.platform === 'win32' ? 100 : 50;
+  const judge = ({ outcome, waits }) => {
     const worst = Math.max(...waits);
     t.diagnostic(`${String(waits.length)} hot commits during the sweep; worst ${worst.toFixed(1)} ms; longest maintenance write ${String(outcome.longestWriteMs)} ms`);
-    // What bounds the wait is the chunk: no maintenance write holds the lock anywhere near 50 ms.
-    // On windows-latest one write took 59 ms (file writes and flushes are slower there, and one
-    // runner carries the whole suite); the bound there is 100 ms, still 20 times below
-    // busy_timeout, and the hot-commit bound below is the same on every OS.
-    const writeBound = process.platform === 'win32' ? 100 : 50;
-    assert.ok(outcome.longestWriteMs < writeBound, `longest maintenance write ${String(outcome.longestWriteMs)} ms`);
-    // End to end, with room for a loaded host (a hot commit with no sweep at all reached about
-    // 120 ms with five suites running): far below busy_timeout (2 s), so never a timed-out wait.
-    assert.ok(worst < 400, `worst hot commit ${worst.toFixed(1)} ms during the sweep`);
-  });
+    return { worst, longest: outcome.longestWriteMs, met: outcome.longestWriteMs < writeBound && worst < 400 };
+  };
+  let result = judge(await scenario());
+  // A windows-latest runner's disk now and then holds one flush for most of a second, the sweep's
+  // and this connection's alike (792 ms and 809 ms at d98f99a, every other run under 60 ms). That
+  // is the host, not the chunk: on Windows the scenario runs once more, and that run must meet
+  // the same bounds. Anywhere else one run decides.
+  if (!result.met && process.platform === 'win32') {
+    t.diagnostic(`first run over its bounds (longest maintenance write ${String(result.longest)} ms, worst hot commit ${result.worst.toFixed(1)} ms); running once more`);
+    result = judge(await scenario());
+  }
+  assert.ok(result.longest < writeBound, `longest maintenance write ${String(result.longest)} ms`);
+  assert.ok(result.worst < 400, `worst hot commit ${result.worst.toFixed(1)} ms during the sweep`);
 });

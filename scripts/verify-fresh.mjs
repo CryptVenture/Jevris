@@ -305,8 +305,13 @@ function runStep(step, cwd, logPath, env = process.env) {
   });
 }
 
+/**
+ * The clone holds HEAD's bytes: `core.autocrlf` off, whatever the host sets (Git for Windows sets
+ * it on), so a file with no .gitattributes rule is not rewritten with CRLF beside the overlay's
+ * working-tree copies.
+ */
 function cloneHead(mainRoot, clone) {
-  const cloned = spawnSync('git', ['clone', '--quiet', '--no-hardlinks', mainRoot, clone], { encoding: 'utf8', shell: false, windowsHide: true });
+  const cloned = spawnSync('git', ['clone', '--quiet', '--no-hardlinks', '--config', 'core.autocrlf=false', mainRoot, clone], { encoding: 'utf8', shell: false, windowsHide: true });
   if (cloned.status !== 0) throw new Error(`git clone failed: ${String(cloned.stderr).trim().slice(0, 300)}`);
   const head = spawnSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: clone, encoding: 'utf8', shell: false, windowsHide: true });
   return head.status === 0 ? head.stdout.trim() : 'unknown';
