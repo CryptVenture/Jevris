@@ -1,0 +1,10 @@
+{
+  "name": "jevris-reference-handoff",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Offline-testable reference contracts, not a complete Jevris product",
+  "engines": { "node": ">=22" },
+  "scripts": { "build": "tsc -p tsconfig.json", "test": "npm run build && node --test tests.mjs" },
+  "devDependencies": { "typescript": "5.8.3" }
+}

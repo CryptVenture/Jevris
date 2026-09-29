@@ -1,0 +1,140 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:pack-manifest:1.0",
+  "title": "PackManifest",
+  "description": "Declarative pack manifest, the SSOT v1 handoff subset (ssot_docs/schemas/pack-manifest.schema.json).",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^jevris\\.[a-z][a-z0-9.-]+$"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+\\.\\d+$"
+    },
+    "maturity": {
+      "type": "string",
+      "enum": [
+        "experimental",
+        "canary",
+        "stable"
+      ]
+    },
+    "description": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "requiresCapabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "fallbackCapabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "decisionSpecs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "advise",
+          "route-worker",
+          "request-checkpoint",
+          "select-evidence",
+          "request-verification",
+          "cancel-owned-worker",
+          "abstain"
+        ]
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "dataScopes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "task-metadata",
+          "approved-source-spans",
+          "approved-tool-output",
+          "verification-receipts",
+          "policy-metadata"
+        ]
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "defaultMode": {
+      "type": "string",
+      "enum": [
+        "off",
+        "observe",
+        "advise",
+        "bounded-auto"
+      ]
+    },
+    "conflicts": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "fixtures": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "id",
+    "version",
+    "maturity",
+    "description",
+    "requiresCapabilities",
+    "fallbackCapabilities",
+    "decisionSpecs",
+    "actions",
+    "dataScopes",
+    "defaultMode",
+    "conflicts",
+    "fixtures"
+  ],
+  "additionalProperties": false
+}

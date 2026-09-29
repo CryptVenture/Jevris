@@ -1,0 +1,34 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../packages/contracts"
+    },
+    {
+      "path": "../sidecar"
+    },
+    {
+      "path": "../../packages/adapter-antigravity"
+    },
+    {
+      "path": "../../packages/adapter-claude-code"
+    },
+    {
+      "path": "../../packages/adapter-codex"
+    },
+    {
+      "path": "../../packages/adapter-kilocode"
+    },
+    {
+      "path": "../../packages/adapter-opencode"
+    }
+  ]
+}

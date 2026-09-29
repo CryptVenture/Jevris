@@ -1,0 +1,243 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:jevris-config:1.0",
+  "title": "JevrisConfig",
+  "description": "Product configuration, the SSOT v1 handoff subset (ssot_docs/schemas/jevris-config.schema.json). Validity is not consent.",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "off",
+        "observe",
+        "advise",
+        "bounded-auto"
+      ]
+    },
+    "provider": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "typesafe-direct"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^jev-\\d+\\.\\d+\\.\\d+$"
+        },
+        "credentialRef": {
+          "type": "string",
+          "pattern": "^host-secret:[A-Za-z0-9_-]+$"
+        }
+      },
+      "required": [
+        "kind",
+        "model",
+        "credentialRef"
+      ],
+      "additionalProperties": false
+    },
+    "decisions": {
+      "type": "object",
+      "properties": {
+        "hotPathDeadlineMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000
+        },
+        "backgroundDeadlineMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120000
+        },
+        "maxRequestBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 16777216
+        },
+        "maxQuestions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "allowUncalibratedActuation": {
+          "const": false
+        }
+      },
+      "required": [
+        "hotPathDeadlineMs",
+        "backgroundDeadlineMs",
+        "maxRequestBytes",
+        "maxQuestions",
+        "allowUncalibratedActuation"
+      ],
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "properties": {
+        "sourceEgress": {
+          "type": "string",
+          "enum": [
+            "deny-until-approved",
+            "approved-scoped"
+          ]
+        },
+        "remoteTelemetry": {
+          "type": "string",
+          "enum": [
+            "off",
+            "approved-aggregates"
+          ]
+        },
+        "rawArtifactRetentionDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365
+        },
+        "decisionRetentionDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3650
+        }
+      },
+      "required": [
+        "sourceEgress",
+        "remoteTelemetry",
+        "rawArtifactRetentionDays",
+        "decisionRetentionDays"
+      ],
+      "additionalProperties": false
+    },
+    "routing": {
+      "type": "object",
+      "properties": {
+        "mainSession": {
+          "type": "string",
+          "enum": [
+            "advice-only",
+            "plugin-bounded-auto",
+            "owned-sdk-approved"
+          ]
+        },
+        "managedWorkers": {
+          "type": "string",
+          "enum": [
+            "off",
+            "observe",
+            "advise",
+            "bounded-auto"
+          ]
+        },
+        "respectHumanPins": {
+          "const": true
+        },
+        "calibrationArtifact": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 256
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "modelListing": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ]
+        }
+      },
+      "required": [
+        "mainSession",
+        "managedWorkers",
+        "respectHumanPins",
+        "calibrationArtifact"
+      ],
+      "additionalProperties": false
+    },
+    "orchestration": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxConcurrentWorkers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "maxWorkerDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "maxRepairAttempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "maxStopContinuationsPerCondition": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "enabled",
+        "maxConcurrentWorkers",
+        "maxWorkerDepth",
+        "maxRepairAttempts",
+        "maxStopContinuationsPerCondition"
+      ],
+      "additionalProperties": false
+    },
+    "compaction": {
+      "type": "object",
+      "properties": {
+        "nativeAutoDeferral": {
+          "type": "boolean"
+        },
+        "preserveMandatoryFacts": {
+          "const": true
+        },
+        "rawTranscriptEditing": {
+          "const": false
+        }
+      },
+      "required": [
+        "nativeAutoDeferral",
+        "preserveMandatoryFacts",
+        "rawTranscriptEditing"
+      ],
+      "additionalProperties": false
+    },
+    "packs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "mode",
+    "provider",
+    "decisions",
+    "privacy",
+    "routing",
+    "orchestration",
+    "compaction",
+    "packs"
+  ],
+  "additionalProperties": false
+}

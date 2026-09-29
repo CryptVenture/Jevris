@@ -1,0 +1,8 @@
+{
+  // user settings
+  "$schema": "https://kilo.ai/config.json",
+  "model": "user/model",
+  "mcp": {
+    "jevris": {"type": "local", "command": ["node", "@HOME@/.kilo/bin/mcp.js"], "enabled": true}
+  }
+}

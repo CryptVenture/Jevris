@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "id": "jevris.memory",
+  "version": "0.1.0",
+  "maturity": "experimental",
+  "description": "Checkpoint capsules and recovery: advises when to checkpoint and what the capsule restores. It advises only and never compacts on its own.",
+  "requiresCapabilities": [],
+  "fallbackCapabilities": [],
+  "decisionSpecs": [],
+  "actions": ["advise", "abstain"],
+  "dataScopes": ["task-metadata", "verification-receipts"],
+  "defaultMode": "advise",
+  "conflicts": [],
+  "fixtures": []
+}

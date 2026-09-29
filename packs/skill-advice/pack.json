@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "id": "jevris.skill-advice",
+  "version": "0.1.0",
+  "maturity": "experimental",
+  "description": "Ranking does not execute a skill and does not upload a repository.",
+  "requiresCapabilities": [],
+  "fallbackCapabilities": [],
+  "decisionSpecs": [],
+  "actions": ["advise", "abstain"],
+  "dataScopes": ["task-metadata", "approved-source-spans"],
+  "defaultMode": "advise",
+  "conflicts": [],
+  "fixtures": []
+}

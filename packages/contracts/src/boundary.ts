@@ -1,0 +1,131 @@
+/**
+ * SSOT boundary contracts for the `ssot_docs/examples` fixtures: the product configuration and
+ * the pack manifest (ported one-for-one from `ssot_docs/schemas`) and the native Jev request
+ * (§2.5, `ssot_docs/reference/jev-client.ts`).
+ */
+import { ACTION_KINDS } from './actions.js';
+import { defineContract } from './contract.js';
+import { JevQuestionsSchema } from './decision.js';
+import { MODES, ModeSchema } from './domain.js';
+import type { Json } from './json.js';
+import { JEV_MODEL_PATTERN } from './primitives.js';
+import { MAIN_SESSION_MODES } from './route-turn.js';
+import * as S from './schema.js';
+
+const Entry = S.string({ minLength: 1, maxLength: 256 });
+const EntryList = S.array(Entry, { maxItems: 256, uniqueItems: true });
+
+/** `routing.modelListing` values; `MODEL_LISTING_DEFAULT` applies when the key is absent. */
+export const MODEL_LISTING_VALUES = ['on', 'off'] as const;
+export type ModelListingSetting = (typeof MODEL_LISTING_VALUES)[number];
+export const MODEL_LISTING_DEFAULT: ModelListingSetting = 'on';
+
+export const JevrisConfigSchema = S.object({
+  schemaVersion: S.literal('1.0'),
+  mode: ModeSchema,
+  provider: S.object({
+    kind: S.literal('typesafe-direct'),
+    model: S.string({ pattern: JEV_MODEL_PATTERN }),
+    credentialRef: S.string({ pattern: '^host-secret:[A-Za-z0-9_-]+$' }),
+  }),
+  decisions: S.object({
+    hotPathDeadlineMs: S.integer({ minimum: 1, maximum: 30_000 }),
+    backgroundDeadlineMs: S.integer({ minimum: 1, maximum: 120_000 }),
+    maxRequestBytes: S.integer({ minimum: 1024, maximum: 16_777_216 }),
+    maxQuestions: S.integer({ minimum: 1, maximum: 12 }),
+    allowUncalibratedActuation: S.literal(false),
+  }),
+  privacy: S.object({
+    sourceEgress: S.enumOf(['deny-until-approved', 'approved-scoped']),
+    remoteTelemetry: S.enumOf(['off', 'approved-aggregates']),
+    rawArtifactRetentionDays: S.integer({ minimum: 0, maximum: 365 }),
+    decisionRetentionDays: S.integer({ minimum: 0, maximum: 3650 }),
+  }),
+  routing: S.object(
+    {
+      /**
+       * plugin-bounded-auto lets Kilo and OpenCode main sessions be switched per turn under
+       * bounded-auto rules; every other harness's main session stays advice-only (SSOT schema,
+       * amended 2026-09-27 with owner approval, f294e43). The install default is D's.
+       */
+      mainSession: S.enumOf(MAIN_SESSION_MODES),
+      managedWorkers: S.enumOf(MODES),
+      respectHumanPins: S.literal(true),
+      calibrationArtifact: S.nullable(S.string({ maxLength: 256 })),
+    },
+    {
+      /**
+       * Whether the sidecar asks each installed harness to list the models it offers (owner
+       * decision 2026-09-27, DOMAINS 3f090fa). Absent means `on`; `off` stops all listing.
+       */
+      modelListing: S.enumOf(MODEL_LISTING_VALUES),
+    },
+  ),
+  orchestration: S.object({
+    enabled: S.boolean(),
+    maxConcurrentWorkers: S.integer({ minimum: 1, maximum: 32 }),
+    maxWorkerDepth: S.integer({ minimum: 0, maximum: 4 }),
+    maxRepairAttempts: S.integer({ minimum: 0, maximum: 10 }),
+    maxStopContinuationsPerCondition: S.integer({ minimum: 0, maximum: 1 }),
+  }),
+  compaction: S.object({
+    nativeAutoDeferral: S.boolean(),
+    preserveMandatoryFacts: S.literal(true),
+    rawTranscriptEditing: S.literal(false),
+  }),
+  packs: EntryList,
+});
+export type JevrisConfig = S.Static<typeof JevrisConfigSchema>;
+
+export const JevrisConfigContract = defineContract<JevrisConfig>({
+  name: 'JevrisConfig',
+  description: 'Product configuration, the SSOT v1 handoff subset (ssot_docs/schemas/jevris-config.schema.json). Validity is not consent.',
+  schema: JevrisConfigSchema,
+});
+
+export const PACK_DATA_SCOPES = [
+  'task-metadata',
+  'approved-source-spans',
+  'approved-tool-output',
+  'verification-receipts',
+  'policy-metadata',
+] as const;
+
+export const PackManifestSchema = S.object({
+  schemaVersion: S.literal('1.0'),
+  id: S.string({ pattern: '^jevris\\.[a-z][a-z0-9.-]+$' }),
+  version: S.string({ pattern: '^\\d+\\.\\d+\\.\\d+$' }),
+  maturity: S.enumOf(['experimental', 'canary', 'stable']),
+  description: S.string({ minLength: 1, maxLength: 1000 }),
+  requiresCapabilities: EntryList,
+  fallbackCapabilities: EntryList,
+  decisionSpecs: EntryList,
+  actions: S.array(S.enumOf(ACTION_KINDS), { maxItems: 256, uniqueItems: true }),
+  dataScopes: S.array(S.enumOf(PACK_DATA_SCOPES), { maxItems: 256, uniqueItems: true }),
+  defaultMode: ModeSchema,
+  conflicts: EntryList,
+  fixtures: EntryList,
+});
+export type PackManifest = S.Static<typeof PackManifestSchema>;
+
+export const PackManifestContract = defineContract<PackManifest>({
+  name: 'PackManifest',
+  description: 'Declarative pack manifest, the SSOT v1 handoff subset (ssot_docs/schemas/pack-manifest.schema.json).',
+  schema: PackManifestSchema,
+});
+
+export const JevRequestSchema = S.object({
+  model: S.string({ pattern: JEV_MODEL_PATTERN }),
+  state: S.custom<string | readonly Json[] | { readonly [key: string]: Json }>({
+    description: 'The evidence packet: a string, an array or an object of plain JSON.',
+    anyOf: [{ type: 'string' }, { type: 'array' }, { type: 'object' }],
+  }),
+  questions: JevQuestionsSchema,
+});
+export type JevRequest = S.Static<typeof JevRequestSchema>;
+
+export const JevRequestContract = defineContract<JevRequest>({
+  name: 'JevRequest',
+  description: 'Native Jev request: pinned model, state, one to twelve Choice, Score or Noul questions (§2.5).',
+  schema: JevRequestSchema,
+});

@@ -1,0 +1,92 @@
+{
+  "schemaVersion": "chapter-22-1",
+  "gate": "economics",
+  "verdict": "not-a-pass",
+  "citations": [
+    "packages/contracts/src/shadow.ts",
+    "packages/core/src/shadow.ts",
+    "apps/cli/src/host-policy.ts"
+  ],
+  "clauses": [
+    {
+      "id": "measured-speed-ratio",
+      "status": "unmeasured",
+      "detail": "measuredSpeedRatio null is unmeasured. A null ratio is not a vendor result."
+    },
+    {
+      "id": "measured-cost-ratio",
+      "status": "unmeasured",
+      "detail": "measuredCostRatio null is unmeasured. A null ratio is not a vendor result."
+    },
+    {
+      "id": "vendor-speed-claim",
+      "status": "recorded",
+      "detail": "vendorSpeedClaim not-a-jevris-result. A vendor ratio is not a Jevris result."
+    },
+    {
+      "id": "vendor-cost-claim",
+      "status": "recorded",
+      "detail": "vendorCostClaim not-a-jevris-result. A vendor ratio is not a Jevris result."
+    },
+    {
+      "id": "full-cost",
+      "status": "unmeasured",
+      "detail": "fullCostPerVerifiedTask unmeasured. Unmeasured is not a savings claim."
+    },
+    {
+      "id": "baselines",
+      "status": "recorded",
+      "detail": "baselines rules-only, native, and jev."
+    },
+    {
+      "id": "retries-cache-verification-human-effort",
+      "status": "unmeasured",
+      "detail": "Retries, cache, verification, and human effort are unmeasured."
+    },
+    {
+      "id": "pack-disable",
+      "status": "not-demonstrated",
+      "detail": "Harmful-pack disable is not demonstrated. Phase 20 owns that drill. This record does not call rollbackPolicy."
+    },
+    {
+      "id": "epc-17",
+      "status": "not-claimed",
+      "detail": "buildShadowReport does not close EPC-17."
+    },
+    {
+      "id": "calibration-published",
+      "status": "unpublished",
+      "detail": "Calibration proposal stays unpublished. published false is not a publication."
+    },
+    {
+      "id": "calibration-loaded",
+      "status": "unpublished",
+      "detail": "Calibration proposal stays unloaded. loaded false is not a loader."
+    },
+    {
+      "id": "threshold",
+      "status": "not-demonstrated",
+      "detail": "No threshold exists. A missing threshold is not a retune."
+    },
+    {
+      "id": "drift-monitor",
+      "status": "not-demonstrated",
+      "detail": "No drift module exists. absence of a retune is not a monitoring pass."
+    },
+    {
+      "id": "automatic-route",
+      "status": "not-demonstrated",
+      "detail": "This phase does not start an automatic route."
+    },
+    {
+      "id": "uncalibrated-actuation",
+      "status": "recorded",
+      "detail": "allowUncalibratedActuation false. Citation apps/cli/src/host-policy.ts."
+    },
+    {
+      "id": "library-calibration",
+      "status": "not-claimed",
+      "detail": "recordRecommendationFeedback and buildShadowReport do not close CAP-16 or CAP-52."
+    }
+  ]
+}

@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "id": "jevris.observability",
+  "version": "0.1.0",
+  "maturity": "experimental",
+  "description": "Local traces, counters and status: reports what Jevris observed and decided. It advises only and sends nothing.",
+  "requiresCapabilities": [],
+  "fallbackCapabilities": [],
+  "decisionSpecs": [],
+  "actions": ["advise", "abstain"],
+  "dataScopes": ["task-metadata", "policy-metadata"],
+  "defaultMode": "advise",
+  "conflicts": [],
+  "fixtures": []
+}

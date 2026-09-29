@@ -1,0 +1,17 @@
+{
+  "jevris-observe": {
+    "enabled": false,
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node bin/hook.js",
+            "timeout": 5
+          }
+        ]
+      }
+    ]
+  }
+}

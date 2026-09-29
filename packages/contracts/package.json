@@ -1,0 +1,20 @@
+{
+  "name": "@jevris/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "schemas": "node scripts/generate-schemas.mjs",
+    "schemas:check": "node scripts/generate-schemas.mjs --check"
+  },
+  "dependencies": {
+    "ajv": "8.20.0"
+  }
+}

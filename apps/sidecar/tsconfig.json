@@ -1,0 +1,44 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist",
+    "disableSourceOfProjectReferenceRedirect": true
+  },
+  "include": [
+    "src"
+  ],
+  "references": [
+    {
+      "path": "../../packages/platform"
+    },
+    {
+      "path": "../../packages/adapter-claude-sdk"
+    },
+    {
+      "path": "../../packages/contracts"
+    },
+    {
+      "path": "../../packages/core"
+    },
+    {
+      "path": "../../packages/orchestrator"
+    },
+    {
+      "path": "../../packages/store"
+    },
+    {
+      "path": "../cli"
+    },
+    {
+      "path": "../../packages/provider-typesafe"
+    },
+    {
+      "path": "../../packages/evals"
+    },
+    {
+      "path": "../../packages/languages"
+    }
+  ]
+}

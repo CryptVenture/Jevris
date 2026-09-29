@@ -1,0 +1,77 @@
+{
+  "schemaVersion": "jevris-checks-1",
+  "checks": [
+    {
+      "id": "lint",
+      "argv": ["npm", "run", "lint"],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "mandatory": true,
+      "resultFormat": "auto",
+      "description": "Repository lints (node --test files under lint/)"
+    },
+    {
+      "id": "docs",
+      "argv": ["node", "scripts/docs.mjs", "--check"],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "mandatory": true,
+      "resultFormat": "exit-code",
+      "description": "Generated docs (docs/cli.md, docs/platform-support.md) are up to date"
+    },
+    {
+      "id": "generated",
+      "argv": ["node", "scripts/emit-hook.mjs", "--check"],
+      "cwd": ".",
+      "timeoutMs": 120000,
+      "mandatory": true,
+      "resultFormat": "exit-code",
+      "description": "Generated plugin files (hook shim, rendered skills) match their sources, as CI checks"
+    },
+    {
+      "id": "test",
+      "argv": ["npm", "test"],
+      "cwd": ".",
+      "timeoutMs": 3600000,
+      "mandatory": true,
+      "resultFormat": "auto",
+      "description": "Build, then the full suite, including the SSOT reference handoff"
+    },
+    {
+      "id": "pack",
+      "argv": ["node", "scripts/check-pack.mjs"],
+      "cwd": ".",
+      "timeoutMs": 600000,
+      "mandatory": true,
+      "resultFormat": "exit-code",
+      "description": "The npm tarball holds exactly the files the package ships (runs after test, which builds)"
+    },
+    {
+      "id": "registry",
+      "argv": ["node", "scripts/check-model-registry.mjs"],
+      "cwd": ".",
+      "timeoutMs": 120000,
+      "mandatory": true,
+      "resultFormat": "exit-code",
+      "description": "The bundled model registry is consistent, including lifecycle and the harness map; retirement is a warning (runs after test, which builds)"
+    },
+    {
+      "id": "coverage",
+      "argv": ["node", "scripts/coverage.mjs", "--no-build"],
+      "cwd": ".",
+      "timeoutMs": 3600000,
+      "mandatory": true,
+      "resultFormat": "exit-code",
+      "description": "The suite with coverage; every package meets its floor in coverage-floors.json, as CI checks"
+    },
+    {
+      "id": "future-clock",
+      "argv": ["node", "scripts/test-future.mjs", "--days", "3700"],
+      "cwd": ".",
+      "timeoutMs": 3600000,
+      "mandatory": false,
+      "resultFormat": "auto",
+      "description": "The full suite with the clock about ten years ahead, to catch date time bombs"
+    }
+  ]
+}

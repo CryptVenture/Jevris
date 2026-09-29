@@ -1,0 +1,239 @@
+# Release pipeline (PKG-11, RLS-04, RLS-12). A pushed tag v<major>.<minor>.<patch>[-pre] on a
+# commit that is on main:
+#   check    release-check: tag = v<package.json version>, public manifest, exact pins, CHANGELOG section
+#   ci       the whole CI workflow (nine cells, coverage, the installed pack smoke and the bench on
+#            three OSes); any failed job stops the release. The bench runs with bench-advisory, so
+#            a p95 regression is recorded and reported but does not stop the publish
+#   gates    the acceptance reports, then jevris gates over them, the pack-smoke and threat-model
+#            evidence and the signed records in release-evidence/. A failed gate does not stop the
+#            publish to next; it stops promotion to latest
+#   publish  npm publish --provenance --tag next through npm trusted publishing (OIDC), then a
+#            GitHub release with the tarball, SHA256SUMS, the CycloneDX SBOM, the third-party
+#            notices and the gates report
+#   verify   post-publish: npx from the registry on three OSes, registry signatures and attestation
+# Every publish lands on the next dist-tag. Promotion to latest is a separate owner step:
+# node scripts/promote.mjs --version <v> --evidence <dir> --commit <sha> --apply (RELEASING.md).
+# No secrets: npm authenticates the publish job by its OIDC token, and gh uses the job's GITHUB_TOKEN.
+# A manual run from a tag ref with dry-run true (the default) builds and packs but publishes nothing.
+name: release
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      dry-run:
+        description: Build, check and pack without publishing
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  check:
+    name: release-check
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - name: Refuse a non-tag ref
+        if: github.ref_type != 'tag'
+        run: |
+          echo "release runs only from a tag ref" >&2
+          exit 1
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+      - name: The tagged commit is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Release check and notes
+        env:
+          TAG: ${{ github.ref_name }}
+        run: node scripts/release-check.mjs --tag "$TAG" --notes release-notes.md
+      - name: Version
+        id: version
+        env:
+          TAG: ${{ github.ref_name }}
+        run: echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+      - name: Upload notes
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-notes
+          path: release-notes.md
+          if-no-files-found: error
+
+  ci:
+    name: ci
+    needs: check
+    uses: ./.github/workflows/ci.yml
+    # A benchmark regression on hosted runners does not block a release: the bench job records
+    # and reports it. The sidecar-load gate from the reference machine covers performance.
+    with:
+      bench-advisory: true
+    # actions: read lets ci's bench job fetch the previous benchmark record (OBS-04).
+    permissions:
+      contents: read
+      actions: read
+
+  gates:
+    name: gates
+    needs: [check, ci]
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Generated plugin files are current
+        run: node scripts/emit-hook.mjs --check
+      - name: Generated docs match the release build
+        run: node scripts/docs.mjs --check
+      - name: Collect installed end-to-end evidence
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          pattern: installed-e2e-*
+          path: ci-evidence
+          merge-multiple: true
+      - name: Merge with the committed release evidence
+        run: |
+          mkdir -p gate-evidence
+          if [ -d release-evidence ]; then cp -R release-evidence/. gate-evidence/; fi
+          cp ci-evidence/release-evidence/*.json gate-evidence/
+      - name: Story and workflow acceptance reports
+        run: node scripts/acceptance-report.mjs --no-build --out gate-evidence --commit "$GITHUB_SHA"
+      # The gates decide promotion to latest (RLS-12), not the publish to next: the report is
+      # attached to the release either way and promote.mjs re-runs them before latest moves.
+      - name: Chapter 22 gates
+        id: gates
+        continue-on-error: true
+        run: node bin/jevris.mjs gates --evidence gate-evidence --commit "$GITHUB_SHA" --json --out gates-report.json
+      - name: Gates summary
+        env:
+          OUTCOME: ${{ steps.gates.outcome }}
+        run: |
+          echo "### jevris gates: $OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          echo "Promotion to latest needs every gate to pass: node scripts/promote.mjs (RELEASING.md)." >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload gates report and evidence
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: gates
+          path: |
+            gates-report.json
+            gate-evidence/
+          if-no-files-found: error
+
+  publish:
+    name: publish
+    needs: [check, ci, gates]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+    permissions:
+      contents: write
+      id-token: write
+    env:
+      VERSION: ${{ needs.check.outputs.version }}
+      TAG: ${{ github.ref_name }}
+      DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry-run }}
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - name: npm supports trusted publishing
+        run: node -e "const [a,b]=process.argv[1].split('.').map(Number); if (a<11||(a===11&&b<5)) { console.error('npm '+process.argv[1]+' is older than 11.5 and cannot use trusted publishing'); process.exit(1); }" "$(npm --version)"
+      - name: npm ci
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Pack check
+        run: npm run check:pack
+      - name: Pack
+        run: |
+          mkdir -p release-assets
+          npm pack --ignore-scripts --pack-destination release-assets
+      - name: Release assets
+        run: |
+          cp dist/sbom.cdx.json "release-assets/cryptventure-jevris-$VERSION.cdx.json"
+          cp dist/THIRD_PARTY_NOTICES.md release-assets/THIRD_PARTY_NOTICES.md
+          node scripts/checksums.mjs release-assets/*.tgz release-assets/*.cdx.json release-assets/THIRD_PARTY_NOTICES.md --out release-assets/SHA256SUMS
+          node scripts/checksums.mjs --check release-assets/SHA256SUMS
+      - name: Collect notes and gates report
+        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        with:
+          path: release-inputs
+      - name: Publish dry run
+        if: env.DRY_RUN == 'true'
+        run: npm publish "release-assets/cryptventure-jevris-$VERSION.tgz" --dry-run --access public --tag next
+      - name: Publish to next with provenance
+        if: env.DRY_RUN != 'true'
+        run: npm publish "release-assets/cryptventure-jevris-$VERSION.tgz" --provenance --access public --tag next
+      - name: GitHub release
+        if: env.DRY_RUN != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$TAG" release-assets/* release-inputs/gates/gates-report.json
+          --title "$TAG" --notes-file release-inputs/release-notes/release-notes.md --prerelease --verify-tag
+
+  verify:
+    name: post-publish (${{ matrix.os }})
+    needs: [check, publish]
+    if: github.event_name == 'push'
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 22.14.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.14.0'
+      - name: npx from the registry, signatures and provenance
+        env:
+          VERSION: ${{ needs.check.outputs.version }}
+        run: node scripts/post-publish-verify.mjs --version "$VERSION" --report "post-publish-${{ matrix.os }}.json"
+      - name: Upload report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: post-publish-${{ matrix.os }}
+          path: post-publish-${{ matrix.os }}.json
+          if-no-files-found: error

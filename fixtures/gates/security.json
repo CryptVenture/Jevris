@@ -1,0 +1,85 @@
+{
+  "schemaVersion": "chapter-22-1",
+  "gate": "security",
+  "verdict": "pass",
+  "citations": [
+    "fixtures/evidence/feasibility.json",
+    "packages/core/src/egress.ts",
+    "apps/sidecar/src/span-gate.ts",
+    "docs/security.md",
+    "apps/sidecar/src/server.ts",
+    "apps/cli/src/pack-policy.ts"
+  ],
+  "clauses": [
+    {
+      "id": "procurement",
+      "status": "recorded",
+      "detail": "Open procurement questions remain open and are not an approval. Egress stayed deny and sent false."
+    },
+    {
+      "id": "source-egress",
+      "status": "recorded",
+      "detail": "sourceEgress deny-until-approved. sent false. toolPermission false."
+    },
+    {
+      "id": "training-opt-out",
+      "status": "recorded",
+      "detail": "A training opt-out is not zero retention. No source was sent."
+    },
+    {
+      "id": "repository-file",
+      "status": "recorded",
+      "detail": "A repository file was denied as consent. sent false."
+    },
+    {
+      "id": "decide-egress",
+      "status": "recorded",
+      "detail": "decideEgress denied missing consent, a repository file, and an untrusted claim."
+    },
+    {
+      "id": "reject-span",
+      "status": "recorded",
+      "detail": "rejectSpan rejected the canary and did not copy it."
+    },
+    {
+      "id": "security-doc",
+      "status": "recorded",
+      "detail": "docs/security.md remains a citation. The fixture run is the review of the listed paths."
+    },
+    {
+      "id": "independent-review",
+      "status": "recorded",
+      "detail": "Adversarial fixtures reviewed leakage, authority, IPC, evidence access, and pack updates. Not a third-party audit."
+    },
+    {
+      "id": "credential-leakage",
+      "status": "recorded",
+      "detail": "The canary was not copied to hook stdout, hook stderr, or the span result."
+    },
+    {
+      "id": "source-leakage",
+      "status": "recorded",
+      "detail": "Egress denied. sent false. A repository file is not approval."
+    },
+    {
+      "id": "model-created-authority",
+      "status": "recorded",
+      "detail": "The hook emitted no permissionDecision. authorityGranted false. applied false."
+    },
+    {
+      "id": "scoped-ipc",
+      "status": "recorded",
+      "detail": "An absolute path and a canary span were rejected. A relative path was not treated as a grant."
+    },
+    {
+      "id": "evidence-access",
+      "status": "recorded",
+      "detail": "The span result did not include the canary text."
+    },
+    {
+      "id": "pack-updates",
+      "status": "recorded",
+      "detail": "stagePackUpgrade wrote activated false and reasonCode PRIVILEGE_DELTA."
+    }
+  ]
+}

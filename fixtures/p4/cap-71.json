@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "p4-1",
+  "id": "CAP-71",
+  "requirementId": "CAP-71",
+  "status": "unsupported",
+  "applied": false,
+  "trainer": false,
+  "holdoutId": "holdout-empty-2026-09-23",
+  "qualityGate": "not-passed",
+  "waivesLock": false,
+  "waivesReceipt": false,
+  "waivesQualityFloor": false,
+  "actuates": false,
+  "detail": "Autonomous policy-evaluation laboratory is unsupported. This record is not a calibration release and is not training data. This record does not waive a lock, a receipt, or a quality floor."
+}

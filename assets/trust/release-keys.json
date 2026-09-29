@@ -1,0 +1,26 @@
+{
+  "schemaVersion": 1,
+  "$comment": "Public Ed25519 keys (PEM SPKI) whose signatures the release gates accept. Roles: owner (P0 register, trial pre-registration), security-reviewer (independent security review), certification (harness certification records), calibration (the reviewer-signed calibration release). Adding a key is a reviewed commit by the repository owner; RELEASING.md describes key generation (scripts/release-evidence.mjs keygen) and rotation. No key is trusted until it is listed here.",
+  "keys": [
+    {
+      "keyId": "cryptventure-owner-2026-09",
+      "role": "owner",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA4qh5oMSZ58V36Nh2XNDcOGjKjW12Ifp95qMrB7opl5I=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "keyId": "cryptventure-certification-2026-09",
+      "role": "certification",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEA7yYS5h34AcNhhritEQ4NS34869eqrYCFPT0aKDoS7qI=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "keyId": "cryptventure-calibration-2026-09",
+      "role": "calibration",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAxziW9YCdJAF6JqMaJUUB+OS2RDqDt7vVgRLnTdxVuxI=\n-----END PUBLIC KEY-----\n"
+    },
+    {
+      "keyId": "cryptventure-security-reviewer-2026-09",
+      "role": "security-reviewer",
+      "publicKeyPem": "-----BEGIN PUBLIC KEY-----\nMCowBQYDK2VwAyEAy8r0mKfUV/ZktBp4qW1sKfNpVQ2IFzHd2ZIP8J78vCU=\n-----END PUBLIC KEY-----\n"
+    }
+  ]
+}

@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "operations-drill-1",
+  "offlineRulesOnly": true,
+  "crashRestart": true,
+  "needsReconciliation": true,
+  "storeUnavailable": true,
+  "staleRefused": true,
+  "interruptedInactive": true,
+  "interruptedReason": "PRIVILEGE_DELTA",
+  "rollbackOk": true,
+  "applied": false
+}

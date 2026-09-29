@@ -1,0 +1,17 @@
+{
+  "schemaVersion": "kilocode-probe-1",
+  "applied": false,
+  "certified": false,
+  "loaded": true,
+  "status": "observe",
+  "actuators": "unsupported",
+  "harnessPass": false,
+  "portabilityCertification": false,
+  "binary": "kilo",
+  "version": "7.7.9",
+  "documentedPath": "{plugin,plugins}/*.{ts,js}",
+  "wiredPath": ".kilo/plugin/jevris.js",
+  "probeCommand": "kilo debug info",
+  "loadCommand": "kilo serve --hostname 127.0.0.1 --port 47619 --print-logs --log-level DEBUG",
+  "reason": "kilo plugin <module> installs an npm module name and is not a local path. The installed binary scans config directories with {plugin,plugins}/*.{ts,js}. In a temp home, kilo debug info listed file://<temp-home>/.kilo/plugin/jevris.js. Instance bootstrap during kilo serve called server() for that path. The shipped plugins/kilocode/jevris.js was copied to the same path, listed by debug info and /config, and produced no Failed to load plugin. --pure printed external plugins disabled. Install already copies to .kilo/plugin/jevris.js. Actuators stay unsupported. A loaded observe plugin is not a harness pass and not a portability certification."
+}

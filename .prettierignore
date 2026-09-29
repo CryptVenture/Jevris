@@ -1,0 +1,7 @@
+# Shipped manifests are byte-sensitive. Formatters must not rewrite them.
+plugins/
+packs/
+fixtures/
+ssot_docs/
+.planning/
+package-lock.json

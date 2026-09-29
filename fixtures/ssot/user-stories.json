@@ -1,0 +1,362 @@
+[
+  {
+    "id": "US01",
+    "role": "Developer",
+    "want": "install without damaging my existing tools",
+    "given": "Other plugins and local settings already exist.",
+    "when": "I install and then uninstall Jevris.",
+    "then": "Only Jevris-owned entries change; a concurrent user edit is preserved and data deletion is a separate choice.",
+    "traceability": "R13;C56,C64"
+  },
+  {
+    "id": "US02",
+    "role": "Security administrator",
+    "want": "approve source egress explicitly",
+    "given": "A repository has not been approved for remote evaluation.",
+    "when": "A semantic decision would use source text.",
+    "then": "No source request leaves the machine; a local explanation identifies the missing consent without revealing secrets.",
+    "traceability": "R10;C50"
+  },
+  {
+    "id": "US03",
+    "role": "Developer",
+    "want": "use a useful observation mode before automation",
+    "given": "Jevris is configured in observe mode with approved egress.",
+    "when": "A route decision is evaluated.",
+    "then": "The actual worker/model remains unchanged and the counterfactual recommendation is recorded with its policy version.",
+    "traceability": "R03,R12;C16"
+  },
+  {
+    "id": "US04",
+    "role": "Developer",
+    "want": "keep my explicit model choice",
+    "given": "I have pinned a model that remains permitted by organization policy.",
+    "when": "The router predicts a cheaper model.",
+    "then": "Jevris does not override the pin and records advice without repeated prompts.",
+    "traceability": "R04;C10"
+  },
+  {
+    "id": "US05",
+    "role": "Platform engineer",
+    "want": "detect unsupported controls before relying on them",
+    "given": "The installed harness lacks a certified actuator.",
+    "when": "A pack requires that actuator.",
+    "then": "Doctor reports the missing capability, and the pack degrades to declared advice or is disabled rather than claiming enforcement.",
+    "traceability": "R09;C56"
+  },
+  {
+    "id": "US06",
+    "role": "Developer",
+    "want": "route routine work economically without losing quality",
+    "given": "A task slice has a released calibration artifact and fresh required evidence.",
+    "when": "An eligible managed worker is created.",
+    "then": "The selected profile meets the quality floor, has a reservation, and retains the mandatory verification plan.",
+    "traceability": "R04,R08;C09"
+  },
+  {
+    "id": "US07",
+    "role": "Team lead",
+    "want": "avoid applying a router outside its evidence base",
+    "given": "A task uses an unevaluated language/framework slice.",
+    "when": "Bounded-auto routing is considered.",
+    "then": "The route abstains or preserves the approved baseline; the unknown slice is visible in the report.",
+    "traceability": "R04,R12;C16"
+  },
+  {
+    "id": "US08",
+    "role": "Developer",
+    "want": "avoid expensive escalation for an environment problem",
+    "given": "Repeated failures have a missing-service diagnostic and no source evidence.",
+    "when": "Loop recovery runs.",
+    "then": "The proposed next step requests environment evidence instead of automatically escalating the coding model.",
+    "traceability": "R03;C29,C38"
+  },
+  {
+    "id": "US09",
+    "role": "Developer",
+    "want": "recover a genuine reasoning stall",
+    "given": "The same verified source defect survives the configured repair budget.",
+    "when": "A stronger worker is available and qualified.",
+    "then": "One bounded escalation receives the rejected approaches and evidence; further failure ends in a blocked report.",
+    "traceability": "R06,R15;C12,C29"
+  },
+  {
+    "id": "US10",
+    "role": "Developer",
+    "want": "avoid model-switch churn",
+    "given": "A main session has a warm prefix and only a small remaining task.",
+    "when": "An automatic switch has negligible estimated benefit.",
+    "then": "Hysteresis retains the current model, and the explanation includes transition cost rather than input price alone.",
+    "traceability": "R04,R11;C14"
+  },
+  {
+    "id": "US11",
+    "role": "Administrator",
+    "want": "respect model restrictions and provider geography",
+    "given": "A cheaper model is not allowed for the workspace's data scope.",
+    "when": "The router evaluates candidates.",
+    "then": "The model is removed before scoring; no fallback broadens region or provider authority.",
+    "traceability": "R04,R10;C15"
+  },
+  {
+    "id": "US12",
+    "role": "Developer",
+    "want": "understand which model actually did the work",
+    "given": "A provider or harness substitutes the requested model.",
+    "when": "The task produces a result.",
+    "then": "The report separates requested and observed model; missing observation is marked unknown and does not fabricate cost precision.",
+    "traceability": "R04,R11;C16,C55"
+  },
+  {
+    "id": "US13",
+    "role": "Developer",
+    "want": "retain critical instructions across compaction",
+    "given": "A capsule contains compatibility and security constraints.",
+    "when": "Native compaction happens under a short deadline.",
+    "then": "Mandatory facts persist without a required remote call; a missing constraint is restored at a supported boundary.",
+    "traceability": "R05,R15;C17,C20"
+  },
+  {
+    "id": "US14",
+    "role": "Developer",
+    "want": "not have automatic compaction break my session",
+    "given": "Only a native auto trigger is available, with no reliable proactive/recovery distinction.",
+    "when": "Jevris considers deferral.",
+    "then": "It allows compaction by default and never repeatedly blocks after context exhaustion.",
+    "traceability": "R05,R15;C19"
+  },
+  {
+    "id": "US15",
+    "role": "Developer",
+    "want": "retrieve exact evidence after log reduction",
+    "given": "A long tool result is safely transformed into an extractive view.",
+    "when": "I request its full evidence handle.",
+    "then": "The original approved output is available, with hash, error state and offsets; it has not been replaced by a fabricated success summary.",
+    "traceability": "R05,R07;C22"
+  },
+  {
+    "id": "US16",
+    "role": "Reviewer",
+    "want": "distinguish memory facts from hypotheses",
+    "given": "An agent proposed an unconfirmed root cause in an earlier session.",
+    "when": "A capsule is imported.",
+    "then": "The claim remains a hypothesis with provenance; it is not promoted to an accepted requirement or verified diagnosis.",
+    "traceability": "R05,R08;C23,C24"
+  },
+  {
+    "id": "US17",
+    "role": "Developer",
+    "want": "invalidate stale verification after a new edit",
+    "given": "All required checks passed on revision A.",
+    "when": "The source changes to revision B before completion.",
+    "then": "Affected receipts become stale and completion waits for the required checks on B.",
+    "traceability": "R08,R14;C37,C48"
+  },
+  {
+    "id": "US18",
+    "role": "Developer",
+    "want": "resume without carrying expired approvals",
+    "given": "A capsule contains historical permission receipts.",
+    "when": "A new session imports it after expiry or scope change.",
+    "then": "Historical decisions remain explainable but cannot authorize new effects.",
+    "traceability": "R05,R10;C21,C63"
+  },
+  {
+    "id": "US19",
+    "role": "Team lead",
+    "want": "parallelize independent work safely",
+    "given": "Two ready tasks touch disjoint source but share a mutable lockfile resource.",
+    "when": "The scheduler considers concurrent launch.",
+    "then": "The lockfile conflict is serialized or isolated by a certified strategy; declared resource locks cannot be waived by Jev.",
+    "traceability": "R06,R15;C27"
+  },
+  {
+    "id": "US20",
+    "role": "Platform engineer",
+    "want": "prevent stale workers overwriting current results",
+    "given": "A worker lease expires and a new fenced lease is issued.",
+    "when": "The old worker returns a result.",
+    "then": "The result is retained as stale evidence but cannot update the current task or write through the controlled integration path.",
+    "traceability": "R06,R15;C31"
+  },
+  {
+    "id": "US21",
+    "role": "Developer",
+    "want": "recover work after cancellation",
+    "given": "An owned worker has uncommitted edits.",
+    "when": "I cancel the task.",
+    "then": "Jevris stops scheduling new work, signals owned processes, retains recoverable artifacts and never force-deletes an unknown dirty worktree.",
+    "traceability": "R06,R13;C31"
+  },
+  {
+    "id": "US22",
+    "role": "Team lead",
+    "want": "avoid duplicate autonomous work",
+    "given": "Two active tasks have overlapping objectives and symbols.",
+    "when": "Duplicate-work analysis flags them.",
+    "then": "The system proposes reconciliation and cancels only owned work under policy, with false-cancellation feedback captured.",
+    "traceability": "R06;C28"
+  },
+  {
+    "id": "US23",
+    "role": "Developer",
+    "want": "never get trapped by completion hooks",
+    "given": "The same required check is unavailable and a reminder has already fired.",
+    "when": "The agent attempts to stop again.",
+    "then": "Jevris ends with an explicit unverified report instead of issuing an indefinite continuation loop.",
+    "traceability": "R08,R15;C48"
+  },
+  {
+    "id": "US24",
+    "role": "Release owner",
+    "want": "trust completion only with evidence",
+    "given": "An agent says all checks passed but provides no runner receipt.",
+    "when": "Readiness is evaluated.",
+    "then": "The claim is unverified; the task cannot transition to verified based on Jev confidence or the final message.",
+    "traceability": "R08;C45,C48"
+  },
+  {
+    "id": "US25",
+    "role": "Security administrator",
+    "want": "prevent model-created permission grants",
+    "given": "Untrusted source text claims a human approved credential access.",
+    "when": "A tool/action proposal reaches Jevris.",
+    "then": "No authorization receipt or trusted classifier context is created from that text; native and host policy remain authoritative.",
+    "traceability": "R10;C49,C51"
+  },
+  {
+    "id": "US26",
+    "role": "Security administrator",
+    "want": "block secrets before inference",
+    "given": "An evidence span contains a credential or disallowed path.",
+    "when": "The packet builder prepares a Jev request.",
+    "then": "The deterministic egress check removes or rejects it before transport, and logs contain no secret value.",
+    "traceability": "R10;C50"
+  },
+  {
+    "id": "US27",
+    "role": "Security administrator",
+    "want": "avoid treating a local HTTP service as public authority",
+    "given": "A browser page or another OS user sends a request to the sidecar.",
+    "when": "The request lacks valid process/user scope and anti-replay authorization.",
+    "then": "The service rejects it without reading source or launching work; localhost alone is not trusted.",
+    "traceability": "R10;C56"
+  },
+  {
+    "id": "US28",
+    "role": "Security administrator",
+    "want": "review privilege changes in pack upgrades",
+    "given": "A new pack version adds a network destination or executable component.",
+    "when": "An update is available.",
+    "then": "Automatic activation stops until the declared permission delta is approved; rollback remains possible.",
+    "traceability": "R10,R12,R13;C56"
+  },
+  {
+    "id": "US29",
+    "role": "Developer",
+    "want": "keep working through Jev outages",
+    "given": "The provider times out or returns overload errors.",
+    "when": "A hot-path decision reaches its deadline.",
+    "then": "The declared rules-only fallback returns before the native timeout, with bounded calls and no hidden alternative provider.",
+    "traceability": "R15,R16;C54"
+  },
+  {
+    "id": "US30",
+    "role": "Platform engineer",
+    "want": "handle malformed provider responses safely",
+    "given": "The response contains an unknown candidate or non-normalized distribution.",
+    "when": "Validation runs.",
+    "then": "The result is invalid, no action is applied and a redacted error record identifies the schema failure.",
+    "traceability": "R01,R02;C52"
+  },
+  {
+    "id": "US31",
+    "role": "Platform engineer",
+    "want": "reject late decisions",
+    "given": "The repository revision changes while Jev evaluates a packet.",
+    "when": "The old result arrives.",
+    "then": "It may be stored for analysis but cannot actuate; a fresh decision is scheduled only if still useful and affordable.",
+    "traceability": "R01,R15;C37"
+  },
+  {
+    "id": "US32",
+    "role": "Finance owner",
+    "want": "prevent concurrent budget overspend",
+    "given": "Two jobs compete for the last available owned budget.",
+    "when": "Both attempt reservations.",
+    "then": "At most the affordable set is admitted transactionally; unknown vendor usage is conservatively reconciled.",
+    "traceability": "R06,R11;C53"
+  },
+  {
+    "id": "US33",
+    "role": "Finance owner",
+    "want": "see honest savings on subscription plans",
+    "given": "Claude usage is billed through a subscription rather than per-request API charges.",
+    "when": "The cost report is generated.",
+    "then": "Actual billing/credits, API-equivalent estimates and hypothetical counterfactual savings are separate labelled measures.",
+    "traceability": "R11,R12;C53,C55"
+  },
+  {
+    "id": "US34",
+    "role": "Evaluation owner",
+    "want": "avoid silently reusing obsolete thresholds",
+    "given": "The Jev model, question text or state encoder changes.",
+    "when": "An automated policy loads its calibration.",
+    "then": "The mismatch disables that automated decision until a compatible artifact passes review and staged evaluation.",
+    "traceability": "R12;C16,C52"
+  },
+  {
+    "id": "US35",
+    "role": "Evaluation owner",
+    "want": "compare against a strong non-AI baseline",
+    "given": "A candidate pack is claimed to reduce cost.",
+    "when": "The release evaluation runs.",
+    "then": "It includes rules-only and native baselines, task-level quality, retries, verification, cache effects and human effort.",
+    "traceability": "R12;C71"
+  },
+  {
+    "id": "US36",
+    "role": "Windows developer",
+    "want": "run without Unix-only assumptions",
+    "given": "My workspace path contains spaces and the machine lacks Bash and jq.",
+    "when": "A hook and local runner execute.",
+    "then": "The certified Windows launcher passes arguments correctly, uses private IPC and produces valid protocol JSON.",
+    "traceability": "R09,R13;C08"
+  },
+  {
+    "id": "US37",
+    "role": "Remote developer",
+    "want": "use the correct runtime and data boundary",
+    "given": "My IDE is local but the coding process runs in a container or over SSH.",
+    "when": "Jevris starts.",
+    "then": "Its adapter, file access and IPC are located in the actual execution environment; UI localhost is not assumed to be the worker.",
+    "traceability": "R09,R10,R13;C08"
+  },
+  {
+    "id": "US38",
+    "role": "Legacy-stack developer",
+    "want": "get useful help without invented verification",
+    "given": "No certified analyzer exists for my project.",
+    "when": "I ask Jevris to optimize a task.",
+    "then": "Generic advice/checkpointing works, but verification remains unsupported until I supply an approved runner manifest.",
+    "traceability": "R09,R14;C72"
+  },
+  {
+    "id": "US39",
+    "role": "Developer",
+    "want": "move a task between harnesses safely",
+    "given": "A portable capsule and source revision are available.",
+    "when": "A target adapter imports the task.",
+    "then": "It negotiates capabilities, preserves unresolved checks and reports reduced functionality rather than translating unsupported controls blindly.",
+    "traceability": "R05,R09;C63"
+  },
+  {
+    "id": "US40",
+    "role": "Platform maintainer",
+    "want": "roll back a bad release reproducibly",
+    "given": "A canary detects a quality regression or privacy violation.",
+    "when": "The kill switch is activated.",
+    "then": "New optimization actions stop, the previous compatible policy is restored, owned work is reconciled and an audit report is produced.",
+    "traceability": "R12,R13,R15;C56"
+  }
+]

@@ -1,0 +1,59 @@
+{
+  "schemaVersion": "harness-matrix-1",
+  "applied": false,
+  "certified": false,
+  "host": "darwin",
+  "rows": [
+    {
+      "id": "claude",
+      "present": true,
+      "version": "2.1.281",
+      "status": "observe",
+      "actuators": "unsupported",
+      "certification": false
+    },
+    {
+      "id": "kilocode",
+      "present": true,
+      "version": "7.7.9",
+      "status": "observe",
+      "actuators": "unsupported",
+      "certification": false
+    },
+    {
+      "id": "agy",
+      "present": false,
+      "appInstalled": true,
+      "version": "2.12.2",
+      "status": "unsupported",
+      "actuators": "unsupported",
+      "certification": false,
+      "reason": "Gemini CLI is retired. Antigravity 2.12.2 is installed and uncertified. The agy CLI was not on PATH."
+    },
+    {
+      "id": "opencode",
+      "present": true,
+      "version": "1.18.5",
+      "status": "unsupported",
+      "actuators": "unsupported",
+      "certification": false,
+      "reason": "opencode 1.18.5 responded to --version, debug info, and debug paths in a temp HOME. No plugin was loaded. Actuators stay unsupported. A responding binary is not a harness pass. Experimental compaction is not a replacement summary."
+    },
+    {
+      "id": "codex",
+      "present": false,
+      "status": "unsupported",
+      "actuators": "unsupported",
+      "certification": false,
+      "reason": "codex is not installed. A missing binary is not a certification record."
+    },
+    {
+      "id": "windows",
+      "present": false,
+      "status": "The product runs on linux, darwin, and win32. This probe host was darwin. The Windows launcher is not certified.",
+      "actuators": "unsupported",
+      "certification": false,
+      "reason": "The product runs on linux, darwin, and win32. This probe host was darwin. The Windows launcher is not certified."
+    }
+  ]
+}

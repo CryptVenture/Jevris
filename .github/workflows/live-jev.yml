@@ -1,0 +1,68 @@
+# Live Jev API suite (PRV-10), run by hand only. It is the one workflow that reads a secret:
+# the repository secret JEVRIS_JEV_API_KEY, in the protected environment live-api (a
+# repository admin adds required reviewers there). Never on push, pull request or tag.
+# The key goes from the environment into the OS keystore through stdin (`jevris credential
+# set`), never through argv or a file, and is cleared when the job ends. The evidence file
+# (kind api-live-suite) holds model ids, usage, latency and outcome codes only; it is
+# uploaded for the release gates. Local equivalent:
+#   JEVRIS_LIVE_JEV=1 npm run smoke:jev -- --evidence release-evidence/api-live-suite.json
+name: live-jev
+
+on:
+  workflow_dispatch:
+    inputs:
+      calls:
+        description: Latency sample size (at least 30 for the api gate)
+        type: number
+        default: 30
+
+permissions:
+  contents: read
+
+concurrency:
+  group: live-jev
+  cancel-in-progress: false
+
+jobs:
+  live-jev:
+    name: live-jev
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: live-api
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: Secret Service for the OS keystore
+        run: sudo apt-get update -q && sudo apt-get install -y -q gnome-keyring dbus
+      - name: npm ci
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Live suite
+        env:
+          JEV_KEY: ${{ secrets.JEVRIS_JEV_API_KEY }}
+          CALLS: ${{ inputs.calls }}
+        run: |
+          # shellcheck disable=SC2016 # the inner bash expands the variables
+          dbus-run-session -- bash -euo pipefail -c '
+            printf "" | gnome-keyring-daemon --unlock --components=secrets >/dev/null
+            trap "node bin/jevris.mjs credential clear >/dev/null 2>&1 || true" EXIT
+            printf "%s" "$JEV_KEY" | node bin/jevris.mjs credential set
+            unset JEV_KEY
+            JEVRIS_LIVE_JEV=1 npm run smoke:jev -- --calls "$CALLS" --evidence release-evidence/api-live-suite.json
+          '
+      - name: Upload evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: api-live-suite
+          path: release-evidence/api-live-suite.json
+          if-no-files-found: error
+          retention-days: 90

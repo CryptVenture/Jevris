@@ -1,0 +1,49 @@
+{
+  "schemaVersion": "chapter-22-1",
+  "gate": "operations",
+  "verdict": "pass",
+  "citations": [
+    "packages/store/src/commit.ts",
+    "packages/store/src/reconcile.ts",
+    "packages/store/src/open.ts",
+    "apps/cli/src/credential.ts",
+    "apps/cli/src/pack-policy.ts"
+  ],
+  "clauses": [
+    {
+      "id": "offline",
+      "status": "recorded",
+      "detail": "Missing credential resolved to rules-only. The drill did not send."
+    },
+    {
+      "id": "crash",
+      "status": "recorded",
+      "detail": "noteMissingProcess recorded process_observed missing after an absent acknowledgment."
+    },
+    {
+      "id": "needs-reconciliation",
+      "status": "recorded",
+      "detail": "reconcileOnOpen left effect_status needs-reconciliation and repeatable false."
+    },
+    {
+      "id": "store-failure",
+      "status": "recorded",
+      "detail": "openStore on a missing path returned store-unavailable and did not create a ledger."
+    },
+    {
+      "id": "stale-result",
+      "status": "recorded",
+      "detail": "markStale then publishCurrent refused the stale row."
+    },
+    {
+      "id": "interrupted-update",
+      "status": "recorded",
+      "detail": "A truncated staged file did not parse and did not change host policy. stagePackUpgrade wrote activated false and PRIVILEGE_DELTA."
+    },
+    {
+      "id": "rollback-drill",
+      "status": "recorded",
+      "detail": "rollbackPolicy restored the previous policy and removed the staged file. The kill-switch drill passed. applied false. This is not actuator certification."
+    }
+  ]
+}

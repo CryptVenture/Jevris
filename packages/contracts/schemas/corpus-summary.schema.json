@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:corpus-summary:1.0",
+  "title": "CorpusSummary",
+  "description": "Size, consent, labelling and slice counts of an evaluation corpus (§18.2).",
+  "type": "object",
+  "properties": {
+    "labelled": {
+      "type": "boolean"
+    },
+    "consented": {
+      "type": "boolean"
+    },
+    "tasks": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 9007199254740991
+    },
+    "sliceCounts": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 9007199254740991
+      },
+      "maxProperties": 256
+    }
+  },
+  "required": [
+    "labelled",
+    "consented",
+    "tasks",
+    "sliceCounts"
+  ],
+  "additionalProperties": false
+}

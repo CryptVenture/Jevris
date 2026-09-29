@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "jevris": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/mcp.js", "--harness", "claude"]
+    }
+  }
+}

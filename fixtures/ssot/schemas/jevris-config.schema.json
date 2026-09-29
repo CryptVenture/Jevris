@@ -1,0 +1,234 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Jevris jevris-config: proposed v1 handoff subset",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "mode": {
+      "enum": [
+        "off",
+        "observe",
+        "advise",
+        "bounded-auto"
+      ]
+    },
+    "provider": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "const": "typesafe-direct"
+        },
+        "model": {
+          "type": "string",
+          "pattern": "^jev-\\d+\\.\\d+\\.\\d+$"
+        },
+        "credentialRef": {
+          "type": "string",
+          "pattern": "^host-secret:[A-Za-z0-9_-]+$"
+        }
+      },
+      "required": [
+        "kind",
+        "model",
+        "credentialRef"
+      ],
+      "additionalProperties": false
+    },
+    "decisions": {
+      "type": "object",
+      "properties": {
+        "hotPathDeadlineMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30000
+        },
+        "backgroundDeadlineMs": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 120000
+        },
+        "maxRequestBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 16777216
+        },
+        "maxQuestions": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 12
+        },
+        "allowUncalibratedActuation": {
+          "const": false
+        }
+      },
+      "required": [
+        "hotPathDeadlineMs",
+        "backgroundDeadlineMs",
+        "maxRequestBytes",
+        "maxQuestions",
+        "allowUncalibratedActuation"
+      ],
+      "additionalProperties": false
+    },
+    "privacy": {
+      "type": "object",
+      "properties": {
+        "sourceEgress": {
+          "enum": [
+            "deny-until-approved",
+            "approved-scoped"
+          ]
+        },
+        "remoteTelemetry": {
+          "enum": [
+            "off",
+            "approved-aggregates"
+          ]
+        },
+        "rawArtifactRetentionDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 365
+        },
+        "decisionRetentionDays": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3650
+        }
+      },
+      "required": [
+        "sourceEgress",
+        "remoteTelemetry",
+        "rawArtifactRetentionDays",
+        "decisionRetentionDays"
+      ],
+      "additionalProperties": false
+    },
+    "routing": {
+      "type": "object",
+      "properties": {
+        "mainSession": {
+          "enum": [
+            "advice-only",
+            "plugin-bounded-auto",
+            "owned-sdk-approved"
+          ],
+          "description": "plugin-bounded-auto lets Kilo and OpenCode main sessions be switched per turn under bounded-auto rules; every other harness's main session stays advice-only. (Amended 2026-09-27 with owner approval.)"
+        },
+        "managedWorkers": {
+          "enum": [
+            "off",
+            "observe",
+            "advise",
+            "bounded-auto"
+          ]
+        },
+        "respectHumanPins": {
+          "const": true
+        },
+        "calibrationArtifact": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "maxLength": 256
+        },
+        "modelListing": {
+          "type": "string",
+          "enum": [
+            "on",
+            "off"
+          ],
+          "description": "Optional; on when absent. The value off stops the sidecar from running any harness's model listing. (Amended 27 September 2026 with owner approval.)"
+        }
+      },
+      "required": [
+        "mainSession",
+        "managedWorkers",
+        "respectHumanPins",
+        "calibrationArtifact"
+      ],
+      "additionalProperties": false
+    },
+    "orchestration": {
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "maxConcurrentWorkers": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32
+        },
+        "maxWorkerDepth": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 4
+        },
+        "maxRepairAttempts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10
+        },
+        "maxStopContinuationsPerCondition": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1
+        }
+      },
+      "required": [
+        "enabled",
+        "maxConcurrentWorkers",
+        "maxWorkerDepth",
+        "maxRepairAttempts",
+        "maxStopContinuationsPerCondition"
+      ],
+      "additionalProperties": false
+    },
+    "compaction": {
+      "type": "object",
+      "properties": {
+        "nativeAutoDeferral": {
+          "type": "boolean"
+        },
+        "preserveMandatoryFacts": {
+          "const": true
+        },
+        "rawTranscriptEditing": {
+          "const": false
+        }
+      },
+      "required": [
+        "nativeAutoDeferral",
+        "preserveMandatoryFacts",
+        "rawTranscriptEditing"
+      ],
+      "additionalProperties": false
+    },
+    "packs": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 256
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "mode",
+    "provider",
+    "decisions",
+    "privacy",
+    "routing",
+    "orchestration",
+    "compaction",
+    "packs"
+  ],
+  "additionalProperties": false
+}

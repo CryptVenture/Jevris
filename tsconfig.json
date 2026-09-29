@@ -1,0 +1,23 @@
+{
+  "files": [],
+  "references": [
+    { "path": "packages/platform" },
+    { "path": "packages/contracts" },
+    { "path": "packages/core" },
+    { "path": "packages/provider-typesafe" },
+    { "path": "packages/adapter-claude-sdk" },
+    { "path": "packages/store" },
+    { "path": "apps/cli" },
+    { "path": "apps/sidecar" },
+    { "path": "apps/hook" },
+    { "path": "packages/adapter-codex" },
+    { "path": "packages/adapter-opencode" },
+    { "path": "packages/adapter-kilocode" },
+    { "path": "packages/adapter-antigravity" },
+    { "path": "packages/adapter-claude-code" },
+    { "path": "packages/languages" },
+    { "path": "packages/orchestrator" },
+    { "path": "packages/evals" },
+    { "path": "packages/mcp" }
+  ]
+}

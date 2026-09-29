@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "jevris": {
+      "command": "node",
+      "args": ["${PLUGIN_ROOT}/bin/mcp.js"]
+    }
+  }
+}

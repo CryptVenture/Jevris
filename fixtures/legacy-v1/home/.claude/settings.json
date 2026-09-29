@@ -1,0 +1,7 @@
+{
+  "theme": "dark",
+  "enabledPlugins": {
+    "gsd@skills-dir": true,
+    "jevris@skills-dir": true
+  }
+}

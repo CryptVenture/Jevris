@@ -1,0 +1,368 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:route-advice:1.0",
+  "title": "RouteAdvice",
+  "description": "Main-session route advice: a templated recommendation naming model, reason, cost basis and pin state (§8.4, C10).",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "outcome": {
+      "type": "string",
+      "enum": [
+        "keep",
+        "recommend",
+        "abstain"
+      ]
+    },
+    "requestedModelId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?$",
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+              },
+              {
+                "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+              }
+            ]
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "observedModelId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?$",
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+              },
+              {
+                "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+              }
+            ]
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "recommendedModelId": {
+      "anyOf": [
+        {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?$",
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+              },
+              {
+                "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+              }
+            ]
+          }
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "reasonCode": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "costBasis": {
+      "type": "string",
+      "enum": [
+        "api-list-price",
+        "subscription-quota",
+        "unknown",
+        "maker-price-estimate"
+      ]
+    },
+    "estimate": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "expectedSavingMicroUsd": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "lowerMicroUsd": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "upperMicroUsd": {
+              "type": "integer",
+              "minimum": -9007199254740991,
+              "maximum": 9007199254740991
+            },
+            "transitionCostMicroUsd": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 9007199254740991
+            }
+          },
+          "required": [
+            "expectedSavingMicroUsd",
+            "lowerMicroUsd",
+            "upperMicroUsd",
+            "transitionCostMicroUsd"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "pinState": {
+      "type": "string",
+      "enum": [
+        "pinned-kept",
+        "unpinned"
+      ]
+    },
+    "registrySnapshotId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "adviceKey": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 600,
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          },
+          {
+            "pattern": "[A-Za-z][A-Za-z0-9+.-]*://"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])www\\."
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "outcome",
+    "requestedModelId",
+    "observedModelId",
+    "recommendedModelId",
+    "reasonCode",
+    "costBasis",
+    "estimate",
+    "pinState",
+    "registrySnapshotId",
+    "adviceKey",
+    "text"
+  ],
+  "additionalProperties": false
+}

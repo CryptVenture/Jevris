@@ -1,0 +1,205 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:capability:1.0",
+  "title": "Capability",
+  "description": "What an adapter can do for one action kind. No actuate without a certified implementation (§6.2).",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "adapterId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "adapterVersion": {
+      "type": "string",
+      "pattern": "^(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})\\.(0|[1-9][0-9]{0,8})(?:-[0-9A-Za-z-]+(?:\\.[0-9A-Za-z-]+)*)?$"
+    },
+    "actionKind": {
+      "type": "string",
+      "enum": [
+        "advise",
+        "route-worker",
+        "request-checkpoint",
+        "select-evidence",
+        "request-verification",
+        "cancel-owned-worker",
+        "abstain"
+      ]
+    },
+    "authority": {
+      "type": "string",
+      "enum": [
+        "observe",
+        "advise",
+        "actuate"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "certified",
+        "experimental",
+        "unsupported"
+      ]
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        "not": {
+          "anyOf": [
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+            },
+            {
+              "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+            }
+          ]
+        }
+      },
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+    "fixtureSuiteHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    }
+  },
+  "required": [
+    "id",
+    "adapterId",
+    "adapterVersion",
+    "actionKind",
+    "authority",
+    "status",
+    "constraints",
+    "fixtureSuiteHash"
+  ],
+  "additionalProperties": false,
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "authority": {
+            "const": "actuate"
+          }
+        },
+        "required": [
+          "authority"
+        ]
+      },
+      "then": {
+        "properties": {
+          "status": {
+            "const": "certified"
+          }
+        }
+      }
+    }
+  ]
+}

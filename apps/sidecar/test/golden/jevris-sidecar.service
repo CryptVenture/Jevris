@@ -1,0 +1,14 @@
+[Unit]
+Description=Jevris sidecar (local decision service)
+
+[Service]
+Type=simple
+ExecStart="/usr/local/bin/node" "/opt/jevris/dist/sidecar.mjs" "--supervised" "--home" "/home/dev/My Jevris \"home\" $$x %%y"
+Restart=on-failure
+RestartSec=5
+StartLimitIntervalSec=300
+StartLimitBurst=10
+UMask=0077
+
+[Install]
+WantedBy=default.target

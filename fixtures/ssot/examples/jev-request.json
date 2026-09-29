@@ -1,0 +1,40 @@
+{
+  "model": "jev-1.13.0",
+  "state": {
+    "task": "Add an optional display label to an existing response",
+    "facts": {
+      "publicApiChanged": true,
+      "compatibilityRequired": true,
+      "migrationPresent": false,
+      "requiredCheckIds": [
+        "contract-response",
+        "unit-response"
+      ]
+    },
+    "missingEvidence": [
+      "consumer compatibility test result"
+    ],
+    "untrustedEvidence": [
+      {
+        "id": "e1",
+        "text": "Existing consumers deserialize this response."
+      }
+    ]
+  },
+  "questions": {
+    "taskFamily": {
+      "type": "choice",
+      "instructions": "Which listed task family best describes this request?",
+      "criteria": {
+        "documentation": "Only documentation text changes.",
+        "compatible_api_change": "An existing API changes while compatibility is required.",
+        "data_migration": "Stored data must be transformed.",
+        "unknown": "The evidence is insufficient or another family fits."
+      }
+    },
+    "compatibilityEvidenceMissing": {
+      "type": "noul",
+      "instructions": "Is required compatibility evidence missing from the supplied packet?"
+    }
+  }
+}

@@ -1,0 +1,45 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "observe",
+  "provider": {
+    "kind": "typesafe-direct",
+    "model": "jev-1.13.0",
+    "credentialRef": "host-secret:typesafe-primary"
+  },
+  "decisions": {
+    "hotPathDeadlineMs": 900,
+    "backgroundDeadlineMs": 5000,
+    "maxRequestBytes": 131072,
+    "maxQuestions": 12,
+    "allowUncalibratedActuation": false
+  },
+  "privacy": {
+    "sourceEgress": "deny-until-approved",
+    "remoteTelemetry": "off",
+    "rawArtifactRetentionDays": 7,
+    "decisionRetentionDays": 30
+  },
+  "routing": {
+    "mainSession": "advice-only",
+    "managedWorkers": "observe",
+    "respectHumanPins": true,
+    "calibrationArtifact": null
+  },
+  "orchestration": {
+    "enabled": false,
+    "maxConcurrentWorkers": 2,
+    "maxWorkerDepth": 1,
+    "maxRepairAttempts": 2,
+    "maxStopContinuationsPerCondition": 1
+  },
+  "compaction": {
+    "nativeAutoDeferral": false,
+    "preserveMandatoryFacts": true,
+    "rawTranscriptEditing": false
+  },
+  "packs": [
+    "jevris.observability",
+    "jevris.memory",
+    "jevris.skill-advice"
+  ]
+}

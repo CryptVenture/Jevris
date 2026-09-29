@@ -1,0 +1,11 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "theme": "system",
+  "mcp": {
+    "user-server": {
+      "type": "local",
+      "command": ["user-server"]
+    },
+    "jevris": {"type": "local", "command": ["node", "@HOME@/.config/opencode/bin/mcp.js"], "enabled": true}
+  }
+}

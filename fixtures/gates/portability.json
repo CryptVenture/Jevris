@@ -1,0 +1,41 @@
+{
+  "schemaVersion": "chapter-22-1",
+  "gate": "portability",
+  "verdict": "pass",
+  "citations": [
+    "apps/cli/src/doctor.ts",
+    "apps/cli/src/harness-probe.ts"
+  ],
+  "clauses": [
+    {
+      "id": "claude",
+      "status": "recorded",
+      "detail": "SessionStart was probed on claude 2.1.281. Actuators stay unsupported. That probe is not a Codex, Gemini, or OpenCode certification."
+    },
+    {
+      "id": "codex",
+      "status": "recorded",
+      "detail": "codex is explicitly unsupported and is not advertised as certified."
+    },
+    {
+      "id": "gemini",
+      "status": "recorded",
+      "detail": "gemini is explicitly unsupported and is not advertised as certified."
+    },
+    {
+      "id": "opencode",
+      "status": "recorded",
+      "detail": "opencode is explicitly unsupported and is not advertised as certified."
+    },
+    {
+      "id": "windows",
+      "status": "recorded",
+      "detail": "windows is explicitly unsupported. No Windows certification record exists."
+    },
+    {
+      "id": "record-matches",
+      "status": "recorded",
+      "detail": "No actuator record matches. Doctor does not print certified. Explicit unsupported is the published state for unadvertised adapters."
+    }
+  ]
+}

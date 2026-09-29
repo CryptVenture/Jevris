@@ -1,0 +1,451 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:jev-request:1.0",
+  "title": "JevRequest",
+  "description": "Native Jev request: pinned model, state, one to twelve Choice, Score or Noul questions (§2.5).",
+  "type": "object",
+  "properties": {
+    "model": {
+      "type": "string",
+      "pattern": "^jev-\\d+\\.\\d+\\.\\d+$"
+    },
+    "state": {
+      "description": "The evidence packet: a string, an array or an object of plain JSON.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "array"
+        },
+        {
+          "type": "object"
+        }
+      ]
+    },
+    "questions": {
+      "type": "object",
+      "propertyNames": {
+        "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+      },
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "type"
+        ],
+        "properties": {
+          "type": {
+            "type": "string",
+            "enum": [
+              "choice",
+              "score",
+              "noul"
+            ]
+          }
+        },
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "choice"
+                }
+              }
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "choice"
+                },
+                "instructions": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 8192,
+                  "pattern": "\\S",
+                  "not": {
+                    "anyOf": [
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                      },
+                      {
+                        "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                      }
+                    ]
+                  }
+                },
+                "criteria": {
+                  "type": "object",
+                  "propertyNames": {
+                    "pattern": "^[A-Za-z][A-Za-z0-9_-]{0,63}$"
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048,
+                    "pattern": "\\S",
+                    "not": {
+                      "anyOf": [
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                        },
+                        {
+                          "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                        }
+                      ]
+                    }
+                  },
+                  "minProperties": 2,
+                  "maxProperties": 255
+                }
+              },
+              "required": [
+                "type",
+                "instructions",
+                "criteria"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "score"
+                }
+              }
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "score"
+                },
+                "instructions": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 8192,
+                  "pattern": "\\S",
+                  "not": {
+                    "anyOf": [
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                      },
+                      {
+                        "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                      }
+                    ]
+                  }
+                },
+                "criteria": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 2048,
+                    "pattern": "\\S",
+                    "not": {
+                      "anyOf": [
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                        },
+                        {
+                          "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                        },
+                        {
+                          "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                        }
+                      ]
+                    }
+                  },
+                  "minItems": 2,
+                  "maxItems": 10
+                }
+              },
+              "required": [
+                "type",
+                "instructions",
+                "criteria"
+              ],
+              "additionalProperties": false
+            }
+          },
+          {
+            "if": {
+              "properties": {
+                "type": {
+                  "const": "noul"
+                }
+              }
+            },
+            "then": {
+              "type": "object",
+              "properties": {
+                "type": {
+                  "const": "noul"
+                },
+                "instructions": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 8192,
+                  "pattern": "\\S",
+                  "not": {
+                    "anyOf": [
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                      },
+                      {
+                        "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                      }
+                    ]
+                  }
+                },
+                "criteria": {
+                  "type": "object",
+                  "properties": {
+                    "true": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048,
+                      "pattern": "\\S",
+                      "not": {
+                        "anyOf": [
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                          },
+                          {
+                            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                          }
+                        ]
+                      }
+                    },
+                    "false": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 2048,
+                      "pattern": "\\S",
+                      "not": {
+                        "anyOf": [
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                          },
+                          {
+                            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                          },
+                          {
+                            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                          }
+                        ]
+                      }
+                    }
+                  },
+                  "required": [
+                    "true",
+                    "false"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "required": [
+                "type",
+                "instructions"
+              ],
+              "additionalProperties": false
+            }
+          }
+        ]
+      },
+      "minProperties": 1,
+      "maxProperties": 12
+    }
+  },
+  "required": [
+    "model",
+    "state",
+    "questions"
+  ],
+  "additionalProperties": false
+}

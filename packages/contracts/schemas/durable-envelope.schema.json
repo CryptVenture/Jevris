@@ -1,0 +1,156 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:durable-envelope:1.0",
+  "title": "DurableEnvelope",
+  "description": "Schema version, id, workspace scope, revision and canonical content hash around a contract body (§6.1).",
+  "type": "object",
+  "properties": {
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "contract": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]{0,63}$"
+    },
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "workspaceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "contentHash": {
+      "type": "string",
+      "pattern": "^sha256:[0-9a-f]{64}$"
+    },
+    "body": {
+      "description": "The contract body. contentHash is sha256 over its RFC 8785 canonical JSON."
+    }
+  },
+  "required": [
+    "schemaVersion",
+    "contract",
+    "id",
+    "workspaceId",
+    "revision",
+    "contentHash",
+    "body"
+  ],
+  "additionalProperties": false
+}

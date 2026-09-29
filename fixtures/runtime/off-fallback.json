@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "1.0",
+  "mode": "off",
+  "errorClass": null,
+  "applied": false,
+  "toolPermission": false,
+  "approvedModel": "jev-1.13.0",
+  "explanation": "Rules-only fallback: mode is off. No provider call was made.",
+  "interrupt": false,
+  "providerRoute": "providerDirect",
+  "policyVersion": "policyV1",
+  "cacheReused": false,
+  "actuationResumed": false,
+  "restore": "none",
+  "cachedChoice": null
+}

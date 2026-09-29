@@ -1,0 +1,25 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"@HOME@/.nvm/versions/node/v26.5.0/bin/node\" \"@HOME@/.codex/hooks/gsd-check-update.js\""
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"@HOME@/.nvm/versions/node/v26.5.0/bin/node\" \"@HOME@/.codex/hooks/gsd-context-monitor.js\"",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}

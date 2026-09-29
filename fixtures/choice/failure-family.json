@@ -1,0 +1,10 @@
+{
+  "id": "failureFamily",
+  "instructions": "Which listed family best matches the observed failure?",
+  "criteria": {
+    "type_error": "A compiler or static type checker rejected the code.",
+    "assertion": "A test ran and an assertion failed.",
+    "environment": "Required tooling or an external dependency failed.",
+    "unknown": "Evidence is insufficient or none of these fits."
+  }
+}

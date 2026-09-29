@@ -1,0 +1,835 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:action-intent:1.0",
+  "title": "ActionIntent",
+  "description": "A planned action bound to a decision, a revision, an expiry and a capability (§6.1).",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "decisionId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "expectedRevision": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "expiresAt": {
+      "type": "string",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+      "format": "date-time"
+    },
+    "capabilityId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "action": {
+      "type": "object",
+      "required": [
+        "kind"
+      ],
+      "properties": {
+        "kind": {
+          "type": "string",
+          "enum": [
+            "advise",
+            "route-worker",
+            "request-checkpoint",
+            "select-evidence",
+            "request-verification",
+            "cancel-owned-worker",
+            "abstain"
+          ]
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "advise"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "advise"
+              },
+              "templateId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              },
+              "evidenceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                  "not": {
+                    "anyOf": [
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                      },
+                      {
+                        "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                      }
+                    ]
+                  }
+                },
+                "minItems": 0,
+                "maxItems": 64,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "kind",
+              "templateId",
+              "evidenceIds"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "route-worker"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "route-worker"
+              },
+              "taskId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              },
+              "modelId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?$",
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              },
+              "profileId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "taskId",
+              "modelId",
+              "profileId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "request-checkpoint"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "request-checkpoint"
+              },
+              "capsuleId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "capsuleId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "select-evidence"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "select-evidence"
+              },
+              "evidenceIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                  "not": {
+                    "anyOf": [
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                      },
+                      {
+                        "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                      }
+                    ]
+                  }
+                },
+                "minItems": 1,
+                "maxItems": 64,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "kind",
+              "evidenceIds"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "request-verification"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "request-verification"
+              },
+              "checkIds": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                  "not": {
+                    "anyOf": [
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                      },
+                      {
+                        "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                      },
+                      {
+                        "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                      }
+                    ]
+                  }
+                },
+                "minItems": 1,
+                "maxItems": 64,
+                "uniqueItems": true
+              }
+            },
+            "required": [
+              "kind",
+              "checkIds"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "cancel-owned-worker"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "cancel-owned-worker"
+              },
+              "leaseId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "leaseId"
+            ],
+            "additionalProperties": false
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "kind": {
+                "const": "abstain"
+              }
+            }
+          },
+          "then": {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "const": "abstain"
+              },
+              "reasonCode": {
+                "type": "string",
+                "pattern": "^[A-Z][A-Z0-9_]{0,63}$",
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              }
+            },
+            "required": [
+              "kind",
+              "reasonCode"
+            ],
+            "additionalProperties": false
+          }
+        }
+      ]
+    },
+    "reservationId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "id",
+    "decisionId",
+    "expectedRevision",
+    "expiresAt",
+    "capabilityId",
+    "action"
+  ],
+  "additionalProperties": false
+}

@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security report
+    url: https://github.com/CryptVenture/Jevris/blob/main/SECURITY.md
+    about: Vulnerabilities go to the address in SECURITY.md, not to a public issue.

@@ -1,0 +1,352 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:task-node:1.0",
+  "title": "TaskNode",
+  "description": "A task with requirement ids, dependencies, write scope, acceptance checks and state/revision (§6.2).",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "schemaVersion": {
+      "const": "1.0"
+    },
+    "workspaceId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "revision": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "state": {
+      "type": "string",
+      "enum": [
+        "proposed",
+        "validated",
+        "ready",
+        "leased",
+        "running",
+        "awaiting-evidence",
+        "verifying",
+        "verified",
+        "failed",
+        "blocked",
+        "cancelled"
+      ]
+    },
+    "requirementIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        "not": {
+          "anyOf": [
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+            },
+            {
+              "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+            }
+          ]
+        }
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "dependencyIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        "not": {
+          "anyOf": [
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+            },
+            {
+              "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+            }
+          ]
+        }
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "writeScopes": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^(?![/\\\\])(?![A-Za-z]:)(?!.*(?:^|/)\\.\\.(?:/|$))[A-Za-z0-9._*/-]{1,256}$"
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "acceptanceCheckIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        "not": {
+          "anyOf": [
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+            },
+            {
+              "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+            }
+          ]
+        }
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "rootBudgetId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    }
+  },
+  "required": [
+    "id",
+    "schemaVersion",
+    "workspaceId",
+    "revision",
+    "state",
+    "requirementIds",
+    "dependencyIds",
+    "writeScopes",
+    "acceptanceCheckIds",
+    "rootBudgetId"
+  ],
+  "additionalProperties": false
+}

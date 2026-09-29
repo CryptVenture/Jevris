@@ -1,0 +1,6 @@
+{
+  "hook_event_name": "PreCompact",
+  "trigger": "auto",
+  "transcript_path": "/tmp/jevris-do-not-open.jsonl",
+  "custom_instructions": null
+}

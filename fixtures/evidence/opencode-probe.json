@@ -1,0 +1,20 @@
+{
+  "schemaVersion": "opencode-probe-1",
+  "applied": false,
+  "certified": false,
+  "actuators": "unsupported",
+  "harnessPass": false,
+  "binary": "opencode",
+  "binaryResponded": true,
+  "version": "1.18.5",
+  "documentedLocalPluginPath": true,
+  "documentedPath": ".opencode/plugins/; ~/.config/opencode/plugins/",
+  "pluginDirectoryPresent": false,
+  "pluginsLoaded": "none",
+  "probeCommands": [
+    "opencode --version",
+    "opencode debug info",
+    "opencode debug paths"
+  ],
+  "reason": "opencode --version, debug info, and debug paths exited 0 in a temp HOME and XDG dirs. Version was 1.18.5. No prompt was sent. --auto was not used. No plugin was installed. Vendor docs name local plugin directories .opencode/plugins/ and ~/.config/opencode/plugins/. debug paths listed a config directory and did not list a plugins path. Those plugin directories were absent in the temp probe and in the project. debug info reported plugins none. Actuators stay unsupported. A responding binary is not a harness pass and not a certification."
+}

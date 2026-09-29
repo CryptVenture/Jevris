@@ -1,0 +1,28 @@
+{
+  "harness": "antigravity",
+  "launcher": "agy",
+  "displayName": "Antigravity",
+  "plugin": {
+    "path": ".gemini/config/plugins/jevris"
+  },
+  "skills": {
+    "dir": ".gemini/config/plugins/jevris/skills",
+    "namespace": "jevris-",
+    "allowedToolsPrefix": null,
+    "userInvocationField": null
+  },
+  "hooks": ["PostToolUse", "PreInvocation", "PostInvocation", "Stop"],
+  "features": ["plugin.install", "mcp.tools", "skills.discovery", "hooks.observe", "hooks.context", "worker.route", "models.list"],
+  "unsupported": {
+    "PreToolUse": "Antigravity's PreToolUse allow would auto-approve the tool call and override native permissions, so it is never registered.",
+    "compaction": "Antigravity has no compaction events; a session saves its capsule with jevris_checkpoint and gets it back through the jevris_handoff_export tool.",
+    "hooks.route": "No Antigravity hook can change a subagent's model.",
+    "statusLine": "Antigravity has no plugin status line; run jevris status.",
+    "subagents": "Jevris makes no permission decision in a subagent, so Antigravity's own permissions govern it, and the verification gate holds only the parent's Stop, never SubagentStop: Antigravity has no SubagentStop hook, and it does not document whether its hooks run inside a subagent.",
+    "access.session": "No Antigravity hook is known to carry a failed turn's error, and Antigravity has no custom endpoint for a stub case, so access limits are read from owned runs only, as text, until a capture certifies them."
+  },
+  "compatibility": {
+    "rule": "same-minor",
+    "basis": "Not yet checked against the Antigravity CLI release notes. Same-minor is the default, and a new minor is re-checked in the background. A patch that changes the hook protocol shows up as a malformed live event, which demotes that feature and re-checks it."
+  }
+}

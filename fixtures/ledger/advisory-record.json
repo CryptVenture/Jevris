@@ -1,0 +1,24 @@
+{
+  "schemaVersion": "1.0",
+  "records": [
+    {
+      "schemaVersion": "1.0",
+      "decisionId": "decisionAdvisory",
+      "policyVersion": "policyV1",
+      "evidenceRevision": "revisionA",
+      "resolvedModel": "jev-1.13.0",
+      "outcome": "advisory",
+      "reasonCode": "CHOICE_RECORDED",
+      "usage": {
+        "known": true,
+        "inputTokens": 11,
+        "outputTokens": 3
+      },
+      "applied": false,
+      "explanation": "Decision recorded. No action was applied.",
+      "nonOwnedBilling": "unknown",
+      "freshDecision": "not-scheduled",
+      "reservationMicroUsd": "1000000"
+    }
+  ]
+}

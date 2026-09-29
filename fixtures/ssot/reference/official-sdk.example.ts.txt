@@ -1,0 +1,41 @@
+/**
+ * REVIEW-ONLY integration sketch. Not included in the offline TypeScript build.
+ * Install and pin @typesafe-ai/sdk, then compile against that exact version.
+ * The native client is the independently testable reference in this package.
+ * Sources: S11-S14 and S55. Never call this from a browser or untrusted pack.
+ */
+import { choice, TypeSafeClient } from '@typesafe-ai/sdk';
+
+export async function classifyApprovedDiagnostic(
+  apiKeyFromTrustedHost: string,
+  approvedEvidence: Record<string, string>,
+  callerSignal: AbortSignal,
+) {
+  const client = new TypeSafeClient({
+    apiKey: apiKeyFromTrustedHost,
+    baseURL: 'https://api.typesafe.ai', // API root, not /v1
+    defaultModel: 'jev-1.13.0',
+    timeout: 700, // Per attempt. Caller also owns a total decision deadline.
+    retry: { maxRetries: 0 },
+    logLevel: 'warn',
+  });
+  const totalDeadline = AbortSignal.timeout(900);
+  const signal = AbortSignal.any([callerSignal, totalDeadline]);
+  const result = await client.systemOne({
+    state: approvedEvidence,
+    questions: {
+      failureFamily: choice(
+        'Which listed family best matches the observed failure?',
+        {
+          type_error: 'Compiler or type checker rejected the code.',
+          assertion: 'A test ran and an assertion failed.',
+          environment: 'Required tooling or an external dependency failed.',
+          unknown: 'Insufficient evidence or no listed family fits.',
+        },
+      ),
+    },
+  }, { signal });
+  // Normalize and validate the result, resolved model and freshness before policy.
+  // No answer here grants permissions, verifies code, or executes a tool.
+  return result;
+}

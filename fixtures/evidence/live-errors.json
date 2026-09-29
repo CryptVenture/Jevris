@@ -1,0 +1,1 @@
+{"schemaVersion":"live-errors-1","sdk":"@typesafe-ai/sdk","sdkVersion":"0.6.0","method":"systemOne","maxRetries":0,"probes":[{"label":"invalid-model","outcome":"error","status":400,"name":"BadRequestError"}]}

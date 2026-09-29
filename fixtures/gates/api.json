@@ -1,0 +1,81 @@
+{
+  "schemaVersion": "chapter-22-1",
+  "gate": "api",
+  "verdict": "pass",
+  "citations": [
+    "fixtures/evidence/live-choice.json",
+    "fixtures/evidence/latency-envelope.json"
+  ],
+  "clauses": [
+    {
+      "id": "resolved-model",
+      "status": "recorded",
+      "detail": "resolvedModel jev-1.13.0. A recorded model id is not an API pass."
+    },
+    {
+      "id": "usage",
+      "status": "recorded",
+      "detail": "usage known inputTokens 378 outputTokens 52. Known usage is not reconciliation."
+    },
+    {
+      "id": "deadline",
+      "status": "recorded",
+      "detail": "deadlineAtMs 1790332557708 is recorded. A deadline field is not a pass."
+    },
+    {
+      "id": "sent",
+      "status": "recorded",
+      "detail": "sent true. sent true is not an API pass."
+    },
+    {
+      "id": "applied",
+      "status": "recorded",
+      "detail": "applied false is recorded. applied false is not an actuation."
+    },
+    {
+      "id": "reason-code",
+      "status": "recorded",
+      "detail": "reasonCode CHOICE_RECORDED. A reason code is not an API pass."
+    },
+    {
+      "id": "cancellation",
+      "status": "recorded",
+      "detail": "Abort after fetch started. sent true, cancelled true, applied false, fetchCalls 1."
+    },
+    {
+      "id": "sdk-behavior",
+      "status": "recorded",
+      "detail": "SDK @typesafe-ai/sdk 0.6.0 systemOne, maxRetries 0, resolvedModel jev-1.13.0."
+    },
+    {
+      "id": "errors",
+      "status": "recorded",
+      "detail": "Live invalid model returned status 400 BadRequestError. No response body stored."
+    },
+    {
+      "id": "byte-budget",
+      "status": "recorded",
+      "detail": "Request byte cap 131072. Over-cap decision is over and is not sent. The approved live Choice was under the cap and was sent."
+    },
+    {
+      "id": "token-budget",
+      "status": "recorded",
+      "detail": "Over-cap token gate does not send. Live usage is 378 input tokens and 52 output tokens."
+    },
+    {
+      "id": "usage-reconciliation",
+      "status": "recorded",
+      "detail": "Stored usage matches the live Choice record. No zero was invented. applied false."
+    },
+    {
+      "id": "latency-stages",
+      "status": "recorded",
+      "detail": "Latency stages met. budgetMs 900. A met stage is not an SLO."
+    },
+    {
+      "id": "service-level",
+      "status": "recorded",
+      "detail": "serviceLevel false. A single measured envelope is not a geographic SLO."
+    }
+  ]
+}

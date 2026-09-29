@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "user-server": {
+      "command": "user-server"
+    },
+    "jevris": {
+      "command": "node",
+      "args": [
+        "@HOME@/.gemini/antigravity-cli/plugins/jevris/bin/mcp.js"
+      ]
+    }
+  }
+}

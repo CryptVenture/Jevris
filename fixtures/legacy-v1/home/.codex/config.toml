@@ -1,0 +1,11 @@
+# user codex config
+model = "gpt-5"
+
+[profiles.work]
+model = "o3"
+
+[mcp_servers.jevris]
+command = "node"
+args = ["@HOME@/.agents/plugins/jevris/bin/mcp.js"]
+enabled = true
+default_tools_approval_mode = "prompt"

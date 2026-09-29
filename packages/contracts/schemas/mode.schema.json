@@ -1,0 +1,13 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:mode:1.0",
+  "title": "Mode",
+  "description": "Operating mode (§4.2).",
+  "type": "string",
+  "enum": [
+    "off",
+    "observe",
+    "advise",
+    "bounded-auto"
+  ]
+}

@@ -1,0 +1,27 @@
+// Sidecar protocol v1 (IPC-01..IPC-20): the agreed client, the daemon and the op registry.
+export { ensureSidecar, probeSidecar, sidecarChildEnv, sidecarCommand, sidecarRequest, sidecarWaitMs, spawnSidecar, stopSidecarProcess, SIDECAR_TEST_WAIT_MAX_MS } from './client.js';
+export type { SidecarProbe, SpawnSidecarOptions, StopResult } from './client.js';
+export { BUILD_CHECK_MS, DEFAULT_IDLE_MS, STALE_BUILD_EXIT_CODE, hardenPipeAcl, pipeAclOwnerOnly, pipeAclScript, runSidecarMain, startDaemon, sweepStaleFallbackSockets } from './daemon.js';
+export type { DaemonOptions, DaemonStartResult, SidecarDaemon } from './daemon.js';
+export { BUILTIN_OP_NAMES, DuplicateOpError, loadOps } from './ops.js';
+export type { LoadedOps, OpSource } from './ops.js';
+export { BUILD_ID, NonceCache, loadedRuntimeBuild, readEndpoint, runtimeBuild, runtimeFiles, socketCandidates } from './protocol.js';
+export type { RuntimeBuild } from './protocol.js';
+export { ownStoreRefusedMessage, workspaceIdentity } from './state.js';
+export { hostScopeForStore, hostScopeId, hostScopeInfo, legacyHostScopeId, legacyHostScopes, storeBelongsHere, type HostScopeInfo, type HostScopePorts, type StoreHostScope } from './host-scope.js';
+export { detectLocality } from './locality.js';
+export { HOOK_LATENCY_FILE, appendHookLatency, hookLatencyFile, parseHookLatencyLine } from './hook-latency.js';
+export type { HookLatencyEntry } from './hook-latency.js';
+export { LATENCY_FLUSH_MS, LATENCY_KEYS_MAX, createLatencyCounters } from './latency-counters.js';
+export { IDLE_QUIET_MS, MODEL_OFFER_CHECK_MS, MODEL_OFFER_LISTING_TIMEOUT_MS, MODEL_OFFER_REFRESH_MS, createModelOfferRefresher } from './model-offer.js';
+export type { ModelListing, ModelOfferPorts, ModelOfferRefresher, OfferedEntry, RefreshOutcome, RefreshReason } from './model-offer.js';
+export type { LatencyCounters } from './latency-counters.js';
+export { resolveSourceEgress } from './egress-guard.js';
+export type { EgressApproval } from './egress-guard.js';
+export type { ExecutionLocality, LocalityInput } from './locality.js';
+export { sidecarMain, parseMainArgs } from './main.js';
+export { openTelemetry, readDiagnostic, readStatusLine, statusLineText, DIAGNOSTIC_MAX_MS, STATUSLINE_FILE, TRACE_DIR } from './telemetry.js';
+export type { DiagnosticState, RequestCounters, StatusLineBody, Telemetry, TraceInput } from './telemetry.js';
+export { installService, planService, serviceStatus, uninstallService, LAUNCH_AGENT_LABEL, SCHEDULED_TASK_NAME, SYSTEMD_UNIT_NAME } from './service-units.js';
+export { createSecuritySubscriber, proposedEffectOf, suspicionText, triageText, untrustedSpansOf, UNTRUSTED_SPANS_MAX, UNTRUSTED_SPAN_CHARS_MAX, UNTRUSTED_TOTAL_CHARS_MAX } from './security-subscriber.js';
+export type { Exec as ServiceExec, ServiceInput, ServicePlan, ServicePlatform, ServiceResult } from './service-units.js';

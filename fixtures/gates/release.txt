@@ -1,0 +1,8 @@
+JEVRIS_GATES not-a-pass
+api pass fixtures/evidence/live-choice.json fixtures/evidence/latency-envelope.json
+harness pass apps/cli/src/harness-probe.ts plugins/claude/hooks/hooks.json apps/cli/src/doctor.ts
+security pass fixtures/evidence/feasibility.json packages/core/src/egress.ts apps/sidecar/src/span-gate.ts docs/security.md apps/sidecar/src/server.ts apps/cli/src/pack-policy.ts
+quality not-a-pass fixtures/evaluation/protocol.json
+economics not-a-pass packages/contracts/src/shadow.ts packages/core/src/shadow.ts apps/cli/src/host-policy.ts
+operations pass packages/store/src/commit.ts packages/store/src/reconcile.ts packages/store/src/open.ts apps/cli/src/credential.ts apps/cli/src/pack-policy.ts
+portability pass apps/cli/src/doctor.ts apps/cli/src/harness-probe.ts

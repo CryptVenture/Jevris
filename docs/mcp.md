@@ -1,0 +1,430 @@
+# MCP tools and the hook launcher
+
+Jevris gives your coding harness two things. The first is a set of **MCP tools**, which the model can call. The second is a **hook launcher**, which the harness runs on its lifecycle events.
+
+Both are local programs that ship in the Jevris package:
+
+| File | What it is |
+| --- | --- |
+| `plugins/shared/mcp.js` | The MCP server. Every harness, Claude Code included, runs this one file. |
+| `dist/hook.mjs` | The hook launcher. |
+
+Each file is a single self-contained JavaScript file that imports only Node.js built-in modules. Neither one needs `npx`, a shell, or network access.
+
+This page covers:
+
+- every tool, with its arguments, results and refusals;
+- the MCP protocol versions the server speaks;
+- how each harness starts the server;
+- what the hook launcher does, for troubleshooting.
+
+## What the tools can and cannot do
+
+The tools give advice and keep local records for the current workspace. They never:
+
+- switch a model, or override a model you pinned;
+- change a permission, a harness setting or a Jevris setting;
+- run a check, or mark a check passed;
+- delete anything.
+
+Every tool is marked `destructiveHint: false` and `openWorldHint: false`. Tools that only read or advise are also marked `readOnlyHint: true`. Every tool except `jevris_submit_task` is marked `idempotentHint: true`.
+
+A model can't redirect a tool to another home directory or another project:
+
+- **No tool accepts** a home directory, a repository root, an output path or a shell command.
+- **The Jevris home** comes from the host environment: `JEVRIS_HOME`, or else your home directory.
+- **The workspace** is the first of these that is set:
+  1. `CLAUDE_PROJECT_DIR`;
+  2. the first root the MCP client advertises (the server asks with `roots/list` when the client supports roots);
+  3. the server's working directory.
+
+  Jevris then uses the nearest folder at or above it that holds `.git`.
+
+These stay on the administrator CLI, and no model can reach them through MCP:
+
+- installing and uninstalling;
+- changing settings;
+- credentials;
+- the kill switch;
+- policy;
+- data deletion.
+
+## How a tool call is answered
+
+Each tool maps to one Jevris operation. The server answers a call like this:
+
+1. It runs the installed `jevris` command-line program.
+2. It passes the arguments as JSON on standard input, never on the command line.
+3. It passes the workspace in the `JEVRIS_WORKSPACE` environment variable.
+
+The server finds the `jevris` program in this order. It never searches `PATH`.
+
+1. `JEVRIS_BIN`, if it is an absolute path.
+2. A `jevris-bin.json` pointer in the same folder as `mcp.js`, if there is one.
+3. A `bin/jevris.mjs` in a parent directory of the server. In an installed runtime this is the runtime's own `bin/jevris.mjs`.
+
+### Successful results
+
+A successful call returns the command's result in two forms:
+
+- **`structuredContent`**: the result object. It matches the tool's declared `outputSchema`.
+- **One text block**: the same object as JSON.
+
+Every result has the same envelope:
+
+| Field | Meaning |
+| --- | --- |
+| `schemaVersion` | Always `"1.0"`. |
+| `command` | The operation, for example `status` or `plan`. |
+| `mode` | `full` when the Jevris sidecar answered. `reduced` when the answer was computed locally because the sidecar was not available (see below). |
+| `sidecar` | `{ state, reasonCode, message }`. `state` is one of `running`, `not-running`, `starting`, `timeout`, `refused` or `rejected`. |
+| `workspace` | `{ id, root }` for the workspace the answer is about. |
+| `summary` | One plain sentence that describes the answer. |
+| `result` | The operation's own payload, described per tool below. |
+
+**Reduced mode** is a correct but smaller answer that doesn't need the sidecar:
+
+- a task that is not found locally is reported as not found;
+- a receipt that can't be recorded says so.
+
+The `sidecar.reasonCode` says why the answer is reduced:
+
+| `sidecar.reasonCode` | Meaning |
+| --- | --- |
+| `SIDECAR_UNAVAILABLE` | The sidecar is not running. |
+| `SIDECAR_STARTING` | The sidecar is still starting. Retry in a moment. |
+| `SIDECAR_TIMEOUT` | The sidecar did not answer in time. |
+| `SIDECAR_REFUSED` | The sidecar refused this request, for example because of its scope. |
+| `SIDECAR_REJECTED` | The sidecar rejected this request. |
+| `SIDECAR_INVALID_RESULT` | The sidecar answered, but not in the expected shape. Update Jevris. |
+
+The sidecar may also send its own specific reason code, such as `SCOPE_DENIED`. When it does, that code is shown instead.
+
+`jevris_configure` is always answered locally and never asks the sidecar. Its result says `mode: "reduced"` with `sidecar.reasonCode` set to `null`.
+
+### Errors and refusals
+
+Errors come back as a tool result with `isError: true` and one text block. There is no `structuredContent` in that case.
+
+| Text begins with | Cause | What to do |
+| --- | --- | --- |
+| `Refused (REFUSED):` | The arguments didn't match the tool's input schema, for example an unknown field such as `home`, a value that is too long, or a malformed id. Also returned when a settings change arrives through MCP. | Fix the arguments. Change settings with the `jevris` CLI. |
+| `Refused (INVALID_JSON):` | The arguments were not valid JSON. | Send a JSON object. |
+| `Refused (OVERSIZE):` | The arguments were larger than 1 MiB. | Send less. |
+| `Refused (MODE_OFF):` | Jevris is in `off` mode. In `off`, `jevris_plan_route`, `jevris_plan`, `jevris_recover`, `jevris_advise` and `jevris_delivery_report` are refused, whether or not the sidecar runs. The other tools still answer. | Raise the mode from a terminal, for example `jevris configure set mode advise`. |
+| `Refused (VERIFY_STATE_UNKNOWN):` | `jevris_verify` did not get an answer from the sidecar in time, so the state of the checks is unknown. | Call `jevris_verify` again. |
+| `Refused: the arguments must be an object.` | `arguments` was an array or a scalar value. | Send an object. |
+| `The jevris CLI was not found next to this server.` | No `jevris` program could be resolved. | Run `jevris install` again. |
+| `The jevris CLI could not be started.` | The program exists but failed to start. | Run `jevris doctor` in a terminal. |
+| `Jevris did not answer within 20 seconds.` | The call timed out, and the child process was stopped. | Run `jevris status` in a terminal. |
+| `The Jevris answer was larger than 1 MiB and was dropped.` | The result was too big. | Narrow the request. |
+| `The jevris CLI returned no readable answer.` / `returned an unexpected answer.` | Version mismatch or a crash. | Update Jevris. |
+
+An unknown tool name is a protocol error (`-32602`), not a tool result.
+
+A cancelled call gets no response. The server stops the child process when the client sends `notifications/cancelled`.
+
+## The tools
+
+The server lists 17 tools. Every id field accepts 1 to 128 characters: letters, digits, `.`, `_` and `-`, starting with a letter or digit. Model fields accept the model as the harness names it: up to two `provider/` segments, then an id by the same rule, optionally ending with `:<digits>` and then `[1m]`.
+
+### Read-only tools
+
+#### `jevris_status`
+
+Current mode, sidecar state, decision health, model pin, active workers, budget and kill switch for this workspace.
+
+- **Arguments:** none.
+- **Result:** the status report, the same one `jevris status --json` prints. In it:
+  - `jevrisMode` is the effective mode for this workspace: your `mode` setting, lowered by any ceiling above it (the repository's `.jevris/config.json`, `organization.json`, `host.json` or a managed policy). It is the value `jevris configure` shows, and `modeSource` names where it comes from (see [settings.md](settings.md));
+  - `routing.modelPin` is the model you pinned in the harness (`ANTHROPIC_MODEL`), which Jevris never changes; `null` when none is set;
+  - `activeWorkers` lists the ids of this workspace's owned tasks that are leased or running.
+
+#### `jevris_explain_decision`
+
+Explains one recorded decision.
+
+- **Arguments:** `decisionId` (required) and `sliceId` (optional: a task slice such as `bounded-edit`, to add that slice's route learning).
+- **Result:** `{ decisionId, found, trace }`. `trace` contains:
+  - `outcome` and `reasonCodes`;
+  - `resolvedModel`;
+  - token `usage` (`known: false` when not recorded);
+  - `uncertainty`, in plain words;
+  - `policyVersion`;
+  - `applied`;
+  - a `rendered` explanation of up to 4000 characters;
+  - `models` (when recorded): the worker model requested and the one observed, kept apart;
+  - `learning` (with `sliceId`): the slice's route-learning mode, policy version, the signed baseline prior and the local outcomes apart, and a posterior per arm (a model at an effort level). The fields are in [routing.md](routing.md#why-a-slice-routes-as-it-does);
+  - for a main-session turn decision only: `mainSession` (the harness, the mode, whether the turn's model was switched or only advised, and the reason code), the session's `sessionLink` to its task, and the `serving` hosts.
+
+  An unknown id returns `found: false`. It is not an error.
+
+#### `jevris_select_evidence`
+
+Picks the most relevant evidence for an intent. It returns handles and short labels, never file contents.
+
+- **Arguments:**
+  - `intent` (required, 1 to 500 characters);
+  - `maxItems` (1 to 64, default 16).
+- **Result:** `{ intent, items, missing, truncated }`, and `selectionId` when the sidecar recorded the selection. Pass it to `jevris_evidence_get` so the read counts against this selection.
+
+#### `jevris_evidence_get`
+
+Returns one evidence item by handle. The item is bounded, may be truncated, and passes through the same egress checks as the CLI.
+
+- **Arguments:**
+  - `handle` (required, such as `ev:` and 64 hex digits, as `jevris verify` names it);
+  - `selectionId` (optional): the `selectionId` of the `jevris_select_evidence` answer that listed the handle. Jevris records which selected evidence was read, as ids only.
+- **Result:** `{ handle, found, mediaType, byteLength, text, truncated }`, and `output` when Jevris recorded how a tool or check output was shown to the model.
+
+#### `jevris_get_task`
+
+Returns a task with its state, acceptance checks and runner receipts.
+
+- **Arguments:** `taskId` (required).
+- **Result:** `{ taskId, found, task, receipts }`. In reduced mode `found` is `false`. For an owned task, `worker` is its latest worker run: the model requested and the model that did the work, kept apart, the run's status, and the cost only when the worker reported it.
+
+#### `jevris_handoff_export`
+
+Returns a portable memory capsule for another session or harness. The capsule grants no authority.
+
+- **Arguments:** `capsuleId` (optional; the newest capsule when omitted) and `taskId` (optional).
+- **Result:** `{ capsuleId, found, capsule, contentHash }`.
+
+#### `jevris_plan`
+
+Validates a task graph. It finds:
+
+- cycles;
+- unknown dependencies;
+- missing acceptance checks and requirements;
+- parallel tasks that write to the same scope.
+
+- **Arguments:** `tasks` (required): 1 to 1024 task objects.
+- **Result:** `{ valid, taskCount, order, waves, criticalPath, ready, issues, advice }`.
+  - `issues` codes are `DUPLICATE_TASK`, `UNKNOWN_DEPENDENCY`, `SELF_DEPENDENCY`, `CYCLE`, `WORKSPACE_SCOPE`, `INVALID_TASK`, `NO_ACCEPTANCE_CHECK`, `NO_REQUIREMENT` and `WRITE_OVERLAP`.
+  - An invalid plan is a normal result with `valid: false`.
+
+#### `jevris_verify`
+
+Reports whether each declared check has a current passing runner receipt. It never runs a check and never marks one passed. Checks run only from the `jevris` CLI.
+
+- **Arguments:**
+  - `checkIds` (up to 512);
+  - `taskId` (optional).
+- **Result:** includes `ran: false`, one entry per check in `checks`, the `missing` checks and a `readiness` value: `verified`, `not-verified`, `needs-environment` or `no-checks`. Readiness is `verified` only when every mandatory check has a current passing receipt. `needs-environment` means the remaining mandatory checks only need other hardware or a runner; it is not verified. `no-checks` means no checks are approved yet (see [verification.md](verification.md)).
+
+#### `jevris_configure`
+
+Shows the effective Jevris settings and where each one comes from. This tool can only read settings. A `set` request through MCP is refused.
+
+- **Arguments:** none.
+- **Result:** includes the `effective` settings (with `modeSource`) and `nativePermissionsChanged: false`.
+
+### Advice tools
+
+These tools are also read-only (`readOnlyHint: true`).
+
+#### `jevris_plan_route`
+
+Advice on the main-session model and on managed workers. It never switches a model and never overrides a pinned one.
+
+- **Arguments** (all optional):
+  - `currentModel`: the model as the harness names it, such as `claude-opus-5-5`, `claude-opus-5-5[1m]`, or `provider/model` from Kilo or OpenCode (up to two provider segments);
+  - `modelPin`, in the same forms;
+  - `effortPin`;
+  - `taskId`;
+  - `sliceId`: the task's slice, so a released calibration for it can apply to worker advice;
+  - `remaining`: `{ inputTokens, outputTokens }` the rest of the task needs;
+  - `contextTokens`;
+  - `session`: `warmPrefixTokens` (required inside `session`: the cached prefix a switch would move), `cacheWarm`, `atBoundary`, `unitsSinceLastSwitch`, `switchesThisTask` and `authMode` (`api-key`, `subscription` or `unknown`, which labels the switch cost as list price or as an API-equivalent estimate).
+- **Harness:** the server sends the harness it was installed for, so the advice names only models that harness can run with the session's sign-in (`session.authMode`). A CLI call with no `--harness` is not scoped.
+- **Result:** `{ main, worker, applied: false }`.
+  - `main.currentModel` is the registry id of the model you named (for example `claude-opus-5-5` for `anthropic/claude-opus-5-5[1m]`), or the bare id when the registry does not hold it.
+  - `main.harness` names the harness the advice was scoped to, when there was one.
+  - `main.pinState` is `pinned` or `unpinned`.
+  - `main.outcome` is `keep`, `recommend` or `abstain`, with `recommendedModel`, `costBasis` and `authMode` when known.
+  - `main.reasonCode` explains it. `PIN_RESPECTED` means a recommendation was withdrawn because you pinned a model. `CURRENT_MODEL_UNREGISTERED` means the current model is not in the model registry, so Jevris does not suggest a switch away from it. `ADVICE_NOT_FOLLOWED` means the same advice was not followed twice in this session, so it is not repeated. In reduced mode, `ROUTER_UNAVAILABLE` means no routing data was available, and `PROVIDER_CONSENT_REQUIRED` means Jevris could not read your provider consent, so it suggests no model that needs it.
+  - `main.consentedProviders` lists the model providers the advice was limited to, after provider consent (`jevris consent provider`). `main.serving` names the host the session's model goes through, when it is known.
+  - `worker.outcome` is `recommend` or `abstain`. Worker advice needs a released calibration for the slice.
+
+  The same advice is `jevris route` in the CLI; see [routing.md](routing.md).
+
+#### `jevris_recover`
+
+Classifies repeated failures, oscillation and environment failures, and names one next action. It is advice only: nothing is run or restored.
+
+- **Arguments:**
+  - `fingerprints`: up to 256 short failure descriptions, in order;
+  - `environment`: one boolean per fingerprint, `true` for an environment failure;
+  - `rejectedApproaches`: up to 32;
+  - `taskId`.
+- **Result:** `{ classification, action, advice, signals, rejectedApproaches }`. `action` is one of `continue`, `retrieve-missing-artifact`, `rerun-check-once`, `ask-focused-question`, `route-stronger-worker`, `restore-checkpoint-with-approval` or `stop-and-report`.
+
+#### `jevris_delivery_report`
+
+A delivery report on the change in this workspace, built from receipts, the task graph, git and the workspace files. It is advice only: it never opens, merges or comments on a pull request, never changes CI, never installs a package and never runs a migration. The CLI equivalent is `jevris delivery`.
+
+- **Arguments:**
+  - `capabilityId` (required): `C57` pull-request readiness, `C58` CI failure triage, `C59` dependency-upgrade risk, `C60` migration rehearsal, `C61` documentation drift or `C64` team configuration;
+  - `taskId`;
+  - `input`: `base` (C57, C59, C60, C61; the revision the change is measured from, default `HEAD`), `unresolvedComments` (C57), `migrations` (C60, up to 32 files) and `compatibility` (C60).
+- **Result:** the capability's advice: `capabilityId`, `reasonCode`, a summary, ranked items and the guards that held.
+
+#### `jevris_advise`
+
+Orchestration and verification advice from the task graph, receipts, git and the workspace files. It is advice only: nothing is started, run, cancelled, changed or approved. The CLI equivalent is `jevris advise <capability>`.
+
+- **Arguments:**
+  - `capabilityId` (required): `C25` dependency suggestions, `C26` worker-role allocation, `C28` duplicate work, `C30` handoff readiness, `C41` test impact, `C42` failure clusters, `C43` patch ranking, `C44` review areas, `C45` requirements-to-evidence audit, `C46` flaky tests or `C47` security-review escalation;
+  - `taskId`;
+  - `input`, the keys for that capability: `base` (C41, C42, C44, C47), `planId` (C25), `phase`, `requiredTools` and `intent` (C26), `taskId`, `sourceRefs` and `diffHandle` (C30), `patches`, `taskIds` and `requirement` (C43), `protectedPaths` (C44), `requirementIds` and `requirementTexts` (C45), `checkId` (C46).
+- **Result:** the capability's advice. For `C28`, `ranked` lists duplicate pairs (`{ id: "T1~T2", label, reason }`) and `kept` the survivors. Cancelling a duplicate stays a person's act: `jevris task cancel` in the CLI.
+
+### Tools that write local records
+
+These tools write only under the Jevris data directory, never in your repository.
+
+#### `jevris_checkpoint`
+
+Saves a memory capsule of the objective, your constraints and the changed files. It never triggers or replaces the harness's own compaction.
+
+- **Arguments:**
+  - `objective` (up to 4000 characters);
+  - `constraints` (up to 64, each up to 1000 characters);
+  - `taskId`.
+- **Result:** includes the `capsuleId`, a `capsule:` handle, the items kept, and `compactionTriggered: false`.
+
+#### `jevris_record_verification`
+
+Links an existing runner receipt to a check. It records only a pointer: it cannot create a receipt or mark a check passed.
+
+- **Arguments:** `receiptId` and `checkId` (both required), and `taskId` (optional).
+- **Result:** `{ receiptId, accepted, reasonCode, outcome, receiptCreated: false }`. `RECEIPT_STORE_UNAVAILABLE` means the sidecar was not available to record it.
+
+#### `jevris_handoff_import`
+
+Checks a capsule from another session and pins its facts as context. The checks are: the workspace matches, the capsule has not expired, and it matches the capsule format. Importing never grants authority or runs anything, and this tool never links a session to the capsule's task. Only a person at a terminal can, with `jevris handoff import <capsule.json> --link`.
+
+- **Arguments:** `capsule` (required).
+- **Result:** `{ accepted, reasonCode, capsuleId, facts, unresolved, authorityGranted: false }`. It may also carry `mode`, the result negotiated for this harness (`actuate`, `advice-only` or `blocked`), and `missingCapabilities`, what the capsule needs that this harness is not certified for here.
+
+### Owned mode only
+
+#### `jevris_submit_task`
+
+Submits a task for Jevris-owned orchestration. The tool is always listed, but it works only while owned mode is on for the workspace. Only the CLI turns it on (`jevris configure owned-mode on --workspace <dir>`); no environment variable does. The sidecar checks it on every request, and the kill switch, or turning owned mode off, revokes it at the next request.
+
+- **Arguments:** `task` (required): one task object.
+- **Result:** `{ accepted, taskId, leaseIds, reasonCode }`. It lists only the leases actually granted. `OWNED_MODE_UNAVAILABLE` means nothing was granted.
+
+## Resources
+
+The server also offers two read-only reports as resources:
+
+| URI | Content |
+| --- | --- |
+| `jevris://report/status` | The same JSON as `jevris_status`. |
+| `jevris://report/configuration` | The same JSON as `jevris_configure`. |
+
+Any other URI is answered with error `-32002`. There are no resource templates.
+
+## Protocol
+
+- **Transport:** standard input and output, one JSON-RPC message per line.
+- **Protocol versions:** `2025-11-25`, `2025-06-18`, `2025-03-26` and `2024-11-05`.
+  - The server answers with the version the client asks for when it supports it.
+  - Otherwise it answers with `2025-11-25`.
+- **Methods:** `initialize`, `ping`, `tools/list`, `tools/call`, `resources/list`, `resources/templates/list` and `resources/read`.
+- **From the server:** `roots/list`, sent after `notifications/initialized` when the client supports roots, and again on `notifications/roots/list_changed`.
+- **Limits:**
+  - Messages larger than 1 MiB are rejected with `-32600` and discarded, and the server keeps running.
+  - Batches are rejected with `-32600`.
+  - A line that is not JSON gets `-32700`.
+  - Notifications are never answered.
+  - Tool calls time out after 20 seconds.
+- **Server info:** `{ name: "jevris", title: "Jevris", version }`. The `instructions` state the limits described above.
+
+## How each harness starts the server
+
+Every harness starts the server with `node`, the path to `mcp.js` and `--harness <id>`, which tells the server which harness it serves. The server uses it to scope `jevris_plan_route` advice to that harness and to negotiate a handoff import or export. None of them uses `npx` or a shell. `jevris install` writes these entries. `jevris uninstall` removes only what Jevris wrote.
+
+| Harness | Where the entry lives | Entry |
+| --- | --- | --- |
+| Claude Code (plugin) | `.mcp.json` in the Jevris plugin | `{"command": "node", "args": ["<runtime>/plugins/shared/mcp.js", "--harness", "claude"]}` |
+| Codex | `mcp.json` in the Jevris Codex plugin | `{"type": "stdio", "command": "node", "args": ["<runtime>/plugins/shared/mcp.js", "--harness", "codex"]}` |
+| Kilo Code | `mcp.jevris` in `kilo.json` or `kilo.jsonc` | `{"type": "local", "command": ["node", "<runtime>/plugins/shared/mcp.js", "--harness", "kilocode"], "enabled": true}` |
+| OpenCode | `mcp.jevris` in `opencode.json` or `opencode.jsonc` | Same as Kilo Code, with `"--harness", "opencode"`. |
+| Antigravity | `mcp_config.json` in the Jevris Antigravity plugin | `{"command": "node", "args": ["<runtime>/plugins/shared/mcp.js", "--harness", "antigravity"]}` |
+
+`<runtime>` is the absolute path of the Jevris runtime that `jevris install` placed under the Jevris data directory.
+
+## The hook launcher
+
+Harnesses run `hook.mjs` on their lifecycle events, as `node <runtime>/dist/hook.mjs --harness <name> [--event <name>]`:
+
+- `--harness` is required. It is one of `claude`, `codex`, `kilo`, `opencode` or `agy`.
+- `--event` names the native event when the harness doesn't include the event name in its payload. Antigravity uses it. Kilo Code and OpenCode run the launcher from the Jevris plugin, which passes the event name in the payload.
+
+The native event JSON arrives on standard input, and it must be valid UTF-8. The launcher reads at most 8 MiB. An input larger than the adapters' limit (128 KiB) is not dropped: the launcher cuts long strings, marked ` [cut by Jevris]`, until it fits.
+
+### What it does with an event
+
+1. It converts the native event into Jevris's common event form, using the adapter for that harness.
+2. It sends the event to the sidecar's `event` operation with:
+   - the event's de-duplication key, so a repeated delivery is recorded once;
+   - scope `hook`;
+   - a hot budget.
+3. If no sidecar answered, it starts one without waiting for it, and this event is only observed. Later events are forwarded.
+4. It chooses the strongest outcome that the sidecar's subscribers returned and that is **certified** for this harness version. The order, strongest first, is: `route`, `context`, `explain`.
+   - An uncertified `route` or `context` is never applied.
+   - If nothing qualifies, the event is only observed, and the launcher prints the harness's "no decision" answer (for most harnesses, nothing).
+5. It prints the harness's own response format for that outcome. It never denies or asks on your behalf. The one `permissionDecision` it writes is Codex's certified `route`: `allow` with the `spawn_agent` call's own input plus `model`, because Codex applies a rewritten input only with `allow` (see [harnesses/codex.md](harnesses/codex.md)). A route is applied only from an input that reached the launcher whole, never from a cut one.
+
+On a Stop event in Claude Code, Codex and Antigravity, a certified completion check can ask the agent to continue once, because declared checks have no current passing receipts. That is a Stop continuation, not a permission decision; see [verification.md](verification.md#5-completion).
+
+### Guarantees
+
+- **Always exits with code 0.** A failure is a silent observation, never a blocked tool.
+- **Answers within its deadline.**
+  - The deadline defaults to 1500 ms.
+  - `JEVRIS_HOOK_DEADLINE_MS` can set it anywhere from 100 to 4000 ms.
+  - A watchdog prints the observe response shortly after the deadline even if something hangs.
+- **Never stores or logs your prompt or tool content.** It writes to standard error only when `JEVRIS_HOOK_DEBUG=1`, and then it writes only reason codes.
+- **Never spawns the harness.** It reads harness settings in one case only: when a turn ends on an access-limit error, it checks whether the session's model endpoint is redirected. For Claude Code that is the environment and the workspace's `.claude/settings.json` and `settings.local.json`; for Kilo Code and OpenCode, the project config in the workspace. A redirected endpoint means no access signal is sent.
+
+### Settings
+
+| Variable | Effect |
+| --- | --- |
+| `JEVRIS_HOOK_OBSERVE_ONLY=1` | Never apply an outcome. The event is still forwarded. |
+| `JEVRIS_HOOK_DEADLINE_MS` | The deadline, from 100 to 4000 ms. The default is 1500 ms. |
+| `JEVRIS_HOOK_DEBUG=1` | Print one line per event to standard error: `jevris-hook <harness> <reason>`. |
+| `JEVRIS_SIDECAR_AUTOSTART=0` | Never start the sidecar. A running sidecar still answers. |
+| `JEVRIS_HOME` | The Jevris home. The default is your home directory. |
+
+### Troubleshooting with the reason code
+
+Run the harness with `JEVRIS_HOOK_DEBUG=1` and read the reason at the end of each `jevris-hook` line:
+
+| Reason | Meaning |
+| --- | --- |
+| `INPUT_REFUSED` | The input was too large or not valid UTF-8. |
+| `INVALID_JSON` | The input was not JSON. |
+| `NORMALIZE_FAILED`, or an adapter code such as `UNKNOWN_EVENT`, `MISSING_FIELD` or `FOREIGN_PROTOCOL` | The adapter did not recognise the event. |
+| `OBSERVE_ONLY` | `JEVRIS_HOOK_OBSERVE_ONLY=1` is set. |
+| `DEADLINE`, `HOOK_DEADLINE` or `WATCHDOG` | The deadline passed before the sidecar answered. `WATCHDOG` means the watchdog answered for a launcher that hung. |
+| `TIMEOUT`, `HANDSHAKE_TIMEOUT`, `BUSY`, `ECONNREFUSED`, `CLOSED` or a `CONNECT_` code | The connection to the sidecar failed or was too slow. |
+| `SIDECAR_STARTING` | The sidecar is starting. Later events will be forwarded. |
+| `SIDECAR_UNAVAILABLE` | No sidecar could be reached or started. Check `jevris status`. |
+| `SIDECAR_AUTOSTART_OFF` | `JEVRIS_SIDECAR_AUTOSTART=0` is set and no sidecar is running, so none was started. Run `jevris sidecar start`, or unset the variable. |
+| `SIDECAR_REFUSED`, or a code such as `SCOPE_DENIED` or `DELIVERY_BODY_MISMATCH` | The sidecar refused the event. `DELIVERY_BODY_MISMATCH`: a second event reused an earlier event's delivery key but carried a different body, so the earlier answer was not shown for it. |
+| `DUPLICATE_DELIVERY` | The same event was already recorded. |
+| `DUPLICATE_REPLAYED` | The harness sent the same event again within 5 minutes, and the first delivery's answer went out in time. The hook shows that same answer again, unchanged. Nothing runs again, so nothing is spent or applied twice. If the first delivery missed its deadline, the retry reads `DUPLICATE_DELIVERY` instead. |
+| `NO_RESULT`, `NO_SUBSCRIBER_RESULT` or `NO_PROPOSAL` | The sidecar recorded the event and had nothing to add. |
+| `SUBSCRIBER_QUEUED` | The sidecar recorded the event, but a subscriber did not answer within its time slice, so any advice it had was not waited for. Nothing is applied from it. The queued work still runs, in order per session. If it repeats, the machine may be under heavy load; `jevris status` shows the sidecar's state and queues. |
+| `NOT_CERTIFIED` | A subscriber proposed context or a route, but it is not certified for this harness version, so it was not applied. Check `jevris doctor`. |
+| `PROPOSED_BY_<SUBSCRIBER>` | The outcome a subscriber proposed was applied. |
+| `ROUTE_NOT_RENDERED` or `ROUTE_INPUT_CUT` | A certified route was not applied: the adapter could not write it for this call (for example, the call already names a model), or the input had been cut to fit. |
+| `STOP_CONTINUATION` | The agent was asked to continue once for missing verification evidence. |
+| `KILL_SWITCH` | The kill switch is on. |

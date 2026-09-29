@@ -1,0 +1,5 @@
+{
+  "schemaVersion": 1,
+  "$comment": "Pack publishers whose Ed25519 signatures Jevris accepts in every installation (PAK-03). Each entry is { id, keys: [{ keyId, publicKeyPem }] }. Adding one is a reviewed commit by the repository owner; users add their own with jevris pack publisher add. A signature identifies a publisher; it does not prove a pack is safe. No publisher is trusted until it is listed here or added locally.",
+  "publishers": []
+}

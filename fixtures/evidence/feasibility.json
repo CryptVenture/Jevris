@@ -1,0 +1,27 @@
+{
+  "liveResponse": "unrecorded",
+  "applied": false,
+  "sourceEgress": "deny-until-approved",
+  "requestedModel": "jev-1.13.0",
+  "observedModel": "unrecorded",
+  "envelope": {
+    "stages": {
+      "credentialResolve": "unmeasured",
+      "packetBuild": "unmeasured",
+      "network": "unmeasured",
+      "validation": "unmeasured",
+      "persist": "unmeasured"
+    },
+    "budgetMs": 900,
+    "budgetResult": "unmeasured",
+    "serviceLevel": false
+  },
+  "trainingOptOut": "A training opt-out is not zero retention and does not approve source egress.",
+  "openProcurementQuestions": [
+    "retention",
+    "subprocessors",
+    "residency",
+    "deletion",
+    "permitted source processing"
+  ]
+}

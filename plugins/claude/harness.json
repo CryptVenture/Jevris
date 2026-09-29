@@ -1,0 +1,26 @@
+{
+  "harness": "claude",
+  "launcher": "claude",
+  "displayName": "Claude Code",
+  "plugin": {
+    "path": ".claude/plugins/jevris-local/plugins/jevris",
+    "marketplace": "jevris-local",
+    "id": "jevris@jevris-local"
+  },
+  "skills": {
+    "dir": ".claude/plugins/jevris-local/plugins/jevris/skills",
+    "namespace": "",
+    "allowedToolsPrefix": "mcp__plugin_jevris_jevris__",
+    "userInvocationField": "disable-model-invocation"
+  },
+  "hooks": ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PostToolUseFailure", "PreCompact", "PostCompact", "PreModelSwitch", "PostModelSwitch", "SubagentStart", "SubagentStop", "Stop"],
+  "features": ["plugin.install", "mcp.tools", "skills.discovery", "hooks.observe", "hooks.context", "hooks.route", "worker.route", "models.list", "access.detect", "access.session"],
+  "unsupported": {
+    "statusLine": "Claude Code's statusLine is one user setting that Jevris would have to replace; it never does. Run jevris status instead.",
+    "subagents": "Jevris makes no permission decision in a subagent, so Claude Code's own permissions govern it, and the verification gate holds only the parent's Stop, never SubagentStop. A subagent's hooks are recorded under the parent session; one whose tools list leaves out mcp__jevris__* has no Jevris MCP tools."
+  },
+  "compatibility": {
+    "rule": "same-minor",
+    "basis": "Claude Code ships patch releases almost daily inside 2.1.x. Their notes change plugin, skill and MCP behaviour, but not the hook input and output Jevris reads. For example, 2.1.282 narrowed the anthropic-skills and claude-ai skill rules, and 2.1.283 fixed claude plugin validate (github.com/anthropics/claude-code, CHANGELOG.md, read 2026-09-26). A new minor is re-checked in the background, and a malformed live event demotes its feature at once."
+  }
+}

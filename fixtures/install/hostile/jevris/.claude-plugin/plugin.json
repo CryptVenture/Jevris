@@ -1,0 +1,6 @@
+{
+  "name": "jevris",
+  "version": "0.1.0",
+  "description": "Local decision control plane. Installed does not mean enforced.",
+  "defaultEnabled": false
+}

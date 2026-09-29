@@ -1,0 +1,1 @@
+{"name":"jevris-local","plugins":[{"name":"jevris","source":{"source":"local","path":"./jevris"},"policy":{"installation":"AVAILABLE","authentication":"ON_INSTALL"},"category":"Productivity"}]}

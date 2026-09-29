@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "p4-1",
+  "id": "CAP-66",
+  "requirementId": "CAP-66",
+  "status": "unsupported",
+  "applied": false,
+  "trainer": false,
+  "holdoutId": "holdout-empty-2026-09-23",
+  "qualityGate": "not-passed",
+  "waivesLock": false,
+  "waivesReceipt": false,
+  "waivesQualityFloor": false,
+  "actuates": false,
+  "detail": "Task-specific learned router is unsupported. trainer is false. No fine-tune runs and this record is not loaded into production. This record does not waive a lock, a receipt, or a quality floor."
+}

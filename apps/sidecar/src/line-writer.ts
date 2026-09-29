@@ -1,0 +1,194 @@
+/**
+ * Asynchronous line writers for the sidecar log and trace (sidecar concurrency audit P7; owner
+ * decision ededdba: "make logging and trace writes asynchronous").
+ *
+ * - A line is queued in memory and written on the next turn of the event loop, together with every
+ *   other line queued by then, by one asynchronous append. At most one write is in flight; lines
+ *   queued meanwhile go in the next one. The request path never waits on the disk.
+ * - Memory is bounded: past `maxPendingBytes` a line is dropped and counted, never blocking.
+ * - Rotation (the log) follows a byte counter seeded once from the file size, not a stat per line.
+ * - `flushSync` writes what is queued at once, for shutdown and for a trace file that is being
+ *   closed; a write in flight then finishes first on the libuv pool.
+ */
+import { appendFile, appendFileSync, rename, renameSync, statSync, write, writeSync } from 'node:fs';
+
+/** Queued bytes past which a line is dropped (and counted). */
+export const MAX_PENDING_BYTES = 4 * 1024 * 1024;
+
+export interface LineWriter {
+  /** Queues one line (with its newline). False when it was dropped. */
+  write(line: string): boolean;
+  /** Writes everything queued now, synchronously. */
+  flushSync(): void;
+  /** Lines dropped: the queue was full, or the disk refused a write. */
+  dropped(): number;
+  /** Bytes the file holds as far as this writer knows (its counter). */
+  size(): number;
+  /**
+   * Writes what is queued, then runs `fn` once no write is in flight (at once, or when the one in
+   * flight completes), so a file descriptor is never closed under a pending write.
+   */
+  drainThen(fn: () => void): void;
+}
+
+interface Target {
+  /** Starts an asynchronous write of `chunk`; calls back with success. */
+  writeAsync(chunk: string, done: (ok: boolean) => void): void;
+  writeSync(chunk: string): boolean;
+}
+
+function byteLength(text: string): number {
+  return Buffer.byteLength(text, 'utf8');
+}
+
+function createWriter(target: Target, initialSize: number, options: { readonly maxPendingBytes?: number; readonly rotate?: (size: number, incoming: number) => boolean }): LineWriter {
+  const maxPending = options.maxPendingBytes ?? MAX_PENDING_BYTES;
+  let queue: string[] = [];
+  let queuedBytes = 0;
+  let inFlight = false;
+  let scheduled = false;
+  let dropped = 0;
+  let size = initialSize;
+  let waiters: (() => void)[] = [];
+
+  const takeChunk = (): { readonly chunk: string; readonly lines: number; readonly bytes: number } | undefined => {
+    if (queue.length === 0) return undefined;
+    const chunk = queue.join('');
+    const taken = { chunk, lines: queue.length, bytes: queuedBytes };
+    queue = [];
+    queuedBytes = 0;
+    return taken;
+  };
+
+  const flush = (): void => {
+    scheduled = false;
+    if (inFlight) return;
+    const taken = takeChunk();
+    if (taken === undefined) return;
+    if (options.rotate?.(size, taken.bytes) === true) size = 0;
+    inFlight = true;
+    target.writeAsync(taken.chunk, (ok) => {
+      inFlight = false;
+      if (ok) size += taken.bytes;
+      else dropped += taken.lines;
+      if (waiters.length > 0) {
+        // A closing file: write the rest now, then let the closer go.
+        flushNow();
+        const run = waiters;
+        waiters = [];
+        for (const fn of run) fn();
+        return;
+      }
+      if (queue.length > 0) schedule();
+    });
+  };
+
+  const schedule = (): void => {
+    if (scheduled) return;
+    scheduled = true;
+    setImmediate(flush);
+  };
+
+  const flushNow = (): void => {
+    const taken = takeChunk();
+    if (taken === undefined) return;
+    if (options.rotate?.(size, taken.bytes) === true) size = 0;
+    if (target.writeSync(taken.chunk)) size += taken.bytes;
+    else dropped += taken.lines;
+  };
+
+  return {
+    write(line: string): boolean {
+      const bytes = byteLength(line);
+      if (queuedBytes + bytes > maxPending) {
+        dropped += 1;
+        return false;
+      }
+      queue.push(line);
+      queuedBytes += bytes;
+      schedule();
+      return true;
+    },
+    flushSync(): void {
+      flushNow();
+    },
+    drainThen(fn: () => void): void {
+      if (!inFlight) {
+        flushNow();
+        fn();
+        return;
+      }
+      waiters.push(fn);
+    },
+    dropped: () => dropped,
+    size: () => size,
+  };
+}
+
+/**
+ * The sidecar log: appends to `path` (owner-only), and moves it to `<path>.1` once it would pass
+ * `rotateBytes`. The rename happens before the chunk that would cross the limit is written.
+ */
+export function pathLineWriter(path: string, rotateBytes: number, options: { readonly maxPendingBytes?: number } = {}): LineWriter {
+  let initial = 0;
+  try {
+    initial = statSync(path).size;
+  } catch {
+    initial = 0;
+  }
+  let rotatePending = false;
+  const target: Target = {
+    writeAsync(chunk, done) {
+      const append = (): void => {
+        appendFile(path, chunk, { mode: 0o600 }, (error) => done(error === null || error === undefined));
+      };
+      if (!rotatePending) return append();
+      rotatePending = false;
+      rename(path, `${path}.1`, () => append());
+    },
+    writeSync(chunk) {
+      try {
+        if (rotatePending) {
+          rotatePending = false;
+          try {
+            renameSync(path, `${path}.1`);
+          } catch {
+            // nothing to rotate
+          }
+        }
+        appendFileSync(path, chunk, { mode: 0o600 });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+  return createWriter(target, initial, {
+    ...(options.maxPendingBytes !== undefined ? { maxPendingBytes: options.maxPendingBytes } : {}),
+    rotate: (size, incoming) => {
+      if (size > 0 && size + incoming > rotateBytes) {
+        rotatePending = true;
+        return true;
+      }
+      return false;
+    },
+  });
+}
+
+/** A trace file already opened (owner-only, O_APPEND, no symlink) by its caller. */
+export function fdLineWriter(fd: number, initialSize: number, options: { readonly maxPendingBytes?: number } = {}): LineWriter {
+  const target: Target = {
+    writeAsync(chunk, done) {
+      write(fd, chunk, (error) => done(error === null || error === undefined));
+    },
+    writeSync(chunk) {
+      try {
+        writeSync(fd, chunk);
+        return true;
+      } catch {
+        return false;
+      }
+    },
+  };
+  return createWriter(target, initialSize, options);
+}

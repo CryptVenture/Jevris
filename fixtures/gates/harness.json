@@ -1,0 +1,57 @@
+{
+  "schemaVersion": "chapter-22-1",
+  "gate": "harness",
+  "verdict": "pass",
+  "citations": [
+    "apps/cli/src/harness-probe.ts",
+    "plugins/claude/hooks/hooks.json",
+    "apps/cli/src/doctor.ts"
+  ],
+  "clauses": [
+    {
+      "id": "event-probe",
+      "status": "recorded",
+      "detail": "Installed claude 2.1.281 delivered SessionStart. eventProbe passed. applied false."
+    },
+    {
+      "id": "actuators",
+      "status": "recorded",
+      "detail": "actuators unsupported. The SessionStart probe did not certify an actuator. pretooluse-deny: A timed-out command PreToolUse can let the tool proceed."
+    },
+    {
+      "id": "pins",
+      "status": "recorded",
+      "detail": "Version string 2.1.281 is not a model pin. modelPinApplied false."
+    },
+    {
+      "id": "restrictions",
+      "status": "recorded",
+      "detail": "The hook emitted no permissionDecision. A repository file is not a restriction grant."
+    },
+    {
+      "id": "output-shapes",
+      "status": "recorded",
+      "detail": "A missed deadline wrote empty stdout and no permissionDecision."
+    },
+    {
+      "id": "timeouts",
+      "status": "recorded",
+      "detail": "hooks.json timeout 5. The miss path exited 0 with empty stdout."
+    },
+    {
+      "id": "version-string",
+      "status": "recorded",
+      "detail": "Version string 2.1.281 is not a model pin and is not actuator certification."
+    },
+    {
+      "id": "hooks-registration",
+      "status": "recorded",
+      "detail": "SessionStart command hook on the node from PATH with timeout 5 was probed, not merely registered."
+    },
+    {
+      "id": "install-fixtures",
+      "status": "recorded",
+      "detail": "The live probe used a temp plugin dir. fixtures/install/ is still not a certification record. The probe result is the record."
+    }
+  ]
+}

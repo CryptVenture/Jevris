@@ -1,0 +1,176 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:hook-outcome:1.0",
+  "title": "HookOutcome",
+  "description": "What a sidecar subscriber proposes for one hook event: observe, context, explain, or a route naming a model (a registry id or a harness provider/model id) and an optional variant. The wire value is never a permission decision and never a rewritten tool input; the Codex adapter renders a certified route as allow plus the call's own input with the model.",
+  "type": "object",
+  "required": [
+    "kind"
+  ],
+  "properties": {
+    "kind": {
+      "type": "string",
+      "enum": [
+        "observe",
+        "context",
+        "route",
+        "explain"
+      ]
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "observe"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "observe"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "context"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "context"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "route"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "route"
+          },
+          "model": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128,
+            "pattern": "^(?:[a-z0-9][a-z0-9._-]{0,63}/){0,2}[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?(?:\\[1m\\])?$",
+            "not": {
+              "anyOf": [
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                },
+                {
+                  "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                },
+                {
+                  "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                }
+              ]
+            }
+          },
+          "variant": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32,
+                "pattern": "^[a-z][a-z0-9-]{0,31}$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "model"
+        ],
+        "additionalProperties": false
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "kind": {
+            "const": "explain"
+          }
+        }
+      },
+      "then": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "const": "explain"
+          },
+          "text": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 65536
+          }
+        },
+        "required": [
+          "kind",
+          "text"
+        ],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

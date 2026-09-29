@@ -1,0 +1,7 @@
+{
+  "note": "Anonymized synthetic export for tests (EVL-09). Not a real account.",
+  "usage": [
+    { "date": "2026-09-20", "model": "jev-1.13.0", "input_tokens": 5000, "output_tokens": 0, "cost_usd": 0.000021, "request_id": "dec-anon-0001" },
+    { "date": "2026-09-21", "model": "jev-1.13.0", "input_tokens": 10000, "output_tokens": 0, "cost_usd": 0.000042, "request_id": "dec-anon-0002" }
+  ]
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@jevris/orchestrator",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@jevris/adapter-claude-sdk": "*",
+    "@jevris/contracts": "*",
+    "@jevris/core": "*",
+    "@jevris/languages": "*",
+    "@jevris/platform": "*",
+    "@jevris/store": "*"
+  }
+}

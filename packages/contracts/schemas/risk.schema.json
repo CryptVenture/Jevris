@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:risk:1.0",
+  "title": "Risk",
+  "description": "Risk class.",
+  "type": "string",
+  "enum": [
+    "routine",
+    "material",
+    "sensitive"
+  ]
+}

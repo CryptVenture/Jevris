@@ -1,0 +1,113 @@
+{
+  "name": "@cryptventure/jevris",
+  "version": "1.2.0",
+  "description": "Local decision control plane for AI coding harnesses: bounded advice, independent verification and native permissions kept authoritative.",
+  "type": "module",
+  "bin": {
+    "jevris": "./bin/jevris.mjs"
+  },
+  "engines": {
+    "node": "^22.14.0 || >=23.6.0"
+  },
+  "license": "MIT",
+  "author": "Warren B",
+  "homepage": "https://github.com/CryptVenture/Jevris#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/CryptVenture/Jevris.git"
+  },
+  "bugs": {
+    "url": "https://github.com/CryptVenture/Jevris/issues"
+  },
+  "keywords": [
+    "ai",
+    "coding-agent",
+    "claude-code",
+    "codex",
+    "opencode",
+    "kilocode",
+    "antigravity",
+    "mcp",
+    "hooks",
+    "developer-tools",
+    "decision-control"
+  ],
+  "publishConfig": {
+    "access": "public",
+    "tag": "next"
+  },
+  "files": [
+    "bin/",
+    "dist/",
+    "plugins/",
+    "packs/",
+    "assets/",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "!**/*.test.js",
+    "!**/*.test.mjs",
+    "!**/tsconfig*.json",
+    "!**/*.tsbuildinfo",
+    "!**/*.map",
+    "!**/src/**",
+    "!**/test/**"
+  ],
+  "workspaces": [
+    "packages/platform",
+    "packages/contracts",
+    "packages/core",
+    "packages/provider-typesafe",
+    "packages/adapter-claude-sdk",
+    "packages/store",
+    "apps/cli",
+    "apps/sidecar",
+    "apps/hook",
+    "packages/adapter-codex",
+    "packages/adapter-opencode",
+    "packages/adapter-kilocode",
+    "packages/adapter-antigravity",
+    "packages/adapter-claude-code",
+    "packages/languages",
+    "packages/orchestrator",
+    "packages/evals",
+    "packages/mcp"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "test": "node scripts/test.mjs",
+    "test:future": "node scripts/test-future.mjs",
+    "verify:fresh": "node scripts/verify-fresh.mjs",
+    "lint": "node scripts/lint.mjs",
+    "coverage": "node scripts/coverage.mjs",
+    "check:pack": "node scripts/check-pack.mjs",
+    "check:clean": "node scripts/check-clean-tree.mjs",
+    "registry:check": "node scripts/check-model-registry.mjs",
+    "assets:sync": "node scripts/sync-assets.mjs",
+    "smoke:harness": "node scripts/smoke-harness.mjs",
+    "smoke:jev": "npm run smoke:jev -w @jevris/provider-typesafe --",
+    "jevris": "node bin/jevris.mjs",
+    "prepack": "node scripts/build.mjs",
+    "smoke:pack": "node scripts/pack-smoke.mjs",
+    "bench:load": "node apps/sidecar/scripts/load.mjs",
+    "docs": "node scripts/docs.mjs",
+    "docs:platform": "node scripts/docs.mjs platform"
+  },
+  "dependencies": {
+    "@napi-rs/keyring": "2.1.0",
+    "@typesafe-ai/sdk": "0.6.0",
+    "better-sqlite3": "13.0.3"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.282"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/claude-agent-sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2"
+  }
+}

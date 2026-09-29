@@ -1,0 +1,78 @@
+{
+  "name": "@jevris/cli",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "exports": {
+    "./credential": {
+      "types": "./dist/credential.d.ts",
+      "default": "./dist/credential.js"
+    },
+    "./kill-switch": {
+      "types": "./dist/kill-switch.d.ts",
+      "default": "./dist/kill-switch.js"
+    },
+    "./enterprise-policy": {
+      "types": "./dist/enterprise-policy.d.ts",
+      "default": "./dist/enterprise-policy.js"
+    },
+    "./certifications": {
+      "types": "./dist/certification-store.d.ts",
+      "default": "./dist/certification-store.js"
+    },
+    "./harness-auth": {
+      "types": "./dist/harness-auth.d.ts",
+      "default": "./dist/harness-auth.js"
+    },
+    "./codex-worker": {
+      "types": "./dist/codex-worker.d.ts",
+      "default": "./dist/codex-worker.js"
+    },
+    "./claude-worker": {
+      "types": "./dist/claude-worker.d.ts",
+      "default": "./dist/claude-worker.js"
+    },
+    "./opencode-worker": {
+      "types": "./dist/opencode-worker.d.ts",
+      "default": "./dist/opencode-worker.js"
+    },
+    "./kilo-worker": {
+      "types": "./dist/kilo-worker.d.ts",
+      "default": "./dist/kilo-worker.js"
+    },
+    "./antigravity-worker": {
+      "types": "./dist/antigravity-worker.d.ts",
+      "default": "./dist/antigravity-worker.js"
+    },
+    "./reverify": {
+      "types": "./dist/reverify.d.ts",
+      "default": "./dist/reverify.js"
+    },
+    "./live-evidence": {
+      "types": "./dist/live-evidence.d.ts",
+      "default": "./dist/live-evidence.js"
+    },
+    "./model-offer": {
+      "types": "./dist/model-offer.d.ts",
+      "default": "./dist/model-offer.js"
+    }
+  },
+  "dependencies": {
+    "@jevris/platform": "*",
+    "@jevris/adapter-antigravity": "*",
+    "@jevris/adapter-claude-code": "*",
+    "@jevris/adapter-codex": "*",
+    "@jevris/adapter-kilocode": "*",
+    "@jevris/adapter-opencode": "*",
+    "@jevris/contracts": "*",
+    "@jevris/core": "*",
+    "@jevris/languages": "*",
+    "@jevris/orchestrator": "*",
+    "@jevris/provider-typesafe": "*",
+    "@jevris/store": "*",
+    "@napi-rs/keyring": "2.1.0"
+  }
+}

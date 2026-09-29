@@ -1,0 +1,13 @@
+{
+  "schemaVersion": 1,
+  "$comment": "The advertised harness and OS combinations (§15.2, §22.2). The portability and harness gates require a fresh certification record and a real-binary conformance run for every combination listed here; docs/platform-support.md is generated from this file and the certification records (npm run docs:platform). A combination that is not listed is unsupported or reduced, and nothing may advertise it.",
+  "node": "^22.14.0 || >=23.6.0",
+  "architectures": ["x64", "arm64"],
+  "advertised": [
+    { "harness": "claude", "os": ["darwin", "linux", "win32"] },
+    { "harness": "kilocode", "os": ["darwin", "linux", "win32"] },
+    { "harness": "codex", "os": ["darwin", "linux", "win32"] },
+    { "harness": "opencode", "os": ["darwin", "linux", "win32"] },
+    { "harness": "antigravity", "os": ["darwin", "linux", "win32"] }
+  ]
+}

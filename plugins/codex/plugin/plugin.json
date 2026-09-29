@@ -1,0 +1,6 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "jevris",
+  "version": "0.1.0",
+  "description": "Installed is not enforced. Skills and MCP do not grant a tool."
+}

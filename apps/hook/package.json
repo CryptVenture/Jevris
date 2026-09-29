@@ -1,0 +1,21 @@
+{
+  "name": "@jevris/hook",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "dependencies": {
+    "@jevris/contracts": "*",
+    "@jevris/sidecar": "*",
+    "@jevris/adapter-antigravity": "*",
+    "@jevris/adapter-claude-code": "*",
+    "@jevris/adapter-codex": "*",
+    "@jevris/adapter-kilocode": "*",
+    "@jevris/adapter-opencode": "*"
+  }
+}

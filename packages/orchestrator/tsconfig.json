@@ -1,0 +1,17 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": "src",
+    "outDir": "dist"
+  },
+  "include": ["src"],
+  "references": [
+    { "path": "../platform" },
+    { "path": "../contracts" },
+    { "path": "../core" },
+    { "path": "../store" },
+    { "path": "../adapter-claude-sdk" },
+    { "path": "../languages" }
+  ]
+}

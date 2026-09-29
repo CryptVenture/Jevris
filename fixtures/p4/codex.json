@@ -1,0 +1,9 @@
+{
+  "schemaVersion": "p4-1",
+  "id": "codex",
+  "status": "unsupported",
+  "applied": false,
+  "providerCalls": 0,
+  "toolPermission": false,
+  "authorizesEffect": false
+}

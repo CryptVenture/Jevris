@@ -1,0 +1,77 @@
+{
+  "$comment": "Per-package line and branch floors in percent (QA-06). Set about five points under the measured value on 2026-09-25; raise a floor when coverage rises, never lower one to pass.",
+  "floors": {
+    "apps/cli": {
+      "lines": 86,
+      "branches": 74
+    },
+    "apps/hook": {
+      "lines": 86,
+      "branches": 69
+    },
+    "apps/sidecar": {
+      "lines": 81,
+      "branches": 65
+    },
+    "packages/adapter-antigravity": {
+      "lines": 96,
+      "branches": 93
+    },
+    "packages/adapter-claude-code": {
+      "lines": 96,
+      "branches": 92
+    },
+    "packages/adapter-claude-sdk": {
+      "lines": 70,
+      "branches": 60
+    },
+    "packages/adapter-codex": {
+      "lines": 96,
+      "branches": 93
+    },
+    "packages/adapter-kilocode": {
+      "lines": 97,
+      "branches": 93
+    },
+    "packages/adapter-opencode": {
+      "lines": 96,
+      "branches": 93
+    },
+    "packages/contracts": {
+      "lines": 94,
+      "branches": 84
+    },
+    "packages/core": {
+      "lines": 89,
+      "branches": 74
+    },
+    "packages/evals": {
+      "lines": 89,
+      "branches": 74
+    },
+    "packages/languages": {
+      "lines": 95,
+      "branches": 70
+    },
+    "packages/mcp": {
+      "lines": 85,
+      "branches": 82
+    },
+    "packages/orchestrator": {
+      "lines": 91,
+      "branches": 74
+    },
+    "packages/platform": {
+      "lines": 90,
+      "branches": 81
+    },
+    "packages/provider-typesafe": {
+      "lines": 89,
+      "branches": 66
+    },
+    "packages/store": {
+      "lines": 86,
+      "branches": 64
+    }
+  }
+}

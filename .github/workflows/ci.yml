@@ -1,0 +1,256 @@
+# Cross-platform matrix (BLD-10). Nine cells: three OSes x Node 22.14.0, 24 and latest.
+# Each cell runs npm ci, build, the generated-file and clean-tree checks, lint, test, the pack
+# check and npm audit signatures; the Linux cells also run two opt-in tests by path.
+# coverage runs the suite once under coverage on Linux and fails below a package's floor.
+# pack-smoke installs the packed tarball into a temp prefix on each OS and drives every
+# command against a temp HOME with stub harnesses (PKG-08, RLS-04). bench runs the OBS-04
+# benchmark per OS and fails a p95 regression against the last successful main run's record,
+# except when release.yml calls it with bench-advisory: then it records and reports only.
+# Required status checks on main (BLD-11) are the nine "test (<os>, <node>)" names and the
+# three "pack-smoke (<os>)" names; see docs/testing.md and scripts/branch-protection.mjs.
+# release.yml reuses this workflow through workflow_call. This workflow never runs the live-harness smoke (JEVRIS_LIVE_HARNESS)
+# and uses no secrets. Reproduce one cell locally with scripts/ci-cell.mjs.
+name: ci
+
+on:
+  # Branch pushes only: a release tag runs this workflow once, through release.yml.
+  push:
+    branches: ['**']
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+    inputs:
+      # release.yml sets this: a benchmark regression is recorded and reported, and the job
+      # still passes, so it does not stop the publish. Other callers and events leave it unset.
+      bench-advisory:
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+        node: ['22.14.0', '24', 'latest']
+    steps:
+      - name: Keep checkout bytes exact
+        run: git config --global core.autocrlf false
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node ${{ matrix.node }}
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Generated plugin files are current
+        run: node scripts/emit-hook.mjs --check
+      # A committed generated file that the build rewrites, or a new unignored build output,
+      # fails here with the command that regenerates it (scripts/check-clean-tree.mjs).
+      - name: Build leaves the checkout unchanged
+        run: npm run check:clean
+      - name: Lint
+        run: npm run lint
+      - name: Test
+        run: npm test
+      # IPC-06, GOV-14: a real second OS user can neither connect to the sidecar nor read its
+      # keys or endpoint. The test is opt-in (npm test does not collect test/opt-in) and fails
+      # without JEVRIS_TEST_OTHER_USER; Linux runners have passwordless sudo, so the cells there
+      # create the user and run it by path.
+      - name: Second local user (IPC-06)
+        if: runner.os == 'Linux'
+        run: sudo useradd -m jevris-other
+      - name: Cross-user sidecar refusal (IPC-06)
+        if: runner.os == 'Linux'
+        env:
+          JEVRIS_TEST_OTHER_USER: jevris-other
+        run: node scripts/test.mjs --no-build apps/sidecar/test/opt-in/cross-user.test.mjs
+      # IPC-19, US37: a sidecar started in a real container that shares the home keeps its socket
+      # and store inside it, and the host and a second container get FOREIGN_LOCALITY. Opt-in
+      # (it needs Docker, which the Linux runners have); it fails without JEVRIS_TEST_DOCKER_IMAGE.
+      - name: Container locality (IPC-19)
+        if: runner.os == 'Linux'
+        env:
+          JEVRIS_TEST_DOCKER_IMAGE: node:24
+        run: node scripts/test.mjs --no-build apps/sidecar/test/opt-in/container.test.mjs
+      - name: Pack check
+        run: npm run check:pack
+      - name: Registry signatures
+        run: npm audit signatures
+
+  coverage:
+    name: coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: Coverage with per-package floors
+        run: npm run coverage
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: coverage
+          path: coverage/
+          if-no-files-found: error
+          retention-days: 14
+
+  pack-smoke:
+    name: pack-smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Keep checkout bytes exact
+        run: git config --global core.autocrlf false
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 22.14.0
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22.14.0'
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      # OBS-05: --full also runs the eight operations drills against the installed tarball and
+      # --drills-evidence writes their operations-drills record for the operations gate.
+      - name: Installed pack smoke (full, npx, operations drills)
+        run: node scripts/pack-smoke.mjs --full --npx --evidence release-evidence/installed-e2e-${{ matrix.os }}.json --drills-evidence release-evidence/operations-drills-${{ matrix.os }}.json --report pack-smoke-${{ matrix.os }}.json
+      # GOV-14: the threat-model suite writes its release record on each OS; the gates job reads
+      # it with the smoke evidence. cross-user-ipc needs a second local user, which the Linux and
+      # macOS runners can create (Windows needs a second SID, an external run). The suite exits 1
+      # while a case fails, so the step continues and the record, not the step, carries the result.
+      - name: Second local user for the threat model (Linux)
+        if: runner.os == 'Linux'
+        run: sudo useradd -m jevris-other
+      - name: Second local user for the threat model (macOS)
+        if: runner.os == 'macOS'
+        run: sudo sysadminctl -addUser jevris-other -password "$(openssl rand -hex 12)"
+      - name: Threat-model suite record (GOV-14)
+        continue-on-error: true
+        env:
+          JEVRIS_TEST_OTHER_USER: ${{ runner.os != 'Windows' && 'jevris-other' || '' }}
+        run: node apps/sidecar/scripts/threat-model-suite.mjs --out release-evidence/threat-model-${{ matrix.os }}.json
+      - name: Upload smoke evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: installed-e2e-${{ matrix.os }}
+          path: |
+            release-evidence/
+            pack-smoke-${{ matrix.os }}.json
+          if-no-files-found: error
+          retention-days: 30
+
+  # OBS-04: the benchmark harness on each OS, against the build. Each run's record is uploaded as
+  # bench-<os>; the baseline is the bench-<os> record of the latest successful ci run on main, so
+  # a p95 worse than baseline x 1.5 + 10 ms fails. A run with no earlier record (the first one,
+  # or after the 90-day artifact retention) records and does not compare. Absolute §17.4
+  # targets need reference hardware (E-28); hosted runners check regressions only. Called from
+  # release.yml (bench-advisory), the benchmark step may fail without failing the job: the
+  # record is still uploaded and the outcome goes to the job summary.
+  bench:
+    name: bench (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      actions: read
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    steps:
+      - name: Keep checkout bytes exact
+        run: git config --global core.autocrlf false
+      - name: Check out
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up Node 24
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '24'
+          cache: npm
+      - name: npm ci
+        run: npm ci
+      - name: Build
+        run: npm run build
+      - name: Previous benchmark record
+        id: baseline
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RECORD: bench-${{ matrix.os }}
+        run: |
+          run_id="$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch main --status success --limit 1 --json databaseId --jq '.[0].databaseId // empty' || true)"
+          if [ -n "$run_id" ] && gh run download "$run_id" --repo "$GITHUB_REPOSITORY" --name "$RECORD" --dir bench-baseline && [ -f "bench-baseline/$RECORD.json" ]; then
+            echo "file=bench-baseline/$RECORD.json" >> "$GITHUB_OUTPUT"
+            echo "Baseline: $RECORD from run $run_id"
+          else
+            echo "No earlier $RECORD record: this run records the first one and does not compare."
+          fi
+      - name: Benchmark (OBS-04)
+        id: bench
+        continue-on-error: ${{ inputs.bench-advisory == true }}
+        shell: bash
+        env:
+          BASELINE: ${{ steps.baseline.outputs.file }}
+          RECORD: bench-${{ matrix.os }}
+        run: |
+          if [ -n "$BASELINE" ]; then
+            node apps/sidecar/scripts/bench.mjs --out "$RECORD.json" --baseline "$BASELINE" --ratio 1.5 --slack-ms 10
+          else
+            node apps/sidecar/scripts/bench.mjs --out "$RECORD.json"
+          fi
+      - name: Benchmark summary
+        if: always()
+        shell: bash
+        env:
+          OUTCOME: ${{ steps.bench.outcome }}
+          ADVISORY: ${{ inputs.bench-advisory == true }}
+          RECORD: bench-${{ matrix.os }}
+        run: |
+          echo "### $RECORD: $OUTCOME" >> "$GITHUB_STEP_SUMMARY"
+          if [ "$ADVISORY" = "true" ] && [ "$OUTCOME" = "failure" ]; then
+            echo "Release run: the benchmark is advisory and does not stop the publish. See the $RECORD record." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload benchmark record
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: bench-${{ matrix.os }}
+          path: bench-${{ matrix.os }}.json
+          if-no-files-found: error
+          retention-days: 90

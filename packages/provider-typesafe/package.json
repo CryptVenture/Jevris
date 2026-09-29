@@ -1,0 +1,22 @@
+{
+  "name": "@jevris/provider-typesafe",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "smoke:jev": "node bin/smoke-jev.mjs"
+  },
+  "dependencies": {
+    "@jevris/platform": "*",
+    "@jevris/contracts": "*",
+    "@jevris/core": "*",
+    "@typesafe-ai/sdk": "0.6.0"
+  }
+}

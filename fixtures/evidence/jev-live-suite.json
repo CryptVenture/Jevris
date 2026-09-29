@@ -1,0 +1,93 @@
+{
+  "schemaVersion": "jevris.evidence/1",
+  "kind": "api-live-suite",
+  "id": "api-live-suite-20260925191803",
+  "producedAt": "2026-09-25T19:18:03.935Z",
+  "subject": {
+    "package": "@cryptventure/jevris",
+    "version": "1.2.0",
+    "commit": "a633ce6e3cadc9aa8b96e68680b4491b099dcd13"
+  },
+  "producer": {
+    "tool": "jevris-smoke-jev",
+    "run": "live"
+  },
+  "environment": {
+    "os": "darwin",
+    "arch": "arm64",
+    "node": "v26.5.0"
+  },
+  "payload": {
+    "schemaVersion": "jev-live-suite-1",
+    "mode": "live",
+    "sdk": "@typesafe-ai/sdk",
+    "sdkVersion": "0.6.0",
+    "route": "typesafe-sdk",
+    "pinnedModel": "jev-1.13.0",
+    "resolvedModels": [
+      "jev-1.13.0"
+    ],
+    "primitives": {
+      "choice": true,
+      "score": true,
+      "noul": true,
+      "noulHasConfidence": false
+    },
+    "combined": {
+      "ok": true,
+      "reasonCode": null,
+      "schemaFailure": null,
+      "questionId": null
+    },
+    "cancellation": {
+      "cancelled": true,
+      "reasonCode": "CANCELLED"
+    },
+    "errors": [
+      {
+        "probe": "invalid-model",
+        "failure": "invalid-request",
+        "status": 400,
+        "reasonCode": "INVALID_REQUEST"
+      },
+      {
+        "probe": "invalid-schema",
+        "failure": "invalid-request",
+        "status": 400,
+        "reasonCode": "INVALID_REQUEST"
+      },
+      {
+        "probe": "invalid-key",
+        "failure": "auth",
+        "status": 401,
+        "reasonCode": "PROVIDER_DISABLED"
+      }
+    ],
+    "caps": {
+      "underCapSent": true,
+      "overTokenCapRefused": true,
+      "overTokenCapSent": false,
+      "overCapLimit": "tokens"
+    },
+    "usage": {
+      "calls": 31,
+      "inputTokens": 9376,
+      "outputTokens": 694,
+      "estimateAlwaysConservative": true,
+      "maxReportedToEstimateRatio": 0.532
+    },
+    "latency": {
+      "calls": 30,
+      "okCalls": 30,
+      "p50Ms": 214,
+      "p95Ms": 265,
+      "p99Ms": 309,
+      "maxMs": 309,
+      "budgetMs": 900,
+      "withinBudget": 30
+    },
+    "passed": true,
+    "applied": false
+  },
+  "payloadHash": "sha256:00efa1ab407c61d2daa64542e776830620a5c595a61109efa2c6c26cbce38dfb"
+}

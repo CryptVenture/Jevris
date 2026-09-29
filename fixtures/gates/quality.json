@@ -1,0 +1,55 @@
+{
+  "schemaVersion": "chapter-22-1",
+  "gate": "quality",
+  "verdict": "not-a-pass",
+  "citations": [
+    "fixtures/evaluation/protocol.json"
+  ],
+  "clauses": [
+    {
+      "id": "quality-gate",
+      "status": "not-claimed",
+      "detail": "qualityGate not-passed. A missing task corpus does not pass. qualityGate is not written as passed."
+    },
+    {
+      "id": "labelled-corpus",
+      "status": "not-claimed",
+      "detail": "labelledCorpus false. A missing labelled corpus is not-claimed."
+    },
+    {
+      "id": "source-corpus",
+      "status": "not-claimed",
+      "detail": "sourceCorpus false. A missing source corpus is not-claimed."
+    },
+    {
+      "id": "trainer",
+      "status": "not-claimed",
+      "detail": "trainer false. A missing trainer is not-claimed."
+    },
+    {
+      "id": "holdout",
+      "status": "not-claimed",
+      "detail": "holdoutId holdout-empty-2026-09-23 and the holdout is empty. Do not re-optimize against the empty holdout."
+    },
+    {
+      "id": "frozen-baseline",
+      "status": "recorded",
+      "detail": "frozenBaseline rules-only and native."
+    },
+    {
+      "id": "split-policy",
+      "status": "recorded",
+      "detail": "splitPolicy repository-and-time."
+    },
+    {
+      "id": "non-inferiority",
+      "status": "not-claimed",
+      "detail": "Non-inferiority is not-claimed. A missing task corpus does not pass."
+    },
+    {
+      "id": "mandatory-checks",
+      "status": "recorded",
+      "detail": "Mandatory checks are unchanged because this record does not edit the protocol."
+    }
+  ]
+}

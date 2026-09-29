@@ -1,0 +1,10 @@
+{
+  "schemaVersion": "p4-1",
+  "id": "gemini",
+  "status": "unsupported",
+  "applied": false,
+  "providerCalls": 0,
+  "toolPermission": false,
+  "authorizesEffect": false,
+  "flowControl": "advisory-ignored"
+}

@@ -1,0 +1,12 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:authority:1.0",
+  "title": "Authority",
+  "description": "Authority class of a capability (§3.1).",
+  "type": "string",
+  "enum": [
+    "observe",
+    "advise",
+    "actuate"
+  ]
+}

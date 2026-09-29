@@ -1,0 +1,39 @@
+{
+  "harness": "kilocode",
+  "launcher": "kilo",
+  "displayName": "Kilo",
+  "plugin": {
+    "path": "$CONFIG/kilo/plugin/jevris.js",
+    "template": "plugins/shared/shim.js",
+    "export": "default"
+  },
+  "mcp": {
+    "dir": "$CONFIG/kilo",
+    "file": "kilo",
+    "key": ["mcp", "jevris"],
+    "schema": null,
+    "entry": {
+      "type": "local",
+      "command": ["node", "$MCP", "--harness", "kilocode"],
+      "enabled": true
+    }
+  },
+  "skills": {
+    "dir": "$CONFIG/kilo/skills",
+    "namespace": "jevris-",
+    "allowedToolsPrefix": null,
+    "userInvocationField": null
+  },
+  "hooks": ["event", "tool.execute.before", "tool.execute.after", "chat.message", "command.execute.before", "experimental.session.compacting", "experimental.chat.system.transform"],
+  "events": ["session.created", "session.idle", "message.updated", "session.compacted", "session.deleted", "session.error", "permission.asked", "permission.replied", "file.edited", "command.executed", "todo.updated"],
+  "features": ["plugin.install", "mcp.tools", "skills.discovery", "hooks.observe", "hooks.context", "hooks.route", "worker.route", "models.list", "session.route", "models.list-hosts", "route.host", "access.detect", "access.session"],
+  "unsupported": {
+    "statusLine": "Kilo has no plugin status line; run jevris status.",
+    "vscodeExtension": "The legacy Kilo VS Code extension (.kilocode/mcp.json, mcp_settings.json) is not supported; use the Kilo CLI (kilo), which jevris install configures.",
+    "subagents": "Jevris makes no permission decision in a subagent, so Kilo's rules for the subagent's agent, plus the parent's denies, govern it, and no Kilo stop is held. A child session names its parent only on session.created; the plugin remembers it and records the child's events under the parent session."
+  },
+  "compatibility": {
+    "rule": "same-minor",
+    "basis": "Not yet checked against Kilo's release notes. Same-minor is the default, and a new minor is re-checked in the background. A patch that changes the plugin API shows up as a malformed live event, which demotes that feature and re-checks it."
+  }
+}

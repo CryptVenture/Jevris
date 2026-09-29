@@ -1,0 +1,699 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:jevris:contract:model-registry-entry:1.0",
+  "title": "ModelRegistryEntry",
+  "description": "Provider, exact model id, eligibility, capabilities, versioned tariff and evaluation slices (§6.2).",
+  "type": "object",
+  "properties": {
+    "provider": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "modelId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "capabilities": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        "not": {
+          "anyOf": [
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+            },
+            {
+              "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+            }
+          ]
+        }
+      },
+      "maxItems": 64,
+      "uniqueItems": true
+    },
+    "eligibilityPolicyId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "evaluationSliceIds": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+        "not": {
+          "anyOf": [
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+            },
+            {
+              "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+            },
+            {
+              "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+            }
+          ]
+        }
+      },
+      "maxItems": 256,
+      "uniqueItems": true
+    },
+    "evaluationVersion": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+      "not": {
+        "anyOf": [
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+          },
+          {
+            "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+          },
+          {
+            "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+          }
+        ]
+      }
+    },
+    "tariff": {
+      "type": "object",
+      "properties": {
+        "version": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+              },
+              {
+                "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+              }
+            ]
+          }
+        },
+        "currency": {
+          "const": "USD"
+        },
+        "effectiveAt": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+          "format": "date-time"
+        },
+        "inputPerMillion": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "outputPerMillion": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1000000
+        },
+        "cacheReadPerMillion": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cacheWritePerMillion": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "sourceId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+          "not": {
+            "anyOf": [
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+              },
+              {
+                "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+              },
+              {
+                "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+              }
+            ]
+          }
+        },
+        "cacheWrite1hPerMillion": {
+          "anyOf": [
+            {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "tiers": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "aboveInputTokens": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991
+              },
+              "inputMultiplier": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "outputMultiplier": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              },
+              "cacheMultiplier": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "inclusive": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "aboveInputTokens",
+              "inputMultiplier",
+              "outputMultiplier",
+              "cacheMultiplier"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 8
+        },
+        "scheduled": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "effectiveAt": {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+                "format": "date-time"
+              },
+              "inputPerMillion": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "outputPerMillion": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1000000
+              },
+              "cacheReadPerMillion": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cacheWritePerMillion": {
+                "anyOf": [
+                  {
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 1000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "sourceId": {
+                "type": "string",
+                "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$",
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              },
+              "inputMicroUsdPerMillion": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000000
+              },
+              "outputMicroUsdPerMillion": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 1000000000000
+              },
+              "cacheReadMicroUsdPerMillion": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cacheWriteMicroUsdPerMillion": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "cacheWrite1hMicroUsdPerMillion": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "storageMicroUsdPerMillionHour": {
+                "anyOf": [
+                  {
+                    "type": "integer",
+                    "minimum": 0,
+                    "maximum": 1000000000000
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "effectiveAt",
+              "inputPerMillion",
+              "outputPerMillion",
+              "cacheReadPerMillion",
+              "cacheWritePerMillion",
+              "sourceId"
+            ],
+            "additionalProperties": false
+          },
+          "maxItems": 8
+        },
+        "inputMicroUsdPerMillion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "outputMicroUsdPerMillion": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000000
+        },
+        "cacheReadMicroUsdPerMillion": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cacheWriteMicroUsdPerMillion": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "cacheWrite1hMicroUsdPerMillion": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "storageMicroUsdPerMillionHour": {
+          "anyOf": [
+            {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000000000
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "validUntil": {
+          "anyOf": [
+            {
+              "type": "string",
+              "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(?:\\.\\d{1,9})?(?:Z|[+-]\\d{2}:\\d{2})$",
+              "format": "date-time"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "version",
+        "currency",
+        "effectiveAt",
+        "inputPerMillion",
+        "outputPerMillion",
+        "cacheReadPerMillion",
+        "cacheWritePerMillion",
+        "sourceId"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "provider",
+    "modelId",
+    "capabilities",
+    "eligibilityPolicyId",
+    "evaluationSliceIds",
+    "evaluationVersion",
+    "tariff"
+  ],
+  "additionalProperties": false
+}

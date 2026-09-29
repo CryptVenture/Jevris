@@ -1,0 +1,4361 @@
+{
+  "$comment": "Proposal only (v1.2 model research, 2026-09-26; refreshed 2026-09-27). `registry` is a ModelRegistry (packages/contracts/schemas/model-registry.schema.json) and validates with ModelRegistryContract. `sources` maps every sourceId and tariff.sourceId to a URL and fetch date; `entryNotes` (keyed provider/modelId) carries asOf and the facts the schema has no field for. Health is unknown, accountEligibility is empty and every entry is unevaluated: nothing here is eligible for automated routing until an account check and a calibration release record it.",
+  "registry": {
+    "schemaVersion": "1.0",
+    "snapshotId": "research-proposal-2026-09-27",
+    "fetchedOn": "2026-09-27T00:00:00Z",
+    "baselineModelId": "claude-opus-5-5",
+    "entries": [
+      {
+        "provider": "anthropic",
+        "modelId": "claude-opus-5-5",
+        "family": "opus",
+        "displayName": "Claude Opus 5.5",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "adaptive-thinking",
+          "thinking-always-on",
+          "effort",
+          "per-message-effort",
+          "mid-conversation-system",
+          "fast-mode",
+          "inference-geo",
+          "zdr"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 4,
+          "outputPerMillion": 20,
+          "cacheReadPerMillion": 0.2,
+          "cacheWritePerMillion": 5,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-CACHE",
+          "ANT-EFFORT",
+          "ANT-OPUS55",
+          "ANT-NEWS-OPUS55",
+          "ANT-THINK",
+          "CC-MODEL-CONFIG",
+          "ANT-RELNOTES"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-fable-5-1",
+        "family": "fable",
+        "displayName": "Claude Fable 5.1",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "adaptive-thinking",
+          "thinking-always-on",
+          "effort",
+          "per-message-effort",
+          "mid-conversation-system",
+          "inference-geo"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 10,
+          "outputPerMillion": 50,
+          "cacheReadPerMillion": 0.25,
+          "cacheWritePerMillion": 12.5,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-CACHE",
+          "ANT-EFFORT",
+          "ANT-FABLE51",
+          "ANT-NEWS-FABLE51",
+          "ANT-RETENTION",
+          "ANT-THINK",
+          "ANT-RELNOTES"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-opus-5",
+        "family": "opus",
+        "displayName": "Claude Opus 5",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "adaptive-thinking",
+          "effort",
+          "per-message-effort",
+          "mid-conversation-system",
+          "fast-mode",
+          "inference-geo",
+          "zdr"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 5,
+          "outputPerMillion": 25,
+          "cacheReadPerMillion": 0.5,
+          "cacheWritePerMillion": 6.25,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-CACHE",
+          "ANT-EFFORT",
+          "ANT-OPUS5",
+          "ANT-RELNOTES"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-sonnet-5",
+        "family": "sonnet",
+        "displayName": "Claude Sonnet 5",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "adaptive-thinking",
+          "effort",
+          "inference-geo",
+          "zdr"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 10,
+          "cacheReadPerMillion": 0.2,
+          "cacheWritePerMillion": 2.5,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-CACHE",
+          "ANT-EFFORT",
+          "ANT-SONNET5"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-haiku-4-5-20251001",
+        "family": "haiku",
+        "displayName": "Claude Haiku 4.5",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "extended-thinking",
+          "zdr"
+        ],
+        "contextTokens": 200000,
+        "maxOutputTokens": 64000,
+        "effortLevels": [],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 1,
+          "outputPerMillion": 5,
+          "cacheReadPerMillion": 0.1,
+          "cacheWritePerMillion": 1.25,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-CACHE",
+          "ANT-EFFORT",
+          "ANT-HAIKU45",
+          "ANT-NEWS-HAIKU45"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-sonnet-4-6",
+        "family": "sonnet",
+        "displayName": "Claude Sonnet 4.6",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "adaptive-thinking",
+          "effort",
+          "inference-geo",
+          "zdr"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 3,
+          "outputPerMillion": 15,
+          "cacheReadPerMillion": 0.3,
+          "cacheWritePerMillion": 3.75,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-CACHE",
+          "ANT-EFFORT",
+          "ANT-SONNET46",
+          "AGY-MODELS"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-opus-4-6",
+        "family": "opus",
+        "displayName": "Claude Opus 4.6",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "adaptive-thinking",
+          "effort",
+          "inference-geo",
+          "zdr"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 5,
+          "outputPerMillion": 25,
+          "cacheReadPerMillion": 0.5,
+          "cacheWritePerMillion": 6.25,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-CACHE",
+          "ANT-EFFORT",
+          "ANT-OPUS46",
+          "AGY-MODELS"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-sonnet-4-5-20250929",
+        "family": "sonnet",
+        "displayName": "Claude Sonnet 4.5",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "extended-thinking",
+          "zdr"
+        ],
+        "contextTokens": 200000,
+        "maxOutputTokens": 64000,
+        "effortLevels": [],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 3,
+          "outputPerMillion": 15,
+          "cacheReadPerMillion": 0.3,
+          "cacheWritePerMillion": 3.75,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-CACHE",
+          "ANT-EFFORT",
+          "ANT-SONNET45",
+          "CC-MODEL-CONFIG"
+        ]
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-6-astra",
+        "family": "gpt-6",
+        "displayName": "GPT-6 Astra",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "explicit-cache"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us",
+          "eu"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 10,
+          "outputPerMillion": 50,
+          "cacheReadPerMillion": 1,
+          "cacheWritePerMillion": 12.5,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-6-astra",
+          "OAI-CHANGELOG",
+          "OAI-DATA"
+        ],
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-09-03T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "OAI-CHANGELOG"
+        }
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-6-sol",
+        "family": "gpt-6",
+        "displayName": "GPT-6 Sol",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "explicit-cache"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "eu"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 10,
+          "cacheReadPerMillion": 0.2,
+          "cacheWritePerMillion": 2.5,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-6-sol",
+          "OAI-CHANGELOG",
+          "CODEX-CHANGELOG"
+        ]
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-6-luna",
+        "family": "gpt-6",
+        "displayName": "GPT-6 Luna",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "explicit-cache"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "eu"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.1,
+          "outputPerMillion": 0.5,
+          "cacheReadPerMillion": 0.01,
+          "cacheWritePerMillion": 0.125,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-6-luna",
+          "OAI-CHANGELOG",
+          "CODEX-CHANGELOG"
+        ]
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-5.6-sol",
+        "family": "gpt-5.6",
+        "displayName": "GPT-5.6 Sol",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "explicit-cache"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 4,
+          "outputPerMillion": 20,
+          "cacheReadPerMillion": 0.4,
+          "cacheWritePerMillion": 5,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-5.6-sol",
+          "OAI-CHANGELOG"
+        ],
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-07-09T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "OAI-CHANGELOG"
+        }
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-5.6-terra",
+        "family": "gpt-5.6",
+        "displayName": "GPT-5.6 Terra",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "explicit-cache"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 12,
+          "cacheReadPerMillion": 0.2,
+          "cacheWritePerMillion": 2.5,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-5.6-terra",
+          "OAI-CHANGELOG"
+        ],
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-07-09T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "OAI-CHANGELOG"
+        }
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-5.6-luna",
+        "family": "gpt-5.6",
+        "displayName": "GPT-5.6 Luna",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "explicit-cache"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.2,
+          "outputPerMillion": 1.2,
+          "cacheReadPerMillion": 0.02,
+          "cacheWritePerMillion": 0.25,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-5.6-luna",
+          "OAI-CHANGELOG"
+        ],
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-07-09T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "OAI-CHANGELOG"
+        }
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-5.5",
+        "family": "gpt-5.5",
+        "displayName": "GPT-5.5",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "cache-24h"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 5,
+          "outputPerMillion": 30,
+          "cacheReadPerMillion": 0.5,
+          "cacheWritePerMillion": 5,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-5.5"
+        ]
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-5.4",
+        "family": "gpt-5.4",
+        "displayName": "GPT-5.4",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "cache-24h"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 2.5,
+          "outputPerMillion": 15,
+          "cacheReadPerMillion": 0.25,
+          "cacheWritePerMillion": 2.5,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-5.4"
+        ]
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-5.4-mini",
+        "family": "gpt-5.4",
+        "displayName": "GPT-5.4 mini",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode"
+        ],
+        "contextTokens": 400000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.75,
+          "outputPerMillion": 4.5,
+          "cacheReadPerMillion": 0.075,
+          "cacheWritePerMillion": 0.75,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-5.4-mini"
+        ]
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-5.4-nano",
+        "family": "gpt-5.4",
+        "displayName": "GPT-5.4 nano",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort"
+        ],
+        "contextTokens": 400000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "none",
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.2,
+          "outputPerMillion": 1.25,
+          "cacheReadPerMillion": 0.02,
+          "cacheWritePerMillion": 0.2,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-5.4-nano"
+        ]
+      },
+      {
+        "provider": "openai",
+        "modelId": "gpt-5.3-codex",
+        "family": "gpt-codex",
+        "displayName": "GPT-5.3 Codex",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "responses-api-only"
+        ],
+        "contextTokens": 400000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 1.75,
+          "outputPerMillion": 14,
+          "cacheReadPerMillion": 0.175,
+          "cacheWritePerMillion": 1.75,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-5.3-codex"
+        ]
+      },
+      {
+        "provider": "google",
+        "modelId": "gemini-3.8-flash",
+        "family": "gemini-flash",
+        "displayName": "Gemini 3.8 Flash",
+        "capabilities": [
+          "text",
+          "vision",
+          "audio-input",
+          "video-input",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "thinking-level",
+          "thought-signatures",
+          "computer-use-preview",
+          "zdr"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "google-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.75,
+          "outputPerMillion": 3.75,
+          "cacheReadPerMillion": 0.075,
+          "cacheWritePerMillion": 0.75,
+          "sourceId": "GOO-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "GOO-MODELS",
+          "GOO-PRICING",
+          "GOO-THINK",
+          "GOO-CACHE",
+          "GOO-M-gemini-3.8-flash",
+          "VTX-M-gemini-3.8-flash",
+          "GOO-EVAL-38",
+          "AGY-MODELS"
+        ]
+      },
+      {
+        "provider": "google",
+        "modelId": "gemini-3.7-flash",
+        "family": "gemini-flash",
+        "displayName": "Gemini 3.7 Flash",
+        "capabilities": [
+          "text",
+          "vision",
+          "audio-input",
+          "video-input",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "thinking-level",
+          "thought-signatures",
+          "computer-use-preview",
+          "zdr"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "google-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.75,
+          "outputPerMillion": 3.75,
+          "cacheReadPerMillion": 0.075,
+          "cacheWritePerMillion": 0.75,
+          "sourceId": "GOO-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "GOO-MODELS",
+          "GOO-PRICING",
+          "GOO-THINK",
+          "GOO-CACHE",
+          "GOO-M-gemini-3.7-flash",
+          "VTX-M-gemini-3.7-flash",
+          "AGY-MODELS"
+        ]
+      },
+      {
+        "provider": "google",
+        "modelId": "gemini-3.6-flash",
+        "family": "gemini-flash",
+        "displayName": "Gemini 3.6 Flash",
+        "capabilities": [
+          "text",
+          "vision",
+          "audio-input",
+          "video-input",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "thinking-level",
+          "thought-signatures",
+          "zdr"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "effortLevels": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "google-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.75,
+          "outputPerMillion": 3.75,
+          "cacheReadPerMillion": 0.075,
+          "cacheWritePerMillion": 0.75,
+          "sourceId": "GOO-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "GOO-MODELS",
+          "GOO-PRICING",
+          "GOO-THINK",
+          "GOO-CACHE",
+          "GOO-M-gemini-3.6-flash",
+          "VTX-M-gemini-3.6-flash",
+          "AGY-MODELS"
+        ]
+      },
+      {
+        "provider": "google",
+        "modelId": "gemini-3.5-flash",
+        "family": "gemini-flash",
+        "displayName": "Gemini 3.5 Flash",
+        "capabilities": [
+          "text",
+          "vision",
+          "audio-input",
+          "video-input",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "thinking-level",
+          "thought-signatures",
+          "zdr"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "effortLevels": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "google-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 1.5,
+          "outputPerMillion": 9,
+          "cacheReadPerMillion": 0.15,
+          "cacheWritePerMillion": 1.5,
+          "sourceId": "GOO-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "GOO-MODELS",
+          "GOO-PRICING",
+          "GOO-THINK",
+          "GOO-CACHE",
+          "GOO-M-gemini-3.5-flash",
+          "VTX-M-gemini-3.5-flash"
+        ]
+      },
+      {
+        "provider": "google",
+        "modelId": "gemini-3.5-flash-lite",
+        "family": "gemini-flash-lite",
+        "displayName": "Gemini 3.5 Flash-Lite",
+        "capabilities": [
+          "text",
+          "vision",
+          "audio-input",
+          "video-input",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "thinking-level",
+          "thought-signatures",
+          "zdr"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "effortLevels": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "google-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.3,
+          "outputPerMillion": 2.5,
+          "cacheReadPerMillion": 0.03,
+          "cacheWritePerMillion": 0.3,
+          "sourceId": "GOO-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "GOO-MODELS",
+          "GOO-PRICING",
+          "GOO-THINK",
+          "GOO-CACHE",
+          "GOO-M-gemini-3.5-flash-lite",
+          "VTX-M-gemini-3.5-flash-lite"
+        ]
+      },
+      {
+        "provider": "google",
+        "modelId": "gemini-3.1-flash-lite",
+        "family": "gemini-flash-lite",
+        "displayName": "Gemini 3.1 Flash-Lite",
+        "capabilities": [
+          "text",
+          "vision",
+          "audio-input",
+          "video-input",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "thinking-level",
+          "thought-signatures",
+          "zdr"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "effortLevels": [
+          "minimal",
+          "low",
+          "medium",
+          "high"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "google-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.25,
+          "outputPerMillion": 1.5,
+          "cacheReadPerMillion": 0.025,
+          "cacheWritePerMillion": 0.25,
+          "sourceId": "GOO-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "GOO-MODELS",
+          "GOO-PRICING",
+          "GOO-THINK",
+          "GOO-CACHE",
+          "GOO-M-gemini-3.1-flash-lite",
+          "VTX-M-gemini-3.1-flash-lite"
+        ]
+      },
+      {
+        "provider": "google",
+        "modelId": "gemini-3.1-pro-preview",
+        "family": "gemini-pro",
+        "displayName": "Gemini 3.1 Pro Preview",
+        "capabilities": [
+          "text",
+          "vision",
+          "audio-input",
+          "video-input",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "thinking-level",
+          "thought-signatures",
+          "preview",
+          "zdr"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 65536,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high"
+        ],
+        "regions": [
+          "global"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "google-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 12,
+          "cacheReadPerMillion": 0.2,
+          "cacheWritePerMillion": 2,
+          "sourceId": "GOO-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "GOO-MODELS",
+          "GOO-PRICING",
+          "GOO-THINK",
+          "GOO-CACHE",
+          "GOO-M-gemini-3.1-pro-preview",
+          "VTX-M-gemini-3.1-pro-preview",
+          "GOO-CARD-31PRO",
+          "AGY-MODELS"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "modelId": "deepseek-flash",
+        "family": "deepseek-v4",
+        "displayName": "DeepSeek V4.1 Flash",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "json-mode",
+          "code",
+          "prompt-caching",
+          "reasoning-effort",
+          "thinking-toggle",
+          "open-weights",
+          "anthropic-compatible-endpoint",
+          "responses-api"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 393216,
+        "effortLevels": [
+          "low",
+          "high",
+          "max"
+        ],
+        "regions": [
+          "cn"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "deepseek-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.3,
+          "outputPerMillion": 1.2,
+          "cacheReadPerMillion": 0.006,
+          "cacheWritePerMillion": 0.3,
+          "sourceId": "DS-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "DS-PRICING",
+          "DS-NEWS-0910",
+          "DS-THINK",
+          "DS-ANTHROPIC",
+          "DS-PRIVACY",
+          "MODELSDEV",
+          "DS-HF-V41FLASH"
+        ]
+      },
+      {
+        "provider": "deepseek",
+        "modelId": "deepseek-v4-pro",
+        "family": "deepseek-v4",
+        "displayName": "DeepSeek V4 Pro",
+        "capabilities": [
+          "text",
+          "tools",
+          "json-mode",
+          "code",
+          "prompt-caching",
+          "reasoning-effort",
+          "thinking-toggle",
+          "open-weights",
+          "anthropic-compatible-endpoint",
+          "responses-api"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 393216,
+        "effortLevels": [
+          "low",
+          "high",
+          "max"
+        ],
+        "regions": [
+          "cn"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "deepseek-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 1.32,
+          "outputPerMillion": 3.96,
+          "cacheReadPerMillion": 0.044,
+          "cacheWritePerMillion": 1.32,
+          "sourceId": "DS-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "DS-PRICING",
+          "DS-NEWS-0910",
+          "DS-UPDATES",
+          "DS-HF-V4PRO",
+          "DS-ANTHROPIC"
+        ],
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-08-13T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "DS-UPDATES"
+        }
+      },
+      {
+        "provider": "alibaba",
+        "modelId": "qwen3.8-max",
+        "family": "qwen",
+        "displayName": "Qwen3.8 Max",
+        "capabilities": [
+          "text",
+          "vision",
+          "video-input",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "explicit-cache",
+          "reasoning-effort",
+          "thinking-toggle",
+          "anthropic-compatible-endpoint"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 131072,
+        "effortLevels": [
+          "low",
+          "medium",
+          "xhigh"
+        ],
+        "regions": [
+          "sg",
+          "cn",
+          "hk",
+          "de",
+          "us",
+          "jp"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "alibaba-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 6,
+          "cacheReadPerMillion": 0.25,
+          "cacheWritePerMillion": 2.5,
+          "sourceId": "ALI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ALI-PRICING",
+          "ALI-MODELS",
+          "ALI-CLAUDE-CODE",
+          "OR-QWEN",
+          "MTP-QWEN38",
+          "MODELSDEV",
+          "QWEN-HF-38",
+          "ALI-PRESS-0922"
+        ]
+      },
+      {
+        "provider": "moonshot",
+        "modelId": "kimi-k3",
+        "family": "kimi",
+        "displayName": "Kimi K3",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "reasoning-effort",
+          "open-weights",
+          "anthropic-compatible-endpoint"
+        ],
+        "contextTokens": 1048576,
+        "maxOutputTokens": 943718,
+        "effortLevels": [
+          "low",
+          "high",
+          "max"
+        ],
+        "regions": [
+          "unspecified",
+          "cn"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "moonshot-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 3,
+          "outputPerMillion": 15,
+          "cacheReadPerMillion": 0.3,
+          "cacheWritePerMillion": 3,
+          "sourceId": "KIMI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "KIMI-PRICING",
+          "KIMI-HF-K3",
+          "KIMI-CC",
+          "OR-KIMI",
+          "MODELSDEV"
+        ]
+      },
+      {
+        "provider": "zai",
+        "modelId": "glm-5.3",
+        "family": "glm",
+        "displayName": "GLM-5.3",
+        "capabilities": [
+          "text",
+          "tools",
+          "json-mode",
+          "code",
+          "prompt-caching",
+          "reasoning-effort",
+          "thinking-always-on",
+          "open-weights",
+          "anthropic-compatible-endpoint"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "high",
+          "max"
+        ],
+        "regions": [
+          "sg"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "zai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 1.4,
+          "outputPerMillion": 4.4,
+          "cacheReadPerMillion": 0.26,
+          "cacheWritePerMillion": 1.4,
+          "sourceId": "ZAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ZAI-PRICING",
+          "ZAI-GLM53",
+          "ZAI-DEVPACK",
+          "ZAI-CC",
+          "ZAI-HF",
+          "OR-GLM",
+          "ZAI-RELNOTES"
+        ]
+      },
+      {
+        "provider": "xai",
+        "modelId": "grok-build-0.1",
+        "family": "grok",
+        "displayName": "Grok Build 0.1",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "thinking-always-on"
+        ],
+        "contextTokens": 256000,
+        "maxOutputTokens": 256000,
+        "effortLevels": [],
+        "regions": [
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "xai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 1,
+          "outputPerMillion": 2,
+          "cacheReadPerMillion": 0.2,
+          "cacheWritePerMillion": 1,
+          "sourceId": "XAI-BUILD",
+          "tiers": [
+            {
+              "aboveInputTokens": 199999,
+              "inputMultiplier": 2,
+              "outputMultiplier": 2,
+              "cacheMultiplier": 2
+            }
+          ]
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "XAI-BUILD",
+          "XAI-MODELS",
+          "MODELSDEV",
+          "XAI-PRICING",
+          "XAI-SECURITY",
+          "XAI-RATE",
+          "XAI-BUILD-DEV"
+        ],
+        "lifecycle": {
+          "status": "preview",
+          "releasedOn": null,
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "XAI-BUILD"
+        },
+        "dataGovernance": {
+          "zdrEligible": true,
+          "requiredRetentionDays": null,
+          "sourceId": "XAI-SECURITY"
+        },
+        "defaultEffort": null
+      },
+      {
+        "provider": "xai",
+        "modelId": "grok-4.7",
+        "family": "grok",
+        "displayName": "Grok 4.7",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "thinking-always-on",
+          "reasoning-effort",
+          "fast-mode",
+          "inference-geo",
+          "zdr",
+          "responses-api"
+        ],
+        "contextTokens": 500000,
+        "maxOutputTokens": 450000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "regions": [
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "xai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 6,
+          "cacheReadPerMillion": 0.5,
+          "cacheWritePerMillion": 2,
+          "sourceId": "XAI-PRICING",
+          "tiers": [
+            {
+              "aboveInputTokens": 199999,
+              "inputMultiplier": 2,
+              "outputMultiplier": 2,
+              "cacheMultiplier": 2
+            }
+          ]
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "XAI-PRICING",
+          "XAI-MODELS",
+          "XAI-47",
+          "XAI-47-GUIDE",
+          "XAI-REASONING",
+          "XAI-CACHE",
+          "XAI-RATE",
+          "XAI-SECURITY",
+          "XAI-RELNOTES",
+          "XAI-NEWS-47",
+          "OR-GROK",
+          "IND-TBENCH",
+          "IND-AA-AGENTS",
+          "IND-AA-MODELS"
+        ],
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-09-21T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "XAI-RELNOTES"
+        },
+        "dataGovernance": {
+          "zdrEligible": true,
+          "requiredRetentionDays": null,
+          "sourceId": "XAI-SECURITY"
+        },
+        "defaultEffort": "high",
+        "effortSwitch": {
+          "keepsCache": false,
+          "betaHeader": null,
+          "platforms": []
+        }
+      },
+      {
+        "provider": "xai",
+        "modelId": "grok-4.6",
+        "family": "grok",
+        "displayName": "Grok 4.6",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "thinking-always-on",
+          "reasoning-effort",
+          "fast-mode",
+          "inference-geo",
+          "zdr",
+          "responses-api"
+        ],
+        "contextTokens": 500000,
+        "maxOutputTokens": 450000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "regions": [
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "xai-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 6,
+          "cacheReadPerMillion": 0.5,
+          "cacheWritePerMillion": 2,
+          "sourceId": "XAI-PRICING",
+          "tiers": [
+            {
+              "aboveInputTokens": 199999,
+              "inputMultiplier": 2,
+              "outputMultiplier": 2,
+              "cacheMultiplier": 2
+            }
+          ]
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "XAI-PRICING",
+          "XAI-MODELS",
+          "XAI-46",
+          "XAI-REASONING",
+          "XAI-CACHE",
+          "XAI-RATE",
+          "XAI-SECURITY",
+          "XAI-RELNOTES",
+          "XAI-NEWS-46",
+          "OR-GROK",
+          "IND-TBENCH",
+          "IND-AA-AGENTS",
+          "IND-AA-MODELS"
+        ],
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-08-12T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "XAI-RELNOTES"
+        },
+        "dataGovernance": {
+          "zdrEligible": true,
+          "requiredRetentionDays": null,
+          "sourceId": "XAI-SECURITY"
+        },
+        "defaultEffort": "high",
+        "effortSwitch": {
+          "keepsCache": false,
+          "betaHeader": null,
+          "platforms": []
+        }
+      },
+      {
+        "provider": "minimax",
+        "modelId": "MiniMax-M3",
+        "family": "minimax",
+        "displayName": "MiniMax M3",
+        "capabilities": [
+          "text",
+          "vision",
+          "video-input",
+          "tools",
+          "code",
+          "prompt-caching",
+          "thinking-toggle",
+          "open-weights",
+          "anthropic-compatible-endpoint"
+        ],
+        "contextTokens": 524288,
+        "maxOutputTokens": 512000,
+        "effortLevels": [],
+        "regions": [
+          "unspecified"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "minimax-2026-09-26",
+          "currency": "USD",
+          "effectiveAt": "2026-09-26T00:00:00Z",
+          "inputPerMillion": 0.3,
+          "outputPerMillion": 1.2,
+          "cacheReadPerMillion": 0.06,
+          "cacheWritePerMillion": null,
+          "sourceId": "MMX-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "MMX-PRICING",
+          "MMX-TEXT",
+          "MMX-HF",
+          "OR-MMX"
+        ]
+      }
+    ]
+  },
+  "sources": {
+    "ANT-MODELS": {
+      "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
+      "title": "Anthropic models overview",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-PRICING": {
+      "url": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "title": "Anthropic pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-DEPREC": {
+      "url": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
+      "title": "Anthropic model deprecations",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-CACHE": {
+      "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
+      "title": "Anthropic prompt caching",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ANT-EFFORT": {
+      "url": "https://platform.claude.com/docs/en/build-with-claude/effort",
+      "title": "Anthropic effort",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-THINK": {
+      "url": "https://platform.claude.com/docs/en/build-with-claude/thinking",
+      "title": "Anthropic thinking (preserved thinking, model switching)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ANT-RATE": {
+      "url": "https://platform.claude.com/docs/en/api/rate-limits",
+      "title": "Anthropic rate limits",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-RETENTION": {
+      "url": "https://platform.claude.com/docs/en/manage-claude/api-and-data-retention",
+      "title": "Anthropic API and data retention (ZDR, Covered Models)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-RESIDENCY": {
+      "url": "https://platform.claude.com/docs/en/manage-claude/data-residency",
+      "title": "Anthropic data residency (inference_geo)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ANT-FABLE51": {
+      "url": "https://platform.claude.com/docs/en/models/fable-5-1/overview",
+      "title": "Claude Fable 5.1 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-OPUS55": {
+      "url": "https://platform.claude.com/docs/en/models/opus-5-5/overview",
+      "title": "Claude Opus 5.5 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-OPUS5": {
+      "url": "https://platform.claude.com/docs/en/models/opus-5/overview",
+      "title": "Claude Opus 5 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-SONNET5": {
+      "url": "https://platform.claude.com/docs/en/models/sonnet-5/overview",
+      "title": "Claude Sonnet 5 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-SONNET46": {
+      "url": "https://platform.claude.com/docs/en/models/sonnet-4-6/overview",
+      "title": "Claude Sonnet 4.6 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ANT-SONNET45": {
+      "url": "https://platform.claude.com/docs/en/models/sonnet-4-5/overview",
+      "title": "Claude Sonnet 4.5 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-OPUS46": {
+      "url": "https://platform.claude.com/docs/en/models/opus-4-6/overview",
+      "title": "Claude Opus 4.6 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ANT-HAIKU45": {
+      "url": "https://platform.claude.com/docs/en/models/haiku-4-5/overview",
+      "title": "Claude Haiku 4.5 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ANT-NEWS-OPUS55": {
+      "url": "https://www.anthropic.com/claude-opus-5-5",
+      "title": "Claude Opus 5.5 announcement",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "ANT-NEWS-FABLE51": {
+      "url": "https://www.anthropic.com/claude-fable-and-mythos-5-1",
+      "title": "Claude Fable 5.1 announcement",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "ANT-NEWS-HAIKU45": {
+      "url": "https://www.anthropic.com/news/claude-haiku-4-5",
+      "title": "Claude Haiku 4.5 announcement",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "CC-MODEL-CONFIG": {
+      "url": "https://code.claude.com/docs/en/model-config",
+      "title": "Claude Code model configuration",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "CC-PROMPT-CACHING": {
+      "url": "https://code.claude.com/docs/en/prompt-caching",
+      "title": "How Claude Code uses prompt caching",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "OAI-PRICING": {
+      "url": "https://developers.openai.com/api/docs/pricing",
+      "title": "OpenAI API pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-MODELS": {
+      "url": "https://developers.openai.com/api/docs/models",
+      "title": "OpenAI models",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "OAI-DEPREC": {
+      "url": "https://developers.openai.com/api/docs/deprecations",
+      "title": "OpenAI deprecations",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-CACHE": {
+      "url": "https://developers.openai.com/api/docs/guides/prompt-caching",
+      "title": "OpenAI prompt caching",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-REASONING": {
+      "url": "https://developers.openai.com/api/docs/guides/reasoning",
+      "title": "OpenAI reasoning",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-RATE": {
+      "url": "https://developers.openai.com/api/docs/guides/rate-limits",
+      "title": "OpenAI rate limits",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "OAI-DATA": {
+      "url": "https://developers.openai.com/api/docs/guides/your-data",
+      "title": "OpenAI data controls and residency",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-FAST": {
+      "url": "https://developers.openai.com/api/docs/guides/fast-mode",
+      "title": "OpenAI fast mode",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "CODEX-MODELS": {
+      "url": "https://learn.chatgpt.com/docs/models",
+      "title": "Codex models (redirect from developers.openai.com/codex/models)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "CODEX-CONFIG": {
+      "url": "https://learn.chatgpt.com/docs/config-file/config-reference",
+      "title": "Codex config reference",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "GOO-MODELS": {
+      "url": "https://ai.google.dev/gemini-api/docs/models",
+      "title": "Gemini API models",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "GOO-PRICING": {
+      "url": "https://ai.google.dev/gemini-api/docs/pricing",
+      "title": "Gemini API pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "GOO-THINK": {
+      "url": "https://ai.google.dev/gemini-api/docs/thinking",
+      "title": "Gemini thinking",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "GOO-CACHE": {
+      "url": "https://ai.google.dev/gemini-api/docs/caching",
+      "title": "Gemini context caching",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "GOO-DEPREC": {
+      "url": "https://ai.google.dev/gemini-api/docs/deprecations",
+      "title": "Gemini deprecations",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "GOO-ZDR": {
+      "url": "https://ai.google.dev/gemini-api/docs/zdr",
+      "title": "Gemini zero data retention",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "GOO-SIGS": {
+      "url": "https://ai.google.dev/gemini-api/docs/generate-content/thought-signatures",
+      "title": "Gemini thought signatures",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "VTX-MODELS": {
+      "url": "https://docs.cloud.google.com/vertex-ai/generative-ai/docs/models",
+      "title": "Vertex (Gemini Enterprise Agent Platform) models",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "VTX-PRICING": {
+      "url": "https://cloud.google.com/vertex-ai/generative-ai/pricing",
+      "title": "Vertex (Agent Platform) pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "GOO-EVAL-38": {
+      "url": "https://storage.googleapis.com/deepmind-media/gemini/gemini_3-8_flash_model_evaluation.pdf",
+      "title": "Gemini 3.8 Flash evaluation PDF",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "GOO-CARD-31PRO": {
+      "url": "https://deepmind.google/models/model-cards/gemini-3-1-pro/",
+      "title": "Gemini 3.1 Pro model card",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "AGY-MODELS": {
+      "url": "https://antigravity.google/docs/models/",
+      "title": "Antigravity models",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "AGY-PLANS": {
+      "url": "https://antigravity.google/docs/plans/",
+      "title": "Antigravity plans",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "IND-TBENCH": {
+      "url": "https://www.tbench.ai/leaderboard",
+      "title": "Terminal-Bench 4.0 leaderboard (updated 2026-09-21)",
+      "kind": "independent",
+      "fetchedOn": "2026-09-26"
+    },
+    "IND-AA-AGENTS": {
+      "url": "https://artificialanalysis.ai/agents/coding-agents",
+      "title": "Artificial Analysis Coding Agent Index",
+      "kind": "independent",
+      "fetchedOn": "2026-09-26"
+    },
+    "IND-AA-MODELS": {
+      "url": "https://artificialanalysis.ai/models",
+      "title": "Artificial Analysis models (speed, TTFT)",
+      "kind": "independent",
+      "fetchedOn": "2026-09-26"
+    },
+    "IND-EPOCH-SWEV": {
+      "url": "https://epoch.ai/benchmarks/swe-bench-verified",
+      "title": "Epoch AI SWE-bench Verified (independent runs)",
+      "kind": "independent",
+      "fetchedOn": "2026-09-26"
+    },
+    "IND-SCALE-PRO": {
+      "url": "https://labs.scale.com/leaderboard/swe_bench_pro_public",
+      "title": "Scale SWE-bench Pro public",
+      "kind": "independent",
+      "fetchedOn": "2026-09-26"
+    },
+    "IND-SWEREBENCH": {
+      "url": "https://swe-rebench.com/",
+      "title": "SWE-rebench",
+      "kind": "independent",
+      "fetchedOn": "2026-09-26"
+    },
+    "DS-PRICING": {
+      "url": "https://api-docs.deepseek.com/quick_start/pricing",
+      "title": "DeepSeek models and pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "DS-NEWS-0910": {
+      "url": "https://api-docs.deepseek.com/news/news260910/",
+      "title": "DeepSeek V4.1-Flash release news",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-27"
+    },
+    "DS-UPDATES": {
+      "url": "https://api-docs.deepseek.com/updates/",
+      "title": "DeepSeek change log",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "DS-ANTHROPIC": {
+      "url": "https://api-docs.deepseek.com/guides/anthropic_api",
+      "title": "DeepSeek Anthropic-compatible API",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "DS-THINK": {
+      "url": "https://api-docs.deepseek.com/guides/thinking_mode/",
+      "title": "DeepSeek thinking mode",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "DS-HF-V4PRO": {
+      "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4-Pro",
+      "title": "DeepSeek-V4-Pro model card",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "DS-PRIVACY": {
+      "url": "https://cdn.deepseek.com/policies/en-US/deepseek-privacy-policy.html",
+      "title": "DeepSeek privacy policy",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ALI-PRICING": {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "title": "Alibaba Cloud Model Studio pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ALI-MODELS": {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/models",
+      "title": "Alibaba Cloud Model Studio models",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ALI-CODING-PLAN": {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/coding-plan",
+      "title": "Alibaba Coding Plan",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ALI-CLAUDE-CODE": {
+      "url": "https://www.alibabacloud.com/help/en/model-studio/claude-code",
+      "title": "Alibaba Model Studio with Claude Code",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "MTP-QWEN38": {
+      "url": "https://www.marktechpost.com/2026/08/03/alibaba-qwen-releases-qwen3-8-max/",
+      "title": "MarkTechPost on Qwen3.8-Max (secondary)",
+      "kind": "secondary",
+      "fetchedOn": "2026-09-26"
+    },
+    "KIMI-PRICING": {
+      "url": "https://platform.kimi.ai/docs/pricing/chat",
+      "title": "Moonshot Kimi pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "KIMI-CC": {
+      "url": "https://platform.kimi.ai/docs/guide/claude-code-kimi",
+      "title": "Kimi with Claude Code",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "KIMI-HF-K3": {
+      "url": "https://huggingface.co/moonshotai/Kimi-K3",
+      "title": "Kimi K3 model card",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "ZAI-PRICING": {
+      "url": "https://docs.z.ai/guides/overview/pricing",
+      "title": "Z.ai pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ZAI-GLM53": {
+      "url": "https://docs.z.ai/guides/llm/glm-5.3",
+      "title": "Z.ai GLM-5.3",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "ZAI-DEVPACK": {
+      "url": "https://docs.z.ai/devpack/overview",
+      "title": "Z.ai GLM Coding Plan",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ZAI-CC": {
+      "url": "https://docs.z.ai/devpack/tool/claude",
+      "title": "GLM Coding Plan with Claude Code",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "ZAI-HF": {
+      "url": "https://huggingface.co/zai-org/GLM-5.3",
+      "title": "GLM-5.3 model card",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-27"
+    },
+    "XAI-MODELS": {
+      "url": "https://docs.x.ai/docs/models",
+      "title": "xAI models",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-BUILD": {
+      "url": "https://docs.x.ai/docs/models/grok-build-0.1",
+      "title": "xAI grok-build-0.1",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-47": {
+      "url": "https://docs.x.ai/developers/models/grok-4.7",
+      "title": "xAI grok-4.7 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "MIS-MODELS": {
+      "url": "https://docs.mistral.ai/getting-started/models/models_overview/",
+      "title": "Mistral models overview",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "MIS-MED35": {
+      "url": "https://docs.mistral.ai/models/model-cards/mistral-medium-3-5-26-04",
+      "title": "Mistral Medium 3.5 model card",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "MIS-CODESTRAL": {
+      "url": "https://docs.mistral.ai/models/model-cards/codestral-25-08",
+      "title": "Codestral 25.08 model card",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "MMX-PRICING": {
+      "url": "https://platform.minimax.io/docs/guides/pricing-paygo",
+      "title": "MiniMax pay-as-you-go pricing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "MMX-TEXT": {
+      "url": "https://platform.minimax.io/docs/guides/text-generation",
+      "title": "MiniMax text generation",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "MMX-HF": {
+      "url": "https://huggingface.co/MiniMaxAI/MiniMax-M3",
+      "title": "MiniMax-M3 model card",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "OR-MMX": {
+      "url": "https://openrouter.ai/api/v1/models/minimax/minimax-m3/endpoints",
+      "title": "OpenRouter MiniMax-M3 endpoints (second source)",
+      "kind": "gateway",
+      "fetchedOn": "2026-09-26"
+    },
+    "OR-KIMI": {
+      "url": "https://openrouter.ai/api/v1/models/moonshotai/kimi-k3/endpoints",
+      "title": "OpenRouter Kimi K3 endpoints (second source)",
+      "kind": "gateway",
+      "fetchedOn": "2026-09-26"
+    },
+    "OR-QWEN": {
+      "url": "https://openrouter.ai/api/v1/models/qwen/qwen3.8-max/endpoints",
+      "title": "OpenRouter Qwen3.8-Max endpoints (second source)",
+      "kind": "gateway",
+      "fetchedOn": "2026-09-26"
+    },
+    "OR-GLM": {
+      "url": "https://openrouter.ai/api/v1/models/z-ai/glm-5.3/endpoints",
+      "title": "OpenRouter GLM-5.3 endpoints (second source)",
+      "kind": "gateway",
+      "fetchedOn": "2026-09-26"
+    },
+    "META-MODELS": {
+      "url": "https://dev.meta.ai/docs/models",
+      "title": "Meta Model API models",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "MODELSDEV": {
+      "url": "https://github.com/sst/models.dev/tree/dev/providers",
+      "title": "models.dev catalogue (OpenCode, second source)",
+      "kind": "gateway",
+      "fetchedOn": "2026-09-26"
+    },
+    "ZEN": {
+      "url": "https://opencode.ai/docs/zen/",
+      "title": "OpenCode Zen",
+      "kind": "gateway",
+      "fetchedOn": "2026-09-27"
+    },
+    "OC-PROVIDERS": {
+      "url": "https://opencode.ai/docs/providers/",
+      "title": "OpenCode providers",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "OC-AGENTS": {
+      "url": "https://opencode.ai/docs/agents/",
+      "title": "OpenCode agents",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "OC-MODELS": {
+      "url": "https://opencode.ai/docs/models/",
+      "title": "OpenCode models and variants",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "KILO-PROVIDERS": {
+      "url": "https://kilo.ai/docs/providers",
+      "title": "Kilo providers",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "KILO-GATEWAY": {
+      "url": "https://kilo.ai/docs/gateway/usage-and-billing",
+      "title": "Kilo Gateway usage and billing",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "KILO-MODELSEL": {
+      "url": "https://kilo.ai/docs/code-with-ai/agents/model-selection",
+      "title": "Kilo per-agent model selection",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "KILO-CLI": {
+      "url": "https://kilo.ai/docs/cli",
+      "title": "Kilo CLI",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "OAI-M-gpt-6-astra": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-6-astra",
+      "title": "OpenAI model page gpt-6-astra",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-6-sol": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-6-sol",
+      "title": "OpenAI model page gpt-6-sol",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-6-luna": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
+      "title": "OpenAI model page gpt-6-luna",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-5.6-sol": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
+      "title": "OpenAI model page gpt-5.6-sol",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-5.6-terra": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.6-terra",
+      "title": "OpenAI model page gpt-5.6-terra",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-5.6-luna": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.6-luna",
+      "title": "OpenAI model page gpt-5.6-luna",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-5.5": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.5",
+      "title": "OpenAI model page gpt-5.5",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-5.4": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.4",
+      "title": "OpenAI model page gpt-5.4",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-5.4-mini": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.4-mini",
+      "title": "OpenAI model page gpt-5.4-mini",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-5.4-nano": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.4-nano",
+      "title": "OpenAI model page gpt-5.4-nano",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-M-gpt-5.3-codex": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-5.3-codex",
+      "title": "OpenAI model page gpt-5.3-codex",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "GOO-M-gemini-3.8-flash": {
+      "url": "https://ai.google.dev/gemini-api/docs/models/gemini-3.8-flash",
+      "title": "Gemini API model page gemini-3.8-flash",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "VTX-M-gemini-3.8-flash": {
+      "url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-8-flash",
+      "title": "Agent Platform (Vertex) model page gemini-3.8-flash",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "GOO-M-gemini-3.7-flash": {
+      "url": "https://ai.google.dev/gemini-api/docs/models/gemini-3.7-flash",
+      "title": "Gemini API model page gemini-3.7-flash",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "VTX-M-gemini-3.7-flash": {
+      "url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-7-flash",
+      "title": "Agent Platform (Vertex) model page gemini-3.7-flash",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "GOO-M-gemini-3.6-flash": {
+      "url": "https://ai.google.dev/gemini-api/docs/models/gemini-3.6-flash",
+      "title": "Gemini API model page gemini-3.6-flash",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "VTX-M-gemini-3.6-flash": {
+      "url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-6-flash",
+      "title": "Agent Platform (Vertex) model page gemini-3.6-flash",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "GOO-M-gemini-3.5-flash": {
+      "url": "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash",
+      "title": "Gemini API model page gemini-3.5-flash",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "VTX-M-gemini-3.5-flash": {
+      "url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash",
+      "title": "Agent Platform (Vertex) model page gemini-3.5-flash",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "GOO-M-gemini-3.5-flash-lite": {
+      "url": "https://ai.google.dev/gemini-api/docs/models/gemini-3.5-flash-lite",
+      "title": "Gemini API model page gemini-3.5-flash-lite",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "VTX-M-gemini-3.5-flash-lite": {
+      "url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-5-flash-lite",
+      "title": "Agent Platform (Vertex) model page gemini-3.5-flash-lite",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "GOO-M-gemini-3.1-flash-lite": {
+      "url": "https://ai.google.dev/gemini-api/docs/models/gemini-3.1-flash-lite",
+      "title": "Gemini API model page gemini-3.1-flash-lite",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "VTX-M-gemini-3.1-flash-lite": {
+      "url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-flash-lite",
+      "title": "Agent Platform (Vertex) model page gemini-3.1-flash-lite",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "GOO-M-gemini-3.1-pro-preview": {
+      "url": "https://ai.google.dev/gemini-api/docs/models/gemini-3.1-pro-preview",
+      "title": "Gemini API model page gemini-3.1-pro-preview",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "VTX-M-gemini-3.1-pro-preview": {
+      "url": "https://docs.cloud.google.com/gemini-enterprise-agent-platform/models/gemini/3-1-pro",
+      "title": "Agent Platform (Vertex) model page gemini-3.1-pro-preview",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "XAI-46": {
+      "url": "https://docs.x.ai/developers/models/grok-4.6",
+      "title": "xAI grok-4.6 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-47-GUIDE": {
+      "url": "https://docs.x.ai/developers/grok-4-7",
+      "title": "xAI Grok 4.7 guide (cutoff, output limit, fast variant)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-PRICING": {
+      "url": "https://docs.x.ai/developers/pricing",
+      "title": "xAI pricing (tiers, batch, priority, fast variant, US endpoint)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-REASONING": {
+      "url": "https://docs.x.ai/developers/model-capabilities/text/reasoning",
+      "title": "xAI reasoning (reasoning_effort, billing, encrypted reasoning)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-CACHE": {
+      "url": "https://docs.x.ai/developers/advanced-api-usage/prompt-caching",
+      "title": "xAI prompt caching (how it works, what breaks it, usage and pricing, FAQ)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-RATE": {
+      "url": "https://docs.x.ai/developers/rate-limits",
+      "title": "xAI rate limits",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-SECURITY": {
+      "url": "https://docs.x.ai/developers/faq/security",
+      "title": "xAI API security FAQ (retention, ZDR, US endpoint)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-RELNOTES": {
+      "url": "https://docs.x.ai/developers/release-notes",
+      "title": "xAI API release notes",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-FUNCS": {
+      "url": "https://docs.x.ai/developers/tools/function-calling",
+      "title": "xAI function calling",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-LEGACY": {
+      "url": "https://docs.x.ai/developers/rest-api-reference/inference/legacy",
+      "title": "xAI legacy and deprecated endpoints (Anthropic /v1/messages)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-NEWS-46": {
+      "url": "https://x.ai/news/grok-4-6",
+      "title": "Introducing Grok 4.6 (2026-08-12)",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-NEWS-47": {
+      "url": "https://x.ai/news/grok-4-7",
+      "title": "Introducing Grok 4.7 (2026-09-21)",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-NEWS-OC": {
+      "url": "https://x.ai/news/grok-opencode",
+      "title": "Use Grok in OpenCode (2026-05-21)",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-NEWS-KILO": {
+      "url": "https://x.ai/news/grok-kilocode",
+      "title": "Use Grok in Kilo Code (2026-05-27)",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-BUILD-CLI": {
+      "url": "https://docs.x.ai/build/overview",
+      "title": "Grok Build CLI overview",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-GROK-FAQ": {
+      "url": "https://docs.x.ai/grok/faq",
+      "title": "Grok consumer FAQ (weekly usage pool)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-PLANS": {
+      "url": "https://x.ai/pricing",
+      "title": "SuperGrok plans",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-TOS": {
+      "url": "https://x.ai/legal/terms-of-service",
+      "title": "xAI consumer terms (last updated 2026-09-11)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "XAI-AUP": {
+      "url": "https://x.ai/legal/acceptable-use-policy",
+      "title": "xAI acceptable use policy (effective 2026-08-14)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "KILO-XAI": {
+      "url": "https://kilo.ai/docs/ai-providers/xai",
+      "title": "Kilo xAI provider",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-26"
+    },
+    "OR-GROK": {
+      "url": "https://openrouter.ai/api/v1/models/x-ai/grok-4.7/endpoints",
+      "title": "OpenRouter x-ai/grok-4.7 and grok-4.6 endpoints (second source)",
+      "kind": "gateway",
+      "fetchedOn": "2026-09-26"
+    },
+    "IND-SWELIVE": {
+      "url": "https://swe-bench-live.github.io/",
+      "title": "SWE-bench-Live leaderboard (reports-0605.jsonl, newest entry 2026-09-09)",
+      "kind": "independent",
+      "fetchedOn": "2026-09-26"
+    },
+    "HERMES-XAI": {
+      "url": "https://hermes-agent.nousresearch.com/docs/guides/xai-grok-oauth",
+      "title": "Hermes Agent xAI Grok OAuth guide (third party)",
+      "kind": "secondary",
+      "fetchedOn": "2026-09-26"
+    },
+    "HERMES-403": {
+      "url": "https://github.com/NousResearch/hermes-agent/issues/26847",
+      "title": "Hermes issue: xAI OAuth 403 for standard SuperGrok (third party)",
+      "kind": "secondary",
+      "fetchedOn": "2026-09-26"
+    },
+    "ANT-RELNOTES": {
+      "url": "https://platform.claude.com/docs/en/release-notes/overview",
+      "title": "Anthropic API release notes (refusal billing 2026-09-24)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "OAI-CHANGELOG": {
+      "url": "https://developers.openai.com/api/docs/changelog",
+      "title": "OpenAI API changelog (release dates, 2026-09-25 image-encoding fix)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "CODEX-CHANGELOG": {
+      "url": "https://learn.chatgpt.com/docs/changelog",
+      "title": "Codex changelog (CLI 0.156.1 and 0.157.0)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "AZ-RETIRE": {
+      "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirement-schedule",
+      "title": "Microsoft Foundry model retirement schedule (page updated 2026-09-23)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "DS-HF-V41FLASH": {
+      "url": "https://huggingface.co/deepseek-ai/DeepSeek-V4.1-Flash",
+      "title": "DeepSeek-V4.1-Flash model card",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-27"
+    },
+    "QWEN-HF-38": {
+      "url": "https://huggingface.co/Qwen/Qwen3.8-2.4T-A95B",
+      "title": "Qwen3.8 2.4T-A95B base checkpoint model card",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-27"
+    },
+    "ALI-PRESS-0922": {
+      "url": "https://www.alibabacloud.com/en/press-room/alibaba-unveils-roadmap-on-full-stack-ai-strategy",
+      "title": "Alibaba Cloud press release 2026-09-22 (updated Qwen3.8-Max, Qwen 4 in training)",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-27"
+    },
+    "ZAI-RELNOTES": {
+      "url": "https://docs.z.ai/release-notes/new-released",
+      "title": "Z.ai release notes",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    },
+    "XAI-BUILD-DEV": {
+      "url": "https://docs.x.ai/developers/models/grok-build-0.1",
+      "title": "xAI grok-build-0.1 model page (developers path)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-27"
+    }
+  },
+  "entryNotes": {
+    "anthropic/claude-opus-5-5": {
+      "asOf": "2026-09-27",
+      "released": "2026-09-22",
+      "retirement": "not sooner than 2027-09-22",
+      "knowledgeCutoff": "2026-06",
+      "defaultEffort": "medium",
+      "cacheWrite1hPerMillion": 8,
+      "batchInputPerMillion": 2,
+      "batchOutputPerMillion": 10,
+      "fastMode": {
+        "inputPerMillion": 8,
+        "outputPerMillion": 40,
+        "platforms": "Claude API only"
+      },
+      "minCacheableTokens": 512,
+      "usOnlyMultiplier": 1.1,
+      "forcedToolChoice": false,
+      "thinkingReadableFrom": "Opus 5 and earlier Opus/Sonnet/Haiku; not Fable/Mythos",
+      "harnesses": {
+        "claude-code": "native (opus alias; default on Pro/Max/Team/Enterprise/API)",
+        "kilo": "provider (Anthropic API key)",
+        "opencode": "provider (Anthropic API key)",
+        "codex": "gateway only",
+        "antigravity": "not listed"
+      },
+      "cloud": [
+        "bedrock:anthropic.claude-opus-5-5",
+        "vertex:claude-opus-5-5",
+        "foundry:claude-opus-5-5"
+      ],
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0",
+          "value": "66.4%",
+          "basis": "vendor-reported, xhigh",
+          "date": "2026-09-22",
+          "sourceId": "ANT-NEWS-OPUS55"
+        },
+        {
+          "name": "AA Coding Agent Index (Claude Code, max)",
+          "value": "66.0",
+          "basis": "independent",
+          "date": "2026-09-25",
+          "sourceId": "IND-AA-AGENTS"
+        }
+      ],
+      "refusalBilling": "From 2026-09-24, refusals that arrive before any output with stop_details.category bio, frontier_llm or reasoning_extraction are billed at the rates of the model that ran them; other pre-output refusals stay unbilled (ANT-RELNOTES, fetched 2026-09-27)"
+    },
+    "anthropic/claude-fable-5-1": {
+      "asOf": "2026-09-27",
+      "released": "2026-09-01",
+      "retirement": "not sooner than 2027-09-01",
+      "knowledgeCutoff": "2026-06",
+      "defaultEffort": "high",
+      "cacheWrite1hPerMillion": 20,
+      "batchInputPerMillion": 5,
+      "batchOutputPerMillion": 25,
+      "minCacheableTokens": 512,
+      "usOnlyMultiplier": 1.1,
+      "dataRetention": "Covered Model: requires 30-day retention; not available under ZDR unless authorised (400 otherwise)",
+      "forcedToolChoice": false,
+      "rateLimitBucket": "shared with claude-fable-5",
+      "thinkingReadableFrom": "every earlier model (Opus 5.5 blocks only on the Claude API); no earlier model reads Fable 5.1 blocks",
+      "harnesses": {
+        "claude-code": "native (fable / best aliases; never the plan default)",
+        "kilo": "provider",
+        "opencode": "provider",
+        "codex": "gateway only",
+        "antigravity": "not listed"
+      },
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0",
+          "value": "55.8%",
+          "basis": "vendor-reported",
+          "date": "2026-09-01",
+          "sourceId": "ANT-NEWS-FABLE51"
+        },
+        {
+          "name": "Terminal-Bench 4.0 (Claude Code, max)",
+          "value": "57.9% ±3.8",
+          "basis": "independent leaderboard (vendor-run entry)",
+          "date": "2026-09-01",
+          "sourceId": "IND-TBENCH"
+        }
+      ],
+      "refusalBilling": "From 2026-09-24, refusals that arrive before any output with stop_details.category bio, frontier_llm or reasoning_extraction are billed at the rates of the model that ran them; other pre-output refusals stay unbilled (ANT-RELNOTES, fetched 2026-09-27)"
+    },
+    "anthropic/claude-opus-5": {
+      "asOf": "2026-09-27",
+      "status": "legacy",
+      "released": "2026-07-24",
+      "retirement": "not sooner than 2027-07-24",
+      "knowledgeCutoff": "2026-05",
+      "defaultEffort": "high",
+      "cacheWrite1hPerMillion": 10,
+      "batchInputPerMillion": 2.5,
+      "batchOutputPerMillion": 12.5,
+      "fastMode": {
+        "inputPerMillion": 10,
+        "outputPerMillion": 50
+      },
+      "minCacheableTokens": 512,
+      "note": "Current bundled baseline; superseded by claude-opus-5-5 at lower price.",
+      "refusalBilling": "From 2026-09-24, refusals that arrive before any output with stop_details.category bio, frontier_llm or reasoning_extraction are billed at the rates of the model that ran them; other pre-output refusals stay unbilled (ANT-RELNOTES, fetched 2026-09-27)"
+    },
+    "anthropic/claude-sonnet-5": {
+      "asOf": "2026-09-26",
+      "released": "2026-06-30",
+      "retirement": "not sooner than 2027-06-30",
+      "knowledgeCutoff": "2026-01",
+      "defaultEffort": "high",
+      "cacheWrite1hPerMillion": 4,
+      "batchInputPerMillion": 1,
+      "batchOutputPerMillion": 5,
+      "minCacheableTokens": 1024,
+      "priceNote": "$2/$10 introductory price made standard; the scheduled 2026-09-01 rise to $3/$15 will not occur",
+      "perMessageEffort": false,
+      "midConversationSystem": false,
+      "harnesses": {
+        "claude-code": "native (sonnet alias on Anthropic API)",
+        "kilo": "provider",
+        "opencode": "provider",
+        "codex": "gateway only",
+        "antigravity": "not listed"
+      },
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0 (Claude Code, max)",
+          "value": "12.4% ±3.1",
+          "basis": "independent leaderboard",
+          "date": "2026-06-30",
+          "sourceId": "IND-TBENCH"
+        },
+        {
+          "name": "SWE-rebench (May-Jul 2026 window)",
+          "value": "56.8%",
+          "basis": "independent",
+          "sourceId": "IND-SWEREBENCH"
+        }
+      ]
+    },
+    "anthropic/claude-haiku-4-5-20251001": {
+      "asOf": "2026-09-27",
+      "alias": "claude-haiku-4-5",
+      "released": "2025-10-15",
+      "retirement": "not sooner than 2026-10-15; still Active with no deprecation entry and no successor on 2026-09-27 (ANT-DEPREC). Anthropic gives at least 60 days' notice before retiring a publicly released model.",
+      "knowledgeCutoff": "2025-02",
+      "thinking": "extended thinking with budget_tokens (min 1024); effort not supported",
+      "inferenceGeo": "not supported (400)",
+      "cacheWrite1hPerMillion": 2,
+      "minCacheableTokens": 4096,
+      "benchmarks": [
+        {
+          "name": "SWE-bench Verified",
+          "value": "73.3%",
+          "basis": "vendor-reported (50 trials, 128K thinking budget)",
+          "date": "2025-10-15",
+          "sourceId": "ANT-NEWS-HAIKU45"
+        }
+      ],
+      "foundryRetirement": "2026-10-19 on Microsoft Foundry (AZ-RETIRE, fetched 2026-09-27)"
+    },
+    "anthropic/claude-sonnet-4-6": {
+      "asOf": "2026-09-26",
+      "status": "legacy",
+      "released": "2026-02-17",
+      "retirement": "not sooner than 2027-02-17",
+      "knowledgeCutoff": "2025-08",
+      "minCacheableTokens": 1024,
+      "why": "Antigravity offers \"Claude Sonnet 4.6 (thinking)\"; Claude Code sonnet alias resolves here on Claude Platform on AWS"
+    },
+    "anthropic/claude-opus-4-6": {
+      "asOf": "2026-09-26",
+      "status": "legacy",
+      "released": "2026-02-05",
+      "retirement": "not sooner than 2027-02-05",
+      "knowledgeCutoff": "2025-05",
+      "minCacheableTokens": 4096,
+      "rateLimitBucket": "shared Opus 4.x bucket",
+      "why": "Antigravity offers \"Claude Opus 4.6 (thinking)\"; Claude Code opus alias resolves here on Microsoft Foundry"
+    },
+    "anthropic/claude-sonnet-4-5-20250929": {
+      "asOf": "2026-09-27",
+      "status": "legacy",
+      "alias": "claude-sonnet-4-5",
+      "released": "2025-09-29",
+      "retirement": "not sooner than 2026-09-29; still Active with no deprecation entry on 2026-09-27 (ANT-DEPREC). Anthropic gives at least 60 days' notice before retiring a publicly released model.",
+      "knowledgeCutoff": "2025-01",
+      "why": "Claude Code sonnet alias resolves here on Bedrock, Vertex and Foundry",
+      "minCacheableTokens": 1024,
+      "foundryRetirement": "2026-10-19 on Microsoft Foundry (AZ-RETIRE, fetched 2026-09-27)"
+    },
+    "openai/gpt-6-astra": {
+      "asOf": "2026-09-27",
+      "released": "2026-09-03 (OpenAI API changelog: \"Sep 3 ... Released GPT-6 Astra\", fetched 2026-09-27)",
+      "knowledgeCutoff": "2026-04-30",
+      "maxInputTokens": 922000,
+      "defaultEffort": "unconfirmed: the model page lists levels without a default and the reasoning guide names a default only for gpt-5.5 (2026-09-27). Codex recommends starting at Light, which is effort low.",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 20,
+        "cachedPerMillion": 2,
+        "outputPerMillion": 75,
+        "cacheWritePerMillion": 25
+      },
+      "batchFlex": {
+        "input": 5,
+        "cached": 0.5,
+        "output": 25
+      },
+      "fast": {
+        "input": 20,
+        "cached": 2,
+        "output": 100
+      },
+      "cacheTtl": "30m (explicit or implicit; GPT-5.6+)",
+      "chatCompletionsFunctionCalling": false,
+      "residency": "eligible for data residency on Responses, Chat Completions and Batch; regional processing is offered in the US, EU and UAE, and Astra is not in the UAE subset, so regions us and eu (OAI-DATA, fetched 2026-09-27)",
+      "harnesses": {
+        "codex": "native (Plus/Pro/Business/Enterprise/Edu/API)",
+        "opencode": "provider (API key)",
+        "kilo": "provider",
+        "claude-code": "gateway only",
+        "antigravity": "not listed"
+      },
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0 (Codex, max)",
+          "value": "58.2% ±2.8",
+          "basis": "independent leaderboard (vendor-run entry)",
+          "date": "2026-09-03",
+          "sourceId": "IND-TBENCH"
+        },
+        {
+          "name": "AA Coding Agent Index (Codex, max)",
+          "value": "61.6",
+          "basis": "independent",
+          "sourceId": "IND-AA-AGENTS"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 58.2,
+        "ttftSeconds": 332,
+        "effort": "max",
+        "sourceId": "IND-AA-MODELS"
+      }
+    },
+    "openai/gpt-6-sol": {
+      "asOf": "2026-09-27",
+      "released": "2026-09-22",
+      "knowledgeCutoff": "2026-04-20",
+      "maxInputTokens": 922000,
+      "defaultEffort": "medium",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 4,
+        "cachedPerMillion": 0.4,
+        "outputPerMillion": 15,
+        "cacheWritePerMillion": 5
+      },
+      "batchFlex": {
+        "input": 1,
+        "cached": 0.1,
+        "output": 5
+      },
+      "fast": {
+        "input": 4,
+        "cached": 0.4,
+        "output": 20
+      },
+      "residency": "EU data residency with Standard processing only",
+      "chatCompletionsFunctionCalling": "only at effort none",
+      "harnesses": {
+        "codex": "native",
+        "opencode": "provider (API key or ChatGPT/Codex OAuth, PR #50704)",
+        "kilo": "provider",
+        "claude-code": "gateway only",
+        "antigravity": "not listed"
+      },
+      "benchmarks": [
+        {
+          "name": "AA Coding Agent Index (Codex, max)",
+          "value": "56.7",
+          "basis": "independent",
+          "sourceId": "IND-AA-AGENTS"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 84.5,
+        "ttftSeconds": 162.6,
+        "effort": "max",
+        "sourceId": "IND-AA-MODELS"
+      },
+      "imageEncodingFix": "2026-09-25: OpenAI fixed an image-encoding bug that degraded image understanding and recommends re-running evaluations (OAI-CHANGELOG, fetched 2026-09-27)",
+      "codex": "Added in Codex CLI 0.156.1 (2026-09-23); 0.157.0 (2026-09-25) adds Amazon Bedrock support. Codex recommends it on Plus, Pro, Business, Enterprise and Edu, starting at Medium effort (CODEX-MODELS, CODEX-CHANGELOG, 2026-09-27)."
+    },
+    "openai/gpt-6-luna": {
+      "asOf": "2026-09-27",
+      "released": "2026-09-22",
+      "knowledgeCutoff": "2026-05-18",
+      "maxInputTokens": 922000,
+      "defaultEffort": "medium",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 0.2,
+        "cachedPerMillion": 0.02,
+        "outputPerMillion": 0.75
+      },
+      "batchFlex": {
+        "input": 0.05,
+        "cached": 0.005,
+        "output": 0.25
+      },
+      "fast": {
+        "input": 0.2,
+        "cached": 0.02,
+        "output": 1
+      },
+      "residency": "EU data residency with Standard processing only",
+      "harnesses": {
+        "codex": "native",
+        "opencode": "provider",
+        "kilo": "provider",
+        "claude-code": "gateway only",
+        "antigravity": "not listed"
+      },
+      "benchmarks": [
+        {
+          "name": "AA Coding Agent Index (Codex, max)",
+          "value": "41.1",
+          "basis": "independent",
+          "sourceId": "IND-AA-AGENTS"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 143.7,
+        "ttftSeconds": 122.3,
+        "sourceId": "IND-AA-MODELS"
+      },
+      "imageEncodingFix": "2026-09-25: OpenAI fixed an image-encoding bug that degraded image understanding and recommends re-running evaluations (OAI-CHANGELOG, fetched 2026-09-27)",
+      "codex": "Added in Codex CLI 0.156.1 (2026-09-23); 0.157.0 (2026-09-25) adds Amazon Bedrock support. Codex recommends it on Free and Go (desktop app, subject to rollout), starting at High effort; it supports up to Max but not Ultra (CODEX-MODELS, CODEX-CHANGELOG, 2026-09-27)."
+    },
+    "openai/gpt-5.6-sol": {
+      "asOf": "2026-09-27",
+      "alias": "gpt-5.6 (the changelog: \"The gpt-5.6 alias routes requests to gpt-5.6-sol\")",
+      "released": "2026-07-09 (OpenAI API changelog, fetched 2026-09-27)",
+      "knowledgeCutoff": "2026-02-16",
+      "maxInputTokens": 922000,
+      "defaultEffort": "medium",
+      "priceNote": "promotional price \"at least through November 21, 2026\"; launch price was $5/$30",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 8,
+        "cachedPerMillion": 0.8,
+        "outputPerMillion": 30
+      },
+      "codexChatGptLogin": "community reports say unsupported with a ChatGPT account (unconfirmed fix)",
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0 (Codex, max)",
+          "value": "37.3% ±3.8",
+          "basis": "independent leaderboard",
+          "date": "2026-06-26",
+          "sourceId": "IND-TBENCH"
+        }
+      ],
+      "fastLongContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 16,
+        "cachedPerMillion": 1.6,
+        "cacheWritePerMillion": 20,
+        "outputPerMillion": 60,
+        "sourceId": "OAI-PRICING"
+      },
+      "ultrafast": "Ultrafast tier announced 2026-08-13: \"up to 14x faster ... limited preview to select customers\" (OAI-CHANGELOG)"
+    },
+    "openai/gpt-5.6-terra": {
+      "asOf": "2026-09-27",
+      "released": "2026-07-09 (OpenAI API changelog, fetched 2026-09-27)",
+      "knowledgeCutoff": "2026-02-16",
+      "defaultEffort": "medium",
+      "replaces": "gpt-5-mini, gpt-5.1-codex-mini, o4-mini",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 4,
+        "cachedPerMillion": 0.4,
+        "outputPerMillion": 18
+      },
+      "fastLongContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 8,
+        "cachedPerMillion": 0.8,
+        "cacheWritePerMillion": 10,
+        "outputPerMillion": 36,
+        "sourceId": "OAI-PRICING"
+      }
+    },
+    "openai/gpt-5.6-luna": {
+      "asOf": "2026-09-27",
+      "released": "2026-07-09 (OpenAI API changelog, fetched 2026-09-27)",
+      "knowledgeCutoff": "2026-02-16",
+      "defaultEffort": "medium",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 0.4,
+        "cachedPerMillion": 0.04,
+        "outputPerMillion": 1.8
+      },
+      "fastLongContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 0.8,
+        "cachedPerMillion": 0.08,
+        "cacheWritePerMillion": 1,
+        "outputPerMillion": 3.6,
+        "sourceId": "OAI-PRICING"
+      }
+    },
+    "openai/gpt-5.5": {
+      "asOf": "2026-09-27",
+      "snapshot": "gpt-5.5-2026-04-23",
+      "knowledgeCutoff": "2025-12-01",
+      "defaultEffort": "medium (model page: \"none, low, medium (default), high and xhigh\"; reasoning guide: \"gpt-5.5 defaults to medium\"; fetched 2026-09-27)",
+      "cacheWriteNote": "no cache-write charge: writes bill as ordinary input",
+      "codexRetirement": "2026-10-14 in Codex and ChatGPT with ChatGPT sign-in; \"This retirement does not apply to the OpenAI API.\" Codex now recommends GPT-6 Sol on Plus, Pro, Business, Enterprise and Edu, and GPT-6 Luna on Free and Go (CODEX-MODELS, fetched 2026-09-27)",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 10,
+        "cachedPerMillion": 1,
+        "outputPerMillion": 45,
+        "batchFlex": {
+          "input": 5,
+          "cached": 0.5,
+          "output": 22.5
+        },
+        "fast": "no long-context price",
+        "scope": "model page: \"prompts with >272K input tokens are priced at 2x input and 1.5x output for the full session for standard, batch, and flex\"",
+        "resolved": "the 2026-09-26 conflict between the model page and the pricing page is resolved (OAI-PRICING, OAI-M-gpt-5.5, fetched 2026-09-27)"
+      },
+      "cacheRetention": "\"24h\" only (also gpt-5.5-pro), implicit breakpoints every 2,048 tokens, no write charge (OAI-CACHE, fetched 2026-09-27)"
+    },
+    "openai/gpt-5.4": {
+      "asOf": "2026-09-26",
+      "snapshot": "gpt-5.4-2026-03-05",
+      "released": "2026-03-05",
+      "knowledgeCutoff": "2025-08-31",
+      "defaultEffort": "none",
+      "cacheWriteNote": "no cache-write charge",
+      "codexRetirement": "2026-08-31 (retired in Codex)",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 5,
+        "cachedPerMillion": 0.5,
+        "outputPerMillion": 22.5
+      },
+      "benchmarks": [
+        {
+          "name": "SWE-bench Pro public (xHigh)",
+          "value": "59.10 ±3.56",
+          "basis": "independent (Scale)",
+          "date": "2026-04-08",
+          "sourceId": "IND-SCALE-PRO"
+        },
+        {
+          "name": "SWE-bench Verified (high)",
+          "value": "76.9 ±1.9",
+          "basis": "independent (Epoch)",
+          "date": "2026-03-06",
+          "sourceId": "IND-EPOCH-SWEV"
+        }
+      ]
+    },
+    "openai/gpt-5.4-mini": {
+      "asOf": "2026-09-26",
+      "snapshot": "gpt-5.4-mini-2026-03-17",
+      "knowledgeCutoff": "2025-08-31",
+      "maxInputTokens": 272000,
+      "defaultEffort": "none",
+      "cacheWriteNote": "no cache-write charge",
+      "codexRetirement": "2026-08-31"
+    },
+    "openai/gpt-5.4-nano": {
+      "asOf": "2026-09-26",
+      "snapshot": "gpt-5.4-nano-2026-03-17",
+      "knowledgeCutoff": "2025-08-31",
+      "maxInputTokens": 272000,
+      "defaultEffort": "none",
+      "fastMode": false,
+      "cacheWriteNote": "no cache-write charge"
+    },
+    "openai/gpt-5.3-codex": {
+      "asOf": "2026-09-26",
+      "released": "2026-02-05 (secondary source)",
+      "knowledgeCutoff": "2025-08-31",
+      "maxInputTokens": 272000,
+      "status": "only Codex-tuned model still in the API; deprecated in Codex under ChatGPT sign-in",
+      "cacheWriteNote": "no cache-write charge",
+      "benchmarks": [
+        {
+          "name": "SWE-bench Verified (high)",
+          "value": "74.8 ±2.0",
+          "basis": "independent (Epoch)",
+          "date": "2026-02-25",
+          "sourceId": "IND-EPOCH-SWEV"
+        }
+      ]
+    },
+    "google/gemini-3.8-flash": {
+      "asOf": "2026-09-27",
+      "cacheWriteNote": "no write charge for implicit caching; explicit caches add per-hour storage (see storagePerMillionPerHour); cacheWritePerMillion set to the input price",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "released": "2026-09-02 (GA)",
+      "knowledgeCutoff": "unconfirmed: the recorded 2026-03 is not stated on the Gemini API model page, the DeepMind model card or the Agent Platform page (2026-09-27)",
+      "defaultEffort": "medium",
+      "storagePerMillionPerHour": 0.5,
+      "scheduledChange": {
+        "effectiveOn": "2027-01-01",
+        "inputPerMillion": 1.5,
+        "outputPerMillion": 7.5,
+        "cachedPerMillion": 0.15,
+        "storagePerMillionPerHour": 1
+      },
+      "minImplicitCacheTokens": 4096,
+      "vertexRegions": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "priority": {
+        "throughDate": "2026-12-31",
+        "inputPerMillion": 1.35,
+        "outputPerMillion": 6.75,
+        "cachedPerMillion": 0.135,
+        "storagePerMillionPerHour": 0.5,
+        "from2027_01_01": {
+          "inputPerMillion": 2.7,
+          "outputPerMillion": 13.5,
+          "cachedPerMillion": 0.27,
+          "storagePerMillionPerHour": 1
+        },
+        "note": "storage is not 1.8x under priority (GOO-PRICING, fetched 2026-09-27)"
+      },
+      "batchFlex": "50%",
+      "extraSources": [
+        "GOO-EVAL-38",
+        "AGY-MODELS"
+      ],
+      "harnesses": {
+        "antigravity": "native (Low/Medium/High variants)",
+        "kilo": "provider (Gemini API key or Vertex)",
+        "opencode": "provider (Vertex or OpenRouter google/gemini-3.8-flash)",
+        "codex": "not native",
+        "claude-code": "gateway only"
+      },
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 2.1 (Terminus 2)",
+          "value": "89.4%",
+          "basis": "vendor-reported",
+          "date": "2026-09",
+          "sourceId": "GOO-EVAL-38"
+        },
+        {
+          "name": "Terminal-Bench 4.0 (mini-SWE-agent, high)",
+          "value": "19.1%",
+          "basis": "independent leaderboard; matches vendor",
+          "date": "2026-09-02",
+          "sourceId": "IND-TBENCH"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 329.7,
+        "ttftSeconds": 22.6,
+        "effort": "high",
+        "sourceId": "IND-AA-MODELS"
+      },
+      "weakness": "very verbose (170M output tokens on AA index vs 88M median); Google suggests 3.7 Flash or lower effort for efficiency"
+    },
+    "google/gemini-3.7-flash": {
+      "asOf": "2026-09-27",
+      "cacheWriteNote": "no write charge for implicit caching; explicit caches add per-hour storage (see storagePerMillionPerHour); cacheWritePerMillion set to the input price",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "released": "2026-08-13 (GA)",
+      "knowledgeCutoff": "unconfirmed: the recorded 2026-03 is not stated on the Gemini API model page, the DeepMind model card or the Agent Platform page (2026-09-27)",
+      "defaultEffort": "medium",
+      "storagePerMillionPerHour": 0.5,
+      "scheduledChange": {
+        "effectiveOn": "2027-01-01",
+        "inputPerMillion": 1.5,
+        "outputPerMillion": 7.5,
+        "cachedPerMillion": 0.15,
+        "storagePerMillionPerHour": 1
+      },
+      "vertexRegions": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "extraSources": [
+        "AGY-MODELS"
+      ],
+      "harnesses": {
+        "antigravity": "native",
+        "kilo": "provider",
+        "opencode": "provider"
+      },
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0",
+          "value": "11.2%",
+          "basis": "independent leaderboard",
+          "sourceId": "IND-TBENCH"
+        }
+      ],
+      "priority": {
+        "throughDate": "2026-12-31",
+        "inputPerMillion": 1.35,
+        "outputPerMillion": 6.75,
+        "cachedPerMillion": 0.135,
+        "storagePerMillionPerHour": 0.5,
+        "from2027_01_01": {
+          "inputPerMillion": 2.7,
+          "outputPerMillion": 13.5,
+          "cachedPerMillion": 0.27,
+          "storagePerMillionPerHour": 1
+        },
+        "note": "storage is not 1.8x under priority (GOO-PRICING, fetched 2026-09-27)"
+      }
+    },
+    "google/gemini-3.6-flash": {
+      "asOf": "2026-09-27",
+      "cacheWriteNote": "no write charge for implicit caching; explicit caches add per-hour storage (see storagePerMillionPerHour); cacheWritePerMillion set to the input price",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "released": "2026-07-21 (GA)",
+      "knowledgeCutoff": "unconfirmed",
+      "defaultEffort": "medium",
+      "storagePerMillionPerHour": 0.5,
+      "scheduledChange": {
+        "effectiveOn": "2027-01-01",
+        "inputPerMillion": 1.5,
+        "outputPerMillion": 7.5,
+        "cachedPerMillion": 0.15,
+        "storagePerMillionPerHour": 1
+      },
+      "priceConflict": "resolved 2026-09-27: the pricing page shows $0.75 / $0.075 / $3.75 through 2026-12-31, then $1.50 / $0.15 / $7.50 from 2027-01-01, the same as 3.7 and 3.8 (the July launch blog quoted $1.50 / $7.50)",
+      "vertexRegions": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "extraSources": [
+        "AGY-MODELS"
+      ],
+      "harnesses": {
+        "antigravity": "native",
+        "kilo": "provider",
+        "opencode": "provider"
+      },
+      "priority": {
+        "throughDate": "2026-12-31",
+        "inputPerMillion": 1.35,
+        "outputPerMillion": 6.75,
+        "cachedPerMillion": 0.135,
+        "storagePerMillionPerHour": 0.5,
+        "from2027_01_01": {
+          "inputPerMillion": 2.7,
+          "outputPerMillion": 13.5,
+          "cachedPerMillion": 0.27,
+          "storagePerMillionPerHour": 1
+        },
+        "note": "storage is not 1.8x under priority (GOO-PRICING, fetched 2026-09-27)"
+      }
+    },
+    "google/gemini-3.5-flash": {
+      "asOf": "2026-09-27",
+      "cacheWriteNote": "no write charge for implicit caching; explicit caches add per-hour storage (see storagePerMillionPerHour); cacheWritePerMillion set to the input price",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "released": "2026-05-19 (GA)",
+      "knowledgeCutoff": "unconfirmed",
+      "defaultEffort": "medium",
+      "storagePerMillionPerHour": 1,
+      "vertexRetirement": "2027-05-19 or later (VTX-M-gemini-3.5-flash, fetched 2026-09-27)",
+      "vertexRegions": [
+        "global",
+        "us",
+        "eu",
+        "northamerica-northeast1",
+        "europe-west2",
+        "europe-west3",
+        "asia-northeast1",
+        "asia-south1",
+        "asia-southeast1",
+        "australia-southeast1"
+      ],
+      "note": "Dearer than 3.6-3.8 Flash at their introductory prices; widest Vertex regional set of the 3.x models"
+    },
+    "google/gemini-3.5-flash-lite": {
+      "asOf": "2026-09-27",
+      "cacheWriteNote": "no write charge for implicit caching; explicit caches add per-hour storage (see storagePerMillionPerHour); cacheWritePerMillion set to the input price",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "released": "2026-07-21 (GA)",
+      "knowledgeCutoff": "unconfirmed",
+      "defaultEffort": "minimal",
+      "storagePerMillionPerHour": 1,
+      "vertexRetirement": "2027-07-21 or later (VTX-M-gemini-3.5-flash-lite, fetched 2026-09-27)",
+      "vertexRegions": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "warning": "minimal thinking \"can cause premature tool termination on multi-step tasks\"; use medium or high for coding subagents",
+      "latency": {
+        "outputTokensPerSecond": 348.6,
+        "ttftSeconds": 9.13,
+        "sourceId": "IND-AA-MODELS"
+      },
+      "harnesses": {
+        "antigravity": "not listed",
+        "kilo": "provider",
+        "opencode": "provider"
+      }
+    },
+    "google/gemini-3.1-flash-lite": {
+      "asOf": "2026-09-27",
+      "cacheWriteNote": "no write charge for implicit caching; explicit caches add per-hour storage (see storagePerMillionPerHour); cacheWritePerMillion set to the input price",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "released": "2026-05-07 (GA)",
+      "apiShutdown": "2027-05-07 (replacement gemini-3.5-flash-lite)",
+      "storagePerMillionPerHour": 1,
+      "audioInputPerMillion": 0.5,
+      "vertexRegions": [
+        "global",
+        "us",
+        "eu"
+      ],
+      "vertexRetirement": "2027-05-07 or later (VTX-M-gemini-3.1-flash-lite, fetched 2026-09-27)"
+    },
+    "google/gemini-3.1-pro-preview": {
+      "asOf": "2026-09-27",
+      "cacheWriteNote": "no write charge for implicit caching; explicit caches add per-hour storage (see storagePerMillionPerHour); cacheWritePerMillion set to the input price",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "released": "2026-02-19 (preview)",
+      "knowledgeCutoff": "unconfirmed",
+      "defaultEffort": "high",
+      "storagePerMillionPerHour": 4.5,
+      "longContext": {
+        "aboveInputTokens": 200000,
+        "inputPerMillion": 4,
+        "cachedPerMillion": 0.4,
+        "outputPerMillion": 18
+      },
+      "freeTier": false,
+      "vertexRegions": [
+        "global"
+      ],
+      "variant": "gemini-3.1-pro-preview-customtools (same price; prioritises custom tools such as view_file/search_code)",
+      "extraSources": [
+        "GOO-CARD-31PRO",
+        "AGY-MODELS"
+      ],
+      "statusConflict": "resolved 2026-09-27: still preview on the Gemini API and \"Public preview\" on the Agent Platform",
+      "harnesses": {
+        "antigravity": "native (\"Gemini 3.1 Pro\"); the picker offers Low and High only, default High, although the API accepts low, medium and high (AGY-MODELS, 2026-09-27)",
+        "kilo": "provider",
+        "opencode": "provider"
+      },
+      "benchmarks": [
+        {
+          "name": "SWE-bench Verified",
+          "value": "80.6%",
+          "basis": "vendor-reported",
+          "sourceId": "GOO-CARD-31PRO"
+        },
+        {
+          "name": "SWE-bench Pro public (thinking)",
+          "value": "46.10 ±3.60",
+          "basis": "independent (Scale)",
+          "sourceId": "IND-SCALE-PRO"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 120.2,
+        "ttftSeconds": 27.65,
+        "sourceId": "IND-AA-MODELS"
+      },
+      "batchFlexCache": "batch and flex context caching is \"Same as Standard\" ($0.20, above 200K $0.40, storage $4.50), not 50% off (GOO-PRICING, fetched 2026-09-27)",
+      "priority": {
+        "inputPerMillion": 3.6,
+        "outputPerMillion": 21.6,
+        "cachedPerMillion": 0.36,
+        "storagePerMillionPerHour": 8.1,
+        "above200k": {
+          "inputPerMillion": 7.2,
+          "outputPerMillion": 32.4,
+          "cachedPerMillion": 0.72
+        },
+        "sourceId": "GOO-PRICING"
+      }
+    },
+    "deepseek/deepseek-flash": {
+      "asOf": "2026-09-27",
+      "model": "DeepSeek-V4.1-Flash",
+      "released": "2026-09-10",
+      "legacyAliases": [
+        "deepseek-v4-flash",
+        "deepseek-v4-flash-vision-exp"
+      ],
+      "retiredIds": "deepseek-chat and deepseek-reasoner retired after 2026-07-24",
+      "tariffBasis": "peak price (conservative); off-peak is 50%: $0.15 in / $0.003 cache hit / $0.60 out",
+      "cacheWriteNote": "automatic context caching, no write charge: set to the input price",
+      "defaultEffort": "high (other values mapped: minimal->low, medium->high, xhigh->high)",
+      "thinkingDefault": "on: the pricing page lists \"thinking (default)\" mode but does not restate the effort default; reasoning_content must be passed back each turn",
+      "maxOutputSource": "models.dev note: max_tokens 1..393216",
+      "dataTerms": "processed and stored in the PRC; inputs may be used for training (opt-out by email)",
+      "parameters": "conflict persists: the card says a 552B backbone, 8B active at prefill and 16B at decode; the HF metadata says 763B; the card does not explain the gap (2026-09-27)",
+      "harnesses": {
+        "kilo": "native DeepSeek provider",
+        "opencode": "provider deepseek; Zen deepseek-v4.1-flash",
+        "claude-code": "ANTHROPIC_BASE_URL=https://api.deepseek.com/anthropic (claude-sonnet*/haiku* map here; cache_control ignored)",
+        "codex": "Responses API",
+        "antigravity": "not listed"
+      },
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 2.1",
+          "value": "90.6",
+          "basis": "secondary (buildfastwithai / llm-stats); not on vendor page"
+        },
+        {
+          "name": "AA Coding Agent Index",
+          "value": "not listed; AA Intelligence Index 39.5 (Max)",
+          "basis": "independent",
+          "sourceId": "IND-AA-MODELS"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 237.1,
+        "ttftSeconds": 1,
+        "sourceId": "IND-AA-MODELS"
+      },
+      "license": "MIT (DS-HF-V41FLASH, fetched 2026-09-27)",
+      "anthropicEndpoint": "\"only the effort parameter receives support\" in output_config; thinking is supported but budget_tokens is ignored (DS-ANTHROPIC, fetched 2026-09-27)",
+      "offPeakHours": "peak 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday, excluding Chinese public holidays; all other hours are off-peak (DS-PRICING, fetched 2026-09-27)"
+    },
+    "deepseek/deepseek-v4-pro": {
+      "asOf": "2026-09-27",
+      "model": "DeepSeek-V4-Pro-0813",
+      "released": "2026-08-13 (GA; preview 2026-04-24)",
+      "license": "MIT",
+      "parameters": "1.6T total / 49B active",
+      "tariffBasis": "peak; off-peak $0.66 / $0.022 / $1.98",
+      "priceConflict": "models.dev $0.435/$0.87; OpenCode Zen $1.74 / $0.145 cached / $3.48 (ZEN, fetched 2026-09-27)",
+      "harnesses": {
+        "claude-code": "claude-opus* maps to deepseek-v4-pro on the DeepSeek Anthropic endpoint"
+      },
+      "benchmarks": [
+        {
+          "name": "SWE-bench Verified",
+          "value": "80.6",
+          "basis": "vendor-reported (Max)",
+          "sourceId": "DS-HF-V4PRO"
+        },
+        {
+          "name": "SWE-bench Pro",
+          "value": "55.4",
+          "basis": "vendor-reported",
+          "sourceId": "DS-HF-V4PRO"
+        },
+        {
+          "name": "Terminal-Bench 2.0",
+          "value": "67.9",
+          "basis": "vendor-reported",
+          "sourceId": "DS-HF-V4PRO"
+        },
+        {
+          "name": "SWE-bench Verified (max)",
+          "value": "77.6 ±1.9",
+          "basis": "independent (Epoch)",
+          "sourceId": "IND-EPOCH-SWEV"
+        }
+      ],
+      "status": "active, billing unchanged (resolved 2026-09-27): the change log entry of 2026-09-10 says \"we have decided to continue providing API services for DeepSeek V4 Pro after September 14, 2026\", and the pricing page still lists it. The 2026-09-10 news post still carries the phase-out text without an amendment, so it is superseded.",
+      "offPeakHours": "peak 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday, excluding Chinese public holidays; all other hours are off-peak (DS-PRICING, fetched 2026-09-27)"
+    },
+    "alibaba/qwen3.8-max": {
+      "asOf": "2026-09-27",
+      "released": "2026-08-03 (secondary)",
+      "snapshot": "qwen3.8-max-0902 (OpenRouter). Alibaba's 2026-09-22 press release says an \"updated Qwen3.8-Max\" raised its Artificial Analysis score from 40 to 45 [vendor-reported]; no new snapshot id; price unchanged (ALI-PRESS-0922).",
+      "maxInputTokens": "991K (983K with thinking)",
+      "maxOutputSource": "OpenRouter and MarkTechPost (second sources)",
+      "tariffBasis": "Singapore/international; Beijing $1.65/$4.951",
+      "cacheNote": "recorded implicit hit $0.25, explicit creation $2.50, explicit read $0.17; unconfirmed on 2026-09-27, because the Model Studio cache page now shows cache prices only as \"non-standard pricing per console\" (OpenCode Zen shows $0.25 read / $2.50 write)",
+      "thinking": "toggle; effort low|medium|xhigh (high aliases xhigh) or budget 0-262144, not both (models.dev)",
+      "openWeights": "base checkpoint Qwen/Qwen3.8-2.4T-A95B on Hugging Face: 2.4T total / 95B active, licence tag qwen3.8-max (custom), text-only, 262,144 native context extensible to 1,010,000. The API model is \"based on\" it and adds vision, non-thinking and 1M by default (QWEN-HF-38, fetched 2026-09-27).",
+      "dataTerms": "unconfirmed",
+      "harnesses": {
+        "kilo": "Alibaba Cloud provider",
+        "opencode": "models.dev alibaba / alibaba-cn; Zen qwen3.8-max",
+        "claude-code": "Model Studio Anthropic endpoint https://{WorkspaceId}.{region}.maas.aliyuncs.com/apps/anthropic",
+        "codex": "unconfirmed",
+        "antigravity": "not listed"
+      },
+      "benchmarks": [
+        {
+          "name": "SWE-bench Pro",
+          "value": "67.7",
+          "basis": "vendor-reported via secondary (MarkTechPost)",
+          "sourceId": "MTP-QWEN38"
+        },
+        {
+          "name": "AA Coding Agent Index (Claude Code)",
+          "value": "43.3",
+          "basis": "independent",
+          "sourceId": "IND-AA-AGENTS"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 39.7,
+        "ttftSeconds": 3,
+        "ttfatSeconds": 53.4,
+        "sourceId": "IND-AA-MODELS"
+      },
+      "batch": "50% off; cannot be combined with caching (ALI-PRICING, fetched 2026-09-27)"
+    },
+    "moonshot/kimi-k3": {
+      "asOf": "2026-09-26",
+      "released": "2026-07-16 (weights 2026-07-27)",
+      "license": "Kimi K3 License (custom; terms not extracted)",
+      "parameters": "2.8T total / 104B active",
+      "maxOutputSource": "OpenRouter Moonshot endpoint (models.dev says up to 1,048,576)",
+      "cacheWrite1hPerMillion": 6,
+      "cacheTtl": "5 min ($3 write) or 1 h ($6 write)",
+      "thinking": "conflict: HF says always on, default max; models.dev says enabled|disabled|adaptive",
+      "endpoints": "international api.moonshot.ai (hosting location not published) and China api.moonshot.cn, separate keys",
+      "dataTerms": "unconfirmed",
+      "harnesses": {
+        "claude-code": "ANTHROPIC_BASE_URL=https://api.moonshot.ai/anthropic, ANTHROPIC_MODEL=kimi-k3[1m]",
+        "codex": "model kimi-k3",
+        "kilo": "Moonshot provider",
+        "opencode": "moonshotai provider; Zen kimi-k3",
+        "antigravity": "not listed"
+      },
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 2.1",
+          "value": "88.3",
+          "basis": "vendor-reported",
+          "sourceId": "KIMI-HF-K3"
+        },
+        {
+          "name": "AA Coding Agent Index (Kimi Code CLI)",
+          "value": "51.9",
+          "basis": "independent",
+          "sourceId": "IND-AA-AGENTS"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 35.1,
+        "ttftSeconds": 4.2,
+        "ttfatSeconds": 61.1,
+        "sourceId": "IND-AA-MODELS"
+      }
+    },
+    "zai/glm-5.3": {
+      "asOf": "2026-09-27",
+      "released": "conflict: the Z.ai release notes say 2026-08-18; the Terminal-Bench 4.0 GLM-5.3 submission is dated 2026-08-14 (ZAI-RELNOTES, fetched 2026-09-27)",
+      "parameters": "753B",
+      "license": "glm-5.3 (custom; the HF card gives no terms text; fetched 2026-09-27)",
+      "defaultEffort": "max",
+      "cacheNote": "cached storage \"Limited-time Free\"; write set to the input price",
+      "maxOutputNote": "vendor states 128K; recorded as 128,000 (lower bound)",
+      "dataTerms": "served from Singapore; DPA: API content not saved, not used for training",
+      "codingPlan": "from $18/month; Lite/Pro/Max credits per 5 h 2,000/12,000/28,000; peak Mon-Fri 14:00-18:00 SGT",
+      "harnesses": {
+        "claude-code": "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic (default maps every tier to GLM-5.3-Flash)",
+        "opencode": "Z.AI and Z.AI Coding Plan providers; Zen glm-5.3",
+        "kilo": "via Kilo Gateway (z-ai/...); not a native provider on the fetched list",
+        "codex": "unconfirmed"
+      },
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 2.1",
+          "value": "88.2",
+          "basis": "vendor-reported",
+          "sourceId": "ZAI-HF"
+        },
+        {
+          "name": "Terminal-Bench 4.0 (Claude Code, max)",
+          "value": "41.8% ±3.2",
+          "basis": "independent leaderboard",
+          "sourceId": "IND-TBENCH"
+        },
+        {
+          "name": "AA Coding Agent Index (OpenCode)",
+          "value": "53.6",
+          "basis": "independent",
+          "sourceId": "IND-AA-AGENTS"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 71.5,
+        "ttftSeconds": 3.3,
+        "ttfatSeconds": 31.3,
+        "sourceId": "IND-AA-MODELS"
+      },
+      "effortNote": "vendor: \"Disabling reasoning is no longer supported\" (ZAI-GLM53, 2026-09-27)"
+    },
+    "xai/grok-build-0.1": {
+      "asOf": "2026-09-27",
+      "released": "unconfirmed: x.ai news 2026-05-29 (public beta), OpenRouter lists 2026-05-20, models.dev 2026-04-16",
+      "status": "beta",
+      "aliases": "grok-code-fast-1, grok-code-fast and grok-code-fast-1-0825 now route here",
+      "maxOutputSource": "models.dev (second source)",
+      "longContext": {
+        "atOrAboveInputTokens": 200000,
+        "inputPerMillion": 2,
+        "cachedPerMillion": 0.4,
+        "outputPerMillion": 4,
+        "tierEncoding": "aboveInputTokens 199999, because the contract tier is strictly greater-than"
+      },
+      "regionsDetail": [
+        "us-east-1",
+        "us-west-2"
+      ],
+      "openWeights": false,
+      "dataTerms": "API default: 30-day abuse-audit retention, no training; team-wide ZDR where available (XAI-SECURITY)",
+      "harnesses": {
+        "kilo": "native xAI provider (SuperGrok OAuth or API key) and Kilo Gateway (API key)",
+        "opencode": "native xAI provider (SuperGrok OAuth or API key); Zen /responses",
+        "claude-code": "gateway only",
+        "codex": "custom provider (API key, Responses API)",
+        "grok-build": "official CLI"
+      },
+      "rateLimits": {
+        "tier0": "37 RPS / 10M TPM",
+        "tier4": "208 RPS / 85M TPM",
+        "sharedWith": "grok-4.3 has identical limits",
+        "sourceId": "XAI-RATE"
+      },
+      "lifecycleCheck": "2026-09-27: the vendor page has no beta, preview or general-availability wording; status kept preview until a source states otherwise (XAI-BUILD-DEV)"
+    },
+    "xai/grok-4.7": {
+      "asOf": "2026-09-26",
+      "released": "2026-09-21 (x.ai news; API release notes, September)",
+      "knowledgeCutoff": "2026-05",
+      "maxOutput": "vendor: \"No text output limit\" (bounded by the 500K window); 450,000 recorded from OpenRouter max_completion_tokens (second source, the lower value)",
+      "modalities": "text and image in, text out",
+      "defaultEffort": "high",
+      "reasoning": {
+        "parameter": "reasoning_effort (xAI SDK, Chat Completions) or reasoning.effort (Responses API)",
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "canDisable": false,
+        "tokensBilled": "reasoning tokens are billed at the completion (output) token price",
+        "effortChangeKeepsCache": "not documented",
+        "rejectedParameters": "presencePenalty, frequencyPenalty and stop return an error on reasoning models",
+        "sourceId": "XAI-REASONING"
+      },
+      "caching": {
+        "mode": "automatic prefix caching, from the start of the messages array",
+        "affinityKey": "prompt_cache_key (Responses API) or x-grok-conv-id header (Chat Completions); without it you often pay full input price on a cache-cold server",
+        "ttl": "none stated: entries can be evicted at any time due to server load or restarts",
+        "minimumTokens": "not stated",
+        "writePremium": "none stated (write recorded at the input price)",
+        "perModel": "not stated",
+        "breaks": "any edit, removal or reorder of earlier messages; omitting reasoning content from previous responses (send encrypted reasoning back or use previous_response_id)",
+        "longContext": "cached tokens count toward the 200K threshold and use the long-context cached rate",
+        "sourceId": "XAI-CACHE"
+      },
+      "longContext": {
+        "atOrAboveInputTokens": 200000,
+        "inputPerMillion": 4,
+        "cachedPerMillion": 1,
+        "outputPerMillion": 12,
+        "scope": "all tokens in the request",
+        "tierEncoding": "aboveInputTokens 199999, because the contract tier is strictly greater-than"
+      },
+      "batch": "not supported",
+      "priority": {
+        "multiplier": 2,
+        "parameter": "service_tier: \"priority\"",
+        "billedOnlyWhen": "the response confirms service_tier priority",
+        "sourceId": "XAI-PRICING"
+      },
+      "usRegionalEndpoint": {
+        "baseUrl": "https://us.api.x.ai/v1",
+        "multiplier": 1.1,
+        "below200k": {
+          "input": 2.2,
+          "cached": 0.55,
+          "output": 6.6
+        },
+        "atOrAbove200k": {
+          "input": 4.4,
+          "cached": 1.1,
+          "output": 13.2
+        },
+        "models": "grok-4.7 and grok-4.6 only",
+        "sourceId": "XAI-PRICING"
+      },
+      "residency": "default endpoint https://api.x.ai does not guarantee a processing region; model pages list us-east-1, us-west-2, us-central-1",
+      "dataRetention": "API requests and responses kept 30 days (encrypted) for abuse auditing, not trained on; team-wide self-serve ZDR where available (disables stateful Responses, Files, Collections, Batch, deferred completions)",
+      "trainingOnApiData": "never without explicit permission",
+      "apis": [
+        "responses",
+        "chat-completions"
+      ],
+      "anthropicMessagesEndpoint": "deprecated (\"The Anthropic SDK compatibility is fully deprecated\")",
+      "tools": {
+        "parallelDefault": true,
+        "disable": "parallel_tool_calls: false",
+        "toolChoice": [
+          "auto",
+          "required",
+          "none",
+          "named function"
+        ],
+        "maxToolsPerRequest": 350,
+        "toolCallStreaming": "a function call arrives whole in one chunk",
+        "schemaRoot": "must be an object (else 400)",
+        "sourceId": "XAI-FUNCS"
+      },
+      "violationFee": "$0.05 per request caught before generation on the Responses API; violations caught after generation are still charged",
+      "rateLimits": {
+        "unit": "requests per second / tokens per minute",
+        "tier0": "150 RPS / 50M TPM",
+        "tier1 ($50 spend)": "172 / 53M",
+        "tier2 ($250)": "208 / 60M",
+        "tier3 ($1,000)": "312 / 74M",
+        "tier4 ($5,000)": "500 / 100M",
+        "enterprise": "on request",
+        "sharedBucket": "grok-4.7 and grok-4.6 have identical limits; whether they share one bucket is not stated",
+        "cachedTokensCountTowardTPM": true,
+        "tiersNeverDowngrade": true,
+        "sourceId": "XAI-RATE"
+      },
+      "harnesses": {
+        "opencode": "native xAI provider: SuperGrok subscription OAuth (/connect, browser or headless) or xAI API key",
+        "kilo": "native xAI provider: SuperGrok / X Premium OAuth (browser or device code) or API key; the Kilo Gateway takes API-key billing only (\"OAuth and subscription-based access are not supported through the Gateway\")",
+        "codex": "custom model_providers entry (base_url https://api.x.ai/v1, env_key XAI_API_KEY, wire_api responses); API key only; effort pass-through unconfirmed",
+        "claude-code": "gateway only (xAI Anthropic-compatible /v1/messages is deprecated)",
+        "antigravity": "not listed",
+        "grok-build": "official xAI CLI (grok): subscription browser login or XAI_API_KEY; headless grok -p"
+      },
+      "subscriptionAccess": "SuperGrok or X Premium(+) OAuth works in OpenCode, Kilo and Grok Build; usage draws on the plan weekly pool; third-party report of HTTP 403 for standard SuperGrok (HERMES-403, closed not planned)",
+      "encryptedReasoning": "Responses API always returns reasoning.encrypted_content for grok-4.7 (pass it back unchanged); this default does not stop xAI storing the thinking trace server-side for rehydration; summarised reasoning is streamed",
+      "fastVariant": {
+        "name": "Grok 4.7 Fast",
+        "apiId": null,
+        "availability": "Cursor and Grok Build only; not on the public xAI API; not in Grok Build free tier",
+        "below200k": {
+          "input": 4,
+          "cached": 1,
+          "output": 12
+        },
+        "above200k": {
+          "input": 6,
+          "cached": 1.5,
+          "output": 18
+        },
+        "claim": "twice the output speed at twice the price",
+        "sourceId": "XAI-PRICING"
+      },
+      "parameters": "2.1T (secondary press only; unconfirmed)",
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0 (Grok Build, xhigh)",
+          "value": "37.6% ±3.5 (124/330 trials); run cost $3,683.29 for 324/330 trials (partial)",
+          "basis": "independent leaderboard (vendor-run entry)",
+          "date": "2026-09-21",
+          "sourceId": "IND-TBENCH"
+        },
+        {
+          "name": "AA Coding Agent Index (Grok Build, xhigh)",
+          "value": "56.3 (DeepSWE v1.1 72.6, SWE-Atlas-QnA 62.9, Terminal-Bench v4 33.3); $8.82 per task; 2,354 s per task",
+          "basis": "independent",
+          "date": "fetched 2026-09-26",
+          "sourceId": "IND-AA-AGENTS"
+        },
+        {
+          "name": "AA Intelligence Index",
+          "value": "xhigh 46.4 ($3.74 per index task), high 46.3 ($2.73); AA Terminal-Bench 4.0 xhigh 25.8%, high 24.7%",
+          "basis": "independent",
+          "date": "fetched 2026-09-26",
+          "sourceId": "IND-AA-MODELS"
+        },
+        {
+          "name": "Vendor table (xHigh unless noted)",
+          "value": "CursorBench 4.0 46.3%; DeepSWE v1.1 71.0% (high); Terminal-Bench 4.0 37.6%; EEBench 64.0%; HackerBench v0.3 3.3% of risky dual-use prompts let through",
+          "basis": "vendor-reported",
+          "date": "2026-09-21",
+          "sourceId": "XAI-NEWS-47"
+        },
+        {
+          "name": "SWE-bench-Live / SWE-bench Verified / SWE-rebench / LiveCodeBench",
+          "value": "no entry (SWE-bench-Live newest 2026-09-09; Epoch SWE-bench Verified has no Grok; SWE-rebench window ends 2026-07-01; LiveCodeBench stale)",
+          "basis": "independent",
+          "date": "fetched 2026-09-26",
+          "sourceId": "IND-SWELIVE"
+        }
+      ],
+      "latency": {
+        "high": {
+          "outputTokensPerSecond": 64.9,
+          "ttftSeconds": 1.77
+        },
+        "xhigh": {
+          "outputTokensPerSecond": 48.8,
+          "ttftSeconds": 2.41
+        },
+        "sourceId": "IND-AA-MODELS"
+      },
+      "conflicts": [
+        "OpenRouter lists grok-4.7 at $1.60 / $0.40 cached / $4.80 (>=200K $3.20 / $0.80 / $9.60) with discount 0; xAI pricing page says $2 / $0.50 / $6. Vendor price recorded. The conflict persists on 2026-09-27."
+      ]
+    },
+    "xai/grok-4.6": {
+      "asOf": "2026-09-26",
+      "released": "2026-08-12 (x.ai news; API release notes, August)",
+      "knowledgeCutoff": "unconfirmed (xAI pages silent; secondary sources say 2026-02-01)",
+      "maxOutput": "release notes: \"no text output limit\"; 450,000 recorded from OpenRouter max_completion_tokens (second source)",
+      "modalities": "text and image in, text out",
+      "defaultEffort": "high",
+      "status": "active; superseded by grok-4.7 (no deprecation announced)",
+      "reasoning": {
+        "parameter": "reasoning_effort (xAI SDK, Chat Completions) or reasoning.effort (Responses API)",
+        "levels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh"
+        ],
+        "canDisable": false,
+        "tokensBilled": "reasoning tokens are billed at the completion (output) token price",
+        "effortChangeKeepsCache": "not documented",
+        "rejectedParameters": "presencePenalty, frequencyPenalty and stop return an error on reasoning models",
+        "sourceId": "XAI-REASONING"
+      },
+      "caching": {
+        "mode": "automatic prefix caching, from the start of the messages array",
+        "affinityKey": "prompt_cache_key (Responses API) or x-grok-conv-id header (Chat Completions); without it you often pay full input price on a cache-cold server",
+        "ttl": "none stated: entries can be evicted at any time due to server load or restarts",
+        "minimumTokens": "not stated",
+        "writePremium": "none stated (write recorded at the input price)",
+        "perModel": "not stated",
+        "breaks": "any edit, removal or reorder of earlier messages; omitting reasoning content from previous responses (send encrypted reasoning back or use previous_response_id)",
+        "longContext": "cached tokens count toward the 200K threshold and use the long-context cached rate",
+        "sourceId": "XAI-CACHE"
+      },
+      "longContext": {
+        "atOrAboveInputTokens": 200000,
+        "inputPerMillion": 4,
+        "cachedPerMillion": 1,
+        "outputPerMillion": 12,
+        "scope": "all tokens in the request",
+        "tierEncoding": "aboveInputTokens 199999, because the contract tier is strictly greater-than"
+      },
+      "batch": "not supported",
+      "priority": {
+        "multiplier": 2,
+        "parameter": "service_tier: \"priority\"",
+        "billedOnlyWhen": "the response confirms service_tier priority",
+        "sourceId": "XAI-PRICING"
+      },
+      "usRegionalEndpoint": {
+        "baseUrl": "https://us.api.x.ai/v1",
+        "multiplier": 1.1,
+        "below200k": {
+          "input": 2.2,
+          "cached": 0.55,
+          "output": 6.6
+        },
+        "atOrAbove200k": {
+          "input": 4.4,
+          "cached": 1.1,
+          "output": 13.2
+        },
+        "models": "grok-4.7 and grok-4.6 only",
+        "sourceId": "XAI-PRICING"
+      },
+      "residency": "default endpoint https://api.x.ai does not guarantee a processing region; model pages list us-east-1, us-west-2, us-central-1",
+      "dataRetention": "API requests and responses kept 30 days (encrypted) for abuse auditing, not trained on; team-wide self-serve ZDR where available (disables stateful Responses, Files, Collections, Batch, deferred completions)",
+      "trainingOnApiData": "never without explicit permission",
+      "apis": [
+        "responses",
+        "chat-completions"
+      ],
+      "anthropicMessagesEndpoint": "deprecated (\"The Anthropic SDK compatibility is fully deprecated\")",
+      "tools": {
+        "parallelDefault": true,
+        "disable": "parallel_tool_calls: false",
+        "toolChoice": [
+          "auto",
+          "required",
+          "none",
+          "named function"
+        ],
+        "maxToolsPerRequest": 350,
+        "toolCallStreaming": "a function call arrives whole in one chunk",
+        "schemaRoot": "must be an object (else 400)",
+        "sourceId": "XAI-FUNCS"
+      },
+      "violationFee": "$0.05 per request caught before generation on the Responses API; violations caught after generation are still charged",
+      "rateLimits": {
+        "unit": "requests per second / tokens per minute",
+        "tier0": "150 RPS / 50M TPM",
+        "tier1 ($50 spend)": "172 / 53M",
+        "tier2 ($250)": "208 / 60M",
+        "tier3 ($1,000)": "312 / 74M",
+        "tier4 ($5,000)": "500 / 100M",
+        "enterprise": "on request",
+        "sharedBucket": "grok-4.7 and grok-4.6 have identical limits; whether they share one bucket is not stated",
+        "cachedTokensCountTowardTPM": true,
+        "tiersNeverDowngrade": true,
+        "sourceId": "XAI-RATE"
+      },
+      "harnesses": {
+        "opencode": "native xAI provider: SuperGrok subscription OAuth (/connect, browser or headless) or xAI API key",
+        "kilo": "native xAI provider: SuperGrok / X Premium OAuth (browser or device code) or API key; the Kilo Gateway takes API-key billing only (\"OAuth and subscription-based access are not supported through the Gateway\")",
+        "codex": "custom model_providers entry (base_url https://api.x.ai/v1, env_key XAI_API_KEY, wire_api responses); API key only; effort pass-through unconfirmed",
+        "claude-code": "gateway only (xAI Anthropic-compatible /v1/messages is deprecated)",
+        "antigravity": "not listed",
+        "grok-build": "official xAI CLI (grok): subscription browser login or XAI_API_KEY; headless grok -p"
+      },
+      "subscriptionAccess": "SuperGrok or X Premium(+) OAuth works in OpenCode, Kilo and Grok Build; usage draws on the plan weekly pool; third-party report of HTTP 403 for standard SuperGrok (HERMES-403, closed not planned)",
+      "encryptedReasoning": "returned when include lists reasoning.encrypted_content (the always-on default is documented for grok-4.7 only)",
+      "fastVariant": "announcement mentions a fast variant at twice the price; no API id",
+      "parameters": "1.5T (secondary press only; unconfirmed)",
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0 (Grok Build, high)",
+          "value": "20.3% ±3.1 (67/330 trials); run cost $3,591.58",
+          "basis": "independent leaderboard (vendor-run entry)",
+          "date": "2026-08-12",
+          "sourceId": "IND-TBENCH"
+        },
+        {
+          "name": "AA Coding Agent Index (Grok Build, xhigh)",
+          "value": "47.0 (DeepSWE v1.1 64.9, SWE-Atlas-QnA 58.3, Terminal-Bench v4 17.7); $3.57 per task; 1,167 s per task",
+          "basis": "independent",
+          "date": "fetched 2026-09-26",
+          "sourceId": "IND-AA-AGENTS"
+        },
+        {
+          "name": "AA Intelligence Index by effort",
+          "value": "low 35.1 ($0.48/task), medium 42.8 ($1.50), high 44.3 ($1.86), xhigh 44.2 ($2.32); AA Terminal-Bench 4.0 low 3.0%, medium 13.1%, high 21.2%, xhigh 17.2%",
+          "basis": "independent",
+          "date": "fetched 2026-09-26",
+          "sourceId": "IND-AA-MODELS"
+        },
+        {
+          "name": "Vendor table (High)",
+          "value": "Terminal-Bench v3.0 26%; DeepSWE v1.1 65.9%; CursorBench v3.2 69.9%; FrontierCode v1.1 (Extended) 61.3%; APEX-SWE 56.4%",
+          "basis": "vendor-reported",
+          "date": "2026-08-12",
+          "sourceId": "XAI-NEWS-46"
+        },
+        {
+          "name": "SWE-bench-Live / SWE-bench Verified / SWE-rebench / LiveCodeBench",
+          "value": "no entry",
+          "basis": "independent",
+          "date": "fetched 2026-09-26",
+          "sourceId": "IND-SWELIVE"
+        }
+      ],
+      "latency": {
+        "low": {
+          "outputTokensPerSecond": 57.4,
+          "ttftSeconds": 7.0
+        },
+        "medium": {
+          "outputTokensPerSecond": 68.3,
+          "ttftSeconds": 22.3
+        },
+        "high": {
+          "outputTokensPerSecond": 66.0,
+          "ttftSeconds": 39.4
+        },
+        "xhigh": {
+          "outputTokensPerSecond": 72.0,
+          "ttftSeconds": 37.0
+        },
+        "sourceId": "IND-AA-MODELS"
+      }
+    },
+    "minimax/MiniMax-M3": {
+      "asOf": "2026-09-26",
+      "released": "2026-06-01",
+      "parameters": "~428B total / 23B active",
+      "license": "minimax-community",
+      "contextNote": "vendor states 1,000,000; OpenRouter context field 524,288 (recorded, the lower); max output 512,000 from OpenRouter",
+      "tariffBasis": "<=512K input; \"permanent 50% off\" list $0.60/$2.40/$0.12; >512K $0.60/$2.40/$0.12; priority 1.5x",
+      "cacheWrite": "unconfirmed for M3 (M2.7: $0.375)",
+      "thinking": "enabled|adaptive|disabled",
+      "dataTerms": "unconfirmed",
+      "harnesses": {
+        "claude-code": "ANTHROPIC_BASE_URL=https://api.minimax.io/anthropic",
+        "kilo": "native MiniMax provider",
+        "opencode": "MiniMax provider; Zen minimax-m3",
+        "codex": "unconfirmed"
+      },
+      "benchmarks": [
+        {
+          "name": "SWE-bench Verified",
+          "value": "80.5",
+          "basis": "vendor-reported",
+          "sourceId": "MMX-HF"
+        },
+        {
+          "name": "SWE-bench Pro",
+          "value": "59",
+          "basis": "vendor-reported",
+          "sourceId": "MMX-HF"
+        },
+        {
+          "name": "SWE-rebench (May-Jul 2026)",
+          "value": "47.2%",
+          "basis": "independent",
+          "sourceId": "IND-SWEREBENCH"
+        }
+      ],
+      "latency": {
+        "outputTokensPerSecond": 183.5,
+        "ttftSeconds": 1,
+        "sourceId": "IND-AA-MODELS"
+      }
+    }
+  }
+}

@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "PreModelSwitch",
+  "from_model": "pinned-main",
+  "to_model": "requested-other"
+}

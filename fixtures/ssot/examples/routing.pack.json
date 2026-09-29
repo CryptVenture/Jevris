@@ -1,0 +1,34 @@
+{
+  "schemaVersion": "1.0",
+  "id": "jevris.routing",
+  "version": "0.1.0",
+  "maturity": "experimental",
+  "description": "Advise and route explicitly managed workers",
+  "requiresCapabilities": [
+    "worker.route"
+  ],
+  "fallbackCapabilities": [
+    "context.advise"
+  ],
+  "decisionSpecs": [
+    "task-profile.v1"
+  ],
+  "actions": [
+    "advise",
+    "route-worker",
+    "abstain"
+  ],
+  "dataScopes": [
+    "task-metadata",
+    "approved-source-spans"
+  ],
+  "defaultMode": "observe",
+  "conflicts": [
+    "exclusive:worker-model-router"
+  ],
+  "fixtures": [
+    "routing/eligibility",
+    "routing/user-pin",
+    "routing/stale"
+  ]
+}

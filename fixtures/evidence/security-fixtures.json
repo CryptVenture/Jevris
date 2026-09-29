@@ -1,0 +1,16 @@
+{
+  "schemaVersion": "security-fixtures-1",
+  "egressDenied": true,
+  "sent": false,
+  "toolPermission": false,
+  "repositoryFileDenied": true,
+  "canaryCopied": false,
+  "spanRejected": true,
+  "permissionDecisionEmitted": false,
+  "authorityGranted": false,
+  "packActivated": false,
+  "packReason": "PRIVILEGE_DELTA",
+  "procurementOpen": true,
+  "sourceEgress": "deny-until-approved",
+  "applied": false
+}

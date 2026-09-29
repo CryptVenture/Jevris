@@ -1,0 +1,31 @@
+{
+  "harness": "codex",
+  "launcher": "codex",
+  "displayName": "Codex",
+  "plugin": {
+    "path": "$CODEX_HOME/plugins/jevris",
+    "marketplace": ".agents/plugins/marketplace.json",
+    "config": "$CODEX_HOME/config.toml"
+  },
+  "skills": {
+    "dir": "$CODEX_HOME/plugins/jevris/skills",
+    "namespace": "jevris-",
+    "allowedToolsPrefix": null,
+    "userInvocationField": null,
+    "userOnlyPolicyFile": "agents/openai.yaml"
+  },
+  "hooks": ["SessionStart", "SessionEnd", "UserPromptSubmit", "PreToolUse", "PostToolUse", "PreCompact", "PostCompact", "SubagentStart", "SubagentStop", "Stop", "Interrupt"],
+  "features": ["plugin.install", "mcp.tools", "skills.discovery", "hooks.observe", "hooks.context", "hooks.route", "worker.route", "models.list", "access.detect", "access.usage-read"],
+  "unsupported": {
+    "statusLine": "Codex has no plugin status line; run jevris status.",
+    "PermissionRequest": "Never registered: native approval stays authoritative.",
+    "toolFailureEvidence": "A Bash or apply_patch PostToolUse carries only the output text, with no exit status (Codex source at rust-v0.157.1), so a failed shell command is recorded as finished; failure evidence comes only from an MCP result with isError.",
+    "hookTrust": "Codex keeps its /hooks trust decisions to itself, so doctor cannot read them; run /hooks in Codex to review and trust the Jevris hooks.",
+    "subagents": "Jevris makes no permission decision in a subagent, so Codex's approval policy, which a subagent shares with its parent, governs it, and the verification gate holds only the parent's Stop, never SubagentStop. A subagent's hooks are recorded under the parent session; an agent role that turns plugins off runs without Jevris.",
+    "access.session": "No Codex hook carries a failed turn's error, so an interactive session's access limit is not detected; an owned Codex run's limit is, through access.detect."
+  },
+  "compatibility": {
+    "rule": "same-minor",
+    "basis": "Codex 0.x ships a minor about weekly with features, and patches as fixes: 0.157.0 on 2026-09-25, then 0.157.1 on 2026-09-26 (github.com/openai/codex/releases, read 2026-09-26). Each new minor is re-checked in the background with no model call."
+  }
+}

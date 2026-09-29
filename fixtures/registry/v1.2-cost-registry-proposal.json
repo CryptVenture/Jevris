@@ -1,0 +1,1872 @@
+{
+  "schemaVersion": "cost-registry-1",
+  "fetchedOn": "2026-09-26",
+  "measuredSpeedRatio": null,
+  "measuredCostRatio": null,
+  "qualityGate": "not-passed",
+  "economicsGate": "not-a-pass",
+  "vendorClaimIsJevrisResult": false,
+  "retriesMeasured": false,
+  "cacheMeasured": false,
+  "verificationMeasured": false,
+  "humanEffortMeasured": false,
+  "prices": [
+    {
+      "vendor": "TypeSafe",
+      "modelId": "jev-1.13.0",
+      "sourceUrl": "https://docs.typesafe.ai/models",
+      "fetchedOn": "2026-09-25",
+      "input": 0.042,
+      "output": null,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Fable 5.1",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 10,
+      "output": 50,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Mythos 5.1",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 10,
+      "output": 50,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Fable 5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 10,
+      "output": 50,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Mythos 5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 10,
+      "output": 50,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Opus 5.5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 4,
+      "output": 20,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Opus 5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 5,
+      "output": 25,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Opus 4.8",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 5,
+      "output": 25,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Opus 4.7",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 5,
+      "output": 25,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Opus 4.6",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 5,
+      "output": 25,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Opus 4.5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 5,
+      "output": 25,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Opus 4.1",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 15,
+      "output": 75,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Opus 4",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 15,
+      "output": 75,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Sonnet 5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 2,
+      "output": 10,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Sonnet 4.6",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 3,
+      "output": 15,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Sonnet 4.5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 3,
+      "output": 15,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Sonnet 4",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 3,
+      "output": 15,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Haiku 4.5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1,
+      "output": 5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
+      "modelId": "Claude Haiku 3.5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.8,
+      "output": 4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-6-astra",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 10,
+      "output": 50,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-6-sol",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 2,
+      "output": 10,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-6-luna",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.1,
+      "output": 0.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.6-sol",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 4,
+      "output": 20,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.6-terra",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 2,
+      "output": 12,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.6-luna",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.2,
+      "output": 1.2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.5",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 5,
+      "output": 30,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.5-pro",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 30,
+      "output": 180,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.4",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 2.5,
+      "output": 15,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.4-mini",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.75,
+      "output": 4.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.4-nano",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.2,
+      "output": 1.25,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.4-pro",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 30,
+      "output": 180,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.2",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1.75,
+      "output": 14,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.2-pro",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 21,
+      "output": 168,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.1",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1.25,
+      "output": 10,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1.25,
+      "output": 10,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5-mini",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.25,
+      "output": 2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5-nano",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 0.05,
+      "output": 0.4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5-pro",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 15,
+      "output": 120,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-4.1",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 2,
+      "output": 8,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-4.1-mini",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 0.4,
+      "output": 1.6,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-4.1-nano",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 0.1,
+      "output": 0.4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-4o",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 2.5,
+      "output": 10,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-4o-2024-05-13",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 5,
+      "output": 15,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-4o-mini",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 0.15,
+      "output": 0.6,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "o1",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 15,
+      "output": 60,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "o1-pro",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 150,
+      "output": 600,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "o3-pro",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 20,
+      "output": 80,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "o3",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 2,
+      "output": 8,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "o4-mini",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 1.1,
+      "output": 4.4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "o3-mini",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 1.1,
+      "output": 4.4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-4-turbo-2024-04-09",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 10,
+      "output": 30,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-4-0613",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 30,
+      "output": 60,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-3.5-turbo",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 0.5,
+      "output": 1.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-3.5-turbo-0125",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 0.5,
+      "output": 1.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-3.5-turbo-1106",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 1,
+      "output": 2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-3.5-turbo-instruct",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 1.5,
+      "output": 2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "davinci-002",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 2,
+      "output": 2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "babbage-002",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-25",
+      "input": 0.4,
+      "output": 0.4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-5.3-codex",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1.75,
+      "output": 14,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-3.8-flash",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.75,
+      "output": 3.75,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-3.7-flash",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.75,
+      "output": 3.75,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-3.6-flash",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.75,
+      "output": 3.75,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-3.5-flash",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1.5,
+      "output": 9,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-3.5-flash-lite",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.3,
+      "output": 2.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-3.1-flash-lite",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.25,
+      "output": 1.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-3.1-pro-preview",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 2,
+      "output": 12,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-3-flash-preview",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.5,
+      "output": 3,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-2.5-pro",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1.25,
+      "output": 10,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-2.5-flash",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.3,
+      "output": 2.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Google",
+      "modelId": "gemini-2.5-flash-lite",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.1,
+      "output": 0.4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "DeepSeek",
+      "modelId": "deepseek-flash",
+      "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.3,
+      "output": 1.2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "DeepSeek",
+      "modelId": "deepseek-v4-pro",
+      "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1.32,
+      "output": 3.96,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Alibaba",
+      "modelId": "qwen3.8-max",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 2,
+      "output": 6,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Alibaba",
+      "modelId": "qwen3.7-plus",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.4,
+      "output": 1.6,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Alibaba",
+      "modelId": "qwen3.8-flash",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.15,
+      "output": 0.47,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Alibaba",
+      "modelId": "qwen3-coder-plus",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1,
+      "output": 5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Alibaba",
+      "modelId": "qwen3-coder-flash",
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.3,
+      "output": 1.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Moonshot",
+      "modelId": "kimi-k3",
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "fetchedOn": "2026-09-26",
+      "input": 3,
+      "output": 15,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Moonshot",
+      "modelId": "kimi-k2.7-code",
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "fetchedOn": "2026-09-26",
+      "input": 0.95,
+      "output": 4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Moonshot",
+      "modelId": "kimi-k2.7-code-highspeed",
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "fetchedOn": "2026-09-26",
+      "input": 1.9,
+      "output": 8,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Moonshot",
+      "modelId": "kimi-k2.6",
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "fetchedOn": "2026-09-26",
+      "input": 0.95,
+      "output": 4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Z.ai",
+      "modelId": "glm-5.3",
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1.4,
+      "output": 4.4,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Z.ai",
+      "modelId": "glm-5",
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 1,
+      "output": 3.2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Z.ai",
+      "modelId": "glm-4.7",
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 0.6,
+      "output": 2.2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenCode Zen",
+      "modelId": "glm-5.3-flash",
+      "sourceUrl": "https://opencode.ai/docs/zen/",
+      "fetchedOn": "2026-09-26",
+      "input": 0.15,
+      "output": 0.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "xAI",
+      "modelId": "grok-4.7",
+      "sourceUrl": "https://docs.x.ai/developers/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 2,
+      "output": 6,
+      "unit": "USD per million tokens",
+      "provider": "xai",
+      "apiModelId": "grok-4.7"
+    },
+    {
+      "vendor": "xAI",
+      "modelId": "grok-4.6",
+      "sourceUrl": "https://docs.x.ai/developers/pricing",
+      "fetchedOn": "2026-09-26",
+      "input": 2,
+      "output": 6,
+      "unit": "USD per million tokens",
+      "provider": "xai",
+      "apiModelId": "grok-4.6"
+    },
+    {
+      "vendor": "xAI",
+      "modelId": "grok-build-0.1",
+      "sourceUrl": "https://docs.x.ai/docs/models/grok-build-0.1",
+      "fetchedOn": "2026-09-26",
+      "input": 1,
+      "output": 2,
+      "unit": "USD per million tokens",
+      "provider": "xai",
+      "apiModelId": "grok-build-0.1"
+    },
+    {
+      "vendor": "Mistral",
+      "modelId": "mistral-medium-3-5",
+      "sourceUrl": "https://docs.mistral.ai/models/model-cards/mistral-medium-3-5-26-04",
+      "fetchedOn": "2026-09-26",
+      "input": 1.5,
+      "output": 7.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Mistral",
+      "modelId": "codestral-2508",
+      "sourceUrl": "https://docs.mistral.ai/models/model-cards/codestral-25-08",
+      "fetchedOn": "2026-09-26",
+      "input": 0.3,
+      "output": 0.9,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "MiniMax",
+      "modelId": "MiniMax-M3",
+      "sourceUrl": "https://platform.minimax.io/docs/guides/pricing-paygo",
+      "fetchedOn": "2026-09-26",
+      "input": 0.3,
+      "output": 1.2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "MiniMax",
+      "modelId": "MiniMax-M2.7",
+      "sourceUrl": "https://platform.minimax.io/docs/guides/pricing-paygo",
+      "fetchedOn": "2026-09-26",
+      "input": 0.3,
+      "output": 1.2,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenCode Zen",
+      "modelId": "muse-spark-1.3",
+      "sourceUrl": "https://opencode.ai/docs/zen/",
+      "fetchedOn": "2026-09-26",
+      "input": 1.25,
+      "output": 4.25,
+      "unit": "USD per million tokens"
+    }
+  ],
+  "extendedPricing": {
+    "Anthropic/Claude Fable 5.1": {
+      "cacheWrite5mPerMillion": 12.5,
+      "cacheWrite1hPerMillion": 20,
+      "cacheReadPerMillion": 0.25,
+      "batchInputPerMillion": 5,
+      "batchOutputPerMillion": 25,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "dataRetention": "Covered Model: 30-day retention, no ZDR"
+    },
+    "Anthropic/Claude Mythos 5.1": {
+      "cacheWrite5mPerMillion": 12.5,
+      "cacheWrite1hPerMillion": 20,
+      "cacheReadPerMillion": 0.25,
+      "batchInputPerMillion": 5,
+      "batchOutputPerMillion": 25,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "access": "Project Glasswing only"
+    },
+    "Anthropic/Claude Fable 5": {
+      "cacheWrite5mPerMillion": 12.5,
+      "cacheWrite1hPerMillion": 20,
+      "cacheReadPerMillion": 1,
+      "batchInputPerMillion": 5,
+      "batchOutputPerMillion": 25,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26"
+    },
+    "Anthropic/Claude Mythos 5": {
+      "cacheWrite5mPerMillion": 12.5,
+      "cacheWrite1hPerMillion": 20,
+      "cacheReadPerMillion": 1,
+      "batchInputPerMillion": 5,
+      "batchOutputPerMillion": 25,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "access": "Project Glasswing only"
+    },
+    "Anthropic/Claude Opus 5.5": {
+      "cacheWrite5mPerMillion": 5,
+      "cacheWrite1hPerMillion": 8,
+      "cacheReadPerMillion": 0.2,
+      "batchInputPerMillion": 2,
+      "batchOutputPerMillion": 10,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "fastMode": {
+        "inputPerMillion": 8,
+        "outputPerMillion": 40
+      }
+    },
+    "Anthropic/Claude Opus 5": {
+      "cacheWrite5mPerMillion": 6.25,
+      "cacheWrite1hPerMillion": 10,
+      "cacheReadPerMillion": 0.5,
+      "batchInputPerMillion": 2.5,
+      "batchOutputPerMillion": 12.5,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "fastMode": {
+        "inputPerMillion": 10,
+        "outputPerMillion": 50
+      }
+    },
+    "Anthropic/Claude Opus 4.8": {
+      "cacheWrite5mPerMillion": 6.25,
+      "cacheWrite1hPerMillion": 10,
+      "cacheReadPerMillion": 0.5,
+      "batchInputPerMillion": 2.5,
+      "batchOutputPerMillion": 12.5,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "fastMode": {
+        "inputPerMillion": 10,
+        "outputPerMillion": 50
+      }
+    },
+    "Anthropic/Claude Opus 4.7": {
+      "cacheWrite5mPerMillion": 6.25,
+      "cacheWrite1hPerMillion": 10,
+      "cacheReadPerMillion": 0.5,
+      "batchInputPerMillion": 2.5,
+      "batchOutputPerMillion": 12.5,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26"
+    },
+    "Anthropic/Claude Opus 4.6": {
+      "cacheWrite5mPerMillion": 6.25,
+      "cacheWrite1hPerMillion": 10,
+      "cacheReadPerMillion": 0.5,
+      "batchInputPerMillion": 2.5,
+      "batchOutputPerMillion": 12.5,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26"
+    },
+    "Anthropic/Claude Opus 4.5": {
+      "cacheWrite5mPerMillion": 6.25,
+      "cacheWrite1hPerMillion": 10,
+      "cacheReadPerMillion": 0.5,
+      "batchInputPerMillion": 2.5,
+      "batchOutputPerMillion": 12.5,
+      "usOnlyInferenceMultiplier": "n/a (inference_geo unsupported)",
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26"
+    },
+    "Anthropic/Claude Opus 4.1": {
+      "cacheWrite5mPerMillion": 18.75,
+      "cacheWrite1hPerMillion": 30,
+      "cacheReadPerMillion": 1.5,
+      "batchInputPerMillion": 7.5,
+      "batchOutputPerMillion": 37.5,
+      "usOnlyInferenceMultiplier": "n/a",
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "status": "retired 2026-08-05 on Anthropic platforms; Bedrock/Google Cloud only"
+    },
+    "Anthropic/Claude Opus 4": {
+      "cacheWrite5mPerMillion": 18.75,
+      "cacheWrite1hPerMillion": 30,
+      "cacheReadPerMillion": 1.5,
+      "batchInputPerMillion": 7.5,
+      "batchOutputPerMillion": 37.5,
+      "usOnlyInferenceMultiplier": "n/a",
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "status": "retired 2026-06-15 on Anthropic platforms; Google Cloud only"
+    },
+    "Anthropic/Claude Sonnet 5": {
+      "cacheWrite5mPerMillion": 2.5,
+      "cacheWrite1hPerMillion": 4,
+      "cacheReadPerMillion": 0.2,
+      "batchInputPerMillion": 1,
+      "batchOutputPerMillion": 5,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "priceNote": "introductory $2/$10 made standard; no rise on 2026-09-01"
+    },
+    "Anthropic/Claude Sonnet 4.6": {
+      "cacheWrite5mPerMillion": 3.75,
+      "cacheWrite1hPerMillion": 6,
+      "cacheReadPerMillion": 0.3,
+      "batchInputPerMillion": 1.5,
+      "batchOutputPerMillion": 7.5,
+      "usOnlyInferenceMultiplier": 1.1,
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26"
+    },
+    "Anthropic/Claude Sonnet 4.5": {
+      "cacheWrite5mPerMillion": 3.75,
+      "cacheWrite1hPerMillion": 6,
+      "cacheReadPerMillion": 0.3,
+      "batchInputPerMillion": 1.5,
+      "batchOutputPerMillion": 7.5,
+      "usOnlyInferenceMultiplier": "n/a",
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "retirement": "not sooner than 2026-09-29"
+    },
+    "Anthropic/Claude Sonnet 4": {
+      "cacheWrite5mPerMillion": 3.75,
+      "cacheWrite1hPerMillion": 6,
+      "cacheReadPerMillion": 0.3,
+      "batchInputPerMillion": 1.5,
+      "batchOutputPerMillion": 7.5,
+      "usOnlyInferenceMultiplier": "n/a",
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "status": "retired 2026-06-15 on Anthropic platforms"
+    },
+    "Anthropic/Claude Haiku 4.5": {
+      "cacheWrite5mPerMillion": 1.25,
+      "cacheWrite1hPerMillion": 2,
+      "cacheReadPerMillion": 0.1,
+      "batchInputPerMillion": 0.5,
+      "batchOutputPerMillion": 2.5,
+      "usOnlyInferenceMultiplier": "n/a",
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "retirement": "not sooner than 2026-10-15"
+    },
+    "Anthropic/Claude Haiku 3.5": {
+      "cacheWrite5mPerMillion": 1,
+      "cacheWrite1hPerMillion": 1.6,
+      "cacheReadPerMillion": 0.08,
+      "batchInputPerMillion": 0.4,
+      "batchOutputPerMillion": 2,
+      "usOnlyInferenceMultiplier": "n/a",
+      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-09-26",
+      "status": "retired 2026-02-19 on Anthropic platforms"
+    },
+    "OpenAI/gpt-6-astra": {
+      "cacheReadPerMillion": 1,
+      "cacheWritePerMillion": 12.5,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "longContextAbove272k": {
+        "input": 20,
+        "cached": 2,
+        "output": 75,
+        "cacheWrite": 25
+      },
+      "fast": {
+        "input": 20,
+        "cached": 2,
+        "output": 100
+      }
+    },
+    "OpenAI/gpt-6-sol": {
+      "cacheReadPerMillion": 0.2,
+      "cacheWritePerMillion": 2.5,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "longContextAbove272k": {
+        "input": 4,
+        "cached": 0.4,
+        "output": 15,
+        "cacheWrite": 5
+      },
+      "fast": {
+        "input": 4,
+        "cached": 0.4,
+        "output": 20
+      }
+    },
+    "OpenAI/gpt-6-luna": {
+      "cacheReadPerMillion": 0.01,
+      "cacheWritePerMillion": 0.125,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "longContextAbove272k": {
+        "input": 0.2,
+        "cached": 0.02,
+        "output": 0.75
+      },
+      "fast": {
+        "input": 0.2,
+        "cached": 0.02,
+        "output": 1
+      }
+    },
+    "OpenAI/gpt-5.6-sol": {
+      "cacheReadPerMillion": 0.4,
+      "cacheWritePerMillion": 5,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-27",
+      "longContextAbove272k": {
+        "input": 8,
+        "cached": 0.8,
+        "output": 30
+      },
+      "fast": {
+        "input": 8,
+        "cached": 0.8,
+        "output": 40,
+        "above272k": {
+          "input": 16,
+          "cached": 1.6,
+          "cacheWrite": 20,
+          "output": 60
+        }
+      },
+      "priceNote": "promotional through at least 2026-11-21; launch $5/$30"
+    },
+    "OpenAI/gpt-5.6-terra": {
+      "cacheReadPerMillion": 0.2,
+      "cacheWritePerMillion": 2.5,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-27",
+      "longContextAbove272k": {
+        "input": 4,
+        "cached": 0.4,
+        "output": 18
+      },
+      "fast": {
+        "input": 4,
+        "cached": 0.4,
+        "output": 24,
+        "above272k": {
+          "input": 8,
+          "cached": 0.8,
+          "cacheWrite": 10,
+          "output": 36
+        }
+      }
+    },
+    "OpenAI/gpt-5.6-luna": {
+      "cacheReadPerMillion": 0.02,
+      "cacheWritePerMillion": 0.25,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-27",
+      "longContextAbove272k": {
+        "input": 0.4,
+        "cached": 0.04,
+        "output": 1.8
+      },
+      "fast": {
+        "input": 0.4,
+        "cached": 0.04,
+        "output": 2.4,
+        "above272k": {
+          "input": 0.8,
+          "cached": 0.08,
+          "cacheWrite": 1,
+          "output": 3.6
+        }
+      }
+    },
+    "OpenAI/gpt-5.5": {
+      "cacheReadPerMillion": 0.5,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-27",
+      "cacheWriteNote": "no write charge; prompt_cache_retention \"24h\" only, implicit breakpoints every 2,048 tokens",
+      "fast": {
+        "input": 12.5,
+        "cached": 1.25,
+        "output": 75
+      },
+      "longContextAbove272k": {
+        "input": 10,
+        "cached": 1,
+        "output": 45,
+        "batchAndFlex": {
+          "input": 5,
+          "cached": 0.5,
+          "output": 22.5
+        },
+        "fast": "no long-context price",
+        "scope": "the full session, for standard, batch and flex"
+      }
+    },
+    "OpenAI/gpt-5.5-pro": {
+      "cacheReadPerMillion": null,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-27",
+      "note": "no cached-input discount; Responses and Batch only; prompt_cache_retention \"24h\" only"
+    },
+    "OpenAI/gpt-5.4": {
+      "cacheReadPerMillion": 0.25,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "cacheWriteNote": "no write charge",
+      "longContextAbove272k": {
+        "input": 5,
+        "cached": 0.5,
+        "output": 22.5
+      },
+      "fast": {
+        "input": 5,
+        "cached": 0.5,
+        "output": 30
+      }
+    },
+    "OpenAI/gpt-5.4-mini": {
+      "cacheReadPerMillion": 0.075,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "cacheWriteNote": "no write charge",
+      "fast": {
+        "input": 1.5,
+        "cached": 0.15,
+        "output": 9
+      }
+    },
+    "OpenAI/gpt-5.4-nano": {
+      "cacheReadPerMillion": 0.02,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "cacheWriteNote": "no write charge",
+      "fast": "not offered"
+    },
+    "OpenAI/gpt-5.4-pro": {
+      "cacheReadPerMillion": null,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "longContextAbove272k": {
+        "input": 60,
+        "output": 270
+      }
+    },
+    "OpenAI/gpt-5.3-codex": {
+      "cacheReadPerMillion": 0.175,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "cacheWriteNote": "no write charge",
+      "fast": {
+        "input": 3.5,
+        "cached": 0.35,
+        "output": 28
+      }
+    },
+    "OpenAI/gpt-5.2": {
+      "cacheReadPerMillion": 0.175,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "fast": {
+        "input": 3.5,
+        "cached": 0.35,
+        "output": 28
+      },
+      "flex": "not offered"
+    },
+    "OpenAI/gpt-5": {
+      "cacheReadPerMillion": 0.125,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "shutdown": "2026-12-11 (replacement gpt-5.6-sol)"
+    },
+    "OpenAI/gpt-5-mini": {
+      "cacheReadPerMillion": 0.025,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "shutdown": "2026-12-11 (replacement gpt-5.6-terra)"
+    },
+    "OpenAI/gpt-5-nano": {
+      "cacheReadPerMillion": null,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-26",
+      "shutdown": "2026-12-11 (replacement gpt-5.6-luna)"
+    },
+    "OpenAI/o4-mini": {
+      "cacheReadPerMillion": null,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (confirmed on the deprecations page, 2026-09-27); Azure Foundry retires it 2026-11-19"
+    },
+    "OpenAI/o3": {
+      "cacheReadPerMillion": null,
+      "cacheWritePerMillion": null,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-12-11 (confirmed 2026-09-27); Azure Foundry retires it 2026-11-19"
+    },
+    "Google/gemini-3.8-flash": {
+      "cacheReadPerMillion": 0.075,
+      "explicitCacheStoragePerMillionPerHour": 0.5,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-27",
+      "scheduledChange": {
+        "effectiveOn": "2027-01-01",
+        "inputPerMillion": 1.5,
+        "outputPerMillion": 7.5,
+        "cachedPerMillion": 0.15,
+        "storagePerMillionPerHour": 1
+      },
+      "priority": {
+        "input": 1.35,
+        "output": 6.75,
+        "cached": 0.135,
+        "storagePerMillionPerHour": 0.5,
+        "validThrough": "2026-12-31",
+        "from2027_01_01": {
+          "input": 2.7,
+          "output": 13.5,
+          "cached": 0.27,
+          "storagePerMillionPerHour": 1
+        },
+        "note": "storage is not 1.8x under priority"
+      }
+    },
+    "Google/gemini-3.7-flash": {
+      "cacheReadPerMillion": 0.075,
+      "explicitCacheStoragePerMillionPerHour": 0.5,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-27",
+      "scheduledChange": {
+        "effectiveOn": "2027-01-01",
+        "inputPerMillion": 1.5,
+        "outputPerMillion": 7.5,
+        "cachedPerMillion": 0.15,
+        "storagePerMillionPerHour": 1
+      },
+      "priority": {
+        "input": 1.35,
+        "output": 6.75,
+        "cached": 0.135,
+        "storagePerMillionPerHour": 0.5,
+        "validThrough": "2026-12-31",
+        "from2027_01_01": {
+          "input": 2.7,
+          "output": 13.5,
+          "cached": 0.27,
+          "storagePerMillionPerHour": 1
+        },
+        "note": "storage is not 1.8x under priority"
+      }
+    },
+    "Google/gemini-3.6-flash": {
+      "cacheReadPerMillion": 0.075,
+      "explicitCacheStoragePerMillionPerHour": 0.5,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-27",
+      "scheduledChange": {
+        "effectiveOn": "2027-01-01",
+        "inputPerMillion": 1.5,
+        "outputPerMillion": 7.5,
+        "cachedPerMillion": 0.15,
+        "storagePerMillionPerHour": 1
+      },
+      "priority": {
+        "input": 1.35,
+        "output": 6.75,
+        "cached": 0.135,
+        "storagePerMillionPerHour": 0.5,
+        "validThrough": "2026-12-31",
+        "from2027_01_01": {
+          "input": 2.7,
+          "output": 13.5,
+          "cached": 0.27,
+          "storagePerMillionPerHour": 1
+        },
+        "note": "storage is not 1.8x under priority"
+      }
+    },
+    "Google/gemini-3.5-flash": {
+      "cacheReadPerMillion": 0.15,
+      "explicitCacheStoragePerMillionPerHour": 1,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-27",
+      "priority": {
+        "input": 2.7,
+        "output": 16.2
+      },
+      "shutdown": "Vertex retirement \"May 19, 2027 or later\""
+    },
+    "Google/gemini-3.5-flash-lite": {
+      "cacheReadPerMillion": 0.03,
+      "explicitCacheStoragePerMillionPerHour": 1,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-27",
+      "priority": {
+        "input": 0.54,
+        "output": 4.5
+      },
+      "shutdown": "Vertex retirement \"July 21, 2027 or later\""
+    },
+    "Google/gemini-3.1-flash-lite": {
+      "cacheReadPerMillion": 0.025,
+      "explicitCacheStoragePerMillionPerHour": 1,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-27",
+      "audioInputPerMillion": 0.5,
+      "shutdown": "2027-05-07; Vertex retirement \"May 7, 2027 or later\""
+    },
+    "Google/gemini-3.1-pro-preview": {
+      "cacheReadPerMillion": 0.2,
+      "explicitCacheStoragePerMillionPerHour": 4.5,
+      "batchAndFlex": "50% of standard for input and output; context caching is not discounted under batch and flex (\"Same as Standard\": 0.20, above 200K 0.40, storage 4.50)",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-27",
+      "longContextAbove200k": {
+        "input": 4,
+        "cached": 0.4,
+        "output": 18
+      },
+      "freeTier": false,
+      "priority": {
+        "input": 3.6,
+        "output": 21.6,
+        "cached": 0.36,
+        "storagePerMillionPerHour": 8.1,
+        "above200k": {
+          "input": 7.2,
+          "output": 32.4,
+          "cached": 0.72
+        }
+      }
+    },
+    "Google/gemini-3-flash-preview": {
+      "cacheReadPerMillion": 0.05,
+      "explicitCacheStoragePerMillionPerHour": 1,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-26",
+      "audioInputPerMillion": 1
+    },
+    "Google/gemini-2.5-pro": {
+      "cacheReadPerMillion": 0.125,
+      "explicitCacheStoragePerMillionPerHour": 4.5,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-27",
+      "longContextAbove200k": {
+        "input": 2.5,
+        "cached": 0.25,
+        "output": 15
+      },
+      "access": "since 2026-09-18 limited to earlier users; Gemini API: \"No shutdown date announced\"; Vertex retirement 2026-10-20",
+      "priority": {
+        "input": 2.25,
+        "output": 18,
+        "above200k": {
+          "input": 4.5,
+          "output": 27
+        }
+      }
+    },
+    "Google/gemini-2.5-flash": {
+      "cacheReadPerMillion": null,
+      "explicitCacheStoragePerMillionPerHour": null,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-26",
+      "audioInputPerMillion": 1,
+      "access": "limited to prior users since 2026-09-18"
+    },
+    "Google/gemini-2.5-flash-lite": {
+      "cacheReadPerMillion": null,
+      "explicitCacheStoragePerMillionPerHour": null,
+      "batchAndFlex": "50% of standard",
+      "vertexRegionalUplift": "+10% on non-global endpoints",
+      "sourceUrl": "https://ai.google.dev/gemini-api/docs/pricing",
+      "asOf": "2026-09-26",
+      "access": "limited to prior users since 2026-09-18"
+    },
+    "DeepSeek/deepseek-flash": {
+      "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing",
+      "asOf": "2026-09-27",
+      "basis": "peak (peak hours 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday, excluding Chinese public holidays; all other hours off-peak)",
+      "cacheHit": 0.006,
+      "offPeak": {
+        "input": 0.15,
+        "cacheHit": 0.003,
+        "output": 0.6
+      }
+    },
+    "DeepSeek/deepseek-v4-pro": {
+      "sourceUrl": "https://api-docs.deepseek.com/quick_start/pricing",
+      "asOf": "2026-09-27",
+      "basis": "peak (peak hours 01:00-04:00 and 06:00-10:00 UTC, Monday to Friday, excluding Chinese public holidays; all other hours off-peak)",
+      "cacheHit": 0.044,
+      "offPeak": {
+        "input": 0.66,
+        "cacheHit": 0.022,
+        "output": 1.98
+      },
+      "status": "active, billing unchanged: the change log (2026-09-10) says service continues after 2026-09-14; the news post's phase-out text is superseded"
+    },
+    "Alibaba/qwen3.8-max": {
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "asOf": "2026-09-27",
+      "region": "Singapore/international",
+      "beijing": {
+        "input": 1.65,
+        "output": 4.951
+      },
+      "implicitCacheHit": 0.25,
+      "explicitCacheWrite": 2.5,
+      "explicitCacheRead": 0.17,
+      "note": "cache prices unconfirmed on 2026-09-27: the Model Studio cache page shows them only as \"non-standard pricing per console\" (OpenCode Zen: 0.25 read / 2.50 write); batch is 50% off and cannot be combined with caching"
+    },
+    "Alibaba/qwen3.7-plus": {
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "asOf": "2026-09-26",
+      "tier": "0-256K",
+      "above256k": {
+        "input": 1.2,
+        "output": 4.8
+      },
+      "promo": "limited-time 20% off"
+    },
+    "Alibaba/qwen3-coder-plus": {
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "asOf": "2026-09-26",
+      "tiered": "lowest tier (0-32K) shown; rises to $6 in / $60 out at 256K-1M"
+    },
+    "Alibaba/qwen3-coder-flash": {
+      "sourceUrl": "https://www.alibabacloud.com/help/en/model-studio/model-pricing",
+      "asOf": "2026-09-26",
+      "tiered": "lowest tier shown; rises to $1.6 in / $9.6 out"
+    },
+    "Moonshot/kimi-k3": {
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.3,
+      "cacheWrite5m": 3,
+      "cacheWrite1h": 6
+    },
+    "Moonshot/kimi-k2.7-code": {
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.19
+    },
+    "Moonshot/kimi-k2.7-code-highspeed": {
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.38
+    },
+    "Moonshot/kimi-k2.6": {
+      "sourceUrl": "https://platform.kimi.ai/docs/pricing/chat",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.16
+    },
+    "Z.ai/glm-5.3": {
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.26,
+      "cacheStorage": "limited-time free"
+    },
+    "Z.ai/glm-5": {
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.2
+    },
+    "Z.ai/glm-4.7": {
+      "sourceUrl": "https://docs.z.ai/guides/overview/pricing",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.11
+    },
+    "OpenCode Zen/glm-5.3-flash": {
+      "sourceUrl": "https://opencode.ai/docs/zen/",
+      "asOf": "2026-09-27",
+      "cacheHit": 0.03,
+      "note": "Zen gateway price; the Z.ai vendor price is the same, 0.15 / 0.03 cached / 0.50 (https://docs.z.ai/guides/overview/pricing, 2026-09-27); 320B total / 18B active, released 2026-08-26"
+    },
+    "xAI/grok-4.7": {
+      "sourceUrl": "https://docs.x.ai/developers/pricing",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.5,
+      "cacheWrite": "no write premium stated",
+      "atOrAbove200k": {
+        "input": 4,
+        "cacheHit": 1,
+        "output": 12,
+        "scope": "all tokens in the request"
+      },
+      "batch": "not supported",
+      "priorityMultiplier": 2,
+      "usRegionalEndpoint": {
+        "multiplier": 1.1,
+        "input": 2.2,
+        "cacheHit": 0.55,
+        "output": 6.6,
+        "atOrAbove200k": {
+          "input": 4.4,
+          "cacheHit": 1.1,
+          "output": 13.2
+        }
+      },
+      "reasoningTokens": "billed at the output price",
+      "contextTokens": 500000,
+      "maxOutput": "vendor: no text output limit; OpenRouter max_completion_tokens 450,000",
+      "violationFee": "$0.05 per request caught before generation (Responses API)",
+      "fastVariant": {
+        "availability": "Cursor and Grok Build only; no public API id",
+        "below200k": {
+          "input": 4,
+          "cacheHit": 1,
+          "output": 12
+        },
+        "above200k": {
+          "input": 6,
+          "cacheHit": 1.5,
+          "output": 18
+        }
+      },
+      "openRouterConflict": "OpenRouter lists $1.60 / $0.40 / $4.80 (>=200K $3.20 / $0.80 / $9.60) on 2026-09-26; unchanged on 2026-09-27"
+    },
+    "xAI/grok-4.6": {
+      "sourceUrl": "https://docs.x.ai/developers/pricing",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.5,
+      "cacheWrite": "no write premium stated",
+      "atOrAbove200k": {
+        "input": 4,
+        "cacheHit": 1,
+        "output": 12,
+        "scope": "all tokens in the request"
+      },
+      "batch": "not supported",
+      "priorityMultiplier": 2,
+      "usRegionalEndpoint": {
+        "multiplier": 1.1,
+        "input": 2.2,
+        "cacheHit": 0.55,
+        "output": 6.6,
+        "atOrAbove200k": {
+          "input": 4.4,
+          "cacheHit": 1.1,
+          "output": 13.2
+        }
+      },
+      "reasoningTokens": "billed at the output price",
+      "contextTokens": 500000,
+      "maxOutput": "vendor: no text output limit; OpenRouter max_completion_tokens 450,000",
+      "violationFee": "$0.05 per request caught before generation (Responses API)"
+    },
+    "xAI/grok-build-0.1": {
+      "sourceUrl": "https://docs.x.ai/docs/models/grok-build-0.1",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.2,
+      "atOrAbove200k": {
+        "input": 2,
+        "cacheHit": 0.4,
+        "output": 4
+      },
+      "batch": "not supported",
+      "priorityMultiplier": 2
+    },
+    "Mistral/mistral-medium-3-5": {
+      "sourceUrl": "https://docs.mistral.ai/models/model-cards/mistral-medium-3-5-26-04",
+      "asOf": "2026-09-26",
+      "cacheHit": "unconfirmed",
+      "contextTokens": "256K",
+      "maxOutput": "unconfirmed"
+    },
+    "Mistral/codestral-2508": {
+      "sourceUrl": "https://docs.mistral.ai/models/model-cards/codestral-25-08",
+      "asOf": "2026-09-26",
+      "contextTokens": "128K",
+      "fim": "/v1/fim/completions"
+    },
+    "MiniMax/MiniMax-M3": {
+      "sourceUrl": "https://platform.minimax.io/docs/guides/pricing-paygo",
+      "asOf": "2026-09-27",
+      "cacheHit": 0.06,
+      "listPrice": {
+        "input": 0.6,
+        "output": 2.4,
+        "cacheHit": 0.12
+      },
+      "above512k": {
+        "input": 0.6,
+        "output": 2.4,
+        "cacheHit": 0.12
+      },
+      "priority": "1.5x",
+      "note": "the discount is labelled a \"Permanent 50% off\", so listPrice is not a pending increase"
+    },
+    "MiniMax/MiniMax-M2.7": {
+      "sourceUrl": "https://platform.minimax.io/docs/guides/pricing-paygo",
+      "asOf": "2026-09-26",
+      "cacheHit": 0.06,
+      "cacheWrite": 0.375
+    },
+    "OpenCode Zen/muse-spark-1.3": {
+      "sourceUrl": "https://opencode.ai/docs/zen/",
+      "asOf": "2026-09-27",
+      "cacheHit": 0.15,
+      "note": "Zen price; Meta Model API price behind a login (unconfirmed). Meta: Standard-tier data is never used for training; only muse-spark-1.3-contributor trains on data, and OpenCode Go serves the Contributor SKU (https://dev.meta.ai/docs/models, 2026-09-27)"
+    },
+    "OpenAI/gpt-3.5-turbo-instruct": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-09-28 (replacement gpt-5.6-terra)"
+    },
+    "OpenAI/babbage-002": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-09-28 (replacement gpt-5.6-terra)"
+    },
+    "OpenAI/davinci-002": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-09-28 (replacement gpt-5.6-terra)"
+    },
+    "OpenAI/gpt-3.5-turbo-1106": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-09-28 (replacement gpt-5.6-terra)"
+    },
+    "OpenAI/gpt-3.5-turbo": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed)"
+    },
+    "OpenAI/gpt-3.5-turbo-0125": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed)"
+    },
+    "OpenAI/gpt-4-0613": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed)"
+    },
+    "OpenAI/gpt-4-turbo-2024-04-09": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed)"
+    },
+    "OpenAI/gpt-4.1-nano": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed); Azure Foundry retires gpt-4.1-nano 2025-04-14 on 2026-10-14"
+    },
+    "OpenAI/gpt-4o-2024-05-13": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed)"
+    },
+    "OpenAI/o1": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed); Azure Foundry retires it 2026-11-19"
+    },
+    "OpenAI/o1-pro": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed); Azure Foundry retires it 2026-11-19"
+    },
+    "OpenAI/o3-mini": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-10-23 (replacement unconfirmed); Azure Foundry retires it 2026-11-19"
+    },
+    "OpenAI/o3-pro": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-12-11; Azure Foundry retires it 2026-11-19"
+    },
+    "OpenAI/gpt-5-pro": {
+      "sourceUrl": "https://developers.openai.com/api/docs/deprecations",
+      "asOf": "2026-09-27",
+      "shutdown": "2026-12-11"
+    }
+  },
+  "proposalNote": "Proposal only. Rows keep the cost-registry-1 PriceRow shape (validatePriceRow). Cache, batch, long-context, fast-mode, priority and scheduled prices have no PriceRow field, so they live in extendedPricing keyed vendor/modelId. OpenAI rows not re-read on 2026-09-26 keep their 2026-09-25 fetchedOn. Refreshed 2026-09-27: no PriceRow input or output changed; extendedPricing gained OpenAI shutdown dates (deprecations page), the settled gpt-5.5 long-context price, GPT-5.6 fast long-context prices, Gemini priority and cache prices, the DeepSeek V4 Pro status and peak hours, and corrected notes."
+}

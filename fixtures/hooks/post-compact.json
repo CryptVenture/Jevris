@@ -1,0 +1,5 @@
+{
+  "hook_event_name": "PostCompact",
+  "trigger": "auto",
+  "compact_summary": "Kept compat1 in the shortened notes."
+}

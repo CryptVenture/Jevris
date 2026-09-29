@@ -1,0 +1,12 @@
+{
+  "schemaVersion": "harness-probe-1",
+  "eventProbe": "passed",
+  "versionToken": "2.1.281",
+  "sessionStart": true,
+  "missEmpty": true,
+  "timeout": 5,
+  "modelPinApplied": false,
+  "permissionDecisionEmitted": false,
+  "actuators": "unsupported",
+  "applied": false
+}
