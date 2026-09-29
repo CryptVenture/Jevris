@@ -60,6 +60,18 @@ const POLL_MS = 2000;
 /** A host-lock ticket not refreshed for this long is stale (its waiter polls every 2 s). */
 export const TICKET_STALE_MS = 120_000;
 
+/**
+ * Whether creating the lock directory failed only because it is there or on its way out. EEXIST
+ * everywhere. On Windows also EPERM and EACCES: a directory whose removal is still pending (the
+ * last holder's rmSync, while a waiter has owner.json open to read it) refuses a new directory of
+ * that name with access denied, not EEXIST. One of five waiters exited 1 on windows-latest at
+ * 52f2beb that way. The waiter then polls as for a held lock; a folder it truly cannot write
+ * still ends in SUITE_LOCK_TIMEOUT, naming the code.
+ */
+export function lockBusy(code, platform = process.platform) {
+  return code === 'EEXIST' || (platform === 'win32' && (code === 'EPERM' || code === 'EACCES'));
+}
+
 const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 
 function sleepSync(ms) {
@@ -221,6 +233,8 @@ function acquireLockAt(lockPath, options, kind) {
     if (ticket !== null) rmSync(ticket, { force: true });
   };
   let lastAhead = 0;
+  /** The last code other than EEXIST that a lock creation met (see lockBusy). */
+  let lastCode = null;
   for (;;) {
     let ahead = 0;
     if (ticket !== null) {
@@ -228,8 +242,9 @@ function acquireLockAt(lockPath, options, kind) {
         const now = new Date();
         utimesSync(ticket, now, now);
       } catch {
-        // swept while this process was held up: queue again at the back
-        ticket = writeTicket(lockPath, { arrivedMs: Date.now(), pid, startedAt, token });
+        // Swept while this process was held up: queue again at the back. A ticket still there
+        // (a refresh refused for a moment) keeps its place.
+        if (!existsSync(ticket)) ticket = writeTicket(lockPath, { arrivedMs: Date.now(), pid, startedAt, token });
       }
       const live = liveTickets(lockPath, { own: ticket, say });
       const mine = live.findIndex((item) => item.token === token);
@@ -259,10 +274,11 @@ function acquireLockAt(lockPath, options, kind) {
       };
       return { token, reentrant: false, release };
     } catch (error) {
-      if (error?.code !== 'EEXIST') {
+      if (!lockBusy(error?.code)) {
         dropTicket();
         throw error;
       }
+      if (error.code !== 'EEXIST') lastCode = error.code;
     }
     const current = readOwner(lockPath);
     if (ahead === 0 && holderGone(current)) {
@@ -288,7 +304,8 @@ function acquireLockAt(lockPath, options, kind) {
     if (Date.now() >= deadline) {
       dropTicket();
       const queue = ahead > 0 ? ` with ${String(ahead)} waiter(s) ahead` : '';
-      const error = new Error(`the ${kind.label} ${lockPath} is held by ${existsSync(lockPath) ? describeOwner(current) : 'no one'}${queue}. Wait for it to finish, or run through node scripts/suite-lock.mjs if you hold it yourself.`);
+      const refused = lastCode === null || existsSync(lockPath) ? '' : ` (creating it last failed with ${lastCode})`;
+      const error = new Error(`the ${kind.label} ${lockPath} is held by ${existsSync(lockPath) ? describeOwner(current) : 'no one'}${queue}${refused}. Wait for it to finish, or run through node scripts/suite-lock.mjs if you hold it yourself.`);
       error.code = 'SUITE_LOCK_TIMEOUT';
       throw error;
     }

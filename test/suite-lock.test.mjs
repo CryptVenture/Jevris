@@ -5,7 +5,7 @@ import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFile
 import { hostname, tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { acquireHostSuiteLock, acquireSuiteLock, HELD_ENV, HOST_DIR_ENV, HOST_HELD_ENV, hostLockPath, liveTickets, LOCK_DIR, queuePath, readOwner, TICKET_STALE_MS, WAIT_ENV, writeTicket } from '../scripts/suite-lock.mjs';
+import { acquireHostSuiteLock, acquireSuiteLock, HELD_ENV, HOST_DIR_ENV, HOST_HELD_ENV, hostLockPath, liveTickets, LOCK_DIR, lockBusy, queuePath, readOwner, TICKET_STALE_MS, WAIT_ENV, writeTicket } from '../scripts/suite-lock.mjs';
 import { needsHostLock, parseArgs as parseCellArgs } from '../scripts/ci-cell.mjs';
 import { isFullSuite } from '../scripts/test-future.mjs';
 import { isFullSuite as isFullRun, testEnvironment } from '../scripts/test.mjs';
@@ -195,8 +195,10 @@ test('the host suite lock is first come, first served: waiters take it in the or
   const names = ['w1', 'w2', 'w3', 'w4', 'w5'];
   const children = [];
   for (const name of names) {
-    const child = spawn(process.execPath, ['--input-type=module', '-e', script, name], { stdio: 'ignore' });
-    children.push(new Promise((done) => child.on('close', done)));
+    const child = spawn(process.execPath, ['--input-type=module', '-e', script, name], { stdio: ['ignore', 'ignore', 'pipe'] });
+    let stderr = '';
+    child.stderr.on('data', (chunk) => (stderr += chunk));
+    children.push(new Promise((done) => child.on('close', (code) => done(code === 0 ? 0 : `${name} exited ${String(code)}: ${stderr.trim()}`))));
     // The next waiter arrives only once this one's ticket is in the queue.
     const want = children.length;
     for (let i = 0; i < 400 && liveTickets(join(dir, 'jevris-host-suite.lock'), { sweep: false }).length < want; i += 1) await new Promise((done) => setTimeout(done, 10));
@@ -206,6 +208,18 @@ test('the host suite lock is first come, first served: waiters take it in the or
   assert.deepEqual(await Promise.all(children), names.map(() => 0));
   assert.deepEqual(readFileSync(log, 'utf8').trim().split('\n'), names, 'taken in arrival order');
   assert.deepEqual(readdirSync(queuePath(join(dir, 'jevris-host-suite.lock'))), [], 'every waiter removed its own ticket');
+});
+
+test('creating the lock is busy on EEXIST everywhere, and on Windows also on the access denied of a directory whose removal is pending', () => {
+  assert.equal(lockBusy('EEXIST', 'linux'), true);
+  assert.equal(lockBusy('EEXIST', 'win32'), true);
+  for (const code of ['EPERM', 'EACCES']) {
+    assert.equal(lockBusy(code, 'win32'), true, code);
+    assert.equal(lockBusy(code, 'darwin'), false, `${code} is a real refusal off Windows`);
+    assert.equal(lockBusy(code, 'linux'), false);
+  }
+  assert.equal(lockBusy('ENOENT', 'win32'), false);
+  assert.equal(lockBusy(undefined, 'win32'), false);
 });
 
 test('a waiter says how many are ahead; tickets of dead or silent waiters are swept, a live one never, and a timeout still exits 75 with its own ticket gone', (t) => {
