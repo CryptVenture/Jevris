@@ -74,6 +74,13 @@ test('whoami and icacls output parse, including indented continuation ACEs (BLD-
     { principal: 'NT AUTHORITY\\SYSTEM', rights: '(I)(OI)(CI)(F)' },
   ]);
   assert.equal(parseIcacls('C:\\other x:(F)', path), null);
+  // icacls echoes the path in the OEM code page: a home such as "Ann Lée home" comes back with
+  // U+FFFD (the byte read as UTF-8), another character or "?" where the é was (windows-latest).
+  const home = 'C:\\Users\\x\\Ann Lée home\\AppData\\Local\\Jevris';
+  for (const echo of ['C:\\Users\\x\\Ann L\uFFFDe home\\AppData\\Local\\Jevris', 'C:\\Users\\x\\Ann L?e home\\AppData\\Local\\Jevris', 'C:\\Users\\x\\Ann L\u201Ae home\\AppData\\Local\\Jevris']) {
+    assert.deepEqual(parseIcacls(`${echo} DESKTOP-ADA\\ada:(OI)(CI)(F)\r\n\r\nSuccessfully processed 1 files; Failed processing 0 files\r\n`, home), [{ principal: 'DESKTOP-ADA\\ada', rights: '(OI)(CI)(F)' }], echo);
+  }
+  assert.equal(parseIcacls('C:\\Users\\x\\Ann Lxe home\\AppData\\Local\\Jevris DESKTOP-ADA\\ada:(F)\r\n', home), null, 'an ASCII letter never stands for the é');
   const user = parseWhoami(WHOAMI);
   assert.equal(aclIsOwnerOnly(parseIcacls(out, path), user), false);
   assert.equal(aclIsOwnerOnly([{ principal: `*${SID}`, rights: '(OI)(CI)(F)' }], user), true);

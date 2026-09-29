@@ -135,13 +135,15 @@ export interface AclEntry {
 export function parseIcacls(stdout: string, path: string): readonly AclEntry[] | null {
   const lines = stdout.split(/\r?\n/);
   const entries: AclEntry[] = [];
+  const echoed = echoedPath(path);
   let started = false;
   for (const raw of lines) {
     if (!started) {
       if (raw.trim().length === 0) continue;
-      if (!raw.toLowerCase().startsWith(path.toLowerCase())) return null;
+      const echo = echoed.exec(raw);
+      if (echo === null) return null;
       started = true;
-      const first = raw.slice(path.length).trim();
+      const first = raw.slice(echo[0].length).trim();
       if (first.length === 0) continue;
       const entry = parseAce(first);
       if (entry === null) return null;
@@ -155,6 +157,26 @@ export function parseIcacls(stdout: string, path: string): readonly AclEntry[] |
     entries.push(entry);
   }
   return started ? entries : null;
+}
+
+/**
+ * The path as icacls echoes it. icacls writes in the console's OEM code page, not UTF-8, so a
+ * non-ASCII character comes back as another character, U+FFFD or `?` (a home such as
+ * `C:\Users\Ann Lée`); each run of them matches one run of non-ASCII characters or `?`.
+ */
+function echoedPath(path: string): RegExp {
+  let source = '';
+  let inRun = false;
+  for (const ch of path) {
+    if (ch.charCodeAt(0) < 0x80) {
+      source += ch.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      inRun = false;
+    } else if (!inRun) {
+      source += '(?:[^\\x00-\\x7f]|\\?)+';
+      inRun = true;
+    }
+  }
+  return new RegExp(`^${source}`, 'i');
 }
 
 function parseAce(text: string): AclEntry | null {
