@@ -4,7 +4,6 @@ import { spawnSync } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 
 const SOURCE_CANARY = 'SOURCE_CANARY_do_not_copy';
@@ -182,7 +181,8 @@ test('the real store port refuses an unbound receipt (BLD-14)', async () => {
 });
 
 test('core imports and advises with better-sqlite3 unavailable (BLD-14)', () => {
-  const block = fileURLToPath(new URL('../../../scripts/test-block-native.mjs', import.meta.url));
+  // A URL, not a path: --import reads a Windows path's drive letter as a URL scheme.
+  const block = new URL('../../../scripts/test-block-native.mjs', import.meta.url).href;
   const core = new URL('../dist/index.js', import.meta.url).href;
   const script = [
     `const core = await import(${JSON.stringify(core)});`,

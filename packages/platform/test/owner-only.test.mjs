@@ -131,6 +131,27 @@ test('win32: a private file write applies the file ACL to the temp before the re
   assert.deepEqual(renamed, [[grants[0][1], file]]);
 });
 
+// The fakes above are the icacls output as documented; this is the real icacls and whoami on a
+// Windows host (CI's windows-latest), in the run's temp folder. A miss names both outputs.
+test('win32, real icacls: a private directory and a private file get owner-only ACLs (BLD-08)', { skip: process.platform === 'win32' ? false : 'needs Windows icacls and whoami' }, async (t) => {
+  const { spawnSync } = await import('node:child_process');
+  const system = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
+  const raw = (file, args) => {
+    const result = spawnSync(join(system, file), args, { windowsHide: true });
+    // As JSON, so an encoding the parser does not expect (UTF-16, a code page) shows as it is.
+    return `${file} ${args.join(' ')} -> ${result.status}: ${JSON.stringify(String(result.stdout))} ${JSON.stringify(String(result.stderr))}`;
+  };
+  const dir = join(tempDir(t), 'private dir');
+  const made = await ensurePrivateDir(dir);
+  const seen = () => `${raw('whoami.exe', ['/user', '/fo', 'csv', '/nh'])}\n${raw('icacls.exe', [dir])}`;
+  assert.deepEqual(made, { ok: true }, seen());
+  assert.deepEqual(await assertOwnerOnly(dir), { ok: true }, seen());
+  const file = join(dir, 'state.json');
+  const written = await writePrivateFile(file, '{}\n');
+  assert.equal(written.ok, true, `${JSON.stringify(written)}\n${raw('icacls.exe', [file])}`);
+  assert.deepEqual(await assertOwnerOnly(file), { ok: true }, raw('icacls.exe', [file]));
+});
+
 test('POSIX: private directories are 0700 and files 0600, created, not chmodded after (BLD-08)', { skip: POSIX_ONLY }, async (t) => {
   const home = tempDir(t);
   const dir = join(home, '.local', 'share', 'jevris');

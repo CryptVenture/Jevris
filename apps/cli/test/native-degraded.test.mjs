@@ -7,8 +7,9 @@ import { join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
-const BLOCK_SQLITE = join(root, 'scripts', 'test-block-native.mjs');
-const BLOCK_KEYRING = join(root, 'scripts', 'test-preload.mjs');
+// --import takes a URL: a bare Windows path (D:\...) is read as a URL with the scheme d:.
+const BLOCK_SQLITE = pathToFileURL(join(root, 'scripts', 'test-block-native.mjs')).href;
+const BLOCK_KEYRING = pathToFileURL(join(root, 'scripts', 'test-preload.mjs')).href;
 const BIN = join(root, 'bin', 'jevris.mjs');
 const CANARY = 'CANARY_SECRET_do_not_print';
 const DIAGNOSTIC = /^jevris: the native module better-sqlite3 could not be loaded \(MODULE_NOT_FOUND\)\. Jevris continues rules-only/;

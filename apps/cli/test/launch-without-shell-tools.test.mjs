@@ -18,10 +18,10 @@ const WIN = process.platform === 'win32';
 
 /** A PATH that finds node and nothing else a hook might lean on. */
 function nodeOnlyPath(base) {
-  if (WIN) {
-    const system = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32');
-    return [dirname(process.execPath), system].join(delimiter);
-  }
+  // Node's own folder only. Not System32: Windows Server 2025 (windows-latest) and any host with
+  // WSL has System32\bash.exe there. cmd.exe is reached through ComSpec, and the product runs
+  // whoami and icacls by their full path under SystemRoot.
+  if (WIN) return dirname(process.execPath);
   const bin = join(base, 'bin');
   spawnSync(process.execPath, ['-e', `require('node:fs').mkdirSync(${JSON.stringify(bin)})`]);
   symlinkSync(process.execPath, join(bin, 'node'));

@@ -37,12 +37,15 @@ const jsonc = (text) => nodeValue(parseJsoncTree(text));
 async function materialize() {
   const parent = await mkdtemp(join(tmpdir(), 'jevris-legacy-'));
   const home = join(parent, 'home');
+  // Every @HOME@ sits inside a JSON, JSONC or TOML basic string, where a Windows home's
+  // backslashes are written escaped, as v1 wrote them there (the same on POSIX: nothing to escape).
+  const inString = JSON.stringify(home).slice(1, -1);
   for (const rel of manifest.files) {
     const bytes = await readFile(join(fixture, 'home', rel));
     const target = join(home, ...rel.split('/'));
     await mkdir(dirname(target), { recursive: true });
     const text = bytes.toString('utf8');
-    await writeFile(target, text.includes(manifest.token) ? text.split(manifest.token).join(home) : bytes);
+    await writeFile(target, text.includes(manifest.token) ? text.split(manifest.token).join(inString) : bytes);
   }
   return { parent, home };
 }
