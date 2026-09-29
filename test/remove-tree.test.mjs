@@ -23,17 +23,26 @@ test('windowsHolders lists nothing off Windows, and on Windows names this proces
   else assert.ok(lines.some((line) => line.startsWith(`pid ${process.pid} `)), lines.join('\n'));
 });
 
-// Windows only: a folder that is a live process's working folder cannot be removed there, and on
-// POSIX it can, so the waiting has nothing to wait for elsewhere.
-test('on Windows removeTree waits for a holder that lets go inside its window, and names one that does not', { skip: process.platform !== 'win32' ? 'a working folder blocks removal only on Windows' : false }, async () => {
+// Windows only: a file another process holds open without delete sharing cannot be removed there
+// (POSIX unlinks it anyway), so the waiting has nothing to wait for elsewhere. The holder is
+// PowerShell opening the file with FileShare None; it prints once the file is open.
+test('on Windows removeTree waits for a holder that lets go inside its window, and names one that does not', { skip: process.platform !== 'win32' ? 'an open file blocks removal only on Windows' : false }, async () => {
   const hold = (dir, ms) => {
-    const child = spawn(process.execPath, ['-e', `setTimeout(() => {}, ${ms})`], { cwd: dir, stdio: 'ignore', windowsHide: true });
-    return new Promise((resolve) => child.once('spawn', () => resolve(child)));
+    const file = join(dir, 'held.txt');
+    writeFileSync(file, 'x');
+    const script = `$f = [System.IO.File]::Open('${file.replace(/'/g, "''")}', 'Open', 'Read', 'None'); Write-Output held; Start-Sleep -Milliseconds ${ms}; $f.Close()`;
+    const child = spawn('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: ['ignore', 'pipe', 'ignore'], windowsHide: true });
+    return new Promise((resolve, reject) => {
+      child.stdout.on('data', (chunk) => {
+        if (String(chunk).includes('held')) resolve(child);
+      });
+      child.once('exit', (code) => reject(new Error(`the holder exited (${code}) before it held the file`)));
+    });
   };
   const brief = mkdtempSync(join(tmpdir(), 'remove-tree-brief-'));
   await hold(brief, 1500);
   removeTree(brief);
-  assert.equal(existsSync(brief), false, 'removed once the holder exited');
+  assert.equal(existsSync(brief), false, 'removed once the holder let go');
 
   const stubborn = mkdtempSync(join(tmpdir(), 'remove-tree-held-'));
   const child = await hold(stubborn, 60_000);
@@ -41,7 +50,7 @@ test('on Windows removeTree waits for a holder that lets go inside its window, a
     assert.throws(() => removeTree(stubborn, 1000), /removing .*processes now:/s);
   } finally {
     child.kill();
-    await new Promise((resolve) => child.once('exit', resolve));
+    await new Promise((resolve) => (child.exitCode !== null ? resolve() : child.once('exit', resolve)));
     removeTree(stubborn);
   }
 });
