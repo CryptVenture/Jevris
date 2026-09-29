@@ -272,7 +272,10 @@ async function onePass(product, options, load, prefix, extraEnv) {
 
   const jevris = (argv, input) => run(product.bin, argv, { env, cwd: work, input });
   try {
-    const started = jevris(['sidecar', 'start', '--home', home]);
+    // A first start of a fresh install is a cold start: on windows-latest it outlasted the
+    // command's 5 s default while the same product's next start took less. This checks that the
+    // sidecar starts and answers, not how fast (the bench measures start times).
+    const started = jevris(['sidecar', 'start', '--home', home, '--wait-ms', '30000']);
     if (!record('sidecar starts', started.code === 0, started.stdout + started.stderr)) return { ok: false, steps };
 
     // CLI: every public command, contract-valid and answered by the sidecar.
