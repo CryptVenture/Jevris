@@ -7,7 +7,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { lstat, mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { dirname, join } from 'node:path';
+import { dirname, join, normalize } from 'node:path';
 
 const { main } = await import('../dist/cli.js');
 const { parseJsoncTree, nodeValue } = await import('../dist/jsonc-edit.js');
@@ -73,10 +73,11 @@ test('a copied real v1 home upgrades: v1 files and receipts go, user files and h
     assert.equal(code, 0, text);
 
     // v2 writes its own Kilo and OpenCode plugin file at the v1 path; the v1 bytes are gone.
+    // The receipts list paths with forward slashes; on Windows they are compared in native form.
     const rewritten = new Set([join(home, '.config', 'kilo', 'plugin', 'jevris.js'), join(home, '.config', 'opencode', 'plugins', 'jevris.js')]);
     for (const path of owned) {
       if (path.endsWith('hooks.json')) continue;
-      if (rewritten.has(path)) {
+      if (rewritten.has(normalize(path))) {
         assert.equal(await readFile(path, 'utf8') === v1Bytes.get(path), false, `v1 plugin replaced: ${path}`);
         continue;
       }

@@ -212,7 +212,17 @@ test('omitting --harness installs all five and a plain uninstall removes every h
     }
     await uninstall(home);
     const left = (await readdir(home)).filter((name) => name !== '.jevris' && name !== '.local');
-    assert.deepEqual(left, []);
+    if (process.platform === 'win32') {
+      // Jevris keeps its own data, like ~/.local/share/jevris on POSIX, in AppData\Local\Jevris
+      // (and its config in AppData\Roaming\Jevris); nothing else may stay under AppData.
+      assert.deepEqual(left, ['AppData']);
+      for (const root of ['Local', 'Roaming']) {
+        const names = await readdir(join(home, 'AppData', root)).catch(() => []);
+        assert.deepEqual(names.filter((name) => name !== 'Jevris'), [], `AppData\\${root} holds only Jevris`);
+      }
+    } else {
+      assert.deepEqual(left, []);
+    }
   });
 });
 

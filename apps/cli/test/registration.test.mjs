@@ -36,7 +36,6 @@ const ALL_ACTUATOR_IDS = [
 ];
 /** windows-launcher is a row only on Windows. */
 const actuatorIds = (platform) => ALL_ACTUATOR_IDS.filter((id) => id !== 'windows-launcher' || platform === 'win32');
-const ACTUATOR_IDS = actuatorIds(process.platform);
 
 async function productHooksSnapshot() {
   try {
@@ -91,9 +90,10 @@ test('a healthy install with version 2.1.281 and doctor exit 0 does not certify 
   assert.equal(report.harnessProbe.health, 'installation-only');
   assert.equal(report.harnessProbe.eventProbe, 'did-not-pass');
   assert.equal(report.harnessProbe.actuators, 'unsupported');
+  // The doctor above is asked about darwin, whatever OS runs this test.
   assert.deepEqual(
     report.actuators.map((row) => row.id),
-    ACTUATOR_IDS,
+    actuatorIds('darwin'),
   );
   for (const row of report.actuators) {
     assert.equal(row.status, 'unsupported');
@@ -101,7 +101,7 @@ test('a healthy install with version 2.1.281 and doctor exit 0 does not certify 
   }
 
   const text = formatDoctor(report);
-  for (const id of ACTUATOR_IDS) {
+  for (const id of actuatorIds('darwin')) {
     assert.equal(text.includes(`actuator ${id}: certified`), false);
     assert.equal(text.includes(`actuator ${id}: unsupported`), true);
   }

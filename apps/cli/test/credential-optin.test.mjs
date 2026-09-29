@@ -51,7 +51,9 @@ function keyFile(dir, name = 'jev.key', mode = 0o600, body = `${CANARY}\n`) {
 test('the opt-in is read from exactly two named variables and never searched for (GOV-07)', () => {
   assert.equal(optInSourceOf({}), undefined);
   assert.equal(optInSourceOf({ HOME: '/home/x', CREDENTIALS_DIRECTORY: '/run/credentials/jevris.service' }), undefined);
-  assert.deepEqual(optInSourceOf({ [CREDENTIAL_FILE_ENV]: '/etc/jevris/key' }), { kind: 'file', path: '/etc/jevris/key' });
+  // An absolute, normalized path on this OS (on Windows, /etc/... resolves onto the current drive).
+  const absolute = process.platform === 'win32' ? 'C:\\ProgramData\\jevris\\key' : '/etc/jevris/key';
+  assert.deepEqual(optInSourceOf({ [CREDENTIAL_FILE_ENV]: absolute }), { kind: 'file', path: absolute });
   assert.deepEqual(optInSourceOf({ [CREDENTIAL_FILE_ENV]: 'relative/key' }), { refused: 'not-absolute' });
   assert.deepEqual(optInSourceOf({ [CREDENTIAL_FILE_ENV]: '/etc/../etc/jevris/key' }), { refused: 'not-absolute' });
   assert.deepEqual(optInSourceOf({ [CREDENTIAL_FILE_ENV]: '/a', [CREDENTIAL_SYSTEMD_ENV]: 'b' }), { refused: 'both-set' });

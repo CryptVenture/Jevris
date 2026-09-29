@@ -144,7 +144,9 @@ test('a no is remembered: the exact line is printed and the profile is never edi
   assert.equal(existsSync(join(home, '.bash_profile')), false);
 });
 
-test('profile detection: zsh .zprofile, bash .bash_profile when present else .profile, fish conf.d, else .profile', async (t) => {
+// POSIX shells only: the product builds these with posix paths, and on Windows it offers the user
+// PATH instead of a profile (never calling shellProfile there).
+test('profile detection: zsh .zprofile, bash .bash_profile when present else .profile, fish conf.d, else .profile', { skip: POSIX ? false : 'POSIX shell profiles; Windows uses the user PATH' }, async (t) => {
   const home = tempDir(t);
   assert.deepEqual(await launcher.shellProfile(home, { SHELL: '/bin/zsh' }), { file: join(home, '.zprofile'), shell: 'zsh' });
   assert.deepEqual(await launcher.shellProfile(home, { SHELL: '/usr/local/bin/bash' }), { file: join(home, '.profile'), shell: 'bash' });
