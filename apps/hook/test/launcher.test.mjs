@@ -194,6 +194,18 @@ test('outcome choice: strongest certified proposal, deterministic, bounded', () 
   assert.equal(outcomeOf({ hookOutcome: { kind: 'route', updatedInput: [] } }), null);
 });
 
+test('JEV-0031: a result the stopped sidecar answered observes with reason KILL_SWITCH, not NO_PROPOSAL', async () => {
+  const stopped = { recorded: true, duplicate: false, killSwitch: 'stopped', results: {} };
+  assert.deepEqual(chooseOutcome(stopped), { outcome: { kind: 'observe' }, reason: 'KILL_SWITCH', continuation: null });
+  // A stopped answer never actuates, even if a result somehow carries a certified proposal.
+  const withProposal = { ...stopped, results: { a: { hookOutcome: { kind: 'context', text: 'ctx' }, certified: true } } };
+  assert.equal(chooseOutcome(withProposal).outcome.kind, 'observe');
+  const native = fixture(claude, 'claude.session-start').native;
+  const run = await runLauncher(args('claude'), JSON.stringify(native), deps(fakeSidecar({ answer: { ok: true, result: stopped } }).sidecar), Date.now());
+  assert.equal(run.stdout, '');
+  assert.equal(run.reason, 'KILL_SWITCH');
+});
+
 test("D's answer replay: a duplicate the sidecar marks replayed renders as the first delivery did (reason DUPLICATE_REPLAYED); an unmarked duplicate still observes", async () => {
   const context = { restore: { hookOutcome: { kind: 'context', text: 'Resume: finish the parser.' }, certified: true } };
   const first = { recorded: true, duplicate: false, deliveryKey: 'k1', results: context };

@@ -327,9 +327,13 @@ function queuedOf(result: Record<string, unknown>): readonly string[] {
  * slice, the reason is SUBSCRIBER_QUEUED, not NO_PROPOSAL: a proposal may have been lost to time.
  * A duplicate delivery observes, unless the sidecar replayed the first delivery's answer (D's
  * answer replay): that renders as the first did, with reason DUPLICATE_REPLAYED.
+ * A result the stopped sidecar answered (`killSwitch: 'stopped'`, no subscriber ran) observes
+ * with reason KILL_SWITCH.
  */
 export function chooseOutcome(result: unknown): { readonly outcome: HookOutcome; readonly reason: string; readonly continuation: readonly string[] | null } {
   if (!isPlainObject(result)) return { outcome: { kind: 'observe' }, reason: 'NO_RESULT', continuation: null };
+  // GOV-02..04: a stopped sidecar recorded the event and ran no subscriber; say so, not NO_PROPOSAL.
+  if (own(result, 'killSwitch') === 'stopped') return { outcome: { kind: 'observe' }, reason: 'KILL_SWITCH', continuation: null };
   const replayed = own(result, 'duplicate') === true && own(result, 'replayed') === true;
   if (own(result, 'duplicate') === true && !replayed) return { outcome: { kind: 'observe' }, reason: 'DUPLICATE_DELIVERY', continuation: null };
   const results = own(result, 'results');
