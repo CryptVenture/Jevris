@@ -24,6 +24,8 @@ import {
   revertWindowMs,
   setConfigValue,
   drainIntegrationReverts,
+  drainIntegrations,
+  integrationKey,
   drainRouteLearning,
   keepLearningNote,
   learningRow,
@@ -74,9 +76,9 @@ async function fixture({ writes, check = '0', scopes = ['mod', 'lib'] }) {
   const env = { JEVRIS_TEST: '1', JEVRIS_TEST_WORKER_SCRIPT: scriptPath };
   setTaskOpDeps({ workerPort: async () => scriptedWorkerPort(env, home) });
   const traces = [];
-  const call = (op, body, client = 'cli') => sidecarOps.find((o) => o.op === op).handle({
+  const call = (op, body, client = 'cli', remainingMs = 20000) => sidecarOps.find((o) => o.op === op).handle({
     op, client, scopes: ['status', 'advice', 'checkpoint', 'submit', 'admin'], workspace: { id: ws.workspaceId, root: ws.workspaceRoot }, body, home,
-    signal: new AbortController().signal, deadline: { budgetMs: 20000, remainingMs: () => 20000, expired: () => false }, store, killSwitchStopped: false, engine: undefined, trace: (e) => traces.push(e),
+    signal: new AbortController().signal, deadline: { budgetMs: 20000, remainingMs: () => remainingMs, expired: () => false }, store, killSwitchStopped: false, engine: undefined, trace: (e) => traces.push(e),
   });
   // Tasks one at a time, so the scripted runs map to tasks in order.
   for (const [i, scope] of scopes.entries()) {
@@ -184,6 +186,36 @@ test('integration.run applies verified tasks in an integration worktree, reruns 
     assert.equal(approved.body.report.approvedBy, 'alice');
     // A merged report is not merged again.
     assert.equal((await f.call('integration.approve', { integrationId: report.id })).body.reasonCode, 'NOT_READY');
+  } finally {
+    f.done();
+  }
+});
+
+test('an integration that outlasts its answer is answered running and goes on to its report; a second run of the workspace also ends; a running report left by a stopped sidecar reads interrupted (W04)', async () => {
+  const f = await fixture({ writes: [[{ path: 'mod/a.txt', text: 'a2\n' }], [{ path: 'lib/b.txt', text: 'b2\n' }]] });
+  try {
+    // No time left to wait: the answer is the running report, stored before the answer.
+    const first = await f.call('integration.run', { taskIds: ['T1'] }, 'cli', 0);
+    assert.equal(first.ok, true, JSON.stringify(first));
+    assert.equal(first.body.state, 'running', JSON.stringify(first.body));
+    assert.equal(first.body.reasonCode, 'RUNNING');
+    const second = (await f.call('integration.run', { taskIds: ['T2'] }, 'cli', 0)).body;
+    assert.equal(second.state, 'running');
+    assert.equal((await f.call('integration.get', { integrationId: first.body.id })).body.reports[0].state, 'running');
+    assert.equal((await f.call('integration.approve', { integrationId: first.body.id })).body.reasonCode, 'NOT_READY', 'a running integration is not approved');
+    await drainIntegrations();
+    const one = (await f.call('integration.get', { integrationId: first.body.id })).body.reports[0];
+    const two = (await f.call('integration.get', { integrationId: second.id })).body.reports[0];
+    assert.equal(one.state, 'ready', JSON.stringify(one));
+    assert.equal(two.state, 'ready', JSON.stringify(two));
+    assert.equal(one.baseCommit, two.baseCommit);
+    assert.notEqual(one.worktreePath, two.worktreePath, 'each run has its own integration worktree');
+    // A running report with no run in this process: the sidecar stopped during it.
+    const orphan = { ...one, id: 'int-00000000abcd', state: 'running', reasonCode: 'RUNNING', worktreeId: null, worktreePath: null, branch: null, integrationCommit: null, tasks: [], checks: null };
+    await f.ws.state.transact((tx) => tx.put('integrations', integrationKey(f.ws, orphan.id), orphan));
+    const read = (await f.call('integration.get', { integrationId: orphan.id })).body.reports[0];
+    assert.deepEqual([read.state, read.reasonCode], ['blocked', 'INTERRUPTED']);
+    assert.ok((await f.call('integration.get', {})).body.reports.every((r) => r.state !== 'running'));
   } finally {
     f.done();
   }

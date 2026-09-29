@@ -75,6 +75,29 @@ async function integrate(b, argv, answer, { confirm = null } = {}) {
   return { code, text, calls: fake.calls, json: argv.includes('--json') && text.startsWith('{') ? JSON.parse(text) : null };
 }
 
+test('integrate follows an integration the sidecar answered as running until it ends (W04); one that never ends in time is left to status', async (t) => {
+  const b = box(t);
+  let gets = 0;
+  const followed = await integrate(b, ['T1', 'T2', '--json'], (input) => {
+    if (input.op === 'integration.run') return { ok: true, result: report({ state: 'running', reasonCode: 'RUNNING', baseCommit: null, branch: null, worktreeId: null, worktreePath: null, integrationCommit: null, tasks: [], checks: null }) };
+    assert.equal(input.op, 'integration.get');
+    assert.deepEqual(input.body, { integrationId: 'int-0123456789ab' });
+    gets += 1;
+    return { ok: true, result: { found: true, reports: [gets < 2 ? report({ state: 'running', reasonCode: 'RUNNING', tasks: [], checks: null }) : report()] } };
+  });
+  assert.equal(followed.code, 0, followed.text);
+  assert.equal(followed.json.report.state, 'ready');
+  assert.equal(gets, 2);
+  // The sidecar stopped answering: the running report is shown, not ready (exit 1).
+  const lost = await integrate(b, ['T1'], (input) => (input.op === 'integration.run' ? { ok: true, result: report({ state: 'running', reasonCode: 'RUNNING', tasks: [], checks: null }) } : { ok: false, reason: 'unavailable' }));
+  assert.equal(lost.code, 1, lost.text);
+  assert.match(lost.text, /int-0123456789ab is still running; jevris integrate status int-0123456789ab shows how it ends/);
+  // An answer for another integration is not shown as this one.
+  const other = await integrate(b, ['T1'], (input) => (input.op === 'integration.run' ? { ok: true, result: report({ state: 'running', reasonCode: 'RUNNING' }) } : { ok: true, result: { found: true, reports: [report({ id: 'int-ffffffffffff' })] } }));
+  assert.equal(other.code, 1);
+  assert.match(other.text, /unexpected shape/);
+});
+
 test('integrate sends the task ids and reports a ready integration (exit 0) or conflicts (exit 1)', async (t) => {
   const b = box(t);
   const ready = await integrate(b, ['T1', 'T2'], { ok: true, result: report() });

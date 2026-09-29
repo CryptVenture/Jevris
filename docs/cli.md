@@ -735,8 +735,9 @@ Integrates verified owned tasks into your checkout, with your approval.
 
 integrate <task-id>...  Prepares an integration branch in its own worktree from your checkout's
                         current commit, applies each task's change, and runs the mandatory
-                        checks there. It reports ready, conflicts, checks-failed or blocked.
-                        Your checkout is not touched.
+                        checks there. It reports ready, conflicts, checks-failed or blocked,
+                        and waits up to 5 minutes for the checks; a longer run goes on, and
+                        status shows how it ends. Your checkout is not touched.
 status [<id>]           Shows one integration report, or the recent ones.
 approve <id>            Your approval: fast-forwards your checkout to the ready integration
                         commit. It is refused if your checkout moved, has uncommitted changes,

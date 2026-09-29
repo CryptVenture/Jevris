@@ -2,8 +2,9 @@
  * Integration ops (ORC-07, W04), all local payloads:
  *
  * - `integration.run` (submit scope, CLI only; stopped by the kill switch):
- *   `{ taskIds: string[] }` prepares the integration of verified owned tasks and answers with
- *   the readiness report.
+ *   `{ taskIds: string[] }` starts the integration of verified owned tasks and answers with its
+ *   readiness report, or, when it is still running as the answer falls due, with its `running`
+ *   report; the run goes on, and `integration.get` shows how it ends (the CLI follows it).
  * - `integration.get` (status scope): `{ integrationId }` gives one report, and `{}` gives the
  *   workspace's recent reports.
  * - `integration.approve` (submit scope, CLI only; stopped by the kill switch):
@@ -14,7 +15,7 @@ import { ID_PATTERN, type SidecarOpContext, type SidecarOpOutcome } from '@jevri
 import type { WorkspaceServices } from '../workspace.js';
 import { isPlain, own } from '../util.js';
 import { readEffectiveConfig } from '../settings/config.js';
-import { INTEGRATION_MAX_TASKS, approveIntegration, getIntegration, listIntegrations, runIntegration } from '../orchestration/integration.js';
+import { INTEGRATION_MAX_TASKS, approveIntegration, getIntegration, listIntegrations, startIntegration, type IntegrationReport } from '../orchestration/integration.js';
 import { detectIntegrationRevertsInBackground } from '../orchestration/integration-reverts.js';
 
 type WorkspaceOf = (ctx: SidecarOpContext) => WorkspaceServices | undefined;
@@ -22,6 +23,20 @@ type WorkspaceOf = (ctx: SidecarOpContext) => WorkspaceServices | undefined;
 const CONTRACT_ID = new RegExp(ID_PATTERN);
 const INTEGRATION_ID = /^int-[0-9a-f]{12}$/;
 const ACTOR = /^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$/;
+/** Time kept after waiting for the run, for the answer to be written and to travel. */
+const ANSWER_MARGIN_MS = 1000;
+
+/** `work` within `ms`, else undefined (the work keeps running). */
+async function within<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    return await Promise.race([work, new Promise<undefined>((resolve) => {
+      timer = setTimeout(() => resolve(undefined), Math.max(0, ms));
+    })]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
 
 function integrationIdOf(body: unknown): string | undefined {
   const raw = isPlain(body) ? own(body, 'integrationId') : undefined;
@@ -46,7 +61,9 @@ export function integrationOps(workspaceOf: WorkspaceOf) {
         const ws = needWs(ctx);
         if (ws === undefined) return { ok: false, reasonCode: 'WORKSPACE_ROOT_UNKNOWN' };
         const egressApproved = readEffectiveConfig({ home: ctx.home, workspaceRoot: ws.workspaceRoot }).config.privacy.sourceEgress === 'approved-scoped';
-        const report = await runIntegration(ws, raw, { signal: ctx.signal, ...(ctx.killSwitchStopped ? {} : { engine: ctx.engine }), egressApproved });
+        // The run is not tied to this request: it goes on after the answer (see startIntegration).
+        const started = await startIntegration(ws, raw, { ...(ctx.killSwitchStopped ? {} : { engine: ctx.engine }), egressApproved });
+        const report: IntegrationReport = (await within(started.done, ctx.deadline.remainingMs() - ANSWER_MARGIN_MS)) ?? started.running;
         ctx.trace({ event: 'orchestrator.integration-run', reasonCode: report.reasonCode.slice(0, 64) });
         return { ok: true, body: report };
       },

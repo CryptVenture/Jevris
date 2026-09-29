@@ -27,8 +27,9 @@ Integrates verified owned tasks into your checkout, with your approval.
 
 integrate <task-id>...  Prepares an integration branch in its own worktree from your checkout's
                         current commit, applies each task's change, and runs the mandatory
-                        checks there. It reports ready, conflicts, checks-failed or blocked.
-                        Your checkout is not touched.
+                        checks there. It reports ready, conflicts, checks-failed or blocked,
+                        and waits up to 5 minutes for the checks; a longer run goes on, and
+                        status shows how it ends. Your checkout is not touched.
 status [<id>]           Shows one integration report, or the recent ones.
 approve <id>            Your approval: fast-forwards your checkout to the ready integration
                         commit. It is refused if your checkout moved, has uncommitted changes,
@@ -55,9 +56,13 @@ const INTEGRATION_ID = /^int-[0-9a-f]{12}$/;
 const ACTOR = /^[A-Za-z0-9][A-Za-z0-9_.@-]{0,63}$/;
 const COMMIT = /^[0-9a-f]{40,64}$/;
 const CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
-const STATES = new Set(['blocked', 'conflicts', 'checks-failed', 'ready', 'merged']);
+const STATES = new Set(['running', 'blocked', 'conflicts', 'checks-failed', 'ready', 'merged']);
 const OUTCOMES = new Set(['applied', 'conflict', 'git-error', 'empty', 'not-verified', 'no-worktree', 'base-not-ancestor', 'unreadable']);
 const MAX_TASKS = 32;
+/** How often `integrate` asks how a running integration is going. */
+const FOLLOW_INTERVAL_MS = 500;
+/** How long `integrate` follows a running integration before it leaves it to `integrate status`. */
+const FOLLOW_LIMIT_MS = 300_000;
 
 export interface IntegrationTask {
   readonly taskId: string;
@@ -119,7 +124,9 @@ const short = (commit: string | null): string => (commit === null ? 'none' : com
 
 export function renderIntegration(r: IntegrationView): string[] {
   const head =
-    r.state === 'ready'
+    r.state === 'running'
+      ? `Integration ${r.id} is still running; jevris integrate status ${r.id} shows how it ends. Your checkout was not changed.`
+      : r.state === 'ready'
       ? `Integration ${r.id} is ready: approve it with jevris integrate approve ${r.id}.`
       : r.state === 'merged'
         ? `Integration ${r.id} was merged into your checkout at ${short(r.mergedCommit)}${r.approvedBy === null ? '' : ` (approved by ${r.approvedBy})`}; nothing was pushed.`
@@ -218,8 +225,19 @@ export async function runIntegrateCommand(argv: readonly string[], write: Write,
   }
   const body = answer.result;
   if (sub === 'run') {
-    const report = checkIntegration(body);
+    let report = checkIntegration(body);
     if (report === null) return invalid();
+    // The sidecar answers before a long integration ends (its checks take what they take):
+    // follow it with integration.get until it ends or FOLLOW_LIMIT_MS passes.
+    const until = Date.now() + FOLLOW_LIMIT_MS;
+    while (report.state === 'running' && Date.now() < until) {
+      await new Promise<void>((resolve) => setTimeout(resolve, FOLLOW_INTERVAL_MS));
+      const next = await ctx.ports.sidecar.request({ home: ctx.home, op: 'integration.get', workspace: ctx.workspaceRoot, body: { integrationId: report.id }, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+      if (!next.ok) break;
+      const found = isRec(next.result) && Array.isArray(next.result['reports']) && next.result['reports'].length === 1 ? checkIntegration(next.result['reports'][0]) : null;
+      if (found === null || found.id !== report.id) return invalid();
+      report = found;
+    }
     return out({ report }, renderIntegration(report), report.state === 'ready' ? COMMAND_EXIT_CODES.ok : COMMAND_EXIT_CODES.negative);
   }
   if (sub === 'status') {

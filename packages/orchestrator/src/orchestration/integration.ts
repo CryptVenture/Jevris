@@ -20,6 +20,13 @@
  *    certifies nothing.
  * 6. The readiness report is stored (state 'integrations').
  *
+ * `startIntegration` is how the sidecar runs it: steps 1 to 6 take as long as the tasks' git work
+ * and the project's own checks take, which no fixed request budget bounds (W04 took over 5 s on a
+ * Windows runner with three small tasks). It stores a `running` report at once and runs the
+ * integration after any other one of the same workspace, so the op can answer with the running
+ * report and the CLI follows it with `integration.get`. A `running` report whose run is not in
+ * this process (the sidecar stopped during it) reads as `blocked` with INTERRUPTED.
+ *
  * `approveIntegration` is the explicit user approval (CLI only). It merges only a `ready`
  * report, only with --ff-only into a main checkout that is still at the expected base, has no
  * tracked changes, and whose integration branch still points at the reported commit. Nothing
@@ -43,7 +50,7 @@ const COMMIT = /^[0-9a-f]{40,64}$/;
 /** Used only when the repository has no configured identity. */
 const FALLBACK_IDENTITY = ['-c', 'user.name=Jevris', '-c', 'user.email=jevris@localhost.invalid'] as const;
 
-export type IntegrationState = 'blocked' | 'conflicts' | 'checks-failed' | 'ready' | 'merged';
+export type IntegrationState = 'running' | 'blocked' | 'conflicts' | 'checks-failed' | 'ready' | 'merged';
 
 export interface IntegrationTaskResult {
   readonly taskId: string;
@@ -95,6 +102,8 @@ export interface IntegrationOptions {
   /** For the review advice: C's engine (advice only) and whether source egress is approved. */
   readonly engine?: unknown;
   readonly egressApproved?: boolean;
+  /** The id to use (startIntegration's, whose running report it replaces); a new one otherwise. */
+  readonly id?: string;
 }
 
 function gitFor(options: IntegrationOptions, env: { readonly [key: string]: string } = {}): GitPort {
@@ -121,13 +130,28 @@ export function integrationKey(ws: WorkspaceServices, id: string): string {
   return recordKey(ws.workspaceId, id);
 }
 
+/** The integrations this process is running, by integrationKey. */
+const inFlight = new Set<string>();
+/** Each workspace's latest integration run: the next one starts after it. */
+const chains = new Map<string, Promise<unknown>>();
+
+/** A `running` report whose run is not in this process was interrupted (the sidecar stopped). */
+function current(ws: WorkspaceServices, row: IntegrationReport): IntegrationReport {
+  return row.state === 'running' && !inFlight.has(integrationKey(ws, row.id)) ? { ...row, state: 'blocked', reasonCode: 'INTERRUPTED' } : row;
+}
+
 export function getIntegration(ws: WorkspaceServices, id: string): IntegrationReport | undefined {
   const row = ws.state.get<IntegrationReport>('integrations', integrationKey(ws, id));
-  return row !== undefined && row.workspaceId === ws.workspaceId ? row : undefined;
+  return row !== undefined && row.workspaceId === ws.workspaceId ? current(ws, row) : undefined;
 }
 
 export function listIntegrations(ws: WorkspaceServices): readonly IntegrationReport[] {
-  return ws.state.list<IntegrationReport>('integrations').filter((r) => r.workspaceId === ws.workspaceId);
+  return ws.state.list<IntegrationReport>('integrations').filter((r) => r.workspaceId === ws.workspaceId).map((r) => current(ws, r));
+}
+
+/** Resolves when every integration this process started has ended (tests, shutdown). */
+export async function drainIntegrations(): Promise<void> {
+  while (chains.size > 0) await Promise.allSettled([...chains.values()]);
 }
 
 async function store(ws: WorkspaceServices, report: IntegrationReport): Promise<IntegrationReport> {
@@ -161,17 +185,16 @@ async function snapshotCommit(ws: WorkspaceServices, tree: WorktreeRecord, optio
   }
 }
 
-/** Prepares the integration of verified owned tasks and stores its readiness report. */
-export async function runIntegration(ws: WorkspaceServices, taskIds: readonly string[], options: IntegrationOptions = {}): Promise<IntegrationReport> {
-  const git = gitFor(options);
-  const nowMs = options.nowMs ?? Date.now();
-  const id = `int-${randomBytes(6).toString('hex')}`;
-  const unique = [...new Set(taskIds)].slice(0, INTEGRATION_MAX_TASKS);
-  const base: Omit<IntegrationReport, 'state' | 'reasonCode' | 'tasks'> = {
+function newIntegrationId(): string {
+  return `int-${randomBytes(6).toString('hex')}`;
+}
+
+function reportBase(ws: WorkspaceServices, id: string, taskIds: readonly string[], nowMs: number): Omit<IntegrationReport, 'state' | 'reasonCode' | 'tasks'> {
+  return {
     schemaVersion: 'jevris-integration-1',
     id,
     workspaceId: ws.workspaceId,
-    taskIds: unique,
+    taskIds,
     baseCommit: null,
     branch: null,
     worktreeId: null,
@@ -185,6 +208,50 @@ export async function runIntegration(ws: WorkspaceServices, taskIds: readonly st
     approvedAtMs: null,
     mergedCommit: null,
   };
+}
+
+/**
+ * Starts an integration: its `running` report is stored before this resolves, and `done` gives
+ * the final report. It runs after the workspace's previous integration, never beside it. A run
+ * that throws ends `blocked` with INTERNAL, so no report stays running.
+ */
+export async function startIntegration(
+  ws: WorkspaceServices,
+  taskIds: readonly string[],
+  options: Omit<IntegrationOptions, 'id'> = {},
+): Promise<{ readonly running: IntegrationReport; readonly done: Promise<IntegrationReport> }> {
+  const nowMs = options.nowMs ?? Date.now();
+  const id = newIntegrationId();
+  const unique = [...new Set(taskIds)].slice(0, INTEGRATION_MAX_TASKS);
+  const key = integrationKey(ws, id);
+  inFlight.add(key);
+  let running: IntegrationReport;
+  try {
+    running = await store(ws, { ...reportBase(ws, id, unique, nowMs), state: 'running', reasonCode: 'RUNNING', tasks: [] });
+  } catch (error) {
+    inFlight.delete(key);
+    throw error;
+  }
+  const previous = chains.get(ws.workspaceId) ?? Promise.resolve();
+  const done: Promise<IntegrationReport> = previous
+    .then(() => runIntegration(ws, unique, { ...options, nowMs, id }))
+    .catch(() => store(ws, { ...running, state: 'blocked', reasonCode: 'INTERNAL' }))
+    .finally(() => {
+      inFlight.delete(key);
+      if (chains.get(ws.workspaceId) === settled) chains.delete(ws.workspaceId);
+    });
+  const settled = done.then(() => undefined, () => undefined);
+  chains.set(ws.workspaceId, settled);
+  return { running, done };
+}
+
+/** Prepares the integration of verified owned tasks and stores its readiness report. */
+export async function runIntegration(ws: WorkspaceServices, taskIds: readonly string[], options: IntegrationOptions = {}): Promise<IntegrationReport> {
+  const git = gitFor(options);
+  const nowMs = options.nowMs ?? Date.now();
+  const id = options.id ?? newIntegrationId();
+  const unique = [...new Set(taskIds)].slice(0, INTEGRATION_MAX_TASKS);
+  const base = reportBase(ws, id, unique, nowMs);
   const head = await git.run(['rev-parse', '--verify', '-q', 'HEAD^{commit}'], ws.workspaceRoot);
   const expected = head.stdout.trim();
   if (!head.ok || !COMMIT.test(expected)) return store(ws, { ...base, state: 'blocked', reasonCode: 'NOT_A_REPOSITORY', tasks: [] });
