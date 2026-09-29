@@ -248,7 +248,16 @@ export interface SweepResult {
    * write waits about this long plus one busy-handler retry step at worst.
    */
   readonly longestWriteMs?: number;
+  /**
+   * P10, chunked sweep only: each delete chunk that removed rows, with its rows and the time it
+   * held the write lock, in order (at most SWEEP_CHUNK_LOG entries). The longest write alone is
+   * one sample, which a stalled host decides; these show the chunking itself.
+   */
+  readonly chunks?: readonly { readonly rows: number; readonly ms: number }[];
 }
+
+/** Most chunks a sweep lists in its result. */
+export const SWEEP_CHUNK_LOG = 4096;
 
 /**
  * What the sweep removes, in order. `key` names the columns that identify a row, for the chunked
@@ -334,6 +343,7 @@ function sweepChunked(
   let limit = Math.min(maxRows, 100);
   let writes = 0;
   let longest = 0;
+  const chunks: { rows: number; ms: number }[] = [];
   const removed: Record<string, number> = {};
   for (const { table, where, key } of REDACTED_SQL) {
     removed[table] = 0;
@@ -358,6 +368,7 @@ function sweepChunked(
       removed[table] += gone;
       const took = clock() - started;
       longest = Math.max(longest, took);
+      if (gone > 0 && chunks.length < SWEEP_CHUNK_LOG) chunks.push({ rows: gone, ms: took });
       // Copy this chunk's WAL frames into the database here (no lock on writers), so the other
       // connection's commit never runs a large auto-checkpoint of the sweep's frames itself.
       if (gone > 0) checkpointPassive(driver);
@@ -409,7 +420,7 @@ function sweepChunked(
       vacuumed = false;
     }
   }
-  return { ok: true, dryRun: false, removed, rawFiles, keptPinned, vacuumed, longestWriteMs: longest };
+  return { ok: true, dryRun: false, removed, rawFiles, keptPinned, vacuumed, longestWriteMs: longest, chunks };
 }
 
 function count(driver: ReturnType<typeof driverFor>, table: string, where: string, params: Record<string, number>): number {

@@ -173,27 +173,38 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
       assert.equal(api.hookLedger(store).list('stop-reports').length, waits.length, 'every hot write is kept');
       return { outcome, waits };
     });
-  // What bounds the wait is the chunk: no maintenance write holds the lock anywhere near 50 ms.
-  // On windows-latest one write took 59 ms (file writes and flushes are slower there, and one
-  // runner carries the whole suite); the bound there is 100 ms, still 20 times below
-  // busy_timeout, and the hot-commit bound is the same on every OS. End to end, with room for a
-  // loaded host (a hot commit with no sweep at all reached about 120 ms with five suites
-  // running): far below busy_timeout (2 s), so never a timed-out wait.
+  // What bounds a hot write's wait is the chunk, so the test shows three things.
+  // 1. The sweep is chunked: the 6000 rows went in at least 12 deletes of at most 500 rows each
+  //    (SWEEP_CHUNK_ROWS; the first chunks are smaller while the size ramps up from 100).
+  // 2. A chunk holds the lock briefly: the 90th percentile of the chunks' lock times is under
+  //    50 ms, and so is that of the hot commits. On windows-latest the bound is 100 ms (one chunk
+  //    took 59 ms there; file writes are slower, and one runner carries the whole suite).
+  // 3. Nothing comes near busy_timeout (2 s): the longest maintenance write and the worst hot
+  //    commit are each under 400 ms.
+  // Why a percentile, not the longest write: the longest is one sample, and a stalled runner
+  // decides it. A 500-row chunk is under 1 ms of work on a quiet host (0.9 ms at most, measured
+  // at 52f2beb), yet a macos-latest runner held one for 85 ms at 52f2beb while its worst hot
+  // commit took 7.6 ms, and ubuntu-latest one for 79 ms at 5c5b566. The store's own share of
+  // those, a connection that synced every commit, is fixed (52f2beb). The percentile still fails
+  // when chunking is broken: with a huge chunk size the sweep is a few large deletes and step 1
+  // fails; with no chunking at all it is one delete, which is its own 90th percentile.
   const writeBound = process.platform === 'win32' ? 100 : 50;
-  const judge = ({ outcome, waits }) => {
-    const worst = Math.max(...waits);
-    t.diagnostic(`${String(waits.length)} hot commits during the sweep; worst ${worst.toFixed(1)} ms; longest maintenance write ${String(outcome.longestWriteMs)} ms`);
-    return { worst, longest: outcome.longestWriteMs, met: outcome.longestWriteMs < writeBound && worst < 400 };
+  const { outcome, waits } = await scenario();
+  const p90 = (values) => {
+    const sorted = [...values].sort((a, b) => a - b);
+    return sorted[Math.max(0, Math.ceil(sorted.length * 0.9) - 1)] ?? 0;
   };
-  let result = judge(await scenario());
-  // A windows-latest runner's disk now and then holds one flush for most of a second, the sweep's
-  // and this connection's alike (792 ms and 809 ms at d98f99a, every other run under 60 ms). That
-  // is the host, not the chunk: on Windows the scenario runs once more, and that run must meet
-  // the same bounds. Anywhere else one run decides.
-  if (!result.met && process.platform === 'win32') {
-    t.diagnostic(`first run over its bounds (longest maintenance write ${String(result.longest)} ms, worst hot commit ${result.worst.toFixed(1)} ms); running once more`);
-    result = judge(await scenario());
-  }
-  assert.ok(result.longest < writeBound, `longest maintenance write ${String(result.longest)} ms`);
-  assert.ok(result.worst < 400, `worst hot commit ${result.worst.toFixed(1)} ms during the sweep`);
+  const chunkMs = outcome.chunks.map((c) => c.ms);
+  const worst = Math.max(...waits);
+  t.diagnostic(
+    `${String(outcome.chunks.length)} chunks (largest ${String(Math.max(...outcome.chunks.map((c) => c.rows)))} rows), p90 ${p90(chunkMs).toFixed(1)} ms, longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms; ` +
+      `${String(waits.length)} hot commits, p90 ${p90(waits).toFixed(1)} ms, worst ${worst.toFixed(1)} ms`,
+  );
+  assert.ok(outcome.chunks.length >= 12, `the sweep ran in ${String(outcome.chunks.length)} chunks`);
+  assert.ok(outcome.chunks.every((c) => c.rows <= 500), `no chunk over 500 rows: ${JSON.stringify(outcome.chunks.map((c) => c.rows))}`);
+  assert.equal(outcome.chunks.reduce((a, c) => a + c.rows, 0), 6000, 'the chunks hold every removed row');
+  assert.ok(p90(chunkMs) < writeBound, `90th percentile of chunk writes ${p90(chunkMs).toFixed(1)} ms`);
+  assert.ok(p90(waits) < writeBound, `90th percentile of hot commits ${p90(waits).toFixed(1)} ms`);
+  assert.ok(outcome.longestWriteMs < 400, `longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms`);
+  assert.ok(worst < 400, `worst hot commit ${worst.toFixed(1)} ms during the sweep`);
 });

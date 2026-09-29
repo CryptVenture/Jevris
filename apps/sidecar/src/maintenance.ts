@@ -47,6 +47,8 @@ export type SweepOutcome =
       readonly vacuumed: boolean;
       /** The longest single maintenance write, in ms (see the store's SweepResult). */
       readonly longestWriteMs: number;
+      /** Each delete chunk that removed rows: its rows and ms (see the store's SweepResult). */
+      readonly chunks: readonly { readonly rows: number; readonly ms: number }[];
       readonly where: 'worker' | 'inline';
     }
   | { readonly ok: false; readonly reason: string; readonly where: 'worker' | 'inline' };
@@ -78,7 +80,7 @@ function sweepOptions(job: SweepJob, where: 'worker' | 'inline'): Parameters<Sto
 
 function outcomeOf(result: ReturnType<StoreModule['sweepRetention']>, where: 'worker' | 'inline'): SweepOutcome {
   if (!result.ok) return { ok: false, reason: result.reason, where };
-  return { ok: true, removed: { ...result.removed }, rawFiles: result.rawFiles, vacuumed: result.vacuumed, longestWriteMs: result.longestWriteMs ?? 0, where };
+  return { ok: true, removed: { ...result.removed }, rawFiles: result.rawFiles, vacuumed: result.vacuumed, longestWriteMs: result.longestWriteMs ?? 0, chunks: result.chunks ?? [], where };
 }
 
 /** The same chunked sweep on the caller's own connection (no worker available). */
