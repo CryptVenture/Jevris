@@ -59,7 +59,9 @@ test('a parallel file whose process has gone counts as finished, and a lock whos
   }
 });
 
-test('in one node --test run, each serial file starts after every parallel file ended, and runs alone', async () => {
+// node:test sorts the files, so a serial file can start before a parallel one; the gate's promise
+// is that no test body of any other file runs while a serial file's does.
+test('in one node --test run, each serial file runs alone: no other file overlaps it', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'gate-run-'));
   try {
     const log = join(dir, 'log.jsonl');
@@ -80,7 +82,8 @@ test('in one node --test run, each serial file starts after every parallel file 
       return path;
     };
     const parallel = [file('p1', 600), file('p2', 300), file('p3', 100)];
-    const serial = [file('s1', 200), file('s2', 200)];
+    // Named to sort first, as daemon.test.mjs did on CI: node:test starts them before the parallel files.
+    const serial = [file('a-s1', 200), file('a-s2', 200)];
     const gate = serialGate(parallel, serial, dir, { NODE_OPTIONS: process.env.NODE_OPTIONS ?? '' });
     // A run of its own: without NODE_TEST_CONTEXT, which would make it report to this file's runner.
     const { NODE_TEST_CONTEXT: _context, ...env } = process.env;
@@ -92,10 +95,11 @@ test('in one node --test run, each serial file starts after every parallel file 
     assert.equal(code, 0);
     const rows = readFileSync(log, 'utf8').trim().split('\n').map((line) => JSON.parse(line));
     const at = (name) => rows.find((row) => row.name === name);
-    const lastParallelEnd = Math.max(...['p1', 'p2', 'p3'].map((name) => at(name).end));
-    for (const name of ['s1', 's2']) assert.ok(at(name).start >= lastParallelEnd, `${name} started after every parallel file ended`);
-    const [first, second] = [at('s1'), at('s2')].sort((a, b) => a.start - b.start);
-    assert.ok(second.start >= first.end, 'the serial files did not overlap');
+    assert.equal(rows.length, 5, 'every file ran');
+    const overlap = (x, y) => x.start < y.end && y.start < x.end;
+    for (const name of ['a-s1', 'a-s2']) {
+      for (const other of rows.filter((row) => row.name !== name)) assert.equal(overlap(at(name), other), false, `${name} and ${other.name} did not overlap`);
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
