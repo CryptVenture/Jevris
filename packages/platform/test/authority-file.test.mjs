@@ -4,10 +4,10 @@
 // never follows a link and never reads past its cap.
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { chmodSync, mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, fstatSync, lstatSync, mkdirSync, mkdtempSync, openSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { AUTHORITY_FILE_REFUSALS, authorityFileRefusal, insideGitWorkTree, readAuthorityFile, readFileNoFollow } from '../dist/index.js';
+import { AUTHORITY_FILE_REFUSALS, authorityFileRefusal, insideGitWorkTree, readAuthorityFile, readFileNoFollow, sameOpenedFile } from '../dist/index.js';
 
 const posix = process.platform !== 'win32';
 
@@ -86,8 +86,33 @@ test('on Windows the owner and mode are not checked; the link, file and work-tre
   assert.equal(readAuthorityFile(p.file, { home: p.home, platform: 'win32', uid: 12345 }, 1024).kind, 'ok');
 });
 
+// windows-latest: a path's stat gave the volume serial number in 64 bits and the descriptor's in
+// 32, so every read of host.json and access-limits.json there read as unreadable.
+test('the open descriptor is the file lstat saw: same inode, and on Windows the device on its low 32 bits', () => {
+  const stats = (dev, ino) => ({ dev, ino });
+  assert.equal(sameOpenedFile(stats(0x1234_5678_9abc_def0n, 42n), stats(0x9abc_def0n, 42n), 'win32'), true);
+  assert.equal(sameOpenedFile(stats(0x1234_5678_9abc_def0n, 42n), stats(0x9abc_def0n, 42n), 'linux'), false);
+  assert.equal(sameOpenedFile(stats(7n, 42n), stats(7n, 43n), 'win32'), false, 'another file');
+  assert.equal(sameOpenedFile(stats(7n, 42n), stats(8n, 42n), 'win32'), false, 'another volume');
+  // File ids above 2^53 stay exact as bigints.
+  assert.equal(sameOpenedFile(stats(7n, 2n ** 60n + 1n), stats(7n, 2n ** 60n), 'darwin'), false);
+});
+
 test('SR-16: readFileNoFollow reads a regular file up to its cap and never through a link', (t) => {
   const p = place(t);
+  if (process.platform === 'win32') {
+    // What this host's path and descriptor stats say, for the record (see the test above).
+    writeFileSync(p.file, 'x');
+    const byPath = lstatSync(p.file, { bigint: true });
+    const fd = openSync(p.file, 'r');
+    try {
+      const byFd = fstatSync(fd, { bigint: true });
+      t.diagnostic(`lstat dev ${byPath.dev} ino ${byPath.ino}; fstat dev ${byFd.dev} ino ${byFd.ino}`);
+    } finally {
+      closeSync(fd);
+    }
+    rmSync(p.file);
+  }
   assert.deepEqual(readFileNoFollow(p.file, 16), { kind: 'missing' });
   writeFileSync(p.file, 'abc');
   assert.equal(text(readFileNoFollow(p.file, 16)), 'abc');

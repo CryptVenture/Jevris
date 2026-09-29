@@ -14,7 +14,7 @@
  * file without following a link and checks that the descriptor is the file that was checked, so a
  * swap in between is refused too. Synchronous: the egress guard asks on every request.
  */
-import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, type Stats } from 'node:fs';
+import { closeSync, constants, fstatSync, lstatSync, openSync, readSync, realpathSync, type BigIntStats, type Stats } from 'node:fs';
 import { pathApiFor } from './paths.js';
 
 export type AuthorityFileRefusal =
@@ -142,22 +142,33 @@ export type NoFollowRead =
   | { readonly kind: 'ok'; readonly bytes: Uint8Array };
 
 /**
+ * Whether the open descriptor is the file `lstat` saw: the same device and inode, compared as
+ * bigints (a 64-bit file id loses bits as a number). On Windows a path's stat can give the volume
+ * serial number in 64 bits (the GetFileInformationByName path, as on windows-latest) where the
+ * descriptor's gives its low 32, so there the device is compared on those 32 bits.
+ */
+export function sameOpenedFile(byPath: BigIntStats, byFd: BigIntStats, platform: string = process.platform): boolean {
+  if (byPath.ino !== byFd.ino) return false;
+  return platform === 'win32' ? (byPath.dev & 0xffffffffn) === (byFd.dev & 0xffffffffn) : byPath.dev === byFd.dev;
+}
+
+/**
  * Reads a regular file without following a symbolic link, at most `maxBytes`, and never more
  * than that from the disk: the size is checked on the link itself and on the open descriptor,
  * and the descriptor must be the file that was checked (the same device and inode), so a swap in
  * between reads nothing. `accept` sees the open descriptor's stats; false makes it `unreadable`.
  */
 export function readFileNoFollow(path: string, maxBytes: number, accept: (opened: Stats) => boolean = () => true): NoFollowRead {
-  let link: Stats;
+  let link: BigIntStats;
   try {
-    link = lstatSync(path);
+    link = lstatSync(path, { bigint: true });
   } catch (error) {
     const code = error !== null && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
     return code === 'ENOENT' || code === 'ENOTDIR' ? { kind: 'missing' } : { kind: 'unreadable' };
   }
   if (link.isSymbolicLink()) return { kind: 'link' };
   if (!link.isFile()) return { kind: 'not-regular' };
-  if (link.size > maxBytes) return { kind: 'too-large' };
+  if (link.size > BigInt(maxBytes)) return { kind: 'too-large' };
   let fd: number;
   try {
     fd = openSync(path, constants.O_RDONLY | (constants.O_NOFOLLOW ?? 0) | (constants.O_NONBLOCK ?? 0));
@@ -168,8 +179,9 @@ export function readFileNoFollow(path: string, maxBytes: number, accept: (opened
     return code === 'ENOENT' ? { kind: 'missing' } : { kind: 'unreadable' };
   }
   try {
+    if (!sameOpenedFile(link, fstatSync(fd, { bigint: true }))) return { kind: 'unreadable' };
     const opened = fstatSync(fd);
-    if (!opened.isFile() || opened.dev !== link.dev || opened.ino !== link.ino) return { kind: 'unreadable' };
+    if (!opened.isFile()) return { kind: 'unreadable' };
     if (!accept(opened)) return { kind: 'unreadable' };
     if (opened.size > maxBytes) return { kind: 'too-large' };
     const buffer = new Uint8Array(maxBytes + 1);

@@ -59,6 +59,14 @@ declare module 'node:fs' {
     isDirectory(): boolean;
     isFile(): boolean;
   }
+  export interface BigIntStats {
+    readonly size: bigint;
+    readonly dev: bigint;
+    readonly ino: bigint;
+    isSymbolicLink(): boolean;
+    isDirectory(): boolean;
+    isFile(): boolean;
+  }
   export const constants: {
     readonly O_CREAT: number;
     readonly O_EXCL: number;
@@ -70,10 +78,12 @@ declare module 'node:fs' {
   };
   export function openSync(path: string, flags: number): number;
   export function fstatSync(fd: number): Stats;
+  export function fstatSync(fd: number, options: { readonly bigint: true }): BigIntStats;
   export function readSync(fd: number, buffer: Uint8Array, offset: number, length: number, position: number | null): number;
   export function closeSync(fd: number): void;
   export function statSync(path: string): Stats;
   export function lstatSync(path: string): Stats;
+  export function lstatSync(path: string, options: { readonly bigint: true }): BigIntStats;
   export function accessSync(path: string, mode?: number): void;
   export function readFileSync(path: string, encoding: 'utf8'): string;
   export function existsSync(path: string): boolean;

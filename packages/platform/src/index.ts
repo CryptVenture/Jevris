@@ -106,6 +106,7 @@ export {
   insideGitWorkTree,
   readAuthorityFile,
   readFileNoFollow,
+  sameOpenedFile,
   type AuthorityFileInput,
   type NoFollowRead,
   type AuthorityFileRead,
