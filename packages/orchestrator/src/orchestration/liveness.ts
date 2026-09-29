@@ -111,6 +111,14 @@ function windowsStart(pid: number): number | null {
 
 export function processStartMs(pid: number, platform: string = process.platform): number | null {
   if (!Number.isInteger(pid) || pid <= 0) return null;
+  // This process's start time cannot change while it runs, so it is read once. Its leases are
+  // swept on every submit and schedule; on Windows each read is a synchronous PowerShell start
+  // (a second or more on a loaded host), which held the sidecar past a plan.submit deadline.
+  if (pid === process.pid && platform === process.platform) return ownStart();
+  return readStart(pid, platform);
+}
+
+function readStart(pid: number, platform: string): number | null {
   if (platform === 'linux') return linuxStart(pid) ?? psStart(pid);
   if (platform === 'win32') return windowsStart(pid);
   return psStart(pid);
@@ -129,10 +137,15 @@ export function pidExists(pid: number): boolean {
 
 let selfStart: number | null | undefined;
 
+/** This process's start time, read once (a failed read is asked again next time). */
+function ownStart(): number | null {
+  if (selfStart === undefined || selfStart === null) selfStart = readStart(process.pid, process.platform);
+  return selfStart;
+}
+
 /** The identity of this process, for lease holders and the owned-process registry. */
 export function selfIdentity(sessionId: string | null = null): ProcessIdentity {
-  selfStart ??= processStartMs(process.pid);
-  return { hostId: hostIdentity(), pid: process.pid, startedAtMs: selfStart, sessionId };
+  return { hostId: hostIdentity(), pid: process.pid, startedAtMs: ownStart(), sessionId };
 }
 
 export type Liveness = 'alive' | 'dead' | 'other-host' | 'unknown';

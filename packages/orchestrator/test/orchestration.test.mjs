@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { createRequire, syncBuiltinESMExports } from 'node:module';
 import {
   criticalPathLengths,
   getPlan,
@@ -12,6 +13,7 @@ import {
   nodeFor,
   reasonCode,
   livenessOf,
+  processStartMs,
   openWorkspace,
   scheduleTasks,
   selfIdentity,
@@ -195,6 +197,33 @@ test('a dead holder is swept even before its heartbeat expires; liveness checks 
   } finally {
     f.done();
   }
+});
+
+test('this process\'s start time is read once: its own lease sweeps start no process after the first (ORC-03; a PowerShell start each on Windows)', () => {
+  const first = processStartMs(process.pid);
+  assert.equal(selfIdentity().startedAtMs, first);
+  const cp = createRequire(import.meta.url)('node:child_process');
+  const names = ['spawn', 'spawnSync', 'execFile', 'execFileSync'];
+  const originals = names.map((name) => cp[name]);
+  let started = 0;
+  names.forEach((name, i) => {
+    cp[name] = (...args) => {
+      started += 1;
+      return originals[i](...args);
+    };
+  });
+  // ESM imports of node:child_process see the patch only once the builtin exports are synced.
+  syncBuiltinESMExports();
+  try {
+    for (let i = 0; i < 5; i += 1) assert.equal(processStartMs(process.pid), first);
+    assert.equal(livenessOf(selfIdentity()), first === null ? 'unknown' : 'alive');
+  } finally {
+    names.forEach((name, i) => {
+      cp[name] = originals[i];
+    });
+    syncBuiltinESMExports();
+  }
+  assert.equal(started, first === null ? started : 0, 'a known own start time is not read again');
 });
 
 test('the verified state cannot be set by a transition call, and submitTask extends a plan (ORC-01)', async () => {
