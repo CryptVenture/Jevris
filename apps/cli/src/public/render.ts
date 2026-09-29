@@ -3,7 +3,7 @@
  * lines. No colour, no symbols that carry meaning alone, stable wording for screen readers.
  */
 import { accessUsageLines, untimedClearTextFor } from '@jevris/core';
-import { servingHostOf, type ModeSource, type RouteServing, type SurfaceOperation, type SurfacePayloads, type SurfaceResult } from '@jevris/contracts';
+import { jevBudgetText, servingHostOf, type ModeSource, type RouteServing, type SurfaceOperation, type SurfacePayloads, type SurfaceResult } from '@jevris/contracts';
 import { reminderLine } from '../learning-report.js';
 import { latencyLines } from './latency.js';
 
@@ -152,6 +152,26 @@ function failureLine(c: SurfacePayloads['verify']['checks'][number]): string | n
   const count = f.failedTestCount === 0 ? 'no failing test was parsed from its output' : `${plural(f.failedTestCount, 'failing test')}${listed}`;
   const details = f.evidenceHandle === null ? '' : `; details: jevris evidence get ${f.evidenceHandle}`;
   return `${c.checkId} ${verb}: ${count}${details}`;
+}
+
+/**
+ * The Jev decision budget on status (owner decision 2026-09-29): the month's spend against the
+ * machine-wide limit, against this workspace's cap when it has one, and the reset date.
+ */
+export function jevBudgetLines(budget: SurfacePayloads['status']['budget']): string[] {
+  if (budget.limitMicroUsd === null || budget.spentMicroUsd === undefined) return [];
+  const period = budget.period === undefined ? 'this month' : `in ${budget.period}`;
+  const resets = budget.resetsAt === undefined ? '' : `; resets ${budget.resetsAt.slice(0, 10)} (UTC)`;
+  const zero = budget.limitMicroUsd === 0 ? ' (0: no Jev calls, decisions run rules-only)' : '';
+  const lines = [`jev budget: ${jevBudgetText(budget.spentMicroUsd)} spent of ${jevBudgetText(budget.limitMicroUsd)} ${period}, machine-wide${zero}${resets}`];
+  const ws = budget.workspace;
+  if (ws !== undefined && ws !== null) {
+    const from = ws.source === 'repository' ? "the repository's .jevris/config.json" : ws.source === 'unreadable' ? 'a cap record that cannot be read (0 until set again)' : 'jevris configure workspace-budget';
+    lines.push(`jev budget this workspace: ${jevBudgetText(ws.spentMicroUsd)} spent of its cap ${jevBudgetText(ws.limitMicroUsd)} ${period} (set by ${from})`);
+  }
+  if (budget.exhaustedBy === 'machine') lines.push('jev budget spent: the machine-wide limit (BUDGET_MACHINE_LIMIT); decisions run rules-only until it resets');
+  if (budget.exhaustedBy === 'workspace') lines.push("jev budget spent: this workspace's cap (BUDGET_WORKSPACE_CAP); its decisions run rules-only until it resets");
+  return lines;
 }
 
 function line(label: string, value: string | number | boolean | null): string {
@@ -410,6 +430,7 @@ function body(result: SurfaceResult): string[] {
         ...(p.testWorkerPort === undefined || p.testWorkerPort === null ? [] : [p.testWorkerPort]),
       ];
       if (p.budget.reservedMicroUsd !== null) lines.push(line('reserved micro-USD', p.budget.reservedMicroUsd));
+      lines.push(...jevBudgetLines(p.budget));
       lines.push(line('store', p.store.state));
       if (p.store.diagnostic !== null) lines.push(line('store diagnostic', p.store.diagnostic));
       if (p.degradedReason !== null) lines.push(line('degraded', p.degradedReason));
@@ -536,6 +557,9 @@ function body(result: SurfaceResult): string[] {
         line('main session routing', p.effective.mainSession),
         line('managed workers', p.effective.managedWorkers),
         line('orchestration', p.effective.orchestrationEnabled ? 'enabled' : 'disabled'),
+        ...(p.effective.monthlyBudgetMicroUsd === undefined
+          ? []
+          : [line('jev monthly budget', `${p.effective.monthlyBudgetMicroUsd} micro-USD (${jevBudgetText(p.effective.monthlyBudgetMicroUsd)}), machine-wide${p.effective.monthlyBudgetMicroUsd === 0 ? '; 0 means no Jev calls, decisions run rules-only' : ''}`)]),
         'native permissions changed: no',
       ];
       for (const issue of p.issues) lines.push(`issue: ${issue.path || '/'} ${issue.code}`);

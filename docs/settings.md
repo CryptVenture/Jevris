@@ -42,10 +42,12 @@ Jevris builds the effective settings in this order. A later layer can only make 
    may only lower the keys marked "workspace may lower" below. Anything else in it is ignored
    and reported as `NOT_NARROWABLE`, and a value of the wrong kind as `INVALID_VALUE`.
 4. **Your organization's policy**, `organization.json`. It caps the mode, source egress,
-   telemetry, retention and request size, and it pins the provider model.
-5. **The administrator's ceilings on the mode**: the `mode` in `host.json` and in a managed
-   `policy.json` ([configuration.md](configuration.md#managed-policy-administrators)). With `organization.json`,
-   the lowest of them wins. A ceiling also caps `routing.managedWorkers`.
+   telemetry, retention, request size and the monthly Jev decision budget, and it pins the
+   provider model.
+5. **The administrator's ceilings on the mode and the Jev decision budget**: the `mode` and
+   `budget.monthlyDecisionMicroUsd` in `host.json` and in a managed `policy.json`
+   ([configuration.md](configuration.md#managed-policy-administrators)). With `organization.json`,
+   the lowest of them wins. A mode ceiling also caps `routing.managedWorkers`.
 
 A ceiling only lowers, so it still applies when its file would not count as an authority for
 egress (not owned by you, writable by others, or inside a repository); the reason is shown as
@@ -119,7 +121,7 @@ jevris configure set <key> <value> --dry-run   # show the change without writing
 `configure set` accepts only the keys marked "you" in the table. It prints a key-by-key
 difference and writes the file owner-only. It never edits native harness settings.
 
-The file must hold every key except `routing.modelListing`: one with a key missing does not match the contract and cannot be
+The file must hold every key except `routing.modelListing` and `decisions.monthlyBudgetMicroUsd`: one with another key missing does not match the contract and cannot be
 used (see [Your file cannot be used](#your-file-cannot-be-used)). `configure set` always writes
 the whole file, so the easiest way to start one is to set any key with it.
 
@@ -135,6 +137,7 @@ the whole file, so the easiest way to start one is to set any key with it.
 | `decisions.backgroundDeadlineMs` | `5000` | you | 500 to 120000 | yes | no |
 | `decisions.maxRequestBytes` | `131072` | administrator | bytes | no | yes (`budget.maxRequestBytes`) |
 | `decisions.maxQuestions` | `12` | you | 1 to 12 | yes | no |
+| `decisions.monthlyBudgetMicroUsd` | `5000000` (5 USD) | you (a raise needs you at a terminal; see [The Jev decision budget](#the-jev-decision-budget)) | 0 to 1000000000 whole micro-USD; `0` means no Jev calls (rules-only) | yes (for that workspace only) | yes (`budget.monthlyDecisionMicroUsd`, also in `host.json` and a managed policy) |
 | `decisions.allowUncalibratedActuation` | `false` | nobody | always `false` | no | no |
 | `privacy.sourceEgress` | `deny-until-approved` | administrator | `deny-until-approved`, `approved-scoped` | no | yes (`egress`) |
 | `privacy.remoteTelemetry` | `off` | you may set `off` only | `off`, `approved-aggregates` | no | yes (forced `off` when `organization.json` denies egress) |
@@ -190,6 +193,34 @@ A preference of `approved-scoped` in your file never approves egress on its own.
 `host-policy`, and `effective.sourceEgressPreference` is the file's value, or `null` when no
 valid file sets it. Change the decision with `jevris egress approve` or `jevris egress revoke`.
 
+## The Jev decision budget
+
+`decisions.monthlyBudgetMicroUsd` is the machine-wide monthly limit on Jevris's own Jev decision
+calls, in whole micro-USD (1 USD is 1000000). Every workspace on this machine spends from it.
+The default is 5000000 (5 USD); the range is 0 to 1000000000 (1,000 USD, a bound on a typo).
+`0` means no Jev calls: every decision runs rules-only, and `jevris status` and
+`jevris configure` say so. The key is optional in your file; without it the default applies.
+
+| Change | Who |
+|---|---|
+| Raise the limit above its effective value | a person at an interactive terminal who answers `y` (never `--yes`, `--json`, a pipe, a script, MCP, a hook or a test run) |
+| Lower it, or set the value it has | anyone who can run `jevris configure set`; nothing is asked |
+| Cap it | `budget.monthlyDecisionMicroUsd` in `host.json`, `organization.json` or a managed policy; the lowest wins |
+| Lower it for one workspace | that repository's `.jevris/config.json` (`decisions.monthlyBudgetMicroUsd`); a higher value there is ignored |
+
+A ceiling file that cannot be used caps the limit at 5 USD. A `jevris.config.json` that cannot
+be used gives the defaults, 5 USD, never the value it held.
+
+A workspace may also have its own monthly cap inside the limit, kept per machine and set with
+`jevris configure workspace-budget [<micro-usd>|none]` (see
+[configuration.md](configuration.md#the-jev-decision-budget)). A first cap and a lower one need
+nothing; a higher cap or `none` needs a person at an interactive terminal, with the same refusals.
+The lower of that cap and the repository's value applies to the workspace. When the limit or a
+workspace's cap has no room left, decisions there run rules-only with the reason codes
+`BUDGET_MACHINE_LIMIT` or `BUDGET_WORKSPACE_CAP` (and `BUDGET_ZERO` when that cap is 0) until the
+next calendar month (UTC). A change applies to the next decision without restarting the sidecar,
+and the month's spent amount is kept.
+
 ## Fixed keys
 
 Three keys are constants in this release, because their other value would be unsafe:
@@ -235,9 +266,10 @@ effort per task slice, has its own commands (`jevris route learning`). Both are 
 
 ## Raising what Jevris may do
 
-A `jevris configure set` that raises `mode`, `routing.managedWorkers` or `routing.mainSession`
-above its current effective value (your file under the administrator ceilings) needs a person
-at an interactive terminal who answers `y`. `configure set` shows the change and asks. It never takes `--yes`, and it refuses
+A `jevris configure set` that raises `mode`, `routing.managedWorkers`, `routing.mainSession` or
+`decisions.monthlyBudgetMicroUsd` above its current effective value (your file under the
+administrator ceilings) needs a person at an interactive terminal who answers `y`. So does a
+`jevris configure workspace-budget` that raises this workspace's cap or removes it. `configure set` shows the change and asks. It never takes `--yes`, and it refuses
 `--json`, a pipe, a script, a hook, a model's shell and a test run (`JEVRIS_TEST=1`) before it
 asks anything, with this line:
 
@@ -245,7 +277,10 @@ asks anything, with this line:
 Nothing was changed (CHANNEL_REFUSED): raising mode to advise widens what Jevris may do, so it needs a person at an interactive terminal who answers y (never --yes, --json, MCP, a hook, a script, a pipe or a model's shell).
 ```
 
-With `--json` the same text is the message of an error line whose code is `CHANNEL_REFUSED`.
+For the Jev decision budget the line says what the raise does instead: `raising
+decisions.monthlyBudgetMicroUsd to 8000000 lets Jevris spend more on Jev calls, so it needs a
+person at an interactive terminal ...`. With `--json` the same text is the message of an error
+line whose code is `CHANNEL_REFUSED`.
 MCP never changes settings at all. Lowering, setting the value a key already has, and a dry run
 need no one. The one-time upgrade of the mode (see [Modes](#modes)) and install's defaults are not raises made
 through `configure set`, so they do not ask.

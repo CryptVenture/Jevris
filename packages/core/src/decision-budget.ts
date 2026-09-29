@@ -16,6 +16,12 @@
  *
  * Money is integer micro-USD. Periods are UTC calendar months or days; entries of a closed
  * period stop counting except holds, which count until they are reconciled or expire.
+ *
+ * Limits (owner decision 2026-09-29): `currentLimit` is read again at every reserve and snapshot,
+ * so a settings change applies at once and keeps the period's spent amount (it is in the file).
+ * `workspaceLimit` gives a workspace its own cap inside that limit: a reservation must fit both,
+ * checked under the same lock, so no two processes can together overspend either. A refusal
+ * names the cap that ran out (`cap: 'machine' | 'workspace'`).
  */
 import { mkdir, readFile, rmdir, stat } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
@@ -48,8 +54,18 @@ interface BudgetFile {
 }
 
 export interface DecisionBudgetOptions {
-  /** Spending limit per period, integer micro-USD. */
+  /** Spending limit per period, integer micro-USD; the fallback when `currentLimit` cannot answer. */
   readonly limitMicroUsd: number;
+  /**
+   * The limit now, read at every reserve and snapshot (settings may change while the process
+   * runs). A throw or a value that is not integer micro-USD falls back to `limitMicroUsd`.
+   */
+  readonly currentLimit?: () => number;
+  /**
+   * A workspace's own cap inside the limit, integer micro-USD, or null for none. Read at every
+   * reserve. A throw or a value that is not money is a cap of 0: the workspace goes rules-only.
+   */
+  readonly workspaceLimit?: (workspaceId: string) => number | null;
   readonly period?: BudgetPeriod;
   readonly holdExpiryMs?: number;
   /** Wall clock. */
@@ -59,9 +75,19 @@ export interface DecisionBudgetOptions {
   readonly staleLockMs?: number;
 }
 
+/** Which cap refused a reservation: the machine-wide limit or the workspace's own cap. */
+export type BudgetCap = 'machine' | 'workspace';
+
 export type ReserveResult =
   | { readonly ok: true; readonly reservation: Reservation }
-  | { readonly ok: false; readonly reasonCode: 'BUDGET' | 'BUDGET_LOCKED' | 'BUDGET_STORE' | 'INVALID_AMOUNT'; readonly availableMicroUsd: number | null };
+  | {
+      readonly ok: false;
+      readonly reasonCode: 'BUDGET' | 'BUDGET_LOCKED' | 'BUDGET_STORE' | 'INVALID_AMOUNT';
+      readonly availableMicroUsd: number | null;
+      /** With BUDGET: the cap that ran out, and its limit (0 means it is set to no Jev calls). */
+      readonly cap?: BudgetCap;
+      readonly capLimitMicroUsd?: number;
+    };
 
 export type SettleResult =
   | { readonly ok: true; readonly reservation: Reservation }
@@ -76,6 +102,20 @@ export interface BudgetSnapshot {
   readonly availableMicroUsd: number;
   readonly holds: number;
   readonly reservations: number;
+  /** When the period ends (UTC ISO), or null for a budget without periods. */
+  readonly resetsAt: string | null;
+  /** With `snapshot(workspaceId)`: that workspace's cap and use, or null when it has no cap. */
+  readonly workspace?: WorkspaceBudgetSnapshot | null;
+}
+
+/** A workspace's own cap inside the limit and what it has used this period. */
+export interface WorkspaceBudgetSnapshot {
+  readonly workspaceId: string;
+  readonly limitMicroUsd: number;
+  readonly committedMicroUsd: number;
+  readonly reservedMicroUsd: number;
+  readonly heldMicroUsd: number;
+  readonly availableMicroUsd: number;
 }
 
 const COUNT_OPEN: ReadonlySet<ReservationState> = new Set(['reserved', 'held']);
@@ -115,6 +155,14 @@ function periodOf(period: BudgetPeriod, ms: number): string {
   return period === 'day' ? iso.slice(0, 10) : iso.slice(0, 7);
 }
 
+/** The start of the next period (UTC), when the limits start again; null without periods. */
+export function budgetResetsAt(period: BudgetPeriod, ms: number): string | null {
+  if (period === 'none') return null;
+  const d = new Date(ms);
+  const next = period === 'day' ? Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() + 1) : Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 1);
+  return new Date(next).toISOString();
+}
+
 /** Cost of a Jev call from token counts, in integer micro-USD (rounded up, minimum 1). */
 export function jevCostMicroUsd(inputTokens: number, outputTokens: number, tariff: { readonly inputMicroUsdPerMillion: number; readonly outputMicroUsdPerMillion: number }): number {
   const raw = (inputTokens * tariff.inputMicroUsdPerMillion + outputTokens * tariff.outputMicroUsdPerMillion) / 1_000_000;
@@ -124,6 +172,8 @@ export function jevCostMicroUsd(inputTokens: number, outputTokens: number, tarif
 export class DecisionBudget {
   readonly #path: string | null;
   readonly #limit: number;
+  readonly #currentLimit: (() => number) | undefined;
+  readonly #workspaceLimit: ((workspaceId: string) => number | null) | undefined;
   readonly #period: BudgetPeriod;
   readonly #holdExpiryMs: number;
   readonly #now: () => number;
@@ -135,6 +185,8 @@ export class DecisionBudget {
     if (!isMoney(options.limitMicroUsd)) throw new Error('BUDGET_LIMIT_INVALID');
     this.#path = path;
     this.#limit = options.limitMicroUsd;
+    this.#currentLimit = options.currentLimit;
+    this.#workspaceLimit = options.workspaceLimit;
     this.#period = options.period ?? 'month';
     this.#holdExpiryMs = options.holdExpiryMs ?? 7 * 24 * 60 * 60 * 1000;
     this.#now = options.now ?? (() => Date.now());
@@ -147,8 +199,31 @@ export class DecisionBudget {
     return new DecisionBudget(path, options);
   }
 
+  /** The limit now: `currentLimit` when it answers with money, else the fixed limit. */
   get limitMicroUsd(): number {
-    return this.#limit;
+    return this.#resolveLimit();
+  }
+
+  #resolveLimit(): number {
+    if (this.#currentLimit === undefined) return this.#limit;
+    try {
+      const value = this.#currentLimit();
+      return isMoney(value) ? value : this.#limit;
+    } catch {
+      return this.#limit;
+    }
+  }
+
+  /** The workspace's own cap, or null for none; an answer that is not money (or a throw) is 0. */
+  #resolveWorkspaceLimit(workspaceId: string): number | null {
+    if (this.#workspaceLimit === undefined) return null;
+    try {
+      const value = this.#workspaceLimit(workspaceId);
+      if (value === null) return null;
+      return isMoney(value) ? value : 0;
+    } catch {
+      return 0;
+    }
   }
 
   async #read(): Promise<Reservation[] | null> {
@@ -243,13 +318,14 @@ export class DecisionBudget {
     return out;
   }
 
-  #totals(reservations: readonly Reservation[], nowMs: number): BudgetSnapshot {
+  #totals(reservations: readonly Reservation[], nowMs: number, limit: number, workspaceId?: string): BudgetSnapshot {
     const current = periodOf(this.#period, nowMs);
     let committed = 0;
     let reserved = 0;
     let held = 0;
     let holds = 0;
     for (const r of reservations) {
+      if (workspaceId !== undefined && r.workspaceId !== workspaceId) continue;
       if (r.state === 'held') {
         held += r.reservedMicroUsd;
         holds += 1;
@@ -261,32 +337,54 @@ export class DecisionBudget {
     }
     return {
       period: current,
-      limitMicroUsd: this.#limit,
+      limitMicroUsd: limit,
       committedMicroUsd: committed,
       reservedMicroUsd: reserved,
       heldMicroUsd: held,
-      availableMicroUsd: Math.max(0, this.#limit - committed - reserved - held),
+      availableMicroUsd: Math.max(0, limit - committed - reserved - held),
       holds,
       reservations: reservations.length,
+      resetsAt: budgetResetsAt(this.#period, nowMs),
     };
   }
 
-  async snapshot(): Promise<BudgetSnapshot | null> {
+  #workspaceTotals(reservations: readonly Reservation[], nowMs: number, workspaceId: string, limit: number): WorkspaceBudgetSnapshot {
+    const t = this.#totals(reservations, nowMs, limit, workspaceId);
+    return { workspaceId, limitMicroUsd: limit, committedMicroUsd: t.committedMicroUsd, reservedMicroUsd: t.reservedMicroUsd, heldMicroUsd: t.heldMicroUsd, availableMicroUsd: t.availableMicroUsd };
+  }
+
+  /**
+   * The period's totals against the limit now. With a workspace id, `workspace` also gives that
+   * workspace's cap and use (null when it has no cap).
+   */
+  async snapshot(workspaceId?: string): Promise<BudgetSnapshot | null> {
     const all = await this.#read();
     if (all === null) return null;
     const nowMs = this.#now();
-    return this.#totals(this.#maintain(all, nowMs), nowMs);
+    const live = this.#maintain(all, nowMs);
+    const totals = this.#totals(live, nowMs, this.#resolveLimit());
+    if (workspaceId === undefined) return totals;
+    const cap = this.#resolveWorkspaceLimit(workspaceId);
+    return { ...totals, workspace: cap === null ? null : this.#workspaceTotals(live, nowMs, workspaceId, cap) };
   }
 
   async reserve(input: { readonly decisionId: string; readonly workspaceId: string; readonly microUsd: number }): Promise<ReserveResult> {
     if (!isMoney(input.microUsd) || input.microUsd === 0) return { ok: false, reasonCode: 'INVALID_AMOUNT', availableMicroUsd: null };
+    // The limits are read before the lock (settings reads are not budget state); the spend they
+    // are checked against is read under it, so both checks and the write are one step.
+    const limit = this.#resolveLimit();
+    const workspaceCap = this.#resolveWorkspaceLimit(input.workspaceId);
     const outcome = await this.#withLock(async (): Promise<ReserveResult> => {
       const all = await this.#read();
       if (all === null) return { ok: false, reasonCode: 'BUDGET_STORE', availableMicroUsd: null };
       const nowMs = this.#now();
       const live = this.#maintain(all, nowMs);
-      const totals = this.#totals(live, nowMs);
-      if (totals.availableMicroUsd < input.microUsd) return { ok: false, reasonCode: 'BUDGET', availableMicroUsd: totals.availableMicroUsd };
+      const totals = this.#totals(live, nowMs, limit);
+      if (totals.availableMicroUsd < input.microUsd) return { ok: false, reasonCode: 'BUDGET', availableMicroUsd: totals.availableMicroUsd, cap: 'machine', capLimitMicroUsd: limit };
+      if (workspaceCap !== null) {
+        const own = this.#workspaceTotals(live, nowMs, input.workspaceId, workspaceCap);
+        if (own.availableMicroUsd < input.microUsd) return { ok: false, reasonCode: 'BUDGET', availableMicroUsd: own.availableMicroUsd, cap: 'workspace', capLimitMicroUsd: workspaceCap };
+      }
       const reservation: Reservation = {
         id: `r-${randomUUID()}`,
         decisionId: input.decisionId,
@@ -364,4 +462,73 @@ export class DecisionBudget {
     const all = await this.#read();
     return (all ?? []).filter((r) => COUNT_OPEN.has(r.state));
   }
+}
+
+/** Status's view of the Jev decision budget (E's StatusPayloadSchema `budget`, owner decision 2026-09-29). */
+export interface BudgetStatusView {
+  readonly state: 'unknown' | 'within' | 'bound' | 'exhausted';
+  readonly reservedMicroUsd: number | null;
+  readonly limitMicroUsd: number | null;
+  readonly period?: string;
+  readonly spentMicroUsd?: number;
+  readonly resetsAt?: string;
+  readonly workspace?: {
+    readonly limitMicroUsd: number;
+    readonly spentMicroUsd: number;
+    readonly reservedMicroUsd: number;
+    readonly availableMicroUsd: number;
+    readonly source: 'cap' | 'repository' | 'unreadable';
+  } | null;
+  readonly exhaustedBy?: 'machine' | 'workspace' | null;
+}
+
+export const UNKNOWN_BUDGET_STATUS: BudgetStatusView = Object.freeze({ state: 'unknown', reservedMicroUsd: null, limitMicroUsd: null });
+
+function field(from: unknown, key: string): unknown {
+  return from !== null && typeof from === 'object' ? (from as { readonly [k: string]: unknown })[key] : undefined;
+}
+
+function moneyField(from: unknown, key: string): number | null {
+  const value = field(from, key);
+  return isMoney(value) ? value : null;
+}
+
+/**
+ * The status view of a budget snapshot (`snapshot(workspaceId)`), checked field by field since
+ * the sidecar reads it from an engine it does not type: the month's spend against the limit, the
+ * workspace's cap when it has one, the reset date, and which cap has no room left (`exhausted`).
+ * Anything that does not match is `unknown`.
+ */
+export function budgetStatusView(snapshot: unknown, workspaceSource: 'cap' | 'repository' | 'unreadable' = 'cap'): BudgetStatusView {
+  const limit = moneyField(snapshot, 'limitMicroUsd');
+  const available = moneyField(snapshot, 'availableMicroUsd');
+  if (limit === null || available === null) return UNKNOWN_BUDGET_STATUS;
+  const reserved = (moneyField(snapshot, 'reservedMicroUsd') ?? 0) + (moneyField(snapshot, 'heldMicroUsd') ?? 0);
+  const own = field(snapshot, 'workspace');
+  const ownLimit = moneyField(own, 'limitMicroUsd');
+  const ownAvailable = moneyField(own, 'availableMicroUsd');
+  const workspace =
+    ownLimit === null || ownAvailable === null
+      ? null
+      : {
+          limitMicroUsd: ownLimit,
+          spentMicroUsd: moneyField(own, 'committedMicroUsd') ?? 0,
+          reservedMicroUsd: (moneyField(own, 'reservedMicroUsd') ?? 0) + (moneyField(own, 'heldMicroUsd') ?? 0),
+          availableMicroUsd: ownAvailable,
+          source: workspaceSource,
+        };
+  const exhaustedBy = available <= 0 ? ('machine' as const) : workspace !== null && workspace.availableMicroUsd <= 0 ? ('workspace' as const) : null;
+  const holds = moneyField(snapshot, 'holds') ?? 0;
+  const period = field(snapshot, 'period');
+  const resetsAt = field(snapshot, 'resetsAt');
+  return {
+    state: exhaustedBy !== null ? 'exhausted' : holds > 0 ? 'bound' : 'within',
+    reservedMicroUsd: reserved,
+    limitMicroUsd: limit,
+    ...(typeof period === 'string' && /^[0-9]{4}-[0-9]{2}$/.test(period) ? { period } : {}),
+    spentMicroUsd: moneyField(snapshot, 'committedMicroUsd') ?? 0,
+    ...(typeof resetsAt === 'string' && !Number.isNaN(Date.parse(resetsAt)) ? { resetsAt } : {}),
+    workspace,
+    exhaustedBy,
+  };
 }

@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { providerOverrideDiagnostic } from '@jevris/provider-typesafe';
 import { COMMAND_EXIT_CODES, isSurfaceOperation, PUBLIC_COMMAND_NAMES, type PublicCommandName } from '@jevris/contracts';
 import { loadModelRegistry } from '@jevris/core';
-import { SETTABLE_KEYS, raisesAuthority } from '@jevris/orchestrator';
+import { SETTABLE_KEYS, raisePrompt, raiseWhat, raisesAuthority } from '@jevris/orchestrator';
 import type { NativeProbe } from '@jevris/platform';
 import { resultDataTermsLine } from './data-terms.js';
 import { createSurfaceContext } from './public/context.js';
@@ -334,6 +334,7 @@ Examples:
   configure: `Usage: jevris configure [show] [--json]
        jevris configure set <key> <value> [--dry-run] [--yes] [--json]
        jevris configure owned-mode [on|off] [--workspace <dir>] [--json]
+       jevris configure workspace-budget [<micro-usd>|none] [--dry-run] [--workspace <dir>] [--json]
 
 Shows the effective configuration or changes one product setting. It never changes
 native harness permissions; source egress needs administrator approval.
@@ -350,10 +351,17 @@ Options:
                       Turning it on needs a person at an interactive terminal who answers
                       y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). No
                       environment variable turns it on.
-  --yes               Never confirms a raise. Raising mode, routing.managedWorkers or
-                      routing.mainSession above its effective value needs a person at an
-                      interactive terminal who answers y; --yes, --json and a pipe are
-                      refused (CHANNEL_REFUSED). Lowering and the same value need nothing.
+  workspace-budget [<micro-usd>|none]
+                      Show, set or remove this workspace's own monthly cap on Jev decision
+                      calls, in whole micro-USD (1 USD is 1000000), inside the machine-wide
+                      limit decisions.monthlyBudgetMicroUsd. 0 means no Jev calls here
+                      (rules-only). A first cap and a lower one need nothing; a higher cap
+                      or none needs a person at an interactive terminal who answers y.
+  --yes               Never confirms a raise. Raising mode, routing.managedWorkers,
+                      routing.mainSession or decisions.monthlyBudgetMicroUsd above its
+                      effective value needs a person at an interactive terminal who answers
+                      y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). Lowering and
+                      the same value need nothing.
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line (the command's contract)
@@ -365,7 +373,9 @@ Examples:
   jevris configure set mode advise --dry-run
   jevris configure set mode advise
   jevris configure set routing.mainSession advice-only
-  jevris configure owned-mode on --workspace ~/src/app`,
+  jevris configure set decisions.monthlyBudgetMicroUsd 2000000
+  jevris configure owned-mode on --workspace ~/src/app
+  jevris configure workspace-budget 500000 --workspace ~/src/app`,
 };
 
 export const EVIDENCE_HELP = `Usage: jevris evidence get <handle> [--selection <id>] [--json] [--home <dir>] [--workspace <dir>]
@@ -601,8 +611,8 @@ async function confirmConfigureSet(
   const { personAtTerminal } = await import('./verify-admin.js');
   let refusal = '';
   const channel = { yes: flags.yes, json: flags.json, env, interactive: options.interactive, confirm: options.confirm };
-  const what = `raising ${set.key} to ${set.value} widens what Jevris may do`;
-  const ok = await personAtTerminal(channel, `Raise ${set.key} to ${set.value}? It widens what Jevris may do. [y/N] `, (text) => (refusal += text), what);
+  const what = raiseWhat(set.key, set.value);
+  const ok = await personAtTerminal(channel, raisePrompt(set.key, set.value), (text) => (refusal += text), what);
   if (refusal.length > 0) write(flags.json ? `${JSON.stringify({ error: { code: 'CHANNEL_REFUSED', message: refusal.trim() } })}\n` : refusal);
   return ok ? 'confirmed' : refusal.length > 0 ? 'refused' : 'declined';
 }
@@ -659,6 +669,18 @@ export async function runPublicCommand(name: PublicCommandName, argv: readonly s
   if (name === 'plan' && argv.includes('--submit')) {
     const { runPlanSubmit } = await import('./plan-submit.js');
     return runPlanSubmit(argv, write, {
+      ...(options.ports !== undefined ? { ports: options.ports } : {}),
+      ...(options.env !== undefined ? { env: options.env } : {}),
+      ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),
+      ...(options.nowMs !== undefined ? { nowMs: options.nowMs } : {}),
+      ...(options.confirm !== undefined ? { confirm: options.confirm } : {}),
+      ...(options.interactive !== undefined ? { interactive: options.interactive } : {}),
+    });
+  }
+  // Owner decision 2026-09-29: a workspace's own cap on Jev decision calls (CLI-only; a raise needs a person).
+  if (name === 'configure' && argv[0] === 'workspace-budget') {
+    const { runWorkspaceBudget } = await import('./workspace-budget-command.js');
+    return runWorkspaceBudget(argv, write, {
       ...(options.ports !== undefined ? { ports: options.ports } : {}),
       ...(options.env !== undefined ? { env: options.env } : {}),
       ...(options.cwd !== undefined ? { cwd: options.cwd } : {}),

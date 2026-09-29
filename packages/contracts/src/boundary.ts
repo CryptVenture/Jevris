@@ -20,6 +20,22 @@ export const MODEL_LISTING_VALUES = ['on', 'off'] as const;
 export type ModelListingSetting = (typeof MODEL_LISTING_VALUES)[number];
 export const MODEL_LISTING_DEFAULT: ModelListingSetting = 'on';
 
+/**
+ * `decisions.monthlyBudgetMicroUsd` (owner decision 2026-09-29): the machine-wide monthly limit on
+ * Jevris's own Jev decision calls, in integer micro-USD. Absent means the default, 5 USD. 0 means
+ * no Jev calls (rules-only). The maximum is 1,000 USD, a bound on a typo, not a price estimate.
+ */
+export const JEV_BUDGET_DEFAULT_MICRO_USD = 5_000_000;
+export const JEV_BUDGET_MAX_MICRO_USD = 1_000_000_000;
+
+/** Integer micro-USD as dollars for a line of text, e.g. 5000000 -> "5.00 USD"; integer arithmetic only. */
+export function jevBudgetText(microUsd: number): string {
+  const cents = Math.floor(microUsd / 10_000);
+  const rest = microUsd % 10_000;
+  const whole = `${Math.floor(cents / 100)}.${String(cents % 100).padStart(2, '0')}`;
+  return rest === 0 ? `${whole} USD` : `${whole}${String(rest).padStart(4, '0').replace(/0+$/, '')} USD`;
+}
+
 export const JevrisConfigSchema = S.object({
   schemaVersion: S.literal('1.0'),
   mode: ModeSchema,
@@ -28,13 +44,22 @@ export const JevrisConfigSchema = S.object({
     model: S.string({ pattern: JEV_MODEL_PATTERN }),
     credentialRef: S.string({ pattern: '^host-secret:[A-Za-z0-9_-]+$' }),
   }),
-  decisions: S.object({
-    hotPathDeadlineMs: S.integer({ minimum: 1, maximum: 30_000 }),
-    backgroundDeadlineMs: S.integer({ minimum: 1, maximum: 120_000 }),
-    maxRequestBytes: S.integer({ minimum: 1024, maximum: 16_777_216 }),
-    maxQuestions: S.integer({ minimum: 1, maximum: 12 }),
-    allowUncalibratedActuation: S.literal(false),
-  }),
+  decisions: S.object(
+    {
+      hotPathDeadlineMs: S.integer({ minimum: 1, maximum: 30_000 }),
+      backgroundDeadlineMs: S.integer({ minimum: 1, maximum: 120_000 }),
+      maxRequestBytes: S.integer({ minimum: 1024, maximum: 16_777_216 }),
+      maxQuestions: S.integer({ minimum: 1, maximum: 12 }),
+      allowUncalibratedActuation: S.literal(false),
+    },
+    {
+      /**
+       * The machine-wide monthly Jev decision budget, integer micro-USD (owner decision
+       * 2026-09-29). Absent means JEV_BUDGET_DEFAULT_MICRO_USD; 0 means rules-only.
+       */
+      monthlyBudgetMicroUsd: S.integer({ minimum: 0, maximum: JEV_BUDGET_MAX_MICRO_USD }),
+    },
+  ),
   privacy: S.object({
     sourceEgress: S.enumOf(['deny-until-approved', 'approved-scoped']),
     remoteTelemetry: S.enumOf(['off', 'approved-aggregates']),

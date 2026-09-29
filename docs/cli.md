@@ -489,6 +489,7 @@ Examples:
 Usage: jevris configure [show] [--json]
        jevris configure set <key> <value> [--dry-run] [--yes] [--json]
        jevris configure owned-mode [on|off] [--workspace <dir>] [--json]
+       jevris configure workspace-budget [<micro-usd>|none] [--dry-run] [--workspace <dir>] [--json]
 
 Shows the effective configuration or changes one product setting. It never changes
 native harness permissions; source egress needs administrator approval.
@@ -499,6 +500,7 @@ Settable keys (docs/settings.md gives each one's values):
   orchestration.maxRepairAttempts decisions.hotPathDeadlineMs decisions.backgroundDeadlineMs
   decisions.maxQuestions privacy.remoteTelemetry privacy.rawArtifactRetentionDays
   privacy.decisionRetentionDays compaction.nativeAutoDeferral
+  decisions.monthlyBudgetMicroUsd
 
 Options:
   show                Print the effective settings and their sources (the default)
@@ -509,10 +511,17 @@ Options:
                       Turning it on needs a person at an interactive terminal who answers
                       y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). No
                       environment variable turns it on.
-  --yes               Never confirms a raise. Raising mode, routing.managedWorkers or
-                      routing.mainSession above its effective value needs a person at an
-                      interactive terminal who answers y; --yes, --json and a pipe are
-                      refused (CHANNEL_REFUSED). Lowering and the same value need nothing.
+  workspace-budget [<micro-usd>|none]
+                      Show, set or remove this workspace's own monthly cap on Jev decision
+                      calls, in whole micro-USD (1 USD is 1000000), inside the machine-wide
+                      limit decisions.monthlyBudgetMicroUsd. 0 means no Jev calls here
+                      (rules-only). A first cap and a lower one need nothing; a higher cap
+                      or none needs a person at an interactive terminal who answers y.
+  --yes               Never confirms a raise. Raising mode, routing.managedWorkers,
+                      routing.mainSession or decisions.monthlyBudgetMicroUsd above its
+                      effective value needs a person at an interactive terminal who answers
+                      y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). Lowering and
+                      the same value need nothing.
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line (the command's contract)
@@ -524,7 +533,9 @@ Examples:
   jevris configure set mode advise --dry-run
   jevris configure set mode advise
   jevris configure set routing.mainSession advice-only
+  jevris configure set decisions.monthlyBudgetMicroUsd 2000000
   jevris configure owned-mode on --workspace ~/src/app
+  jevris configure workspace-budget 500000 --workspace ~/src/app
 ```
 
 ## jevris evidence
@@ -605,7 +616,9 @@ What Jevris's own decision calls cost in this workspace, as three separate label
 actual (provider-reported or reconciled billing), the API-equivalent estimate, and the
 counterfactual (what another route would have cost; a hypothesis, never a saving). A measure
 Jevris has not got reads "unmeasured" or "hypothetical", never zero. The cost of your coding
-harness itself is not Jevris's to see and is not included. It also shows how the token
+harness itself is not Jevris's to see and is not included. It shows this month's Jev spend
+against the machine-wide limit (decisions.monthlyBudgetMicroUsd), against this workspace's cap
+(jevris configure workspace-budget) when it has one, and the date both reset. It also shows how the token
 estimator's estimates compare with the input tokens the provider reported (min, p10, median,
 p90, max of estimate / reported), with a warning when an estimate was below the reported
 count or the provider refused a request's size, and, per decision kind, how many decisions

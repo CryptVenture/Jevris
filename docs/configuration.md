@@ -20,8 +20,8 @@ None of these files changes a native harness permission. Jevris never reads a se
 | --- | --- | --- | --- |
 | `jevris.config.json` | config | you, through `jevris configure set` | Product settings: mode, routing, orchestration, privacy and retention choices. See [settings.md](settings.md). |
 | `.jevris/config.json` | the root of a repository | anyone who can commit to it | May only lower limits or switch features off. Repository content is untrusted: it can never widen a setting or grant consent. |
-| `organization.json` | config | your administrator | A ceiling over the product settings: mode, source egress, retention, request size, provider pin. |
-| `host.json` | config | your administrator | Host policy for the provider gate: mode, egress consent, retention maximums, request budget, model pin, pack privileges. |
+| `organization.json` | config | your administrator | A ceiling over the product settings: mode, source egress, retention, request size, provider pin, the monthly Jev decision budget. |
+| `host.json` | config | your administrator | Host policy for the provider gate: mode, egress consent, retention maximums, request budget, a ceiling on the monthly Jev decision budget, model pin, pack privileges. |
 | `policy-active.json`, `policy-previous.json` | config | Jevris, on every accepted load of `host.json` (for example `jevris policy check`) | Snapshots of the active host policy and the one it replaced. `jevris policy rollback` and `jevris kill-switch activate` restore the previous one when it is no wider than `host.json`. |
 | `kill-switch.json` | config | `jevris kill-switch` | Stops every Jevris effect. See [Kill switch](#kill-switch). |
 | `calibration-release.json` | config | an administrator or user (optional) | A signed calibration release, checked against the calibration keys in the package's trust store. Enables calibrated routing only for the task slices it covers, for the Jev model, question text and state encoding it names. When present it is the only release read, and a broken one abstains. A package may also ship a baseline release (`assets/calibration/calibration-release.json`); version 1.2 ships none, so without this file calibrated routing abstains (`NO_RELEASE`). See [routing.md](routing.md#the-baseline). |
@@ -38,9 +38,9 @@ None of these files changes a native harness permission. Jevris never reads a se
 
 ## How the layers combine
 
-Settings are built in this order, and each later layer can only make things safer: defaults, then `jevris.config.json`, then the repository's `.jevris/config.json`, then `organization.json`, then the `mode` ceilings of `host.json` and a managed `policy.json` (the lowest ceiling wins; `configure` and `status` name the layer that set the mode). The effective mode is the single ceiling on what Jevris does: `off` does nothing, `observe` records and asks Jev without showing anything, `advise` also shows advice, and `bounded-auto` (the default) also acts on certified capabilities. `routing.managedWorkers` never exceeds it, and below `bounded-auto` the main session is advice-only. The details, including every key and which layer may change it, are in [settings.md](settings.md).
+Settings are built in this order, and each later layer can only make things safer: defaults, then `jevris.config.json`, then the repository's `.jevris/config.json`, then `organization.json`, then the `mode` and Jev decision budget ceilings of `host.json` and a managed `policy.json` (the lowest ceiling wins; `configure` and `status` name the layer that set the mode). The effective mode is the single ceiling on what Jevris does: `off` does nothing, `observe` records and asks Jev without showing anything, `advise` also shows advice, and `bounded-auto` (the default) also acts on certified capabilities. `routing.managedWorkers` never exceeds it, and below `bounded-auto` the main session is advice-only. The details, including every key and which layer may change it, are in [settings.md](settings.md).
 
-`host.json` and `organization.json` are validated against the host-policy contract. A file that fails validation is not ignored silently: `jevris status` and `doctor` report `HOST_POLICY_INVALID` or `ORGANIZATION_POLICY_INVALID`, source egress stays denied, the mode is capped at `observe`, and retention is capped at the defaults (7 days for raw artifacts, 30 days for decisions), so an invalid file can never lengthen retention.
+`host.json` and `organization.json` are validated against the host-policy contract. A file that fails validation is not ignored silently: `jevris status` and `doctor` report `HOST_POLICY_INVALID` or `ORGANIZATION_POLICY_INVALID`, source egress stays denied, the mode is capped at `observe`, retention is capped at the defaults (7 days for raw artifacts, 30 days for decisions) and the Jev decision budget at the default 5 USD, so an invalid file can never lengthen retention or raise spending.
 
 ## Which file holds each settings block
 
@@ -50,7 +50,7 @@ The settings are one JSON document, `jevris.config.json`, with administrator cei
 | --- | --- | --- |
 | `mode` | `jevris.config.json` `mode` | `mode` in `host.json`, `organization.json` and a managed `policy.json`; a repository's `.jevris/config.json` may only lower it |
 | `provider` | `jevris.config.json` `provider.*`; the key itself only in the OS keychain (`jevris credential set`) | `organization.json` `pin.model`; `credentialRef` is always `host-secret:typesafe-primary` |
-| `decisions` | `jevris.config.json` `decisions.*` | `organization.json` `budget.maxRequestBytes`; `allowUncalibratedActuation` is always `false` |
+| `decisions` | `jevris.config.json` `decisions.*` | `organization.json` `budget.maxRequestBytes`; `budget.monthlyDecisionMicroUsd` in `host.json`, `organization.json` and a managed `policy.json` caps `decisions.monthlyBudgetMicroUsd`; a repository's `.jevris/config.json` may only lower it, for that workspace; `allowUncalibratedActuation` is always `false` |
 | `privacy` | `jevris.config.json` `privacy.*` | egress: only `host.json`, `organization.json` or a managed policy approves it; retention: the `retention` maximums of all three |
 | `routing` | `jevris.config.json` `routing.*`; `calibrationArtifact` comes from `calibration-release.json` | `routing.respectHumanPins` is always `true` |
 | `orchestration` | `jevris.config.json` `orchestration.*` | a repository's `.jevris/config.json` may only lower it |
@@ -59,7 +59,7 @@ The settings are one JSON document, `jevris.config.json`, with administrator cei
 
 ## host.json
 
-Every field is required; an unknown field makes the file invalid.
+Every field is required except `budget.monthlyDecisionMicroUsd`; an unknown field makes the file invalid.
 
 ```json
 {
@@ -82,6 +82,7 @@ Every field is required; an unknown field makes the file invalid.
 | `egress` | `deny-until-approved` (default) or `approved-scoped`. Only this administrator file can approve sending source; a repository file, a prompt or a model summary never can. Set it with `jevris egress approve` (interactive terminal and a typed phrase) and `jevris egress revoke`; see [privacy.md](privacy.md#approving-egress). |
 | `retention` | Maximum days to keep raw artifacts (0 to 365) and decisions (0 to 3650). A user's `privacy` settings can shorten them, never lengthen them. |
 | `budget.maxRequestBytes` | Largest request Jevris may send to Jev (1 KiB to 16 MiB). `jevris egress status` shows the lowest cap of these files. In 1.2 the decision engine does not read this field yet: it enforces its built-in cap of 131072 bytes. |
+| `budget.monthlyDecisionMicroUsd` | Optional. A ceiling on the monthly Jev decision budget, in whole micro-USD (0 to 1000000000). It caps your `decisions.monthlyBudgetMicroUsd` and so every workspace's cap. The same field in `organization.json` and a managed `policy.json` is a ceiling too; the lowest wins. See [The Jev decision budget](#the-jev-decision-budget). |
 | `pin.model` | The Jev model version decisions are calibrated for. In 1.2 the decision engine always requests `jev-1.13.0`. `respectHumanPins` is always `true`: Jevris never overrides a model you pinned. |
 | `packPrivileges` | Privileges a pack may use on this host. |
 | `credentialRef` | Always `host-secret:typesafe-primary`: the key lives in the OS keychain (`jevris credential set`), never in this file. |
@@ -101,7 +102,34 @@ In an existing file it changes only `egress`.
 
 ## The Jev decision budget
 
-Jevris's own calls to Jev are capped by a decision budget of 5 USD per calendar month (UTC), kept in `<data>/decision-budget.json`. Each call reserves its estimated cost before it is sent and settles it afterwards; money is counted in integer micro-USD. When the month's budget is spent, decisions run rules-only (`degraded`) until the next month starts, and `jevris status` says so. The limit is not a setting in this release: no configuration file, `host.json` field or command changes it. It covers only Jevris's decisions, never your harness's own model usage, and it is separate from the budgets of owned work (`jevris plan --submit --limit-micro-usd`, `jevris budget`). `jevris cost-report` shows what the decision calls cost.
+Jevris's own calls to Jev are paid for from a monthly decision budget. It covers only Jevris's decisions, never your harness's own model usage, and it is separate from the budgets of owned work (`jevris plan --submit --limit-micro-usd`, `jevris budget`). Money is counted in whole micro-USD (1 USD is 1000000), never as a floating-point number.
+
+**The machine-wide limit.** `decisions.monthlyBudgetMicroUsd` in `jevris.config.json` sets it; the default is 5000000 (5 USD) per calendar month (UTC). Every workspace on this machine spends from it. It may be 0 to 1000000000 (1,000 USD); the maximum guards against a typo and is not a price estimate. 0 means no Jev calls at all: every decision runs rules-only and says so.
+
+```
+jevris configure set decisions.monthlyBudgetMicroUsd 2000000     # 2 USD a month
+jevris configure set decisions.monthlyBudgetMicroUsd 0           # no Jev calls
+```
+
+Raising the limit above its effective value lets Jevris spend more, so it needs a person at an interactive terminal who answers `y`; `--yes`, `--json`, a pipe, a script, MCP, a hook and a test run are refused with `CHANNEL_REFUSED` (see [settings.md](settings.md#raising-what-jevris-may-do)). Lowering it, or setting the value it has, never asks.
+
+**Ceilings.** `budget.monthlyDecisionMicroUsd` in `host.json`, `organization.json` or a managed `policy.json` caps the limit; the lowest wins, and `jevris configure` shows the effective value. A ceiling file that cannot be used caps the limit at the default 5 USD, as it caps retention, and a `jevris.config.json` that cannot be used falls back to the default too, never to the value it held.
+
+**A workspace's own cap.** A workspace may have a monthly cap inside the machine-wide limit:
+
+```
+jevris configure workspace-budget                 # show this workspace's cap and the limit
+jevris configure workspace-budget 500000          # 0.50 USD a month for this workspace
+jevris configure workspace-budget none            # no cap of its own
+```
+
+The cap is kept on this machine, in the host orchestration ledger under the data folder (`orchestration/host/jev-budget-caps`), keyed by the workspace's id, like owned mode. Setting a first cap or a lower one needs nothing; a higher cap, or `none`, lets that workspace spend more and needs a person at an interactive terminal, with the same refusals. A repository's committed `.jevris/config.json` is not consent: its `decisions.monthlyBudgetMicroUsd` may only lower that workspace's budget (a higher value is ignored), and never touches the machine-wide limit. The lower of the stored cap and the repository's value applies. A cap record that cannot be read counts as 0, so that workspace runs rules-only until the cap is set again.
+
+**How it is spent.** The budget file is `<data>/decision-budget.json`, shared by every process. Each call reserves its estimated cost before it is sent and settles it afterwards. A reservation must fit both the machine-wide limit and the workspace's cap, checked together under one cross-process lock, so no two processes can overspend either. A call whose usage is unknown (a timeout that may have been billed) holds its reservation until it is reconciled. The sidecar reads both limits at every reservation, so a change applies to the next decision without a restart, and the month's spent amount is kept.
+
+**When it runs out.** When the machine-wide limit has no room, every decision runs rules-only with the reason codes `BUDGET` and `BUDGET_MACHINE_LIMIT`. When a workspace's cap has no room, only that workspace's decisions do, with `BUDGET` and `BUDGET_WORKSPACE_CAP`; other workspaces go on. `BUDGET_ZERO` is added when the cap that stopped it is set to 0. Both start again on the first day of the next month (UTC).
+
+**Seeing it.** `jevris status` shows the month's spend against the machine-wide limit, against this workspace's cap if it has one, and the reset date; while a cap has no room, decision health is `degraded` and the reason names the cap. `jevris cost-report` shows the same amounts with the decision calls' cost. `jevris doctor` adds a `jev budget:` line while the machine-wide limit is spent (an action) or set to 0 (a fact).
 
 ## The sidecar
 

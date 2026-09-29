@@ -795,7 +795,8 @@ async function handleCostReport(ctx: SidecarOpContext): Promise<SidecarOpOutcome
   if (engine === null) {
     return { ok: true, body: { schemaVersion: 'jevris-cost-report-1', providerConfigured: false, budget: null, decisions: null, note: 'No decision engine: rules-only.' } };
   }
-  const budget = engine.budget === null ? null : await engine.budget.snapshot();
+  // The machine-wide limit and, with its own cap, this workspace's (owner decision 2026-09-29).
+  const budget = engine.budget === null ? null : await engine.budget.snapshot(ctx.workspace.id === 'global' ? undefined : ctx.workspace.id);
   const ids = await engine.journal.list();
   const counts = { total: 0, providerCalls: 0, inputTokens: 0, outputTokens: 0, usageUnknown: 0, actualMicroUsd: 0, byOutcome: {} as Record<string, number>, byBillingBasis: {} as Record<string, number> };
   const limit = 2000;

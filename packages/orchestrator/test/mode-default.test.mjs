@@ -52,7 +52,8 @@ test('the mode caps managed workers and, below bounded-auto, the main session', 
 });
 
 test('SR-19: configure set of a value above the effective one needs confirmed (a person at a terminal); lowering and the same value do not', async () => {
-  assert.deepEqual([...AUTHORITY_KEYS].sort(), ['mode', 'routing.mainSession', 'routing.managedWorkers']);
+  // Owner decision 2026-09-29: the Jev decision budget is a spend key whose raise needs a person too.
+  assert.deepEqual([...AUTHORITY_KEYS].sort(), ['decisions.monthlyBudgetMicroUsd', 'mode', 'routing.mainSession', 'routing.managedWorkers']);
   const h = home({ ...DEFAULT_CONFIG, mode: 'advise' });
   await migrateModeDefault({ home: h.home });
   assert.equal(raisesAuthority({ home: h.home }, 'mode', 'bounded-auto'), true);

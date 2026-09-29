@@ -41,6 +41,9 @@ export const hostPolicySchema: { readonly [key: string]: unknown } = {
       required: ['maxRequestBytes'],
       properties: {
         maxRequestBytes: { type: 'integer', minimum: 1024, maximum: 16777216 },
+        // Optional ceiling on the monthly Jev decision budget, integer micro-USD (owner decision
+        // 2026-09-29). It caps the machine-wide limit and so every workspace's cap.
+        monthlyDecisionMicroUsd: { type: 'integer', minimum: 0, maximum: 1000000000 },
       },
     },
     pin: {
@@ -77,6 +80,8 @@ export interface HostDocument {
   };
   readonly budget: {
     readonly maxRequestBytes: number;
+    /** Ceiling on the monthly Jev decision budget, integer micro-USD; absent means no ceiling here. */
+    readonly monthlyDecisionMicroUsd?: number;
   };
   readonly pin: {
     readonly model: string;
@@ -151,6 +156,8 @@ function copyDocument(value: Record<string, unknown>): HostDocument | undefined 
   const rawArtifactRetentionDays = readInteger(value.retention.rawArtifactRetentionDays, 0, 365);
   const decisionRetentionDays = readInteger(value.retention.decisionRetentionDays, 0, 3650);
   const maxRequestBytes = readInteger(value.budget.maxRequestBytes, 1024, 16777216);
+  const monthlyDecisionMicroUsd = value.budget.monthlyDecisionMicroUsd === undefined ? null : readInteger(value.budget.monthlyDecisionMicroUsd, 0, 1000000000);
+  if (monthlyDecisionMicroUsd === undefined) return undefined;
   if (
     rawArtifactRetentionDays === undefined ||
     decisionRetentionDays === undefined ||
@@ -170,13 +177,23 @@ function copyDocument(value: Record<string, unknown>): HostDocument | undefined 
     mode,
     egress,
     retention: { rawArtifactRetentionDays, decisionRetentionDays },
-    budget: { maxRequestBytes },
+    budget: budgetOf(maxRequestBytes, monthlyDecisionMicroUsd),
     pin: { model, respectHumanPins: true },
     packPrivileges,
     credentialRef: HOST_SECRET_REF,
     installerEnvName,
     allowUncalibratedActuation: false,
   };
+}
+
+/** The budget block, with the Jev decision ceiling only when one is set. */
+function budgetOf(maxRequestBytes: number, monthlyDecisionMicroUsd: number | null): HostDocument['budget'] {
+  return monthlyDecisionMicroUsd === null ? { maxRequestBytes } : { maxRequestBytes, monthlyDecisionMicroUsd };
+}
+
+/** The document's ceiling on the monthly Jev decision budget (integer micro-USD), or null when it sets none. */
+export function hostJevBudgetCeiling(document: HostDocument): number | null {
+  return document.budget.monthlyDecisionMicroUsd ?? null;
 }
 
 /**
@@ -265,7 +282,7 @@ function replaceMode(document: HostDocument, mode: HostMode): HostDocument {
       rawArtifactRetentionDays: document.retention.rawArtifactRetentionDays,
       decisionRetentionDays: document.retention.decisionRetentionDays,
     },
-    budget: { maxRequestBytes: document.budget.maxRequestBytes },
+    budget: budgetOf(document.budget.maxRequestBytes, hostJevBudgetCeiling(document)),
     pin: { model: document.pin.model, respectHumanPins: true },
     packPrivileges: [...document.packPrivileges],
     credentialRef: HOST_SECRET_REF,
@@ -288,6 +305,11 @@ export function mergeOrganization(host: HostDocument, organization: HostDocument
   if (organization.retention.rawArtifactRetentionDays > host.retention.rawArtifactRetentionDays) return widen();
   if (organization.retention.decisionRetentionDays > host.retention.decisionRetentionDays) return widen();
   if (organization.budget.maxRequestBytes > host.budget.maxRequestBytes) return widen();
+  // A Jev decision ceiling only narrows: the organization may add one or lower the host's, never raise it.
+  const hostJev = hostJevBudgetCeiling(host);
+  const organizationJev = hostJevBudgetCeiling(organization);
+  if (hostJev !== null && organizationJev !== null && organizationJev > hostJev) return widen();
+  const jevCeilings = [hostJev, organizationJev].filter((value): value is number => value !== null);
   const hostPrivileges = new Set(host.packPrivileges);
   for (const privilege of organization.packPrivileges) {
     if (!hostPrivileges.has(privilege)) return widen();
@@ -312,9 +334,7 @@ export function mergeOrganization(host: HostDocument, organization: HostDocument
           organization.retention.decisionRetentionDays,
         ),
       },
-      budget: {
-        maxRequestBytes: Math.min(host.budget.maxRequestBytes, organization.budget.maxRequestBytes),
-      },
+      budget: budgetOf(Math.min(host.budget.maxRequestBytes, organization.budget.maxRequestBytes), jevCeilings.length === 0 ? null : Math.min(...jevCeilings)),
       pin: { model: host.pin.model, respectHumanPins: true },
       packPrivileges,
       credentialRef: HOST_SECRET_REF,

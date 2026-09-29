@@ -108,6 +108,7 @@ export * from './hooks/certification.js';
 export * from './hooks/subscriber.js';
 export * from './ops/memory-ops.js';
 export * from './settings/owned-mode.js';
+export * from './settings/jev-budget.js';
 export * from './capabilities/advice.js';
 export * from './capabilities/registry.js';
 export { discoverSkills, parseSkillMeta, parseShell, argumentAnomalies, repositoryCandidates, shortlistSkills, skillRoots, triageEnvironmentText, words } from './capabilities/retrieval.js';

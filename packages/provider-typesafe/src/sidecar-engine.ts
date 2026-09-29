@@ -15,6 +15,7 @@
  */
 import { join } from 'node:path';
 import { CircuitBreaker, DecisionBudget, WORKSPACE_REVISIONS, createDecisionEngine, credentialFingerprint, routeManagedWorker, type BudgetPeriod, type DecisionEngine, type ManagedRouteRequest } from '@jevris/core';
+import { JEV_BUDGET_DEFAULT_MICRO_USD } from '@jevris/contracts';
 import { jevrisPaths } from '@jevris/platform';
 import { createSdkTransport, type FetchLike } from './sdk-transport.js';
 import { bundledCalibrationPath, trustedCalibrationKeys } from './calibration-trust.js';
@@ -22,8 +23,11 @@ import { readProviderOverride } from './provider-override.js';
 
 export const RULES_ONLY_DIAGNOSTIC = 'provider key not configured: run jevris credential set';
 
-/** Default decision-call budget: 5 USD per calendar month (Jev input is 0.042 USD per million tokens). */
-export const DEFAULT_DECISION_BUDGET_MICRO_USD = 5_000_000;
+/**
+ * Default decision-call budget: 5 USD per calendar month (Jev input is 0.042 USD per million
+ * tokens). The setting `decisions.monthlyBudgetMicroUsd` changes it (owner decision 2026-09-29).
+ */
+export const DEFAULT_DECISION_BUDGET_MICRO_USD = JEV_BUDGET_DEFAULT_MICRO_USD;
 
 export interface SidecarEngineOptions {
   readonly home?: string;
@@ -32,7 +36,15 @@ export interface SidecarEngineOptions {
   /** Wall clock (ms). */
   readonly clock?: { now(): number };
   readonly log?: (line: string) => void;
+  /** The fixed limit, and the fallback when `budgetLimit` cannot answer (default 5 USD). */
   readonly budgetLimitMicroUsd?: number;
+  /**
+   * The machine-wide limit now (the effective `decisions.monthlyBudgetMicroUsd`), read at every
+   * reservation, so a settings change applies without a restart and keeps the month's spend.
+   */
+  readonly budgetLimit?: () => number;
+  /** A workspace's own cap inside the limit, or null for none; read at every reservation. */
+  readonly workspaceBudgetLimit?: (workspaceId: string) => number | null;
   readonly budgetPeriod?: BudgetPeriod;
   /** Test seam: the fetch the SDK transport uses. */
   readonly fetch?: FetchLike;
@@ -59,6 +71,8 @@ export async function createSidecarEngine(options: SidecarEngineOptions): Promis
     limitMicroUsd: options.budgetLimitMicroUsd ?? DEFAULT_DECISION_BUDGET_MICRO_USD,
     period: options.budgetPeriod ?? 'month',
     now: () => clock.now(),
+    ...(options.budgetLimit === undefined ? {} : { currentLimit: options.budgetLimit }),
+    ...(options.workspaceBudgetLimit === undefined ? {} : { workspaceLimit: options.workspaceBudgetLimit }),
   });
   const override = readProviderOverride(options.env);
   if (override.active) options.log?.(override.diagnostic);

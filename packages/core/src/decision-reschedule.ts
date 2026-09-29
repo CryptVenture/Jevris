@@ -63,10 +63,12 @@ export function staleFromLedger(records: readonly DecisionFileRecord[], specId =
     .map((record) => ({ decisionId: record.decisionId, evidenceRevision: record.evidenceRevision, specId, workspaceId: null, taskId: null }));
 }
 
-async function affordable(budget: DecisionBudget | null, amount: number): Promise<boolean> {
+async function affordable(budget: DecisionBudget | null, amount: number, workspaceId: string | null): Promise<boolean> {
   if (budget === null) return true;
-  const snapshot = await budget.snapshot();
-  return snapshot !== null && snapshot.availableMicroUsd >= amount;
+  const snapshot = await budget.snapshot(workspaceId ?? undefined);
+  if (snapshot === null || snapshot.availableMicroUsd < amount) return false;
+  // A workspace with its own cap must have room under it too (owner decision 2026-09-29).
+  return snapshot.workspace === undefined || snapshot.workspace === null || snapshot.workspace.availableMicroUsd >= amount;
 }
 
 export class DecisionRescheduler {
@@ -89,7 +91,7 @@ export class DecisionRescheduler {
         results.push({ decisionId: stale.decisionId, rescheduled: false, reasonCode: 'NOT_USEFUL' });
         continue;
       }
-      if (!(await affordable(input.engine.budget, input.estimateMicroUsd))) {
+      if (!(await affordable(input.engine.budget, input.estimateMicroUsd, stale.workspaceId))) {
         results.push({ decisionId: stale.decisionId, rescheduled: false, reasonCode: 'NOT_AFFORDABLE' });
         continue;
       }

@@ -255,6 +255,21 @@ function abstain(reasonCode: string): Action {
   return { kind: 'abstain', reasonCode };
 }
 
+/** The machine-wide monthly Jev decision limit is spent: this decision runs rules-only. */
+export const BUDGET_MACHINE_LIMIT = 'BUDGET_MACHINE_LIMIT';
+/** This workspace's own monthly cap is spent: its decisions run rules-only; other workspaces go on. */
+export const BUDGET_WORKSPACE_CAP = 'BUDGET_WORKSPACE_CAP';
+/** The cap that refused is set to 0: no Jev calls by setting, rules-only. */
+export const BUDGET_ZERO = 'BUDGET_ZERO';
+
+/**
+ * The reason codes after `BUDGET` on a decision the budget refused (owner decision 2026-09-29):
+ * which cap ran out, whether it is set to 0, and that the decision fell back to rules-only.
+ */
+export function budgetReasonCodes(refusal: { readonly cap?: 'machine' | 'workspace'; readonly capLimitMicroUsd?: number }): string[] {
+  return [refusal.cap === 'workspace' ? BUDGET_WORKSPACE_CAP : BUDGET_MACHINE_LIMIT, ...(refusal.capLimitMicroUsd === 0 ? [BUDGET_ZERO] : []), 'RULES_ONLY'];
+}
+
 function renormalize(distribution: Readonly<Record<string, number>>): Record<string, number> {
   let sum = 0;
   for (const value of Object.values(distribution)) sum += value;
@@ -688,7 +703,7 @@ class Engine implements DecisionEngine {
     let reservationId: string | null = null;
     if (this.budget !== null) {
       const reserved = await this.budget.reserve({ decisionId, workspaceId: draft.workspaceId, microUsd: reserveAmount });
-      if (!reserved.ok) return end('abstained', reserved.reasonCode === 'BUDGET' ? 'BUDGET' : reserved.reasonCode);
+      if (!reserved.ok) return end('abstained', reserved.reasonCode, reserved.reasonCode === 'BUDGET' ? { more: budgetReasonCodes(reserved) } : {});
       reservationId = reserved.reservation.id;
     }
     if (!(await step('reserved', { reservationId, reservedMicroUsd: reserveAmount }))) {

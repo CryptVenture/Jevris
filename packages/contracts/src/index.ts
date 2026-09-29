@@ -212,6 +212,7 @@ export type {
 export {
   applyProjectNarrowing,
   copyHostDocument,
+  hostJevBudgetCeiling,
   hasRawKeyProperty,
   hostPolicySchema,
   mergeOrganization,
@@ -381,6 +382,9 @@ export type { JevRequest, JevrisConfig, PackManifest } from './boundary.js';
 export {
   JevRequestContract,
   JevrisConfigContract,
+  JEV_BUDGET_DEFAULT_MICRO_USD,
+  JEV_BUDGET_MAX_MICRO_USD,
+  jevBudgetText,
   MODEL_LISTING_DEFAULT,
   MODEL_LISTING_VALUES,
   PACK_DATA_SCOPES,

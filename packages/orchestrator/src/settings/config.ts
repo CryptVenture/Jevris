@@ -13,7 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import { linkSync, lstatSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { JevrisConfigContract, MODEL_LISTING_DEFAULT, MODEL_LISTING_VALUES, copyHostDocument, lowerMode, modeAllows, type HostDocument, type JevrisConfig, type ModeSource } from '@jevris/contracts';
+import { JEV_BUDGET_DEFAULT_MICRO_USD, JEV_BUDGET_MAX_MICRO_USD, JevrisConfigContract, MODEL_LISTING_DEFAULT, MODEL_LISTING_VALUES, copyHostDocument, hostJevBudgetCeiling, lowerMode, modeAllows, type HostDocument, type JevrisConfig, type ModeSource } from '@jevris/contracts';
 import { authorityFileRefusal, ensurePrivateDir, jevrisPaths, readFileNoFollow, renameWithRetry, writePrivateFile, type DurableWriteResult, type PrivateResult } from '@jevris/platform';
 import { isPlain } from '../util.js';
 import { readManagedPolicy } from './managed-policy.js';
@@ -29,7 +29,8 @@ export const DEFAULT_CONFIG: JevrisConfig = Object.freeze({
   // may only narrow it (readEffectiveConfig applies that).
   mode: 'bounded-auto',
   provider: { kind: 'typesafe-direct', model: 'jev-1.13.0', credentialRef: 'host-secret:typesafe-primary' },
-  decisions: { hotPathDeadlineMs: 900, backgroundDeadlineMs: 5000, maxRequestBytes: 131072, maxQuestions: 12, allowUncalibratedActuation: false },
+  // The machine-wide monthly Jev decision budget (owner decision 2026-09-29): 5 USD, optional in the file.
+  decisions: { hotPathDeadlineMs: 900, backgroundDeadlineMs: 5000, maxRequestBytes: 131072, maxQuestions: 12, allowUncalibratedActuation: false, monthlyBudgetMicroUsd: JEV_BUDGET_DEFAULT_MICRO_USD },
   privacy: { sourceEgress: 'deny-until-approved', remoteTelemetry: 'off', rawArtifactRetentionDays: 7, decisionRetentionDays: 30 },
   // Managed-worker routing is bounded-auto from install (owner decision 7922ee3): route learning acts only on
   // low-risk slices after 12 local outcomes per arm; other slices stay advise. The Kilo and OpenCode
@@ -128,7 +129,32 @@ const WORKSPACE_NARROWABLE: { readonly [key: string]: 'min' | 'off' | 'mode' | '
   'decisions.maxQuestions': 'min',
   'decisions.hotPathDeadlineMs': 'min',
   'decisions.backgroundDeadlineMs': 'min',
+  // Repository content may lower this workspace's Jev decision budget, never raise it: in a
+  // workspace it acts as that workspace's cap (jev-budget.ts), inside the machine-wide limit.
+  'decisions.monthlyBudgetMicroUsd': 'min',
 };
+
+/** The Jev decision budget key (owner decision 2026-09-29). */
+export const JEV_BUDGET_KEY = 'decisions.monthlyBudgetMicroUsd';
+
+/** The effective monthly Jev decision budget of a configuration, integer micro-USD (absent: the default). */
+export function jevBudgetOf(config: JevrisConfig): number {
+  const value = config.decisions.monthlyBudgetMicroUsd;
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : JEV_BUDGET_DEFAULT_MICRO_USD;
+}
+
+/** Fills the optional keys a valid file may leave out with their defaults, so every layer sees a value. */
+function withOptionalDefaults(config: JevrisConfig): JevrisConfig {
+  return config.decisions.monthlyBudgetMicroUsd === undefined ? setKey(config, JEV_BUDGET_KEY, JEV_BUDGET_DEFAULT_MICRO_USD) : config;
+}
+
+/** Lowers the Jev decision budget to an administrator's ceiling, noting the layer. */
+function capJevBudget(config: JevrisConfig, ceiling: number | null, layer: LayerNote['layer'], notes: LayerNote[]): JevrisConfig {
+  const current = jevBudgetOf(config);
+  if (ceiling === null || current <= ceiling) return config;
+  notes.push({ layer, key: JEV_BUDGET_KEY, from: String(current), to: String(ceiling) });
+  return setKey(config, JEV_BUDGET_KEY, ceiling);
+}
 
 function flatten(value: unknown, prefix = ''): { [key: string]: unknown } {
   const out: { [key: string]: unknown } = {};
@@ -232,7 +258,7 @@ function narrowOrganization(config: JevrisConfig, org: HostDocument, notes: Laye
   if (next.privacy.decisionRetentionDays > org.retention.decisionRetentionDays) lower('privacy.decisionRetentionDays', org.retention.decisionRetentionDays);
   if (next.decisions.maxRequestBytes > org.budget.maxRequestBytes) lower('decisions.maxRequestBytes', org.budget.maxRequestBytes);
   if (next.provider.model !== org.pin.model) lower('provider.model', org.pin.model);
-  return next;
+  return capJevBudget(next, hostJevBudgetCeiling(org), 'organization', notes);
 }
 
 export interface ConfigLocation {
@@ -261,7 +287,7 @@ export function readEffectiveConfig(input: ConfigLocation): EffectiveConfig {
   } else if (user.kind === 'ok') {
     source = 'file';
     const checked = JevrisConfigContract.validate(user.value);
-    if (checked.ok) config = checked.value;
+    if (checked.ok) config = withOptionalDefaults(checked.value);
     else {
       valid = false;
       for (const i of checked.issues.slice(0, 32)) issues.push({ path: i.path.slice(0, 256), code: i.code.slice(0, 64) });
@@ -288,21 +314,28 @@ export function readEffectiveConfig(input: ConfigLocation): EffectiveConfig {
   } else if (org.kind === 'unusable') {
     issues.push({ path: 'organization:', code: org.code });
     config = capMode(config, FAIL_CLOSED_MODE, 'organization', notes);
+    // A ceiling that cannot be read caps the Jev budget at the defaults' 5 USD, as it caps retention.
+    config = capJevBudget(config, JEV_BUDGET_DEFAULT_MICRO_USD, 'organization', notes);
   }
   const host = readPolicyCeiling(join(paths.config, 'host.json'), paths.home);
   if (host.kind === 'ok') {
     config = capMode(config, host.doc.mode, 'host', notes);
+    config = capJevBudget(config, hostJevBudgetCeiling(host.doc), 'host', notes);
     if (host.refusal !== null) issues.push({ path: 'host:', code: host.refusal });
   } else if (host.kind === 'unusable') {
     issues.push({ path: 'host:', code: host.code });
     config = capMode(config, FAIL_CLOSED_MODE, 'host', notes);
+    config = capJevBudget(config, JEV_BUDGET_DEFAULT_MICRO_USD, 'host', notes);
   }
   // GOV-05: a refused managed policy fails closed, to observe.
   const managed = readManagedPolicy();
-  if (managed.state === 'ok') config = capMode(config, managed.document.mode, 'managed', notes);
-  else if (managed.state === 'refused') {
+  if (managed.state === 'ok') {
+    config = capMode(config, managed.document.mode, 'managed', notes);
+    config = capJevBudget(config, hostJevBudgetCeiling(managed.document), 'managed', notes);
+  } else if (managed.state === 'refused') {
     issues.push({ path: 'managed:', code: managed.reasonCode });
     config = capMode(config, FAIL_CLOSED_MODE, 'managed', notes);
+    config = capJevBudget(config, JEV_BUDGET_DEFAULT_MICRO_USD, 'managed', notes);
   }
   const modeSource = modeSourceOf(notes, source, valid, config);
   config = boundByMode(config, modeSource, notes);
@@ -378,6 +411,7 @@ function payloadOf(
       mainSession: eff.config.routing.mainSession,
       managedWorkers: eff.config.routing.managedWorkers,
       orchestrationEnabled: eff.config.orchestration.enabled,
+      monthlyBudgetMicroUsd: jevBudgetOf(eff.config),
     },
     changed: changed.slice(0, 32).map((c) => ({ key: c.key.slice(0, 128), from: c.from.slice(0, 128), to: c.to.slice(0, 128) })),
     nativePermissionsChanged: false as const,
@@ -447,6 +481,9 @@ export const SETTABLE_KEYS: { readonly [key: string]: Parser } = {
   'privacy.rawArtifactRetentionDays': int(0, 365),
   'privacy.decisionRetentionDays': int(0, 3650),
   'compaction.nativeAutoDeferral': oneOf('false'),
+  // Owner decision 2026-09-29: the machine-wide monthly Jev decision budget, integer micro-USD
+  // (0 is rules-only). A raise above the effective value needs a person at a terminal.
+  [JEV_BUDGET_KEY]: int(0, JEV_BUDGET_MAX_MICRO_USD),
 };
 
 /** Keys that need an administrator or a certified adapter; configure refuses them with a reason. */
@@ -473,8 +510,11 @@ const AUTHORITY_RANK: { readonly [key: string]: { readonly [value: string]: numb
   'routing.mainSession': { 'advice-only': 0, 'plugin-bounded-auto': 1, 'owned-sdk-approved': 2 },
 };
 
+/** Money keys: a higher value lets Jevris spend more, so raising one needs a person too (owner decision 2026-09-29). */
+const SPEND_KEYS: ReadonlySet<string> = new Set([JEV_BUDGET_KEY]);
+
 /** The keys whose raise needs a person at an interactive terminal (SR-19). */
-export const AUTHORITY_KEYS: readonly string[] = Object.freeze(Object.keys(AUTHORITY_RANK));
+export const AUTHORITY_KEYS: readonly string[] = Object.freeze([...Object.keys(AUTHORITY_RANK), ...SPEND_KEYS]);
 
 /**
  * SR-19 (owner decision 2e13b6fe): whether `configure set <key> <value>` raises what Jevris may do:
@@ -484,6 +524,17 @@ export const AUTHORITY_KEYS: readonly string[] = Object.freeze(Object.keys(AUTHO
  * --json, a pipe, MCP or a test run. Lowering, and setting the same value, are free.
  */
 export function raisesAuthority(input: ConfigLocation, key: string, value: string): boolean {
+  if (SPEND_KEYS.has(key)) {
+    const next = SETTABLE_KEYS[key]?.(value);
+    if (typeof next !== 'number') return false;
+    let current: number;
+    try {
+      current = jevBudgetOf(readEffectiveConfig({ ...input, workspaceRoot: null }).config);
+    } catch {
+      return true;
+    }
+    return next > current;
+  }
   const rank = AUTHORITY_RANK[key];
   if (rank === undefined) return false;
   // A value the setter refuses anyway (an administrator's value, or not a value at all) is not asked.
@@ -499,9 +550,19 @@ export function raisesAuthority(input: ConfigLocation, key: string, value: strin
   return next !== undefined && (now === undefined || next > now);
 }
 
+/** What a raise does, in the words the question and the refusal use. */
+export function raiseWhat(key: string, value: string): string {
+  return SPEND_KEYS.has(key) ? `raising ${key} to ${value} lets Jevris spend more on Jev calls` : `raising ${key} to ${value} widens what Jevris may do`;
+}
+
+/** The question a person at a terminal answers before a raise. */
+export function raisePrompt(key: string, value: string): string {
+  return SPEND_KEYS.has(key) ? `Raise ${key} to ${value}? It lets Jevris spend more on Jev calls. [y/N] ` : `Raise ${key} to ${value}? It widens what Jevris may do. [y/N] `;
+}
+
 /** The refusal a raise gets without a person: B's CHANNEL_REFUSED wording (verify-admin.ts personAtTerminal). */
 export function raiseRefusal(key: string, value: string): string {
-  return `raising ${key} to ${value} widens what Jevris may do, so it needs a person at an interactive terminal who answers y (never --yes, --json, MCP, a hook, a script, a pipe or a model's shell). Nothing was changed.`;
+  return `${raiseWhat(key, value)}, so it needs a person at an interactive terminal who answers y (never --yes, --json, MCP, a hook, a script, a pipe or a model's shell). Nothing was changed.`;
 }
 
 /** SR-20: what `configure set` says while your file cannot be used, naming it and the fix. */
@@ -545,7 +606,8 @@ export async function setConfigValue(input: {
   // Read the user's own layer (not the narrowed view) so a narrowing never gets written back.
   const userRead = readJson(current.path);
   const userConfig = userRead.kind === 'ok' ? (userRead.value as JevrisConfig) : DEFAULT_CONFIG;
-  const before = getKey(userConfig, input.key);
+  // An optional key the file leaves out has its default (withOptionalDefaults).
+  const before = getKey(userConfig, input.key) ?? getKey(DEFAULT_CONFIG, input.key);
   const next = setKey(userConfig, input.key, value);
   const checked = JevrisConfigContract.validate(next);
   if (!checked.ok) return { ok: false as const, message: 'The change would make the configuration invalid.' };

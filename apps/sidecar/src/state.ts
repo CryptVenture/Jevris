@@ -12,7 +12,7 @@ import type {
   SidecarWorkspace,
 } from '@jevris/contracts';
 import { createDeadline, isAbsoluteOnAnyPlatform, monotonicClock, type JevrisPaths } from '@jevris/platform';
-import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified } from '@jevris/orchestrator';
+import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified } from '@jevris/orchestrator';
 import { BUILTIN_OP_NAMES, bodyRecord, ok, refuse, type LoadedOps } from './ops.js';
 import { ANSWER_EVENT_KINDS, PROTOCOL, jevrisPackage, loadedRuntimeBuild } from './protocol.js';
 import { resolveRetention } from './retention-policy.js';
@@ -21,7 +21,7 @@ import { adminOps } from './admin-ops.js';
 import { providerConsentOps, providerConsentReader } from './provider-consent.js';
 import { accessLimitsOps } from './access-limits-ops.js';
 import { jevReenableOps } from './jev-reenable-ops.js';
-import { CIRCUIT_REENABLE_COMMAND, accessNewKeyClears, circuitDisabledText, loadModelRegistry, readAccessLimits, readAccessUsageReadings, servingTariffKnown, sessionHost, type CircuitSnapshot } from '@jevris/core';
+import { UNKNOWN_BUDGET_STATUS, budgetStatusView, type BudgetStatusView, CIRCUIT_REENABLE_COMMAND, accessNewKeyClears, circuitDisabledText, loadModelRegistry, readAccessLimits, readAccessUsageReadings, servingTariffKnown, sessionHost, type CircuitSnapshot } from '@jevris/core';
 import { sessionLinkOps } from './session-link.js';
 import { createEventReplay } from './event-replay.js';
 import { sweepInWorker, sweepInline, type RunningSweep, type SweepOutcome } from './maintenance.js';
@@ -352,11 +352,18 @@ export function workspaceIdentity(root: string): SidecarWorkspace | undefined {
   }
 }
 
+/** The Jev decision budget's limits, read at every reservation (owner decision 2026-09-29). */
+interface BudgetLimitReaders {
+  readonly machine: () => number;
+  readonly workspace: (workspaceId: string) => number | null;
+}
+
 async function loadEngine(
   home: string,
   log: (entry: LogEntry) => void,
   onEgressRefused: (reasonCode: string, fields: number) => void = () => undefined,
   providerConsent?: (provider: string) => unknown,
+  budgetLimits?: BudgetLimitReaders,
 ): Promise<unknown> {
   let provider: unknown;
   try {
@@ -403,6 +410,9 @@ async function loadEngine(
       // Per-provider egress consent (owner 7be3c43, OD-4): C eliminates a candidate whose
       // provider needs consent and has none (PROVIDER_CONSENT_REQUIRED). A point read per call.
       ...(providerConsent !== undefined ? { providerConsent } : {}),
+      // The monthly Jev decision budget: the machine-wide limit and each workspace's own cap, read
+      // at every reservation, so `jevris configure` applies without a restart (owner decision 2026-09-29).
+      ...(budgetLimits !== undefined ? { budgetLimit: budgetLimits.machine, workspaceBudgetLimit: budgetLimits.workspace } : {}),
       // GOV-01, GOV-08: no free-text evidence leaves unless host policy approves source
       // egress, and approved text is still secret-screened at the transport boundary.
       ...(baseFetch !== undefined
@@ -513,7 +523,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
   const loadedEngine =
     input.engine !== undefined
       ? input.engine
-      : await loadEngine(home, log, auditEgress, providerConsentReader(() => (store !== undefined && api !== undefined ? { store, api } : undefined)));
+      : await loadEngine(home, log, auditEgress, providerConsentReader(() => (store !== undefined && api !== undefined ? { store, api } : undefined)), budgetLimitReaders(home, (workspaceId) => registry.get(workspaceId)?.root ?? null));
   // Each engine action that settles a decision mirrors it into the store before the op
   // answers, so `status` lists it at once; the periodic archive stays the catch-up path.
   // Owner decision 0eb319de: each record carries the mode it was made under, not the engine's default.
@@ -1006,24 +1016,30 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     return defs.filter((def) => BUILTIN_OP_NAMES.includes(def.op));
   }
 
-  async function budgetStatus(): Promise<{ readonly state: 'unknown' | 'within' | 'bound' | 'exhausted'; readonly reservedMicroUsd: number | null; readonly limitMicroUsd: number | null }> {
+  /**
+   * The Jev decision budget for status (owner decision 2026-09-29): the month's spend against the
+   * machine-wide limit, and against this workspace's own cap when it has one, with the reset date.
+   * `exhausted` when either has no room left for this workspace's decisions.
+   */
+  async function budgetStatus(workspaceId: string): Promise<BudgetStatusView> {
     const budget = engineField(engine, 'budget');
     const snapshotFn = engineField(budget, 'snapshot');
-    if (typeof snapshotFn !== 'function') return { state: 'unknown', reservedMicroUsd: null, limitMicroUsd: null };
+    if (typeof snapshotFn !== 'function') return UNKNOWN_BUDGET_STATUS;
     try {
-      const snap: unknown = await (snapshotFn as () => Promise<unknown>).call(budget);
-      const num = (key: string): number | null => {
-        const value = engineField(snap, key);
-        return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 ? value : null;
-      };
-      const limit = num('limitMicroUsd');
-      const available = num('availableMicroUsd');
-      const reserved = (num('reservedMicroUsd') ?? 0) + (num('heldMicroUsd') ?? 0);
-      if (limit === null || available === null) return { state: 'unknown', reservedMicroUsd: null, limitMicroUsd: null };
-      const state = available <= 0 ? 'exhausted' : (num('holds') ?? 0) > 0 ? 'bound' : 'within';
-      return { state, reservedMicroUsd: reserved, limitMicroUsd: limit };
+      const snap: unknown = await (snapshotFn as (workspaceId?: string) => Promise<unknown>).call(budget, workspaceId === 'global' ? undefined : workspaceId);
+      const own = engineField(snap, 'workspace');
+      return budgetStatusView(snap, own === null || own === undefined ? 'cap' : workspaceCapSource(workspaceId));
     } catch {
-      return { state: 'unknown', reservedMicroUsd: null, limitMicroUsd: null };
+      return UNKNOWN_BUDGET_STATUS;
+    }
+  }
+
+  /** Where this workspace's cap comes from, for status. */
+  function workspaceCapSource(workspaceId: string): 'cap' | 'repository' | 'unreadable' {
+    try {
+      return workspaceJevBudget({ home, workspaceId, workspaceRoot: registry.get(workspaceId)?.root ?? null }).source ?? 'cap';
+    } catch {
+      return 'unreadable';
     }
   }
 
@@ -1112,12 +1128,13 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     const current = await health();
     const storeState = current.store.state;
     const recent = recentDecisions(ctx.workspace.id === 'global' ? undefined : ctx.workspace.id);
+    const budget = await budgetStatus(ctx.workspace.id);
     const degraded =
       storeState !== 'ok'
         ? current.store.diagnostic
         : current.engine === 'rules-only'
           ? 'No Jev credential is configured; decisions run rules-only. Run `jevris credential set`.'
-          : (circuitDisabledReason(engine) ?? providerDownReason(recent, Date.now()));
+          : (circuitDisabledReason(engine) ?? budgetSpentReason(budget) ?? providerDownReason(recent, Date.now()));
     const workspaceView = workspaceStatusOf(ctx);
     const modelPin = statusModelPin(bodyRecord(ctx)['modelPin']);
     const settings = effectiveSettingsOf(ctx);
@@ -1132,7 +1149,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       // read the session's environment, so the client names it (the CLI sends its ANTHROPIC_MODEL).
       routing: { modelPin, pinned: modelPin !== null },
       activeWorkers: workspaceView.activeWorkers,
-      budget: await budgetStatus(),
+      budget,
       recentDecisions: recent,
       unknownSlices: await unknownSlices(),
       store: { state: storeState, diagnostic: current.store.diagnostic },
@@ -2544,6 +2561,39 @@ export function jevCircuitOf(engine: unknown): JevCircuitView | null {
     reasonClass,
     since: typeof sinceMs === 'number' && Number.isSafeInteger(sinceMs) && sinceMs >= 0 ? new Date(sinceMs).toISOString() : null,
     command: reasonClass === 'AUTH' ? 'jevris credential set' : CIRCUIT_REENABLE_COMMAND,
+  };
+}
+
+// ------------------------------------------------------------- Jev decision budget (2026-09-29)
+
+/**
+ * The degraded line while this workspace's Jev decisions run rules-only because a budget has no
+ * room: which cap (BUDGET_MACHINE_LIMIT, BUDGET_WORKSPACE_CAP), whether it is set to 0
+ * (BUDGET_ZERO), when it starts again and the command that changes it. Null otherwise.
+ */
+export function budgetSpentReason(budget: BudgetStatusView): string | null {
+  if (budget.state !== 'exhausted' || budget.exhaustedBy === undefined || budget.exhaustedBy === null) return null;
+  const until = budget.resetsAt === undefined ? '' : ` until ${budget.resetsAt.slice(0, 10)} (UTC)`;
+  if (budget.exhaustedBy === 'workspace') {
+    const ws = budget.workspace;
+    if (ws !== undefined && ws !== null && ws.limitMicroUsd === 0) return 'This workspace\'s Jev decision budget is 0 (BUDGET_WORKSPACE_CAP, BUDGET_ZERO): no Jev calls here; its decisions run rules-only. Change it with `jevris configure workspace-budget`.';
+    const where = ws !== undefined && ws !== null && ws.source === 'repository' ? 'the repository\'s .jevris/config.json' : '`jevris configure workspace-budget`';
+    return `This workspace's monthly Jev decision budget is spent (BUDGET_WORKSPACE_CAP); its decisions run rules-only${until}. Other workspaces go on. Its cap is set by ${where}.`;
+  }
+  if (budget.limitMicroUsd === 0) return 'The Jev decision budget is 0 (BUDGET_MACHINE_LIMIT, BUDGET_ZERO): no Jev calls; decisions run rules-only. Change it with `jevris configure set decisions.monthlyBudgetMicroUsd <micro-USD>`.';
+  return `The monthly Jev decision budget is spent (BUDGET_MACHINE_LIMIT); decisions run rules-only${until}. Raise it with \`jevris configure set decisions.monthlyBudgetMicroUsd <micro-USD>\`.`;
+}
+
+/**
+ * The limits the engine's budget reads at every reservation: the machine-wide limit (the effective
+ * `decisions.monthlyBudgetMicroUsd`) and a workspace's own cap (the stored cap, lowered by its
+ * repository file when the sidecar knows its root). Each read goes to the files, so a
+ * `jevris configure` change applies to the next decision without a restart.
+ */
+export function budgetLimitReaders(home: string, rootOf: (workspaceId: string) => string | null): BudgetLimitReaders {
+  return {
+    machine: () => machineJevBudget({ home }),
+    workspace: (workspaceId) => workspaceJevBudget({ home, workspaceId, workspaceRoot: rootOf(workspaceId) }).capMicroUsd,
   };
 }
 

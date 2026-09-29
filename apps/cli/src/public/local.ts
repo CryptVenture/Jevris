@@ -27,8 +27,8 @@ import {
   type StatusPayload,
   type VerifyPayload,
 } from '@jevris/contracts';
-import { harnessModelRef } from '@jevris/core';
-import { ADMIN_KEYS, ADMIN_VALUES, DEFAULT_CONFIG, SETTABLE_KEYS, clearModeMigrationNotice, invalidUserFileMessage, raiseRefusal, raisesAuthority, layerIssues, mainSessionView, migrateModeDefault, modeMigrationNotice, readEffectiveConfig } from '@jevris/orchestrator';
+import { DecisionBudget, UNKNOWN_BUDGET_STATUS, budgetStatusView, harnessModelRef } from '@jevris/core';
+import { ADMIN_KEYS, ADMIN_VALUES, DEFAULT_CONFIG, SETTABLE_KEYS, jevBudgetOf, machineJevBudget, workspaceJevBudget, clearModeMigrationNotice, invalidUserFileMessage, raiseRefusal, raisesAuthority, layerIssues, mainSessionView, migrateModeDefault, modeMigrationNotice, readEffectiveConfig } from '@jevris/orchestrator';
 import { ensurePrivateDir, runSync, writePrivateFile } from '@jevris/platform';
 import { resolveHostSourceEgress, type HostEgressDecision } from '../host-policy.js';
 import { readKillSwitchStopped } from '../kill-switch.js';
@@ -132,7 +132,7 @@ export async function localStatus(ctx: SurfaceContext, degradedReason: string): 
     degradedReason,
     routing: { modelPin, pinned: modelPin !== null },
     activeWorkers: [],
-    budget: { state: 'unknown', reservedMicroUsd: null, limitMicroUsd: null },
+    budget: await localJevBudget(ctx),
     recentDecisions: [],
     unknownSlices: [],
     store: storeState(ctx),
@@ -141,6 +141,27 @@ export async function localStatus(ctx: SurfaceContext, degradedReason: string): 
     settingsIssues: layerIssues(issues).slice(0, 16).map((issue) => ({ path: issue.path.slice(0, 256), code: issue.code.slice(0, 64) })),
     ...modeNoticeOf(ctx),
   };
+}
+
+/**
+ * The Jev decision budget without the sidecar (owner decision 2026-09-29): the same shared budget
+ * file the sidecar's engine reserves against, read without its lock (a read never changes it),
+ * with the same limits. Unknown when it cannot be read.
+ */
+async function localJevBudget(ctx: SurfaceContext): Promise<StatusPayload['budget']> {
+  try {
+    const workspaceId = ctx.workspaceRoot === null ? undefined : ctx.workspaceId;
+    const cap = workspaceId === undefined ? null : workspaceJevBudget({ home: ctx.home, env: ctx.env, workspaceId, workspaceRoot: ctx.workspaceRoot });
+    const budget = DecisionBudget.open(join(ctx.paths.data, 'decision-budget.json'), {
+      limitMicroUsd: machineJevBudget({ home: ctx.home, env: ctx.env }),
+      workspaceLimit: () => cap?.capMicroUsd ?? null,
+      period: 'month',
+      now: () => ctx.nowMs(),
+    });
+    return budgetStatusView(await budget.snapshot(workspaceId), cap?.source ?? 'cap');
+  } catch {
+    return UNKNOWN_BUDGET_STATUS;
+  }
 }
 
 /** The upgrade's mode notice while it applies (D's modeMigrationNotice), as the status field. */
@@ -502,6 +523,7 @@ export function effectiveView(config: JevrisConfig, egress: HostEgressDecision, 
     mainSession: config.routing.mainSession,
     managedWorkers: config.routing.managedWorkers,
     orchestrationEnabled: config.orchestration.enabled,
+    monthlyBudgetMicroUsd: jevBudgetOf(config),
   };
 }
 
@@ -530,6 +552,8 @@ export async function withHostSourceEgress(ctx: SurfaceContext, payload: Configu
 function getKey(config: JevrisConfig, key: string): string {
   let value: unknown = config;
   for (const part of key.split('.')) value = (value as Record<string, unknown>)[part];
+  // An optional key the file leaves out (decisions.monthlyBudgetMicroUsd) has its default.
+  if (value === undefined && config !== DEFAULT_CONFIG) return getKey(DEFAULT_CONFIG, key);
   return String(value);
 }
 

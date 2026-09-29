@@ -156,6 +156,7 @@ export function doctorLineSeverity(line: string): DoctorSeverity | null {
     case 'jev':
       // Jev disabled after a billing, account or key refusal (decision ea2af91a): the person fixes
       // the cause, then runs the command the line names. Decisions go on rules-only meanwhile.
+      if (key === 'jev budget') return body.includes('BUDGET_ZERO') ? 'info' : 'action';
       return key === 'jev' ? 'action' : null;
     case 'settings':
       // The effective mode and the layer that set it is a fact; a problem with a policy file that

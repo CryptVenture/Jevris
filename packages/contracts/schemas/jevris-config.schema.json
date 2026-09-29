@@ -64,6 +64,11 @@
         },
         "allowUncalibratedActuation": {
           "const": false
+        },
+        "monthlyBudgetMicroUsd": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000000
         }
       },
       "required": [

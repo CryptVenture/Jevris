@@ -10,7 +10,7 @@
  * Beside it, D's `learning.report` (2794ac4) adds a Learning section, counts only; a sidecar
  * without that op, or an answer that does not match, leaves the section out and is no error.
  */
-import { COMMAND_EXIT_CODES, FEEDBACK_REASONS } from '@jevris/contracts';
+import { COMMAND_EXIT_CODES, FEEDBACK_REASONS, jevBudgetText } from '@jevris/contracts';
 import { decisionOutcomeLines, estimatorCalibrationLines, feedbackLines, type DecisionOutcomeReport, type EstimatorCalibration, type FeedbackKindReport, type FeedbackReport } from '@jevris/core';
 import { checkLearningReport, learningReportLines, type LearningReportView } from './learning-report.js';
 import { defaultPorts } from './public/ports.js';
@@ -25,7 +25,9 @@ What Jevris's own decision calls cost in this workspace, as three separate label
 actual (provider-reported or reconciled billing), the API-equivalent estimate, and the
 counterfactual (what another route would have cost; a hypothesis, never a saving). A measure
 Jevris has not got reads "unmeasured" or "hypothetical", never zero. The cost of your coding
-harness itself is not Jevris's to see and is not included. It also shows how the token
+harness itself is not Jevris's to see and is not included. It shows this month's Jev spend
+against the machine-wide limit (decisions.monthlyBudgetMicroUsd), against this workspace's cap
+(jevris configure workspace-budget) when it has one, and the date both reset. It also shows how the token
 estimator's estimates compare with the input tokens the provider reported (min, p10, median,
 p90, max of estimate / reported), with a warning when an estimate was below the reported
 count or the provider refused a request's size, and, per decision kind, how many decisions
@@ -51,7 +53,17 @@ type Measure = number | 'unknown' | 'unmeasured' | 'hypothetical';
 
 export interface CostReport {
   readonly providerConfigured: boolean;
-  readonly budget: { readonly period: string; readonly limitMicroUsd: number; readonly committedMicroUsd: number; readonly reservedMicroUsd: number; readonly availableMicroUsd: number } | null;
+  readonly budget: {
+    readonly period: string;
+    readonly limitMicroUsd: number;
+    readonly committedMicroUsd: number;
+    readonly reservedMicroUsd: number;
+    readonly availableMicroUsd: number;
+    /** When the month ends and both limits start again (UTC); null when the sidecar does not say. */
+    readonly resetsAt: string | null;
+    /** This workspace's own cap and its use this month; null when it has none (owner decision 2026-09-29). */
+    readonly workspace: { readonly limitMicroUsd: number; readonly committedMicroUsd: number; readonly reservedMicroUsd: number; readonly availableMicroUsd: number } | null;
+  } | null;
   readonly decisions: {
     readonly total: number;
     readonly providerCalls: number;
@@ -207,7 +219,18 @@ export function checkCostReport(raw: unknown): CostReport | null {
     const b = r['budget'] as { [key: string]: unknown };
     if (typeof b !== 'object' || typeof b['period'] !== 'string' || b['period'].length > 64) return null;
     if (![b['limitMicroUsd'], b['committedMicroUsd'], b['reservedMicroUsd'], b['availableMicroUsd']].every(count)) return null;
-    budget = { period: b['period'], limitMicroUsd: b['limitMicroUsd'] as number, committedMicroUsd: b['committedMicroUsd'] as number, reservedMicroUsd: b['reservedMicroUsd'] as number, availableMicroUsd: b['availableMicroUsd'] as number };
+    const resetsAt = typeof b['resetsAt'] === 'string' && b['resetsAt'].length <= 40 && !Number.isNaN(Date.parse(b['resetsAt'])) ? b['resetsAt'] : null;
+    let workspace: NonNullable<CostReport['budget']>['workspace'] = null;
+    const w = b['workspace'];
+    if (w !== null && w !== undefined) {
+      if (typeof w !== 'object' || Array.isArray(w)) return null;
+      const o = w as { [key: string]: unknown };
+      if (![o['limitMicroUsd'], o['committedMicroUsd'], o['reservedMicroUsd'], o['availableMicroUsd']].every(count)) return null;
+      // A hold counts against the cap like a reservation.
+      const held = count(o['heldMicroUsd']) ? o['heldMicroUsd'] : 0;
+      workspace = { limitMicroUsd: o['limitMicroUsd'] as number, committedMicroUsd: o['committedMicroUsd'] as number, reservedMicroUsd: (o['reservedMicroUsd'] as number) + held, availableMicroUsd: o['availableMicroUsd'] as number };
+    }
+    budget = { period: b['period'], limitMicroUsd: b['limitMicroUsd'] as number, committedMicroUsd: b['committedMicroUsd'] as number, reservedMicroUsd: b['reservedMicroUsd'] as number, availableMicroUsd: b['availableMicroUsd'] as number, resetsAt, workspace };
   }
   let decisions: CostReport['decisions'] = null;
   if (r['decisions'] !== null && r['decisions'] !== undefined) {
@@ -272,6 +295,15 @@ export function renderCostReport(report: CostReport): string {
   if (report.budget !== null) {
     const b = report.budget;
     lines.push(`budget ${b.period}: ${usd(b.committedMicroUsd)} committed, ${usd(b.reservedMicroUsd)} reserved, ${usd(b.availableMicroUsd)} available of ${usd(b.limitMicroUsd)}`);
+    // Owner decision 2026-09-29: the limit is machine-wide; a workspace may have its own cap inside it.
+    const zero = b.limitMicroUsd === 0 ? '; 0 means no Jev calls, decisions run rules-only' : '';
+    lines.push(`jev budget: ${jevBudgetText(b.committedMicroUsd)} spent of the machine-wide limit ${jevBudgetText(b.limitMicroUsd)} in ${b.period}${zero}${b.resetsAt === null ? '' : `; resets ${b.resetsAt.slice(0, 10)} (UTC)`}`);
+    if (b.workspace !== null) {
+      const w = b.workspace;
+      lines.push(`jev budget this workspace: ${jevBudgetText(w.committedMicroUsd)} spent, ${jevBudgetText(w.reservedMicroUsd)} reserved, ${jevBudgetText(w.availableMicroUsd)} available of its cap ${jevBudgetText(w.limitMicroUsd)} in ${b.period}`);
+    }
+    if (b.availableMicroUsd === 0) lines.push('jev budget spent: the machine-wide limit (BUDGET_MACHINE_LIMIT); decisions run rules-only until it resets');
+    else if (b.workspace !== null && b.workspace.availableMicroUsd === 0) lines.push("jev budget spent: this workspace's cap (BUDGET_WORKSPACE_CAP); its decisions run rules-only until it resets");
   }
   // The distribution and any under-estimate warning, in C's own words, from the checked numbers.
   if (report.estimator !== null) lines.push(...estimatorCalibrationLines(report.estimator));

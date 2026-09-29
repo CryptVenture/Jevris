@@ -55,6 +55,10 @@ export const COMMAND_EXIT_CODES = Object.freeze({
   usage: 2,
 } as const);
 
+/** Where a workspace's Jev decision cap comes from (owner decision 2026-09-29). */
+export const JEV_WORKSPACE_CAP_SOURCES = ['cap', 'repository', 'unreadable'] as const;
+export type JevWorkspaceCapSource = (typeof JEV_WORKSPACE_CAP_SOURCES)[number];
+
 export const SIDECAR_STATES = ['running', 'not-running', 'starting', 'refused', 'timeout', 'rejected'] as const;
 export type SidecarState = (typeof SIDECAR_STATES)[number];
 
@@ -178,6 +182,40 @@ export const JevCircuitStatusSchema = S.withCondition(
 );
 export type JevCircuitStatus = S.Static<typeof JevCircuitStatusSchema>;
 
+/** Status's Jev decision budget: the month's spend against the machine-wide limit and this workspace's cap. */
+export const StatusBudgetSchema = S.object(
+  {
+    state: S.enumOf(['unknown', 'within', 'bound', 'exhausted'] as const),
+    reservedMicroUsd: S.nullable(Count),
+    limitMicroUsd: S.nullable(Count),
+  },
+  {
+    /** The budget period (UTC calendar month, `YYYY-MM`) the amounts are for. */
+    period: S.string({ pattern: '^[0-9]{4}-[0-9]{2}$' }),
+    /** Settled Jev spend this period, machine-wide, integer micro-USD. */
+    spentMicroUsd: Count,
+    /** When the period ends and both limits start again (UTC). */
+    resetsAt: Timestamp,
+    /**
+     * This workspace's own monthly cap inside the machine-wide limit, and its spend; null when
+     * the workspace has no cap (owner decision 2026-09-29).
+     */
+    workspace: S.nullable(
+      S.object({
+        limitMicroUsd: Count,
+        spentMicroUsd: Count,
+        reservedMicroUsd: Count,
+        availableMicroUsd: Count,
+        /** Where the cap comes from: `jevris configure workspace-budget`, the repository file's lowering, or an unreadable cap record (0). */
+        source: S.enumOf(JEV_WORKSPACE_CAP_SOURCES),
+      }),
+    ),
+    /** Which cap ran out when `state` is exhausted: the machine-wide limit or this workspace's cap. */
+    exhaustedBy: S.nullable(S.enumOf(['machine', 'workspace'] as const)),
+  },
+);
+export type StatusBudget = S.Static<typeof StatusBudgetSchema>;
+
 export const StatusPayloadSchema = S.object(
   {
     jevrisMode: S.enumOf(MODES),
@@ -186,11 +224,7 @@ export const StatusPayloadSchema = S.object(
     degradedReason: S.nullable(ShortText),
     routing: S.object({ modelPin: S.nullable(ModelId), pinned: S.boolean() }),
     activeWorkers: Ids(64),
-    budget: S.object({
-      state: S.enumOf(['unknown', 'within', 'bound', 'exhausted'] as const),
-      reservedMicroUsd: S.nullable(Count),
-      limitMicroUsd: S.nullable(Count),
-    }),
+    budget: StatusBudgetSchema,
     recentDecisions: S.array(
       S.object({
         decisionId: Id,
@@ -753,6 +787,8 @@ export const ConfigurePayloadSchema = S.object({
       sourceEgressSource: S.literal('host-policy'),
       /** The `privacy.sourceEgress` value in jevris.config.json, a preference only; null when no valid file sets it. */
       sourceEgressPreference: S.nullable(S.enumOf(SOURCE_EGRESS_VALUES)),
+      /** The effective machine-wide monthly Jev decision budget, integer micro-USD; 0 means rules-only. */
+      monthlyBudgetMicroUsd: Count,
     },
   ),
   changed: S.array(S.object({ key: S.string({ maxLength: 128 }), from: S.string({ maxLength: 128 }), to: S.string({ maxLength: 128 }) }), {
