@@ -79,16 +79,16 @@ const q = (modelId, lower, point, upper, sliceId = 'bounded-edit') => ({ modelId
 
 test('RTE-01: the bundled registry is sourced, exact and eligible for nothing until an account check', () => {
   assert.equal(validateModelRegistry(BUNDLED_MODEL_REGISTRY).ok, true);
-  assert.equal(BUNDLED_MODEL_REGISTRY.snapshotId, 'multi-2026-09-28');
+  assert.equal(BUNDLED_MODEL_REGISTRY.snapshotId, 'multi-2026-09-29');
   assert.equal(BUNDLED_MODEL_REGISTRY.baselineModelId, 'claude-opus-5-5', 'Opus 5.5 is the Claude Code default and the baseline');
   const anthropic = BUNDLED_MODEL_REGISTRY.entries.filter((e) => e.provider === 'anthropic');
-  assert.deepEqual(anthropic.map((e) => e.modelId), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001']);
+  assert.deepEqual(anthropic.map((e) => e.modelId), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001']);
   for (const entry of anthropic) {
     for (const id of [...entry.sourceIds, entry.tariff.sourceId, entry.lifecycle.sourceId, entry.dataGovernance.sourceId]) {
       const source = core.BUNDLED_REGISTRY_SOURCES[id];
       assert.ok(source !== undefined, `${entry.modelId}: source ${id} is listed`);
       assert.match(source.url, /^https:\/\/(platform|code)\.claude\.com\//);
-      assert.match(source.fetchedOn, /^2026-09-2[26]$/, 'each source keeps its fetch date');
+      assert.equal(source.fetchedOn, '2026-09-29', 'each source keeps its latest fetch date');
     }
     assert.deepEqual(entry.accountEligibility, [], 'no invented eligibility');
     assert.equal(typeof entry.tariff.cacheWritePerMillion, 'number', 'the 5-minute write is sourced');
@@ -101,10 +101,11 @@ test('RTE-01: the bundled registry is sourced, exact and eligible for nothing un
   assert.deepEqual(facts('claude-opus-5-5'), [4, 20, 0.2, 1_000_000, 128_000]);
   assert.deepEqual(facts('claude-fable-5-1'), [10, 50, 0.25, 1_000_000, 128_000]);
   assert.deepEqual(facts('claude-opus-5'), [5, 25, 0.5, 1_000_000, 128_000]);
+  assert.deepEqual(facts('claude-sonnet-5-5'), [2, 10, 0.2, 1_000_000, 128_000]);
   assert.deepEqual(facts('claude-sonnet-5'), [2, 10, 0.2, 1_000_000, 128_000]);
   assert.deepEqual(facts('claude-haiku-4-5-20251001'), [1, 5, 0.1, 200_000, 64_000]);
-  assert.deepEqual([model('claude-opus-5-5').defaultEffort, model('claude-fable-5-1').defaultEffort, model('claude-haiku-4-5-20251001').defaultEffort], ['medium', 'high', null]);
-  assert.deepEqual(BUNDLED_MODEL_REGISTRY.entries.filter((e) => e.effortSwitch?.keepsCache === true).map((e) => e.modelId), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-opus-5'], 'per-message effort keeps the cache on these only');
+  assert.deepEqual([model('claude-opus-5-5').defaultEffort, model('claude-fable-5-1').defaultEffort, model('claude-sonnet-5-5').defaultEffort, model('claude-haiku-4-5-20251001').defaultEffort], ['medium', 'high', 'high', null]);
+  assert.deepEqual(BUNDLED_MODEL_REGISTRY.entries.filter((e) => e.effortSwitch?.keepsCache === true).map((e) => e.modelId), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-opus-5'], 'per-message effort keeps the cache on these only');
   assert.deepEqual(anthropic.filter((e) => !e.dataGovernance.zdrEligible).map((e) => e.modelId), ['claude-fable-5-1'], 'Fable 5.1 is a Covered Model');
   assert.equal(model('claude-fable-5-1').dataGovernance.requiredRetentionDays, 30);
   assert.equal(model('claude-haiku-4-5-20251001').lifecycle.retirementNotBefore, '2026-10-15T00:00:00Z');
@@ -192,7 +193,7 @@ test('RTE-01: lifecycle, ZDR, price tiers, scheduled prices and provider-aware l
   assert.deepEqual([core.lifecycleStatus(retiredHaiku, at('2026-11-26')).retired, core.lifecycleStatus(retiredHaiku, at('2026-11-26')).stale], [true, false]);
   // shippedModelReferences names the baseline and every published prior's model and effort.
   const refs = core.shippedModelReferences();
-  assert.deepEqual(refs[0], { modelId: 'claude-opus-5-5', where: 'baseline', effort: null, detail: 'model registry multi-2026-09-28 baselineModelId' });
+  assert.deepEqual(refs[0], { modelId: 'claude-opus-5-5', where: 'baseline', effort: null, detail: 'model registry multi-2026-09-29 baselineModelId' });
   assert.deepEqual(refs.filter((r) => r.where === 'priors').length, core.BUNDLED_PUBLIC_PRIORS.length);
   for (const r of refs) assert.ok(registryModel(BUNDLED_MODEL_REGISTRY, r.modelId) !== null, `${r.modelId} is in the bundled registry`);
 

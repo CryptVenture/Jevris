@@ -56,8 +56,10 @@ test('subagent route: an active learned route for the subagent type proposes its
   );
   assert.match(advice.text, /Explore subagent/);
   // A signed prior is the other evidence, when learning has nothing active.
-  const prior = adviseSubagentRoute(input({ learning: null, signedPrior: { modelId: 'claude-sonnet-5', releaseId: 'rel-1' } }));
-  assert.deepEqual([prior.outcome, prior.modelId, prior.alias, prior.basis, prior.reasonCode], ['propose', 'claude-sonnet-5', 'sonnet', 'signed-prior', 'SUBAGENT_ROUTE_PRIOR']);
+  const prior = adviseSubagentRoute(input({ learning: null, signedPrior: { modelId: 'claude-sonnet-5-5', releaseId: 'rel-1' } }));
+  assert.deepEqual([prior.outcome, prior.modelId, prior.alias, prior.basis, prior.reasonCode], ['propose', 'claude-sonnet-5-5', 'sonnet', 'signed-prior', 'SUBAGENT_ROUTE_PRIOR']);
+  // Since Sonnet 5.5 the `sonnet` alias no longer means Sonnet 5: a route to it abstains.
+  assert.equal(adviseSubagentRoute(input({ learning: null, signedPrior: { modelId: 'claude-sonnet-5', releaseId: 'rel-1' } })).reasonCode, 'ALIAS_NOT_NEWEST');
 });
 
 test('subagent route: every abstain reason, each paired with the one change that makes it propose', () => {
@@ -167,7 +169,7 @@ test('R20: each harness applies a subagent route its own way; Antigravity explai
   const kiloLow = adviseSubagentRoute(input({ harness: 'kilocode', sessionModel: 'anthropic/claude-opus-5-5', learning: sonnetLow }));
   assert.deepEqual([kiloLow.outcome, kiloLow.harnessModel, kiloLow.variant], ['propose', 'anthropic/claude-sonnet-5', 'low']);
   assert.equal(reason({ harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', learning: sonnetLow }), 'EFFORT_NOT_ROUTABLE');
-  assert.equal(reason({ learning: sonnetLow }), 'EFFORT_NOT_ROUTABLE');
+  assert.equal(reason({ learning: active('claude-sonnet-5-5', { effort: 'low' }) }), 'EFFORT_NOT_ROUTABLE');
   // Owner decision 43cb54c: on Codex the route sets the model only; the learned effort is stated, never carried.
   assert.equal(codexHigh.effortNotApplied, 'xhigh');
   assert.match(codexHigh.text, /learned effort is xhigh; the route sets the model only/);

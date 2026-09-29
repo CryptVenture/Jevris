@@ -1,4 +1,4 @@
-// The bundled snapshot multi-2026-09-28 (owner decision DOMAINS 7be3c43, SPEC §8.1 amended): the
+// The bundled snapshot multi-2026-09-29 (owner decision DOMAINS 7be3c43, SPEC §8.1 amended): the
 // admitted providers' entries, the harness map with each harness's own spelling, the consent and
 // preview gates, and the per-harness baselines (OD-3). Deterministic: data only, a fixed clock.
 import test from 'node:test';
@@ -12,11 +12,11 @@ const NOW = Date.parse('2026-09-28T00:00:00Z');
 
 test('7be3c43: the snapshot holds the admitted providers, each entry sourced, unevaluated and priced in both forms', () => {
   assert.equal(validateModelRegistry(R).ok, true);
-  assert.equal(R.snapshotId, 'multi-2026-09-28');
+  assert.equal(R.snapshotId, 'multi-2026-09-29');
   const byProvider = {};
   for (const e of R.entries) (byProvider[e.provider] ??= []).push(e.modelId);
   assert.deepEqual(byProvider, {
-    anthropic: ['claude-opus-5-5', 'claude-fable-5-1', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
+    anthropic: ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
     openai: ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
     google: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.1-pro-preview'],
     xai: ['grok-4.7', 'grok-4.6'],
@@ -41,6 +41,37 @@ test('7be3c43: the snapshot holds the admitted providers, each entry sourced, un
     { harness: 'codex', baselineModelId: 'gpt-6-sol' },
     { harness: 'antigravity', baselineModelId: 'gemini-3.8-flash' },
   ]);
+});
+
+test('Claude Sonnet 5.5 (released 2026-09-28): the vendor pages\' price, limits, effort and lifecycle; Sonnet 5 becomes legacy', () => {
+  const sonnet55 = registryModel(R, 'claude-sonnet-5-5', 'anthropic');
+  assert.ok(sonnet55 !== null, 'Sonnet 5.5 is registered');
+  assert.deepEqual([sonnet55.family, sonnet55.displayName], ['sonnet', 'Sonnet 5.5']);
+  // Pricing page, fetched 2026-09-29: $2 input, $10 output, $0.20 cache read, $2.50 5-minute and $4 1-hour writes.
+  const t = sonnet55.tariff;
+  assert.deepEqual([t.inputPerMillion, t.outputPerMillion, t.cacheReadPerMillion, t.cacheWritePerMillion, t.cacheWrite1hPerMillion], [2, 10, 0.2, 2.5, 4]);
+  assert.deepEqual([t.inputMicroUsdPerMillion, t.outputMicroUsdPerMillion, t.cacheReadMicroUsdPerMillion, t.cacheWriteMicroUsdPerMillion, t.cacheWrite1hMicroUsdPerMillion], [2_000_000, 10_000_000, 200_000, 2_500_000, 4_000_000]);
+  assert.deepEqual([t.version, t.effectiveAt, t.sourceId, t.tiers], ['anthropic-2026-09-29', '2026-09-28T00:00:00Z', 'S28', undefined]);
+  assert.equal(generationCostMicroUsd(t, { inputTokens: 1_000_000, outputTokens: 100_000 }), 3_000_000);
+  // Models overview: 1M context, 128K output; effort low to max, default high on the Claude API.
+  assert.deepEqual([sonnet55.contextTokens, sonnet55.maxOutputTokens], [1_000_000, 128_000]);
+  assert.deepEqual([sonnet55.effortLevels, sonnet55.defaultEffort], [['low', 'medium', 'high', 'xhigh', 'max'], 'high']);
+  // Per-message effort keeps the cache on the Anthropic-operated platforms (effort page).
+  assert.deepEqual([core.effortSwitchKeepsCache(sonnet55, 'claude-api'), core.effortSwitchKeepsCache(sonnet55, 'bedrock')], [true, false]);
+  assert.ok(sonnet55.capabilities.includes('adaptive-thinking') && sonnet55.capabilities.includes('per-message-effort'));
+  assert.equal(sonnet55.capabilities.includes('thinking-always-on'), false, 'between_tools turns up-front thinking off');
+  // Deprecations page: active, retirement not sooner than 2027-09-28. Not a Covered Model: ZDR eligible.
+  assert.deepEqual(sonnet55.lifecycle, { status: 'active', releasedOn: '2026-09-28T00:00:00Z', retirementNotBefore: '2027-09-28T00:00:00Z', retiresOn: null, replacementModelId: null, sourceId: 'ANT-DEPREC' });
+  assert.deepEqual([sonnet55.dataGovernance.zdrEligible, sonnet55.dataGovernance.requiredRetentionDays], [true, null]);
+  assert.deepEqual(core.lifecycleCheck(sonnet55, NOW), { usable: true });
+  // Claude Code runs it by its API id; OpenCode and Kilo through the Anthropic provider config.
+  assert.deepEqual([harnessModelId(R, 'claude', 'claude-sonnet-5-5'), harnessModelId(R, 'opencode', 'claude-sonnet-5-5'), harnessModelId(R, 'codex', 'claude-sonnet-5-5')], ['claude-sonnet-5-5', 'anthropic/claude-sonnet-5-5', null]);
+  // Sonnet 5 stays at the same price, a legacy model that is not deprecated.
+  const sonnet5 = registryModel(R, 'claude-sonnet-5', 'anthropic');
+  assert.deepEqual([sonnet5.lifecycle.status, sonnet5.lifecycle.retirementNotBefore, sonnet5.tariff.inputPerMillion, sonnet5.tariff.outputPerMillion], ['legacy', '2027-06-30T00:00:00Z', 2, 10]);
+  assert.deepEqual(core.lifecycleCheck(sonnet5, NOW), { usable: true });
+  // The baseline and the Claude Code default stay Opus 5.5.
+  assert.equal(R.baselineModelId, 'claude-opus-5-5');
 });
 
 test('R7: long-context tiers, an inclusive xAI threshold, the scheduled Gemini price and a promotion end', () => {

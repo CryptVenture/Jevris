@@ -1,9 +1,9 @@
 {
-  "$comment": "Proposal only (v1.2 model research, 2026-09-26; refreshed 2026-09-27). `registry` is a ModelRegistry (packages/contracts/schemas/model-registry.schema.json) and validates with ModelRegistryContract. `sources` maps every sourceId and tariff.sourceId to a URL and fetch date; `entryNotes` (keyed provider/modelId) carries asOf and the facts the schema has no field for. Health is unknown, accountEligibility is empty and every entry is unevaluated: nothing here is eligible for automated routing until an account check and a calibration release record it.",
+  "$comment": "Proposal only (v1.2 model research, 2026-09-26; refreshed 2026-09-27; Claude Sonnet 5.5 added 2026-09-29). `registry` is a ModelRegistry (packages/contracts/schemas/model-registry.schema.json) and validates with ModelRegistryContract. `sources` maps every sourceId and tariff.sourceId to a URL and fetch date; `entryNotes` (keyed provider/modelId) carries asOf and the facts the schema has no field for. Health is unknown, accountEligibility is empty and every entry is unevaluated: nothing here is eligible for automated routing until an account check and a calibration release record it.",
   "registry": {
     "schemaVersion": "1.0",
-    "snapshotId": "research-proposal-2026-09-27",
-    "fetchedOn": "2026-09-27T00:00:00Z",
+    "snapshotId": "research-proposal-2026-09-29",
+    "fetchedOn": "2026-09-29T00:00:00Z",
     "baselineModelId": "claude-opus-5-5",
     "entries": [
       {
@@ -128,6 +128,67 @@
           "ANT-RETENTION",
           "ANT-THINK",
           "ANT-RELNOTES"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-sonnet-5-5",
+        "family": "sonnet",
+        "displayName": "Claude Sonnet 5.5",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "adaptive-thinking",
+          "effort",
+          "per-message-effort",
+          "mid-conversation-system",
+          "inference-geo",
+          "zdr"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-09-29",
+          "currency": "USD",
+          "effectiveAt": "2026-09-28T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 10,
+          "cacheReadPerMillion": 0.2,
+          "cacheWritePerMillion": 2.5,
+          "sourceId": "ANT-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-EFFORT",
+          "ANT-RETENTION",
+          "ANT-SONNET55",
+          "ANT-SONNET55-NEW",
+          "ANT-NEWS-SONNET55",
+          "CC-MODEL-CONFIG",
+          "CC-CHANGELOG"
         ]
       },
       {
@@ -2016,19 +2077,19 @@
       "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
       "title": "Anthropic models overview",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-29"
     },
     "ANT-PRICING": {
       "url": "https://platform.claude.com/docs/en/about-claude/pricing",
       "title": "Anthropic pricing",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-29"
     },
     "ANT-DEPREC": {
       "url": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
       "title": "Anthropic model deprecations",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-29"
     },
     "ANT-CACHE": {
       "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
@@ -2040,7 +2101,7 @@
       "url": "https://platform.claude.com/docs/en/build-with-claude/effort",
       "title": "Anthropic effort",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-29"
     },
     "ANT-THINK": {
       "url": "https://platform.claude.com/docs/en/build-with-claude/thinking",
@@ -2058,7 +2119,7 @@
       "url": "https://platform.claude.com/docs/en/manage-claude/api-and-data-retention",
       "title": "Anthropic API and data retention (ZDR, Covered Models)",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-29"
     },
     "ANT-RESIDENCY": {
       "url": "https://platform.claude.com/docs/en/manage-claude/data-residency",
@@ -2136,7 +2197,7 @@
       "url": "https://code.claude.com/docs/en/model-config",
       "title": "Claude Code model configuration",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-29"
     },
     "CC-PROMPT-CACHING": {
       "url": "https://code.claude.com/docs/en/prompt-caching",
@@ -2923,6 +2984,30 @@
       "title": "xAI grok-build-0.1 model page (developers path)",
       "kind": "vendor-docs",
       "fetchedOn": "2026-09-27"
+    },
+    "ANT-SONNET55": {
+      "url": "https://platform.claude.com/docs/en/models/sonnet-5-5/overview",
+      "title": "Claude Sonnet 5.5 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-29"
+    },
+    "ANT-SONNET55-NEW": {
+      "url": "https://platform.claude.com/docs/en/models/sonnet-5-5/whats-new-sonnet-5-5",
+      "title": "What's new in Claude Sonnet 5.5",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-29"
+    },
+    "ANT-NEWS-SONNET55": {
+      "url": "https://www.anthropic.com/claude-sonnet-5-5",
+      "title": "Claude Sonnet 5.5 announcement",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-09-29"
+    },
+    "CC-CHANGELOG": {
+      "url": "https://code.claude.com/docs/en/changelog",
+      "title": "Claude Code changelog (2.1.284 adds Claude Sonnet 5.5)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-29"
     }
   },
   "entryNotes": {
@@ -3014,6 +3099,78 @@
       ],
       "refusalBilling": "From 2026-09-24, refusals that arrive before any output with stop_details.category bio, frontier_llm or reasoning_extraction are billed at the rates of the model that ran them; other pre-output refusals stay unbilled (ANT-RELNOTES, fetched 2026-09-27)"
     },
+    "anthropic/claude-sonnet-5-5": {
+      "asOf": "2026-09-29",
+      "released": "2026-09-28",
+      "retirement": "not sooner than 2027-09-28 (ANT-DEPREC); Bedrock and Google Cloud set their own dates (not yet published: unconfirmed)",
+      "knowledgeCutoff": "2026-06",
+      "trainingDataCutoff": "2026-06",
+      "defaultEffort": "high",
+      "claudeCodeDefaultEffort": "medium (CC-MODEL-CONFIG: Opus 5.5 and Sonnet 5.5 default to medium in Claude Code)",
+      "effortNote": "levels recalibrated against Sonnet 5; the same level does not produce the same thinking (ANT-EFFORT)",
+      "thinking": "adaptive, on by default; the lowest setting is thinking.type between_tools (low, medium and high effort only); disabled and budget_tokens return 400",
+      "perMessageEffort": "yes, beta mid-conversation-output-config-2026-07-01, keeps the prompt cache; not with between_tools (ANT-EFFORT)",
+      "midConversationSystem": true,
+      "cacheWrite1hPerMillion": 4,
+      "batchInputPerMillion": 1,
+      "batchOutputPerMillion": 5,
+      "batchMaxOutputTokens": "300000 with beta output-300k-2026-03-24",
+      "minCacheableTokens": 512,
+      "usOnlyMultiplier": 1.1,
+      "fastMode": "not offered (fast mode covers Opus 5.5, Opus 5 and Opus 4.8)",
+      "forcedToolChoice": false,
+      "samplingParameters": "a non-default temperature, top_p or top_k returns 400",
+      "tokenizer": "same as Sonnet 5",
+      "thinkingReadableFrom": "Sonnet 5, Opus 4.8, Haiku 4.5 and earlier; not Opus 5, Opus 5.5, Fable or Mythos. No other model reads Sonnet 5.5 blocks, and they are bound to the conversation and the account",
+      "priceNote": "the same prices as Sonnet 5, including cache and batch (ANT-SONNET55-NEW)",
+      "dataRetention": "not a Covered Model: ZDR eligible (ANT-RETENTION)",
+      "replaces": "claude-sonnet-5 as the latest Sonnet; Sonnet 5 is legacy, still Active with no deprecation entry on 2026-09-29 (ANT-DEPREC)",
+      "breakingChangesFromSonnet5": "thinking disabled is refused (use between_tools); tool_choice any and tool return 400; thinking blocks are bound to the model and the conversation; computer_20251124 is refused on the Claude API and Google Cloud; the advisor tool refuses Opus 4.8, Opus 4.7 and Sonnet 5 advisors",
+      "harnesses": {
+        "claude-code": "native: claude-sonnet-5-5, and the sonnet alias on the Anthropic API from Claude Code 2.1.284 (CC-CHANGELOG); always 1M context there, no [1m] variant. On Bedrock and Google Cloud the sonnet alias still resolves to Sonnet 4.5, on Claude Platform on AWS to Sonnet 4.6, on Microsoft Foundry to Sonnet 4.5",
+        "kilo": "provider (Anthropic API key); the model listing was not re-checked (unconfirmed)",
+        "opencode": "provider (Anthropic API key); the model listing was not re-checked (unconfirmed)",
+        "codex": "gateway only",
+        "antigravity": "not listed (not re-checked)"
+      },
+      "subscriptionPlans": "Claude apps on Free, Pro, Max, Team and Enterprise, and Claude Code (ANT-NEWS-SONNET55)",
+      "cloud": [
+        "bedrock:anthropic.claude-sonnet-5-5",
+        "vertex:claude-sonnet-5-5",
+        "foundry:claude-sonnet-5-5",
+        "claude-platform-on-aws:claude-sonnet-5-5"
+      ],
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0",
+          "value": "70.6%",
+          "basis": "vendor-reported (effort not stated)",
+          "date": "2026-09-28",
+          "sourceId": "ANT-NEWS-SONNET55"
+        },
+        {
+          "name": "FrontierCode 1.1 (Main, max)",
+          "value": "46.2%",
+          "basis": "vendor-reported",
+          "date": "2026-09-28",
+          "sourceId": "ANT-NEWS-SONNET55"
+        },
+        {
+          "name": "CursorBench 4.0",
+          "value": "55.5%",
+          "basis": "vendor-reported",
+          "date": "2026-09-28",
+          "sourceId": "ANT-NEWS-SONNET55"
+        },
+        {
+          "name": "independent (Terminal-Bench leaderboard, SWE-bench-Live, AA Coding Agent Index, LiveCodeBench)",
+          "value": "unconfirmed",
+          "basis": "no independent result found on 2026-09-29 (the Terminal-Bench leaderboard page renders no rows to a text fetch)",
+          "date": "2026-09-29"
+        }
+      ],
+      "refusalBilling": "From 2026-09-24, refusals that arrive before any output with stop_details.category bio, frontier_llm or reasoning_extraction are billed at the rates of the model that ran them; other pre-output refusals stay unbilled (ANT-RELNOTES, fetched 2026-09-27)"
+    },
     "anthropic/claude-opus-5": {
       "asOf": "2026-09-27",
       "status": "legacy",
@@ -3033,9 +3190,10 @@
       "refusalBilling": "From 2026-09-24, refusals that arrive before any output with stop_details.category bio, frontier_llm or reasoning_extraction are billed at the rates of the model that ran them; other pre-output refusals stay unbilled (ANT-RELNOTES, fetched 2026-09-27)"
     },
     "anthropic/claude-sonnet-5": {
-      "asOf": "2026-09-26",
+      "asOf": "2026-09-29",
+      "status": "legacy",
       "released": "2026-06-30",
-      "retirement": "not sooner than 2027-06-30",
+      "retirement": "not sooner than 2027-06-30; still Active with no deprecation entry on 2026-09-29 (ANT-DEPREC), and listed as a legacy model on the models overview since Sonnet 5.5 (ANT-MODELS)",
       "knowledgeCutoff": "2026-01",
       "defaultEffort": "high",
       "cacheWrite1hPerMillion": 4,
@@ -3046,7 +3204,7 @@
       "perMessageEffort": false,
       "midConversationSystem": false,
       "harnesses": {
-        "claude-code": "native (sonnet alias on Anthropic API)",
+        "claude-code": "native (claude-sonnet-5); no longer the sonnet alias on the Anthropic API from Claude Code 2.1.284 (CC-CHANGELOG)",
         "kilo": "provider",
         "opencode": "provider",
         "codex": "gateway only",
@@ -3066,7 +3224,8 @@
           "basis": "independent",
           "sourceId": "IND-SWEREBENCH"
         }
-      ]
+      ],
+      "successor": "claude-sonnet-5-5"
     },
     "anthropic/claude-haiku-4-5-20251001": {
       "asOf": "2026-09-27",
@@ -3113,7 +3272,7 @@
       "status": "legacy",
       "alias": "claude-sonnet-4-5",
       "released": "2025-09-29",
-      "retirement": "not sooner than 2026-09-29; still Active with no deprecation entry on 2026-09-27 (ANT-DEPREC). Anthropic gives at least 60 days' notice before retiring a publicly released model.",
+      "retirement": "not sooner than 2026-09-29; still Active with no deprecation entry on 2026-09-29 (ANT-DEPREC). Anthropic gives at least 60 days' notice before retiring a publicly released model.",
       "knowledgeCutoff": "2025-01",
       "why": "Claude Code sonnet alias resolves here on Bedrock, Vertex and Foundry",
       "minCacheableTokens": 1024,

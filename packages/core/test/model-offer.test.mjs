@@ -119,7 +119,7 @@ test('eligibility feeds the router account gate: only locally eligible models pa
   assert.ok(admin.every((e) => e.reasonCode === 'ACCOUNT_NOT_CHECKED' && e.basis === 'account-check'));
   assert.deepEqual(locallyEligibleModels(admin), []);
   const lines = modelEligibilityLines(modelEligibility({ registry: REGISTRY, accountId: null, offer, scope }), scope);
-  assert.match(lines.find((l) => l.startsWith(SONNET)), /is eligible: it has run on claude with api-key sign-in \(RAN_HERE\)\.$/);
+  assert.match(lines.find((l) => l.startsWith(`${SONNET} `)), /is eligible: it has run on claude with api-key sign-in \(RAN_HERE\)\.$/);
   assert.match(lines.find((l) => l.startsWith(HAIKU)), /not eligible: it has not run on claude with api-key sign-in and no harness listing names it \(NO_LOCAL_EVIDENCE\)/);
 });
 

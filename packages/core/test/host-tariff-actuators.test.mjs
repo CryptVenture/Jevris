@@ -157,7 +157,7 @@ test('F\'s 057e8553: a bedrock-arn parent never routes, and on Kilo and OpenCode
   assert.deepEqual([subagent({ sessionModel: null }).outcome, subagent({ sessionModel: null }).reasonCode], ['abstain', 'HOST_UNKNOWN']);
   // Claude Code names no host: a bedrock-arn session abstains, and one with no model keeps routing its alias.
   const claude = (sessionModel) =>
-    adviseSubagentRoute({ harness: 'claude', subagentType: 'Plan', explicitModel: false, sessionModel, pins: { modelPin: null, effortPin: null }, registry: R, nowMs: POLICY.nowMs, unavailableModels: {}, learning: subagentLearning('claude-sonnet-5', 'claude'), consentedProviders: ['anthropic'] });
+    adviseSubagentRoute({ harness: 'claude', subagentType: 'Plan', explicitModel: false, sessionModel, pins: { modelPin: null, effortPin: null }, registry: R, nowMs: POLICY.nowMs, unavailableModels: {}, learning: subagentLearning('claude-sonnet-5-5', 'claude'), consentedProviders: ['anthropic'] });
   assert.equal(claude('bedrock-arn').reasonCode, 'HOST_UNKNOWN');
   assert.equal(claude(null).outcome, 'propose', JSON.stringify(claude(null)));
 });
