@@ -75,12 +75,9 @@ export async function approveManifests(
     source: source.slice(0, 200),
   };
   await ws.host.transact((tx) => {
-    const prior = tx.get<ApprovalRecord>('check-approvals', ws.workspaceId);
-    tx.put('check-approvals', ws.workspaceId, {
-      ...record,
-      hashes: { ...(prior?.hashes ?? {}), ...record.hashes },
-      manifests: { ...(prior?.manifests ?? {}), ...record.manifests },
-    });
+    // Replace, never merge: a check absent from this approval loses its approval, so approving
+    // again cannot keep authority the person no longer sees in the manifest.
+    tx.put('check-approvals', ws.workspaceId, record);
   });
   return record;
 }

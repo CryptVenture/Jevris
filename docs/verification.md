@@ -71,6 +71,10 @@ Approval records the exact hash of each check. If anyone edits a check afterward
 argument, the edited check does not run until you approve it again. Hooks, MCP tools and
 models cannot approve checks.
 
+Each `jevris verify approve` (with or without `--proposal`) replaces the approved set with exactly
+the checks it approves. A check that is no longer in the manifest loses its approval; you do not
+need `jevris verify revoke` for that.
+
 Approving needs a person at an interactive terminal who answers `y`. `--yes`, `--json`, a pipe
 and a script are refused with `CHANNEL_REFUSED`, and nothing is approved. The same holds for
 trusting a CI issuer (`verify issuer add`) and for waivers (`verify waive`). Revoking an
@@ -157,6 +161,12 @@ Refused (UNKNOWN_CHECK): No approved check is named docs; jevris verify profile 
 A receipt is current only while its inputs are unchanged. When a file in the check's
 `inputScopes` changes, or the branch or the lockfile changes, the receipt goes stale and the
 check must run again. Stale receipts never count as passed.
+
+Staleness is one-way. Jevris marks a receipt stale the first time it sees the inputs differ, and it
+stays stale: putting the files back does not make that receipt current again. Run the check again
+to get a new receipt. If the files were put back before Jevris looked, the receipt was never seen
+stale and is still current. A receipt written by a run that already includes a new lockfile or
+branch is not made stale by that change; only receipts made before it are.
 
 To tell whether inputs changed, Jevris hashes the changed and untracked files in the background,
 without holding the sidecar: it reuses a file's hash while its size and times are unchanged, and

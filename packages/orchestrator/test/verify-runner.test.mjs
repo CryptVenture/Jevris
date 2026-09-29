@@ -6,6 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   approveManifests,
+  approvedManifests,
   decideStop,
   evaluateCompletion,
   manifestHash,
@@ -317,6 +318,95 @@ test('verification support flips to supported after approval and back on revoke;
     assert.deepEqual(verificationSupport(f.ws).pendingApproval, ['unit']);
     await revokeApproval(f.ws);
     assert.equal(verificationSupport(f.ws).state, 'unsupported');
+  } finally {
+    f.done();
+  }
+});
+
+test('approving again replaces the approved set: a check left out of the new approval loses its approval (JEV-0001)', async () => {
+  const f = fixture();
+  try {
+    const a = manifest('a', 'process.exit(0)');
+    const b = manifest('b', 'process.exit(0)');
+    await approve(f.ws, [a, b]);
+    assert.deepEqual(approvedManifests(f.ws).map((m) => m.id), ['a', 'b']);
+    // The same id with a different command replaces the old approval, and `b` is dropped.
+    const a2 = manifest('a', 'process.exit(0)', { timeoutMs: 30_000 });
+    await approve(f.ws, [a2]);
+    assert.deepEqual(approvedManifests(f.ws).map((m) => m.id), ['a']);
+    assert.equal(approvedManifests(f.ws)[0].timeoutMs, 30_000);
+    const gone = await runVerification(f.ws, { taskId: 'T1', checkIds: ['b'] });
+    assert.deepEqual(gone.ran, [], 'a dropped check is not runnable');
+    assert.deepEqual(verificationSupport(f.ws).pendingApproval ?? [], []);
+    const kept = await runVerification(f.ws, { taskId: 'T1', checkIds: ['a'] });
+    assert.equal(kept.ran.length, 1);
+  } finally {
+    f.done();
+  }
+});
+
+test('receipt currency is one-way: restoring an edited input does not revive a receipt Jevris saw go stale (JEV-0002)', async () => {
+  const f = fixture();
+  try {
+    await approve(f.ws, [manifest('unit', 'process.exit(0)', { inputScopes: ['lib'] })]);
+    const first = await runVerification(f.ws, { taskId: 'T1', checkIds: ['unit'] });
+    assert.equal(first.completion.verified, true);
+    const file = join(f.repo, 'lib', 'a.js');
+    writeFileSync(file, 'export const a = 2;\n');
+    const stale = await verificationStatus(f.ws, { taskId: 'T1', checkIds: [] });
+    assert.equal(stale.checks.find((c) => c.checkId === 'unit')?.status, 'stale');
+    writeFileSync(file, 'export const a = 1;\n');
+    const still = await verificationStatus(f.ws, { taskId: 'T1', checkIds: [] });
+    assert.equal(still.checks.find((c) => c.checkId === 'unit')?.status, 'stale', 'restoring the file does not make the old receipt current');
+    assert.equal(still.verified, false);
+    const again = await runVerification(f.ws, { taskId: 'T1', checkIds: ['unit'] });
+    assert.equal(again.completion.verified, true, 'a new run gives a new current receipt');
+    // An edit reverted before Jevris looks was never seen stale: the receipt is still current.
+    writeFileSync(file, 'export const a = 3;\n');
+    writeFileSync(file, 'export const a = 1;\n');
+    assert.equal((await verificationStatus(f.ws, { taskId: 'T1', checkIds: [] })).verified, true);
+  } finally {
+    f.done();
+  }
+});
+
+test('the first verify after a lockfile commit or a branch switch is judged by its own receipt, not stale (JEV-0003)', async () => {
+  const f = fixture();
+  try {
+    await approve(f.ws, [manifest('unit', 'process.exit(0)', { inputScopes: ['lib'] })]);
+    assert.equal((await runVerification(f.ws, { taskId: 'T1', checkIds: ['unit'] })).completion.verified, true);
+    writeFileSync(join(f.repo, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    git(f.repo, 'add', 'package-lock.json');
+    git(f.repo, 'commit', '-q', '-m', 'lockfile');
+    const afterLock = await runVerification(f.ws, { taskId: 'T1', checkIds: ['unit'] });
+    assert.equal(afterLock.ran[0].receipt.outcome, 'passed');
+    assert.equal(afterLock.completion.checks.find((c) => c.checkId === 'unit')?.status, 'passed');
+    assert.equal(afterLock.completion.verified, true, 'the receipt just written is not invalidated by the change it already reflects');
+    git(f.repo, 'checkout', '-q', '-b', 'other');
+    const afterBranch = await runVerification(f.ws, { taskId: 'T1', checkIds: ['unit'] });
+    assert.equal(afterBranch.completion.checks.find((c) => c.checkId === 'unit')?.status, 'passed');
+    assert.equal(afterBranch.completion.verified, true);
+  } finally {
+    f.done();
+  }
+});
+
+test('a receipt made before a lockfile commit or a branch switch is still invalidated when nothing re-ran (JEV-0003)', async () => {
+  const f = fixture();
+  try {
+    await approve(f.ws, [manifest('unit', 'process.exit(0)', { inputScopes: ['lib'] })]);
+    assert.equal((await runVerification(f.ws, { taskId: 'T1', checkIds: ['unit'] })).completion.verified, true);
+    writeFileSync(join(f.repo, 'package-lock.json'), '{"lockfileVersion":3}\n');
+    git(f.repo, 'add', 'package-lock.json');
+    git(f.repo, 'commit', '-q', '-m', 'lockfile');
+    const lock = await verificationStatus(f.ws, { taskId: 'T1', checkIds: [] });
+    assert.equal(lock.checks.find((c) => c.checkId === 'unit')?.status, 'stale');
+    assert.equal(lock.verified, false);
+    assert.equal((await runVerification(f.ws, { taskId: 'T1', checkIds: ['unit'] })).completion.verified, true);
+    git(f.repo, 'checkout', '-q', '-b', 'other');
+    const branch = await verificationStatus(f.ws, { taskId: 'T1', checkIds: [] });
+    assert.equal(branch.checks.find((c) => c.checkId === 'unit')?.status, 'stale');
+    assert.equal(branch.verified, false);
   } finally {
     f.done();
   }

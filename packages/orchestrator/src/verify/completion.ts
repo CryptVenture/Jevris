@@ -62,7 +62,11 @@ export async function refreshFreshness(input: FreshnessInput): Promise<Freshness
     if (row.validity !== 'current') continue;
     if (input.scope !== undefined && !input.scope.includes(row)) continue;
     let reason: string | undefined;
-    if (invalidateAll) reason = change.branchChanged ? 'branch-changed' : 'lockfile-changed';
+    // A branch or lockfile change since the stored snapshot invalidates every receipt made
+    // before it. A receipt made after it (a check just run) already carries the new branch and
+    // lockfile, so it is judged by its own scoped revision like any other.
+    if (invalidateAll && change.branchChanged && row.receipt.inputRevision.branch !== snapshot.branch) reason = 'branch-changed';
+    else if (invalidateAll && change.lockfileChanged && row.receipt.inputRevision.lockfileHash !== snapshot.lockfileHash) reason = 'lockfile-changed';
     else {
       const key = row.receipt.inputScopes.join('\n');
       let current = scopeCache.get(key);
