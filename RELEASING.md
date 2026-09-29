@@ -32,7 +32,7 @@ Apart from the one-time placeholder below, nobody publishes from a laptop, and n
 3. Check locally, then rehearse the published artifact:
 
    ```sh
-   npm ci && npm run build && npm run check:clean && npm run registry:check && npm test && npm run lint
+   npm ci --ignore-scripts && npm rebuild esbuild && npm run build && npm run check:clean && npm run registry:check && npm test && npm run lint
    node scripts/release-check.mjs --tag v1.3.0
    npm run docs -- --check
    node scripts/pack-smoke.mjs --full --npx
@@ -175,7 +175,7 @@ The calibration release is also route learning's day-1 baseline: its priors come
 Only after the owner has approved the staged version, the post-publish workflow has passed on all three operating systems, and the gates pass on the release candidate:
 
 ```sh
-git checkout v1.3.0 && npm ci && npm run build
+git checkout v1.3.0 && npm ci --ignore-scripts && npm rebuild esbuild && npm run build
 node scripts/promote.mjs --version 1.3.0 --evidence <dir> --commit <full sha>            # dry run: runs the gates
 node scripts/promote.mjs --version 1.3.0 --evidence <dir> --commit <full sha> --apply    # npm dist-tag add … latest (your npm login, 2FA)
 ```

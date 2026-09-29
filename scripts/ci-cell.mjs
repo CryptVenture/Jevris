@@ -22,9 +22,19 @@ import { isMain } from './build.mjs';
 
 const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 
+/**
+ * The dependencies whose own install scripts run after `npm ci --ignore-scripts`: every package
+ * the lockfile marks hasInstallScript (test/ci-workflow.test.mjs keeps the two in step).
+ * better-sqlite3 is not one: it ships prebuilt binaries and sets gypfile: false, but an install
+ * from the lockfile loses that flag and runs `node-gyp rebuild`, which needs a C++ toolchain
+ * (npm 10's node-gyp finds none on windows-latest) to build a binary the package never loads.
+ */
+export const INSTALL_SCRIPT_PACKAGES = ['esbuild'];
+
 /** The CI job steps, in order. .github/workflows/ci.yml runs the same npm scripts. */
 export const CELL_STEPS = [
-  { id: 'ci', npm: ['ci'] },
+  { id: 'ci', npm: ['ci', '--ignore-scripts'] },
+  { id: 'rebuild', npm: ['rebuild', ...INSTALL_SCRIPT_PACKAGES] },
   { id: 'build', npm: ['run', 'build'] },
   { id: 'clean', npm: ['run', 'check:clean'] },
   { id: 'lint', npm: ['run', 'lint'] },

@@ -41,7 +41,8 @@ test('verify:fresh arguments: repeatable --overlay with one or more paths, --fut
   assert.deepEqual(parseVerifyArgs([]), { overlay: [], futureDays: null, dir: null, keep: false });
   assert.deepEqual(parseVerifyArgs(['--overlay', 'a b.txt', 'c', '--future-days', '365', '--overlay', 'd', '--dir', '/x y', '--keep']), { overlay: ['a b.txt', 'c', 'd'], futureDays: 365, dir: '/x y', keep: true });
   for (const bad of [['--overlay'], ['--overlay', '--keep'], ['--future-days', '0'], ['--future-days', 'x'], ['--dir'], ['--bogus']]) assert.throws(() => parseVerifyArgs(bad), Error, bad.join(' '));
-  assert.deepEqual(verifySteps().map((s) => s.id), ['ci', 'build', 'lint', 'test', 'docs', 'pack']);
+  assert.deepEqual(verifySteps().map((s) => s.id), ['ci', 'rebuild', 'build', 'lint', 'test', 'docs', 'pack']);
+  assert.deepEqual(verifySteps().slice(0, 2), [{ id: 'ci', npm: ['ci', '--ignore-scripts', '--no-audit', '--no-fund'] }, { id: 'rebuild', npm: ['rebuild', 'esbuild'] }], 'installed as CI installs');
   assert.deepEqual(verifySteps(30).at(-1).npm, ['run', 'test:future', '--', '--days', '30', '--no-build']);
 });
 
@@ -129,7 +130,7 @@ test('verify:fresh clones HEAD from a path with spaces, applies the overlay, run
   const parent = join(base, 'work area');
   const report = await verifyFresh({ mainRoot: main, options: { overlay: ['src dir/a file.txt', 'new file.txt', 'gone.txt'], futureDays: 3700, dir: parent, keep: false }, run, write: (line) => lines.push(line) });
   assert.equal(report.ok, true, lines.join('\n'));
-  assert.deepEqual(seen, ['ci', 'build', 'lint', 'test', 'docs', 'pack', 'future']);
+  assert.deepEqual(seen, ['ci', 'rebuild', 'build', 'lint', 'test', 'docs', 'pack', 'future']);
   assert.equal(report.head, head);
   assert.ok(lines.includes('verify:fresh: lint: ok 110 tests, 110 pass, 0 fail, 0 skipped (0s)'), lines.join('\n'));
   assert.ok(lines.includes('verify:fresh: test: ok 2181 tests, 2180 pass, 0 fail, 1 skipped (0s)'), lines.join('\n'));
@@ -148,7 +149,7 @@ test('verify:fresh stops after a failed build, keeps the logs, and fails; a fail
   const lines = [];
   const failBuild = await verifyFresh({ mainRoot: main, options: { overlay: [], futureDays: null, dir: base, keep: false }, run: async (step) => ({ code: step.id === 'build' ? 2 : 0, output: '' }), write: (line) => lines.push(line) });
   assert.equal(failBuild.ok, false);
-  assert.deepEqual(failBuild.steps.map((s) => [s.id, s.code]), [['ci', 0], ['build', 2]]);
+  assert.deepEqual(failBuild.steps.map((s) => [s.id, s.code]), [['ci', 0], ['rebuild', 0], ['build', 2]]);
   assert.equal(existsSync(failBuild.clone), false);
   assert.equal(existsSync(failBuild.logs), true, 'the logs of a failed run are kept');
   assert.ok(lines.some((line) => line.startsWith(`verify:fresh: kept ${dirname(failBuild.logs)}: logs in ${failBuild.logs}`)), lines.join('\n'));
@@ -156,8 +157,8 @@ test('verify:fresh stops after a failed build, keeps the logs, and fails; a fail
 
   const failTest = await verifyFresh({ mainRoot: main, options: { overlay: [], futureDays: null, dir: base, keep: true }, run: async (step) => (step.id === 'test' ? { code: 1, output: SUMMARY(10, 9, 1, 0) } : { code: 0, output: '' }), write: () => undefined });
   assert.equal(failTest.ok, false);
-  assert.deepEqual(failTest.steps.map((s) => s.id), ['ci', 'build', 'lint', 'test', 'docs', 'pack']);
-  assert.equal(describeStep(failTest.steps[3]), 'test: FAILED (exit 1) 10 tests, 9 pass, 1 fail, 0 skipped (0s)');
+  assert.deepEqual(failTest.steps.map((s) => s.id), ['ci', 'rebuild', 'build', 'lint', 'test', 'docs', 'pack']);
+  assert.equal(describeStep(failTest.steps[4]), 'test: FAILED (exit 1) 10 tests, 9 pass, 1 fail, 0 skipped (0s)');
   assert.equal(existsSync(failTest.clone), true, '--keep keeps the clone');
 });
 

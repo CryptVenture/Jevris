@@ -34,13 +34,16 @@ import { tmpdir } from 'node:os';
 import { dirname, isAbsolute, join, normalize, relative, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain } from './build.mjs';
+import { INSTALL_SCRIPT_PACKAGES } from './ci-cell.mjs';
 
 export const MAIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
 /** The steps, in order. `future` runs only with --future-days. */
 export function verifySteps(futureDays = null) {
   return [
-    { id: 'ci', npm: ['ci', '--no-audit', '--no-fund'] },
+    // As CI installs (scripts/ci-cell.mjs): no install scripts, then the ones dependencies declare.
+    { id: 'ci', npm: ['ci', '--ignore-scripts', '--no-audit', '--no-fund'] },
+    { id: 'rebuild', npm: ['rebuild', ...INSTALL_SCRIPT_PACKAGES] },
     { id: 'build', npm: ['run', 'build'] },
     { id: 'lint', npm: ['run', 'lint'] },
     // The suite once, under coverage, with the per-package floors checked (QA-06).
@@ -52,7 +55,7 @@ export function verifySteps(futureDays = null) {
 }
 
 /** Steps whose failure makes the rest meaningless. */
-const GATING = new Set(['ci', 'build']);
+const GATING = new Set(['ci', 'rebuild', 'build']);
 
 export function parseVerifyArgs(argv) {
   const options = { overlay: [], futureDays: null, dir: null, keep: false };

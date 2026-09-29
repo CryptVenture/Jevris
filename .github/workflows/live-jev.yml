@@ -41,8 +41,12 @@ jobs:
           cache: npm
       - name: Secret Service for the OS keystore
         run: sudo apt-get update -q && sudo apt-get install -y -q gnome-keyring dbus
+      # Lockfile installs drop better-sqlite3's gypfile:false and run node-gyp, which needs a
+      # C++ toolchain, for a package that loads its bundled prebuilt binary (docs/development.md).
       - name: npm ci
-        run: npm ci
+        run: npm ci --ignore-scripts
+      - name: Dependency install scripts
+        run: npm rebuild esbuild
       - name: Build
         run: npm run build
       - name: Live suite

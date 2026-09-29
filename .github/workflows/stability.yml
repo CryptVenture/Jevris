@@ -37,8 +37,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      # Lockfile installs drop better-sqlite3's gypfile:false and run node-gyp, which needs a
+      # C++ toolchain, for a package that loads its bundled prebuilt binary (docs/development.md).
       - name: npm ci
-        run: npm ci
+        run: npm ci --ignore-scripts
+      - name: Dependency install scripts
+        run: npm rebuild esbuild
       - name: Build
         run: npm run build
       - name: Twenty consecutive hook and sidecar runs

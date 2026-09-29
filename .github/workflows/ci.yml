@@ -55,8 +55,12 @@ jobs:
         with:
           node-version: ${{ matrix.node }}
           cache: npm
+      # Lockfile installs drop better-sqlite3's gypfile:false and run node-gyp, which needs a
+      # C++ toolchain, for a package that loads its bundled prebuilt binary (docs/development.md).
       - name: npm ci
-        run: npm ci
+        run: npm ci --ignore-scripts
+      - name: Dependency install scripts
+        run: npm rebuild esbuild
       - name: Build
         run: npm run build
       - name: Generated plugin files are current
@@ -108,8 +112,12 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      # Lockfile installs drop better-sqlite3's gypfile:false and run node-gyp, which needs a
+      # C++ toolchain, for a package that loads its bundled prebuilt binary (docs/development.md).
       - name: npm ci
-        run: npm ci
+        run: npm ci --ignore-scripts
+      - name: Dependency install scripts
+        run: npm rebuild esbuild
       - name: Coverage with per-package floors
         run: npm run coverage
       - name: Upload coverage report
@@ -141,8 +149,12 @@ jobs:
         with:
           node-version: '22.14.0'
           cache: npm
+      # Lockfile installs drop better-sqlite3's gypfile:false and run node-gyp, which needs a
+      # C++ toolchain, for a package that loads its bundled prebuilt binary (docs/development.md).
       - name: npm ci
-        run: npm ci
+        run: npm ci --ignore-scripts
+      - name: Dependency install scripts
+        run: npm rebuild esbuild
       # OBS-05: --full also runs the eight operations drills against the installed tarball and
       # --drills-evidence writes their operations-drills record for the operations gate.
       - name: Installed pack smoke (full, npx, operations drills)
@@ -203,8 +215,12 @@ jobs:
         with:
           node-version: '24'
           cache: npm
+      # Lockfile installs drop better-sqlite3's gypfile:false and run node-gyp, which needs a
+      # C++ toolchain, for a package that loads its bundled prebuilt binary (docs/development.md).
       - name: npm ci
-        run: npm ci
+        run: npm ci --ignore-scripts
+      - name: Dependency install scripts
+        run: npm rebuild esbuild
       - name: Build
         run: npm run build
       - name: Previous benchmark record

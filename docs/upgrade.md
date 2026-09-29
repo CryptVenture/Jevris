@@ -8,7 +8,8 @@ Run the install of the version you want. It replaces the previous install in one
 
 ```sh
 git pull
-npm ci
+npm ci --ignore-scripts
+npm rebuild esbuild
 npm run build
 node bin/jevris.mjs install --dry-run    # see what changes
 node bin/jevris.mjs install --yes
@@ -54,7 +55,8 @@ Install the older version the same way. From a checkout, check out the older com
 
 ```sh
 git checkout <commit-or-tag>
-npm ci
+npm ci --ignore-scripts
+npm rebuild esbuild
 npm run build
 node bin/jevris.mjs install --yes
 ```

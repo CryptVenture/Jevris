@@ -381,7 +381,7 @@ See [platform-support.md](platform-support.md) and [installation.md](installatio
 
 ### Getting started in 10 minutes
 
-Until 1.2.0 is on npm, run from a checkout of this repository (`npm ci`, `npm run build`, then `node bin/jevris.mjs` in place of `jevris` for the first install; install puts a `jevris` command on your PATH). Once released, `npx @webventures/jevris` works the same way.
+Until 1.2.0 is on npm, run from a checkout of this repository (`npm ci --ignore-scripts`, `npm rebuild esbuild`, `npm run build`, then `node bin/jevris.mjs` in place of `jevris` for the first install; install puts a `jevris` command on your PATH). Once released, `npx @webventures/jevris` works the same way.
 
 ```sh
 jevris --version

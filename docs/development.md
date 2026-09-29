@@ -28,12 +28,15 @@ bin/jevris.mjs    the package entry: checks Node-API, then loads dist/cli.mjs
 Node `^22.14.0 || >=23.6.0`, then from the root:
 
 ```sh
-npm ci
+npm ci --ignore-scripts
+npm rebuild esbuild
 npm run build      # tsc -b over the project references, emit plugin files, bundle dist/
 npm run lint       # repository and workspace lints
 npm test           # builds first, then every *.test.mjs under a temporary HOME
 node bin/jevris.mjs --help
 ```
+
+Install with `--ignore-scripts`, then `npm rebuild esbuild`. better-sqlite3 ships prebuilt binaries for every supported OS and sets `gypfile: false`, but an install from the lockfile loses that flag and runs `node-gyp rebuild` for it, which needs a C++ toolchain. On `windows-latest` with Node 22.14.0, npm 10's node-gyp found no usable Visual Studio and `npm ci` failed. The binary it builds is never loaded, because the package prefers its prebuilt one. `npm rebuild esbuild` then runs the one install script the lockfile marks: esbuild's check of its platform binary. CI, `verify:fresh` and `scripts/ci-cell.mjs` install the same way, and `test/ci-workflow.test.mjs` fails when the lockfile gains another package with an install script that is not in `INSTALL_SCRIPT_PACKAGES` (`scripts/ci-cell.mjs`). An `npm install` of the published package reads the registry manifest, which keeps `gypfile: false`, so users never build better-sqlite3.
 
 `npm run build` is the supported build. It runs `tsc -b` on the root `tsconfig.json` (never `tsc -b -p`), `scripts/emit-hook.mjs` (the generated plugin sources `plugins/shared/mcp.js`, `plugins/shared/shim.js` and `plugins/claude/hooks/hooks.json`, checked against their packages) and `scripts/bundle.mjs`, which bundles every workspace into `dist/` and fails when:
 

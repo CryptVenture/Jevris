@@ -20,7 +20,8 @@ Which harness versions and operating systems are *certified* for more than obser
 ```sh
 git clone https://github.com/CryptVenture/Jevris.git
 cd Jevris
-npm ci
+npm ci --ignore-scripts   # prebuilt native modules: no C++ toolchain needed
+npm rebuild esbuild       # the one install script a dependency needs
 npm run build
 node bin/jevris.mjs --version
 node bin/jevris.mjs install --dry-run

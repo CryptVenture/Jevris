@@ -9,7 +9,7 @@ const root = fileURLToPath(new URL('..', import.meta.url));
 const workflows = join(root, '.github', 'workflows');
 const read = (...parts) => readFileSync(join(root, ...parts), 'utf8');
 const ci = read('.github', 'workflows', 'ci.yml');
-const { CELL_STEPS, dockerImage, dockerScript, parseArgs } = await import('../scripts/ci-cell.mjs');
+const { CELL_STEPS, INSTALL_SCRIPT_PACKAGES, dockerImage, dockerScript, parseArgs } = await import('../scripts/ci-cell.mjs');
 
 const OSES = ['ubuntu-latest', 'macos-latest', 'windows-latest'];
 const NODES = ['22.14.0', '24', 'latest'];
@@ -45,8 +45,31 @@ test('every cell runs the same npm steps as scripts/ci-cell.mjs, in order (BLD-1
   );
   assert.deepEqual(
     CELL_STEPS.map((step) => step.id),
-    ['ci', 'build', 'clean', 'lint', 'test', 'pack', 'signatures'],
+    ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'pack', 'signatures'],
   );
+});
+
+// windows-latest, Node 22.14.0: `npm ci` ran node-gyp for better-sqlite3 (gypfile: false is lost
+// on a lockfile install) and failed with no Visual Studio that npm 10's node-gyp could use. Every
+// install in CI skips install scripts and then runs the ones the lockfile says a package declares.
+test('CI installs with --ignore-scripts, then rebuilds exactly the lockfile packages that declare install scripts', () => {
+  const lock = JSON.parse(read('package-lock.json'));
+  const declared = Object.entries(lock.packages)
+    .filter(([path, entry]) => path.startsWith('node_modules/') && entry.hasInstallScript === true)
+    .map(([path]) => path.slice(path.lastIndexOf('node_modules/') + 'node_modules/'.length))
+    .sort();
+  assert.deepEqual([...INSTALL_SCRIPT_PACKAGES].sort(), declared, 'a new dependency with an install script goes in INSTALL_SCRIPT_PACKAGES (scripts/ci-cell.mjs)');
+  const sqlite = JSON.parse(read('node_modules', 'better-sqlite3', 'package.json'));
+  assert.equal(sqlite.gypfile, false, 'better-sqlite3 opts out of node-gyp: its prebuilt binary is what loads');
+  assert.equal(lock.packages['node_modules/better-sqlite3'].hasInstallScript, undefined);
+  for (const name of readdirSync(workflows)) {
+    const text = read('.github', 'workflows', name);
+    const installs = [...text.matchAll(/^ +run: (npm (?:ci|install)\b.*)$/gm)].map((match) => match[1]);
+    for (const install of installs) assert.equal(install, 'npm ci --ignore-scripts', `${name}: ${install}`);
+    const rebuilds = [...text.matchAll(/^ +run: (npm rebuild\b.*)$/gm)].map((match) => match[1]);
+    assert.equal(rebuilds.length, installs.length, `${name}: each install is followed by the rebuild`);
+    for (const rebuild of rebuilds) assert.equal(rebuild, `npm rebuild ${INSTALL_SCRIPT_PACKAGES.join(' ')}`, name);
+  }
 });
 
 test('the Linux cells run the cross-user sidecar test with a real second OS user (IPC-06, GOV-14)', () => {

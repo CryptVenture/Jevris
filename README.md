@@ -17,7 +17,8 @@ Version 1.2.0 is a release candidate. It is not on the npm registry yet (see [RE
 ```sh
 git clone https://github.com/CryptVenture/Jevris.git
 cd Jevris
-npm ci
+npm ci --ignore-scripts   # prebuilt native modules: no C++ toolchain needed
+npm rebuild esbuild       # the one install script a dependency needs
 npm run build
 node bin/jevris.mjs --version
 node bin/jevris.mjs install --dry-run     # print every change it would make; change nothing
@@ -104,4 +105,4 @@ The kill switch (`jevris kill-switch activate`) stops all Jevris actuation at on
 
 ## License
 
-[MIT](LICENSE). Copyright (c) 2026 Warren B.
+[MIT](LICENSE). Copyright (c) 2026 WebVentures Ltd.

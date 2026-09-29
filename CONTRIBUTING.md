@@ -9,7 +9,8 @@ Changes land on `main` through a pull request that passes the required checks. B
 3. From the repository root:
 
    ```sh
-   npm ci
+   npm ci --ignore-scripts
+   npm rebuild esbuild
    npm run build
    npm run lint
    npm test
