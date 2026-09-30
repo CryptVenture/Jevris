@@ -163,6 +163,11 @@ The first public release: one package that installs into five coding harnesses o
 
 - `jevris checkpoint` (the local path, with no sidecar) waits up to 30 s for each git read instead of 3 s, so a slow git no longer leaves the capsule without its changed files.
 
+- `jevris control status` and `jevris control migrate` ask the sidecar for the background budget (5 s) and wait up to 15 s, not the 900 ms hook budget: a loaded host answered DEADLINE to a migration that needed one network round trip.
+- The retention sweep's chunk size stops shrinking at 16 rows (and the free-page step at 16 pages). A step's commit and sync cost does not shrink with its rows, so on a slow disk every write looked slow, the size fell to one row and a 1,500-row sweep ran for more than 120 s.
+- The test-suite serial gate no longer reads a pid marker that is still empty as a dead process: a parallel file that had just written its start marker (or a lock just taken) could look finished, and a serial file ran beside it.
+- The maintenance timing bounds in the tests scale with the same run's own quiet commit time, and the control-service, security-subscriber and surface-e2e tests wait as slow CI servers need.
+
 ### Fixes: Recovery and privacy
 
 - JEV-0027: `jevris recover` no longer treats one fresh failure as a stall or a repeat: the stall clock starts at the first signal, not at the epoch, and a class Jev returns that the counted failures do not support is ignored.
