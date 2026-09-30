@@ -41,7 +41,11 @@ jobs:
     # (run 36572630206, about 700 of 3200 tests), so the cell was cancelled before it could say
     # what fails. Process starts cost far more there. The limit is raised to measure the whole
     # suite (the runner prints the slowest files); it is set from that measurement afterwards.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 120 || 30 }}
+    # Measured on main (run 36703600512, 30 Sep 2026): windows-latest cells took 25 to 31 minutes
+    # (limit 120), macos-latest 11 to 17 and ubuntu-latest 11 to 15. The other two OSes get 45
+    # minutes, not 30, so a slow or loaded hosted runner (the owner's rule: cater for slow CI)
+    # is not cancelled at under twice the slowest measured cell.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 120 || 45 }}
     strategy:
       fail-fast: false
       matrix:
