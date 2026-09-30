@@ -4,8 +4,8 @@
 # coverage runs the suite once under coverage on Linux and fails below a package's floor.
 # pack-smoke installs the packed tarball into a temp prefix on each OS and drives every
 # command against a temp HOME with stub harnesses (PKG-08, RLS-04). bench runs the OBS-04
-# benchmark per OS and fails a p95 regression against the last successful main run's record,
-# except when release.yml calls it with bench-advisory: then it records and reports only.
+# benchmark per OS and fails a regression that repeats against the last successful main run's
+# record (medians, a p95 guard and a re-measure; see bench.mjs), except when release.yml calls it with bench-advisory: then it records and reports only.
 # Required status checks on main (BLD-11) are the nine "test (<os>, <node>)" names and the
 # three "pack-smoke (<os>)" names; see docs/testing.md and scripts/branch-protection.mjs.
 # release.yml reuses this workflow through workflow_call. This workflow never runs the live-harness smoke (JEVRIS_LIVE_HARNESS)
@@ -221,9 +221,12 @@ jobs:
           retention-days: 30
 
   # OBS-04: the benchmark harness on each OS, against the build. Each run's record is uploaded as
-  # bench-<os>; the baseline is the bench-<os> record of the latest successful ci run on main, so
-  # a p95 worse than baseline x 1.5 + 10 ms fails. A run with no earlier record (the first one,
-  # or after the 90-day artifact retention) records and does not compare. Absolute §17.4
+  # bench-<os>; the baseline is the bench-<os> record of the latest successful ci run on main. A
+  # series fails when its median is worse than baseline x 1.5 + 10 ms (or its p95 far worse) in
+  # the first pass and in every re-measure of that series (apps/sidecar/scripts/bench.mjs
+  # explains why one p95 against one earlier run is not enough on hosted runners). A run with
+  # no earlier record (the first one, or after the 90-day artifact retention) records and does
+  # not compare. Absolute §17.4
   # targets need reference hardware (E-28); hosted runners check regressions only. Called from
   # release.yml (bench-advisory), the benchmark step may fail without failing the job: the
   # record is still uploaded and the outcome goes to the job summary.

@@ -16,16 +16,49 @@
  * 25 ms in the service, launcher and IPC < 100 ms, semantic p95 < 800 ms) are reported as met or not;
  * they are engineering targets, and absolute numbers need reference hardware (E-28).
  *
- * A regression check compares every p95 with a baseline record from the same kind of machine:
+ *   node apps/sidecar/scripts/bench.mjs [--quick] [--out <file>] [--baseline <file>]
+ *                                       [--ratio 1.5] [--slack-ms 10] [--rechecks 2]
  *
- *   node apps/sidecar/scripts/bench.mjs [--quick] [--out <file>] [--baseline <file>] [--ratio 1.5] [--slack-ms 10]
+ * The regression gate. It compares this run with a baseline record from the same kind of machine
+ * (in CI, the last successful main run's) and exits 1 only for a regression that repeats.
  *
- * It exits 1 when a p95 is worse than baseline × ratio + slack, and 0 otherwise. Run it from the
- * source tree after a build. Every sidecar it starts uses a temporary home, JEVRIS_TEST=1 and the
- * keyring block, so the real keychain and the real home are never touched.
+ * Why it is not "p95 above baseline x 1.5 + 10 ms" alone. That rule failed a different series on
+ * almost every CI run of 4a82f0e..0685dba with no code change on the request path: on this
+ * machine the same series measured the same at 0b1237d and at 0685dba over six alternating
+ * rounds, and the records of eight CI runs show why. Between two hosted runners (or two runs on
+ * one) the MEDIAN of a series moves by 2 to 4 times (macOS `recover` 7 to 28 ms, Windows semantic
+ * 71 to 234 ms, macOS cold start 238 to 655 ms), and a series' p95 moves further, because it is
+ * one stalled request: a cold start has 5 samples, so its p95 was its slowest single start. The
+ * baseline is one earlier run's numbers, so it can also be a lucky low one, and a main that never
+ * goes green keeps it frozen. Replaying the old rule over those eight runs tripped a series in
+ * 12 of 21 runs, none of them real. So:
+ *
+ *   1. Medians decide, p95 guards the tail. A series trips when its median is above
+ *      baseline median x ratio + slack (a real slowdown moves the whole distribution), or its p95
+ *      is above baseline p95 x 2 * ratio + 2 * slack (a gross tail change). One stalled request
+ *      cannot trip the median rule, and a tail rule twice as wide as the median one
+ *      ignores a lone stall but still sees a slow path taken by every tenth request.
+ *   2. More samples: 8 cold starts, 100 rules decisions and 60 semantic ones (a p95 over 5 or 30
+ *      values is just the largest).
+ *   3. A trip must repeat. Every series that tripped is measured again alone, from a fresh
+ *      sidecar and a fresh home, up to `--rechecks` times (default 2); the run fails only for a
+ *      series that trips in the first pass and in every re-measure. A series the re-measure could
+ *      not measure stays a suspect. The record written by --out is always the first pass.
+ *   4. Machine speed. Each pass first times three fixed workloads (a node process start, a CPU
+ *      loop and file fsyncs, `calibration` in the record). When this machine's probes are slower
+ *      than the baseline's, the limits widen by the slowest probe's ratio (at most 3 times); they
+ *      never narrow. A code regression does not slow the probes, so it is measured against the
+ *      unwidened limits, while a slow runner is not blamed on the code. A baseline with no
+ *      calibration (an older record) widens nothing.
+ *
+ * The limits and the baseline come from the command line and the record, the §17.4 targets are
+ * untouched, and hosted runners stay a regression check, not a measurement of the targets.
+ *
+ * Run it from the source tree after a build. Every sidecar it starts uses a temporary home,
+ * JEVRIS_TEST=1 and the keyring block, so the real keychain and the real home are never touched.
  */
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
+import { closeSync, fsyncSync, mkdirSync, mkdtempSync, openSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync, writeSync } from 'node:fs';
 import { arch, cpus, homedir, platform, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -36,7 +69,7 @@ const repoModule = (...parts) => import(pathToFileURL(join(repoRoot, ...parts)).
 export const BENCH_SCHEMA = 'jevris-bench-1';
 /** SSOT §17.4 engineering targets (p95, milliseconds). */
 export const TARGETS = { rulesServiceP95Ms: 25, launcherIpcP95Ms: 100, semanticP95Ms: 800 };
-const FULL = { cold: 5, warm: 30, ipc: 200, rules: 60, semantic: 30 };
+const FULL = { cold: 8, warm: 30, ipc: 200, rules: 100, semantic: 60 };
 const QUICK = { cold: 1, warm: 3, ipc: 10, rules: 5, semantic: 3 };
 /** Warm-up requests before a decision series, so a series measures the warm path. */
 const WARMUP = 3;
@@ -49,33 +82,106 @@ export function summarize(values) {
   return { n: sorted.length, p50: round(at(0.5)), p95: round(at(0.95)), max: round(sorted[sorted.length - 1]) };
 }
 
-/** The p95 series a record carries, by name (`rulesDecisionMs.service`, ...). */
-export function p95Series(record) {
+/** Every top-level series a record can carry, in the order the worker measures them. */
+export const SERIES = ['coldStartMs', 'warmStartMs', 'ipcRoundTripMs', 'hotRulesDecisionMs', 'backgroundRulesDecisionMs', 'semanticDecisionMs'];
+
+/** The summary (`{ n, p50, p95, max }`) of every series a record carries, by name (`rulesDecisionMs.service`, ...). */
+export function statSeries(record) {
+  const isSummary = (value) => value !== null && typeof value === 'object' && typeof value.p95 === 'number';
   const out = {};
   for (const [name, value] of Object.entries(record?.results ?? {})) {
-    if (value !== null && typeof value === 'object' && typeof value.p95 === 'number') out[name] = value.p95;
+    if (isSummary(value)) out[name] = value;
     else if (value !== null && typeof value === 'object') {
-      for (const [part, inner] of Object.entries(value)) if (inner !== null && typeof inner?.p95 === 'number') out[`${name}.${part}`] = inner.p95;
+      for (const [part, inner] of Object.entries(value)) if (isSummary(inner)) out[`${name}.${part}`] = inner;
     }
   }
   return out;
 }
 
-/** Regressions of `current` against `baseline`: a p95 above baseline × ratio + slackMs. */
+/** The p95 of every series a record carries, by name. */
+export function p95Series(record) {
+  const out = {};
+  for (const [name, stat] of Object.entries(statSeries(record))) out[name] = stat.p95;
+  return out;
+}
+
+/** The most the limits widen for a slower machine. */
+export const MAX_SPEED_FACTOR = 3;
+
+/**
+ * How much slower this machine is than the baseline's, from their `calibration` probes: the
+ * largest current/baseline ratio, never below 1 and never above MAX_SPEED_FACTOR. 1 when either
+ * record has no calibration.
+ */
+export function speedFactor(current, baseline) {
+  const now = current?.calibration;
+  const before = baseline?.calibration;
+  if (now === null || typeof now !== 'object' || before === null || typeof before !== 'object') return 1;
+  let factor = 1;
+  for (const [name, value] of Object.entries(now)) {
+    const then = before[name];
+    if (typeof value === 'number' && typeof then === 'number' && then > 0 && value > 0) factor = Math.max(factor, value / then);
+  }
+  return Math.min(MAX_SPEED_FACTOR, Math.round(factor * 100) / 100);
+}
+
+/**
+ * Regressions of `current` against `baseline`. A series trips when its median is above
+ * baseline median x ratio + slackMs ('median'), or its p95 is above baseline p95 x 2 * ratio +
+ * 2 * slackMs ('tail'); both limits widen by the machine `speedFactor`. A series trips on the
+ * median rule first when both apply. This is one pass: the gate (`runGate`) counts only a trip
+ * that repeats.
+ */
 export function compareBench(current, baseline, { ratio = 1.5, slackMs = 10 } = {}) {
-  const now = p95Series(current);
-  const before = p95Series(baseline);
+  const now = statSeries(current);
+  const before = statSeries(baseline);
+  const speed = speedFactor(current, baseline);
+  const round = (n) => Math.round(n * 100) / 100;
   const regressions = [];
   const compared = [];
-  for (const [name, p95] of Object.entries(now)) {
+  for (const [name, stat] of Object.entries(now)) {
     const base = before[name];
-    if (typeof base !== 'number') continue;
-    const limit = Math.round((base * ratio + slackMs) * 100) / 100;
+    if (base === undefined) continue;
     compared.push(name);
-    if (p95 > limit) regressions.push({ name, p95, baseline: base, limit });
+    const medianLimit = round((base.p50 * ratio + slackMs) * speed);
+    const tailLimit = round((base.p95 * 2 * ratio + 2 * slackMs) * speed);
+    if (stat.p50 > medianLimit) regressions.push({ name, kind: 'median', value: stat.p50, baseline: base.p50, limit: medianLimit });
+    else if (stat.p95 > tailLimit) regressions.push({ name, kind: 'tail', value: stat.p95, baseline: base.p95, limit: tailLimit });
   }
   const sameMachineKind = baseline?.platform === current?.platform && baseline?.arch === current?.arch;
-  return { ok: regressions.length === 0, regressions, compared, sameMachineKind };
+  return { ok: regressions.length === 0, regressions, compared, sameMachineKind, speedFactor: speed };
+}
+
+/**
+ * The gate: `first` (a bench record) against `baseline`, then every series that tripped is
+ * measured again alone (`remeasure(seriesNames)` returns a record holding only those series), up
+ * to `rechecks` times. A regression counts only when its series trips in the first pass and in
+ * every re-measure; a series a re-measure did not measure stays a suspect. `confirmed` are the
+ * regressions of the first pass that survived; `cleared` are the series that tripped once and
+ * did not repeat.
+ */
+export async function runGate({ first, baseline, ratio = 1.5, slackMs = 10, rechecks = 2, remeasure }) {
+  const options = { ratio, slackMs };
+  const firstPass = compareBench(first, baseline, options);
+  const passes = [firstPass];
+  let suspects = firstPass.regressions.map((r) => r.name);
+  const cleared = [];
+  for (let round = 0; round < rechecks && suspects.length > 0; round += 1) {
+    const topLevel = [...new Set(suspects.map((name) => name.split('.')[0]))];
+    const again = await remeasure(topLevel, round + 1);
+    const pass = compareBench(again, baseline, options);
+    passes.push(pass);
+    const measured = new Set(pass.compared);
+    const tripped = new Set(pass.regressions.map((r) => r.name));
+    const kept = [];
+    for (const name of suspects) {
+      if (tripped.has(name) || !measured.has(name)) kept.push(name);
+      else cleared.push(name);
+    }
+    suspects = kept;
+  }
+  const confirmed = firstPass.regressions.filter((r) => suspects.includes(r.name));
+  return { ok: confirmed.length === 0, confirmed, cleared, passes, sameMachineKind: firstPass.sameMachineKind, compared: firstPass.compared };
 }
 
 function nowMs() {
@@ -128,8 +234,13 @@ async function awaitServiceTimes(stateDir, op, fromTs, want, maxMs = 30_000) {
   return times;
 }
 
-/** Runs inside the test environment (a temporary home, JEVRIS_TEST=1, keyring blocked). */
-async function worker(counts) {
+/**
+ * Runs inside the test environment (a temporary home, JEVRIS_TEST=1, keyring blocked). `only`
+ * names the top-level series to measure (a re-measure), or is null for all of them; a series left
+ * out is null in the result. The sidecar still starts once, unmeasured, when cold starts are left out.
+ */
+async function worker(counts, only = null) {
+  const wants = (name) => only === null || only.includes(name);
   const sidecar = await repoModule('apps', 'sidecar', 'dist', 'index.js');
   const { jevrisPaths } = await repoModule('packages', 'platform', 'dist', 'index.js');
   const home = process.env.JEVRIS_HOME;
@@ -140,7 +251,9 @@ async function worker(counts) {
   const recoverBody = (i) => ({ taskId: null, signals: { fingerprints: [`TypeError at app/parse.ts:${i}`, `TypeError at app/parse.ts:${i}`], environment: [] }, rejectedApproaches: [] });
 
   const cold = [];
-  for (let i = 0; i < counts.cold; i += 1) {
+  // A re-measure without cold starts still needs one running sidecar; that start is not timed.
+  const coldRuns = wants('coldStartMs') ? counts.cold : 1;
+  for (let i = 0; i < coldRuns; i += 1) {
     await sidecar.stopSidecarProcess(home);
     const { value, ms } = await timed(() => sidecar.ensureSidecar({ home, waitMs: 15_000 }));
     if (!value.ok) failures.push(`cold start: ${value.message}`);
@@ -148,12 +261,12 @@ async function worker(counts) {
   }
   // No sidecar ever answered: every later series would wait out its timeouts and the run
   // would end at the parent's 10-minute limit with nothing said. Stop here with the reason.
-  if (counts.cold > 0 && cold.length === 0) {
+  if (coldRuns > 0 && cold.length === 0) {
     await sidecar.stopSidecarProcess(home);
-    return { results: { coldStartMs: null, warmStartMs: null, ipcRoundTripMs: null, hotRulesDecisionMs: null, backgroundRulesDecisionMs: null, semanticDecisionMs: null }, failures };
+    return { results: Object.fromEntries(SERIES.map((name) => [name, null])), failures };
   }
   const warm = [];
-  for (let i = 0; i < counts.warm; i += 1) {
+  for (let i = 0; i < (wants('warmStartMs') ? counts.warm : 0); i += 1) {
     // A running sidecar: find it, then the first authenticated answer (hello, key proof, health).
     const { value, ms } = await timed(async () => {
       const ensured = await sidecar.ensureSidecar({ home, waitMs: 5000 });
@@ -162,7 +275,7 @@ async function worker(counts) {
     if (value.ensured.ok && !value.ensured.started && value.answer?.ok === true) warm.push(ms);
   }
   const ipc = [];
-  for (let i = 0; i < counts.ipc; i += 1) {
+  for (let i = 0; i < (wants('ipcRoundTripMs') ? counts.ipc : 0); i += 1) {
     const { value, ms } = await timed(() => sidecar.sidecarRequest({ home, op: 'ping', scope: 'cli', body: {} }));
     if (value.ok) ipc.push(ms);
     else failures.push(`ping: ${value.reasonCode ?? value.reason}`);
@@ -179,30 +292,33 @@ async function worker(counts) {
     }
     return { client: summarize(client), service: summarize(await awaitServiceTimes(stateDir, op, from, client.length)) };
   };
-  const hotRules = await decisions('hot rules decision', 'route', routeBody, counts.rules, 1000);
-  const backgroundRules = await decisions('background rules decision', 'recover', recoverBody, counts.rules, 2000);
+  const skipped = { client: null, service: null };
+  const hotRules = wants('hotRulesDecisionMs') ? await decisions('hot rules decision', 'route', routeBody, counts.rules, 1000) : skipped;
+  const backgroundRules = wants('backgroundRulesDecisionMs') ? await decisions('background rules decision', 'recover', recoverBody, counts.rules, 2000) : skipped;
 
   // Semantic: the same sidecar restarted with the Jev test stub (loopback; test mode only).
   await sidecar.stopSidecarProcess(home);
-  const { startJevStub } = await repoModule('test', 'acceptance', 'jev-stub.mjs');
-  const cleanups = [];
-  const stub = await startJevStub({ after: (fn) => cleanups.push(fn) }, { scenario: 'valid' });
-  let semantic = { client: null, service: null };
-  try {
-    Object.assign(process.env, stub.env);
-    const started = await sidecar.ensureSidecar({ home, waitMs: 15_000 });
-    if (!started.ok) failures.push(`semantic start: ${started.message}`);
-    else semantic = await decisions('semantic decision', 'recover', recoverBody, counts.semantic, 10_000);
-    if (stub.requests().length === 0) failures.push('semantic decision: Jev was never asked');
-  } finally {
-    await sidecar.stopSidecarProcess(home);
-    for (const fn of cleanups) fn();
+  let semantic = skipped;
+  if (wants('semanticDecisionMs')) {
+    const { startJevStub } = await repoModule('test', 'acceptance', 'jev-stub.mjs');
+    const cleanups = [];
+    const stub = await startJevStub({ after: (fn) => cleanups.push(fn) }, { scenario: 'valid' });
+    try {
+      Object.assign(process.env, stub.env);
+      const started = await sidecar.ensureSidecar({ home, waitMs: 15_000 });
+      if (!started.ok) failures.push(`semantic start: ${started.message}`);
+      else semantic = await decisions('semantic decision', 'recover', recoverBody, counts.semantic, 10_000);
+      if (stub.requests().length === 0) failures.push('semantic decision: Jev was never asked');
+    } finally {
+      await sidecar.stopSidecarProcess(home);
+      for (const fn of cleanups) fn();
+    }
   }
   return {
     results: {
-      coldStartMs: summarize(cold),
-      warmStartMs: summarize(warm),
-      ipcRoundTripMs: summarize(ipc),
+      coldStartMs: wants('coldStartMs') ? summarize(cold) : null,
+      warmStartMs: wants('warmStartMs') ? summarize(warm) : null,
+      ipcRoundTripMs: wants('ipcRoundTripMs') ? summarize(ipc) : null,
       hotRulesDecisionMs: hotRules,
       backgroundRulesDecisionMs: backgroundRules,
       semanticDecisionMs: semantic,
@@ -221,8 +337,56 @@ function targetsMet(results) {
   };
 }
 
-/** Runs the benchmark in a child process with the test environment and returns the record. */
-export async function runBench({ quick = false } = {}) {
+function median(values) {
+  const sorted = [...values].sort((x, y) => x - y);
+  return sorted[Math.floor((sorted.length - 1) / 2)] ?? 0;
+}
+
+/**
+ * Times three fixed workloads that stand for what the series spend their time on, so a slower
+ * machine can be told from slower code: starting a node process (cold start, and the git child
+ * a decision may start), a CPU loop, and small files written and fsynced. Each is the median of
+ * several rounds, in milliseconds. Nothing here touches the product.
+ */
+export function calibrate(dir) {
+  const spawnMs = [];
+  for (let i = 0; i < 7; i += 1) {
+    const started = nowMs();
+    spawnSync(process.execPath, ['-e', '0'], { stdio: 'ignore', windowsHide: true });
+    spawnMs.push(nowMs() - started);
+  }
+  const cpuMs = [];
+  for (let round = 0; round < 7; round += 1) {
+    const started = nowMs();
+    const numbers = [];
+    let acc = 0;
+    for (let i = 0; i < 60_000; i += 1) {
+      acc = (acc * 31 + i) % 1_000_003;
+      numbers.push(acc);
+    }
+    numbers.sort((x, y) => x - y);
+    JSON.parse(JSON.stringify(numbers.slice(0, 20_000)));
+    cpuMs.push(nowMs() - started);
+  }
+  const fsyncMs = [];
+  mkdirSync(dir, { recursive: true });
+  for (let i = 0; i < 12; i += 1) {
+    const started = nowMs();
+    const fd = openSync(join(dir, `probe-${i}`), 'w');
+    writeSync(fd, 'x'.repeat(4096));
+    fsyncSync(fd);
+    closeSync(fd);
+    fsyncMs.push(nowMs() - started);
+  }
+  const round = (n) => Math.round(n * 100) / 100;
+  return { nodeSpawnMs: round(median(spawnMs)), cpuLoopMs: round(median(cpuMs)), fsyncMs: round(median(fsyncMs)) };
+}
+
+/**
+ * Runs the benchmark in a child process with the test environment and returns the record. `only`
+ * names the top-level series to measure (a re-measure); the others are null in the record.
+ */
+export async function runBench({ quick = false, only = null } = {}) {
   const { testEnvironment, writeHarnessStubs } = await repoModule('scripts', 'test.mjs');
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-bench-')));
   try {
@@ -231,7 +395,10 @@ export async function runBench({ quick = false } = {}) {
       JEVRIS_SIDECAR_ENTRY: join(repoRoot, 'apps', 'sidecar', 'dist', 'main.js'),
       JEVRIS_SIDECAR_IDLE_MS: '120000',
     };
-    const child = spawnSync(process.execPath, [fileURLToPath(import.meta.url), '--worker', quick ? 'quick' : 'full'], { env, cwd: home, encoding: 'utf8', timeout: 600_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
+    const calibration = calibrate(join(home, 'calibration'));
+    const args = [fileURLToPath(import.meta.url), '--worker', quick ? 'quick' : 'full'];
+    if (only !== null) args.push('--only', only.join(','));
+    const child = spawnSync(process.execPath, args, { env, cwd: home, encoding: 'utf8', timeout: 600_000, maxBuffer: 16 * 1024 * 1024, windowsHide: true });
     const last = (child.stdout ?? '').trim().split(/\r?\n/).at(-1) ?? '';
     let measured;
     try {
@@ -249,6 +416,7 @@ export async function runBench({ quick = false } = {}) {
       cpuModel: (cpu[0]?.model ?? 'unknown').trim().slice(0, 80),
       quick,
       at: new Date().toISOString(),
+      calibration,
       results: measured.results,
       targets: TARGETS,
       targetsMet: targetsMet(measured.results),
@@ -266,18 +434,22 @@ function flag(argv, name) {
 
 async function main(argv) {
   if (argv[0] === '--worker') {
-    const measured = await worker(argv[1] === 'quick' ? QUICK : FULL);
+    const only = flag(argv, '--only');
+    const measured = await worker(argv[1] === 'quick' ? QUICK : FULL, only === undefined ? null : only.split(','));
     process.stdout.write(`${JSON.stringify(measured)}\n`);
     return 0;
   }
-  const record = await runBench({ quick: argv.includes('--quick') });
+  const quick = argv.includes('--quick');
+  const record = await runBench({ quick });
   const out = flag(argv, '--out');
-  if (out !== undefined) {
+  const write = () => {
+    if (out === undefined) return;
     const path = resolve(out);
     mkdirSync(dirname(path), { recursive: true });
     writeFileSync(path, `${JSON.stringify(record, null, 2)}\n`);
-  }
-  for (const [name, p95] of Object.entries(p95Series(record))) console.log(`${name}: p95 ${p95} ms`);
+  };
+  write();
+  for (const [name, stat] of Object.entries(statSeries(record))) console.log(`${name}: p50 ${stat.p50} ms, p95 ${stat.p95} ms (n ${stat.n})`);
   for (const [name, met] of Object.entries(record.targetsMet)) console.log(`target ${name}: ${met === null ? 'not measured' : met ? 'met' : 'NOT met'}`);
   let code = record.failures.length === 0 ? 0 : 1;
   for (const failure of record.failures) console.log(`failure: ${failure}`);
@@ -286,11 +458,33 @@ async function main(argv) {
     const baseline = JSON.parse(readFileSync(resolve(baselinePath), 'utf8'));
     const ratio = Number(flag(argv, '--ratio') ?? 1.5);
     const slackMs = Number(flag(argv, '--slack-ms') ?? 10);
-    const compared = compareBench(record, baseline, { ratio, slackMs });
-    if (!compared.sameMachineKind) console.log(`note: the baseline is from ${baseline.platform}-${baseline.arch}, this run is ${record.platform}-${record.arch}`);
-    for (const r of compared.regressions) console.log(`REGRESSION ${r.name}: p95 ${r.p95} ms > ${r.limit} ms (baseline ${r.baseline} ms)`);
-    console.log(`compared ${compared.compared.length} series against the baseline: ${compared.ok ? 'no regression' : `${compared.regressions.length} regression(s)`}`);
-    if (!compared.ok) code = 1;
+    const rechecks = Number(flag(argv, '--rechecks') ?? 2);
+    const describe = (r) => `${r.name} ${r.kind === 'median' ? 'median' : 'p95'} ${r.value} ms > ${r.limit} ms (baseline ${r.baseline} ms)`;
+    const gate = await runGate({
+      first: record,
+      baseline,
+      ratio,
+      slackMs,
+      rechecks,
+      remeasure: async (names, round) => {
+        console.log(`re-measuring ${names.join(', ')} (${round} of ${rechecks}), because they tripped`);
+        const again = await runBench({ quick, only: names });
+        for (const failure of again.failures) console.log(`re-measure failure: ${failure}`);
+        return again;
+      },
+    });
+    if (!gate.sameMachineKind) console.log(`note: the baseline is from ${baseline.platform}-${baseline.arch}, this run is ${record.platform}-${record.arch}`);
+    const speed = gate.passes[0]?.speedFactor ?? 1;
+    if (speed >= 1.1) console.log(`note: this machine measured ${speed} times slower than the baseline's on the calibration probes, so the limits are widened by that much`);
+    gate.passes.forEach((pass, index) => {
+      for (const r of pass.regressions) console.log(`${index === 0 ? 'tripped' : `tripped again (re-measure ${index})`}: ${describe(r)}`);
+    });
+    for (const name of gate.cleared) console.log(`cleared: ${name} tripped once and did not repeat`);
+    for (const r of gate.confirmed) console.log(`REGRESSION ${describe(r)}`);
+    console.log(`compared ${gate.compared.length} series against the baseline: ${gate.ok ? 'no regression' : `${gate.confirmed.length} regression(s)`}`);
+    record.gate = { passes: gate.passes.length, confirmed: gate.confirmed.map((r) => r.name), cleared: gate.cleared };
+    write();
+    if (!gate.ok) code = 1;
   }
   return code;
 }
