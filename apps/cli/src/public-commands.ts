@@ -856,8 +856,9 @@ export async function runSurfaceCall(
     write(`${JSON.stringify({ error: { code: outcome.reasonCode, message: outcome.message } })}\n`);
     return outcome.exitCode;
   }
-  // MODE_OFF keeps its code, so an MCP client can tell "Jevris is off" from a refused input.
-  if (!outcome.ok) return fail(outcome.reasonCode === 'MODE_OFF' ? 'MODE_OFF' : 'REFUSED', outcome.message);
+  // MODE_OFF and KILL_SWITCH keep their codes, so an MCP client can tell "Jevris is off" or "the kill switch is on"
+  // from a refused input.
+  if (!outcome.ok) return fail(outcome.reasonCode === 'MODE_OFF' || outcome.reasonCode === 'KILL_SWITCH' ? outcome.reasonCode : 'REFUSED', outcome.message);
   write(`${JSON.stringify(outcome.result)}\n`);
   return outcome.exitCode;
 }

@@ -84,8 +84,9 @@ for (const [label, answer] of [['the sidecar is not running', NOT_RUNNING], ['th
     const box = sandbox(t, { stopped: true });
     const capsule = { id: 'cap-0123456789abcdef', schemaVersion: '1.0', taskIds: [] };
     const { code, text } = await surface(box, 'handoff.import', { capsule }, answer);
-    // The MCP-facing call reports any refusal as REFUSED with the message; the message names the kill switch.
+    // The MCP-facing call keeps the KILL_SWITCH code (JEV-0022 follow-up), not the generic REFUSED, so a client can tell them apart.
     assert.equal(code, 2, text);
+    assert.equal(JSON.parse(text).error.code, 'KILL_SWITCH');
     assert.match(text, /kill switch is on/);
     assert.deepEqual(capsuleFiles(box.home), []);
   });

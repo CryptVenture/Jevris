@@ -118,6 +118,7 @@ The first public release: one package that installs into five coding harnesses o
 - JEV-0038: `task.submit` (`jevris_submit_task`) refuses an acceptance check that is not an approved runner check (UNKNOWN_CHECK), as `plan --submit` already did.
 - JEV-0040: a refused `task.submit` (`jevris_submit_task`, `jevris task submit`) now says why in an optional `detail`: the field and the rule it broke, or the check or scope involved. The reason code and the result shape are otherwise unchanged.
 - JEV-0039: documented, and pinned by a test, that a verified or failed task keeps its write scope (it can be reopened), so a new task writing the same path needs a declared dependency.
+- MCP: a write refused by the kill switch reports `Refused (KILL_SWITCH):` instead of the generic `Refused (REFUSED):` (`jevris_handoff_import`, `jevris_checkpoint` and the other guarded writes).
 
 ### Fixes: Verification, evidence and delivery
 
