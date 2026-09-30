@@ -100,6 +100,7 @@ The first public release: one package that installs into five coding harnesses o
 - Test isolation: a temporary home and temp folder per run with guards that fail on any leak, stub harness binaries, a blocked keychain and a tripwire that refuses to start a real harness binary. `npm run verify:fresh` runs the CI steps on a fresh clone, and `npm run test:future` runs the suite days ahead. `scripts/safe-commit.mjs` and the suite locks serve checkouts that several people or agents commit to.
 - `npm run verify:fresh` runs CI's "Build leaves the checkout unchanged" check (`npm run check:clean`) after the build, so a generated file such as `plugins/shared/mcp.js` committed out of step with its sources fails before it reaches main, naming the file and the command that regenerates it.
 - The Linux CI cells run the ORC-12 container lease test with `JEVRIS_TEST_DOCKER_IMAGE=node:24`; before, it skipped everywhere. [docs/testing.md](docs/testing.md) lists the expected skips per operating system and how the owner runs the four billed live test files.
+- The suite no longer assumes a fast machine: polling loops and wait deadlines under 10 s, sidecar start waits of 3 to 8 s, the abort and BUSY windows of the worker and sidecar tests, and the per-test timeouts (`--test-timeout` 120 s to 300 s) are raised to generous bounds that end as soon as the condition holds. A new lint (`lint/slow-ci.lint.mjs`) fails a short polling bound, a short wait deadline, a short sidecar start wait or an exact run time such as "(0s)" in an assertion. The Linux and macOS CI test cells get 45 minutes instead of 30.
 - Printed copy-and-run commands are pinned by tests at all four quoting sites, each with a value that needs quoting and a round trip through `/bin/sh`.
 
 ### Documentation
@@ -156,6 +157,8 @@ The first public release: one package that installs into five coding harnesses o
 
 - The `models.list` certify case no longer counts SQLite frames the warm-up run left in a write-ahead log as writes of the checked run: certify folds each database log in the throwaway profile into its database between the runs, so Kilo's, OpenCode's and Codex's databases change on the second run only when it wrote. A real write still fails with `LISTING_SIDE_EFFECT`.
 - The Antigravity listing runs with `AGY_CLI_DISABLE_AUTO_UPDATE=true` (its documented opt-out; `1` does not work). Its second run may touch its conversation database's `-shm` and empty `-wal` and its cached MCP tool descriptors, because `agy models` starts every configured MCP server; an updater file still fails it with `LISTING_SELF_UPDATE`.
+
+- `jevris checkpoint` (the local path, with no sidecar) waits up to 30 s for each git read instead of 3 s, so a slow git no longer leaves the capsule without its changed files.
 
 ### Fixes: Recovery and privacy
 
