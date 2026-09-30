@@ -229,9 +229,17 @@ function capsuleDir(ctx: SurfaceContext): string {
   return join(ctx.paths.data, 'capsules', ctx.workspaceId);
 }
 
+/**
+ * The bound on one git read of the checkpoint. The callers are the `checkpoint` command's local
+ * path (revision and changed files), a CLI command and never a hook on the hot path, so a slow
+ * git (a loaded Windows runner answers in seconds) should be waited for: a timeout here silently
+ * drops the changed-file list. Same bound as nodeGit in the orchestrator.
+ */
+export const GIT_READ_TIMEOUT_MS = 30_000;
+
 function gitLines(ctx: SurfaceContext, args: readonly string[]): string | null {
   if (ctx.workspaceRoot === null) return null;
-  const result = runSync('git', ['-C', ctx.workspaceRoot, ...args], { timeoutMs: 3000 });
+  const result = runSync('git', ['-C', ctx.workspaceRoot, ...args], { timeoutMs: GIT_READ_TIMEOUT_MS });
   return result.ok && result.status === 0 ? result.stdout : null;
 }
 
