@@ -132,6 +132,7 @@ The first public release: one package that installs into five coding harnesses o
 - JEV-0014: `jevris_handoff_export` and `handoff export` with an unknown task id answer `found: false` instead of exporting the newest workspace capsule.
 - On Windows, a local record that could not be read for a moment (a file being replaced or scanned: `EPERM`, `EBUSY`, `EACCES`) no longer reads as absent. The read waits and tries again, as the write already did, so an approved check no longer reads back as unapproved and `jevris verify` no longer runs nothing.
 - On Windows, `capability.advise` C68 (safe speculative evaluation) no longer rules out a sound candidate because git failed once on a just-written worktree (an apply or scope read denied for a moment). A candidate that is not clean is evaluated again on a restored tree, up to three times, before its verdict stands. A scope git cannot report is now labelled `scope-unknown` and is never a viable candidate; before, it was labelled `writes-outside-scope` and, for an applying candidate, counted as viable.
+- `jevris verify` on a loaded host no longer says "nothing ran" when its run finished while the status was still being read. The late answer now reports the run as run; before, it listed no running check and `ran: false`, which read as "Not verified: N check(s) without a current passing receipt; nothing ran" beside the receipts the run had just written.
 
 ### Fixes: Recovery and privacy
 

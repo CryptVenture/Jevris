@@ -417,6 +417,17 @@ function writeRecord(record) {
   writeFileSync(join(out, `${record.id}.json`), `${JSON.stringify(record, null, 2)}\n`);
 }
 
+/**
+ * A thrown scenario error on one line, keeping both ends: the start says what failed and the end
+ * usually says why (a CLI answer's JSON ends with the summary and the reason codes). Cutting to
+ * the first 300 characters lost that on a Windows-only flake, so the last 1500 stay too.
+ */
+export function oneLine(message, head = 300, tail = 1500) {
+  const text = String(message).replace(/\s+/g, ' ').trim();
+  if (text.length <= head + tail) return text;
+  return `${text.slice(0, head)} [... ${String(text.length - head - tail)} characters omitted ...] ${text.slice(text.length - tail)}`;
+}
+
 async function runScenario(kind, id, title, fn, t) {
   const clauses = [];
   const evidence = [];
@@ -425,7 +436,7 @@ async function runScenario(kind, id, title, fn, t) {
       await check();
       clauses.push({ label, ok: true });
     } catch (error) {
-      clauses.push({ label, ok: false, error: String(error?.message ?? error).replace(/\s+/g, ' ').trim().slice(0, 300) });
+      clauses.push({ label, ok: false, error: oneLine(error?.message ?? error) });
     }
   };
   const record = (value) => {
@@ -436,7 +447,7 @@ async function runScenario(kind, id, title, fn, t) {
   try {
     await fn({ t, then, evidence: record, sandbox: (options) => sandbox(t, options) });
   } catch (error) {
-    thrown = String(error?.message ?? error).replace(/\s+/g, ' ').trim().slice(0, 300);
+    thrown = oneLine(error?.message ?? error);
   }
   const failures = [
     ...clauses.filter((clause) => !clause.ok).map((clause) => `${clause.label}: ${clause.error}`),

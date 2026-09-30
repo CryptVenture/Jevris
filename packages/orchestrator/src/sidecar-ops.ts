@@ -284,6 +284,16 @@ function pendingOnlyReport(ws: WorkspaceServices, taskId: string | null): Pick<C
   };
 }
 
+/**
+ * Whether a late answer (the status missed the deadline) says the run ran. A run that finished
+ * after its answer window closed, while the status was still being read, has run: an answer that
+ * lists no running or queued check and says `ran: false` would read "nothing ran" beside the
+ * receipts that run just wrote (the intermittent Windows verify symptom under load).
+ */
+export function lateAnswerRan(ran: boolean, runDone: boolean): boolean {
+  return ran || runDone;
+}
+
 /** `work` within `ms`, else undefined (the work keeps running). */
 async function within<T>(work: Promise<T>, ms: number): Promise<T | undefined> {
   let timer: ReturnType<typeof setTimeout> | undefined;
@@ -373,7 +383,7 @@ async function handleVerify(ctx: SidecarOpContext): Promise<Outcome> {
     void status.catch(() => undefined);
     const waiting = pendingChecks(runKey, approved.map((m) => m.id));
     ctx.trace({ event: 'orchestrator.verify-status-late', reasonCode: 'STATUS_LATE' });
-    return respond(ctx, 'verify', verifyAnswer(verifyPayload(target, pendingOnlyReport(target, taskId), ran, null, waiting)));
+    return respond(ctx, 'verify', verifyAnswer(verifyPayload(target, pendingOnlyReport(target, taskId), lateAnswerRan(ran, runDone), null, waiting)));
   }
   return respond(ctx, 'verify', verifyAnswer(verifyPayload(target, report, ran, stopReportView(ws, taskId, report), pending)));
 }

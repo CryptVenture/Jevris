@@ -12,6 +12,7 @@ import {
   checkUmask,
   decideStop,
   failureOf,
+  lateAnswerRan,
   manifestHash,
   openWorkspace,
   parseManifest,
@@ -137,6 +138,12 @@ test('verify answers before a deadline too short for the status after the run: t
   } finally {
     f.done();
   }
+});
+
+test('a late answer (status missed the deadline) says ran when the run finished meanwhile, never "nothing ran" beside its receipts (pair: a run still going did not run)', () => {
+  assert.equal(lateAnswerRan(false, true), true);
+  assert.equal(lateAnswerRan(true, true), true);
+  assert.equal(lateAnswerRan(false, false), false);
 });
 
 test('with the CLI\'s 5 s deadline, verify answers within its share of it (2 s), listing a check still running as RUNNING (A\'s verify8 after P5)', async () => {

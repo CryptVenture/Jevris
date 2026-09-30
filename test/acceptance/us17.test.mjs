@@ -39,7 +39,12 @@ story('US17', async ({ then, sandbox, evidence }) => {
   assert.equal(approve.code, 0, `verify approve failed: ${approve.reason}`);
 
   // Given: all required checks passed on revision A.
-  const onA = box.jevris(['verify', '--check', 'unit', '--check', 'docs'], { json: true });
+  // A loaded host can answer before the run ends (the answer lists what is still running, or on a
+  // late status says nothing settled); running `jevris verify` again joins the run, as documented.
+  let onA = box.jevris(['verify', '--check', 'unit', '--check', 'docs'], { json: true });
+  for (let again = 0; again < 4 && onA.json?.result?.readiness !== 'verified'; again += 1) {
+    onA = box.jevris(['verify', '--check', 'unit', '--check', 'docs'], { json: true });
+  }
   evidence(onA.json);
   assert.equal(onA.code, 0, `verify on A failed: ${onA.stdout} ${onA.stderr}`);
   assert.equal(onA.json.result.readiness, 'verified', `A is not verified: ${onA.stdout}`);

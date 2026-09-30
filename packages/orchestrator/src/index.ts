@@ -83,7 +83,7 @@ export {
   waiveCheck,
 } from './verify/ci-import.js';
 export type { ArtifactPort, CiImportRefusal, CiImportResult, ImportCiInput, RequiredCheckLine, TrustedIssuer, Waiver } from './verify/ci-import.js';
-export { CI_IMPORT_MAX_BYTES, LOCAL_PAYLOAD_OPS, REQUIRED_CHECKS_MAX, SURFACE_OP_OF, VERIFY_FAILED_TESTS_MAX, evidencePayload, failureOf, recordVerificationPointer, respond, sidecarEventSubscribers, sidecarOps, statusStopReport, verifyAnswer, verifyPayload } from './sidecar-ops.js';
+export { CI_IMPORT_MAX_BYTES, LOCAL_PAYLOAD_OPS, REQUIRED_CHECKS_MAX, SURFACE_OP_OF, VERIFY_FAILED_TESTS_MAX, evidencePayload, failureOf, lateAnswerRan, recordVerificationPointer, respond, sidecarEventSubscribers, sidecarOps, statusStopReport, verifyAnswer, verifyPayload } from './sidecar-ops.js';
 export type { RequiredChecksPayload } from './sidecar-ops.js';
 export * from './orchestration/workers.js';
 export * from './orchestration/estimates.js';

@@ -302,12 +302,19 @@ async function onePass(product, options, load, prefix, extraEnv) {
     const proposed = orchestrator.readProposedManifests(work, process.platform);
     const approval = proposed.ok ? await orchestrator.approveManifests(orchestrator.openWorkspace({ home, workspaceRoot: work, platform: process.platform }), proposed.manifests, proposed.hashes, 'cli', Date.now()) : null;
     record('verify approve (as a person at a terminal)', approval !== null && Object.keys(approval.hashes).join(',') === 'unit', proposed.ok ? '' : proposed.reason);
-    const ran = jevris(['verify', '--check', 'unit', '--json']);
-    let verified = null;
-    try {
-      verified = JSON.parse(ran.stdout);
-    } catch {
-      verified = null;
+    // A loaded host can answer before the run ends; running `jevris verify` again joins it (documented).
+    const parseVerify = (out) => {
+      try {
+        return JSON.parse(out.stdout);
+      } catch {
+        return null;
+      }
+    };
+    let ran = jevris(['verify', '--check', 'unit', '--json']);
+    let verified = parseVerify(ran);
+    for (let again = 0; again < 4 && verified?.result?.readiness !== 'verified'; again += 1) {
+      ran = jevris(['verify', '--check', 'unit', '--json']);
+      verified = parseVerify(ran);
     }
     record(
       'cli verify runs an approved check',
