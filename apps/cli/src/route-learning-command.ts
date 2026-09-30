@@ -43,6 +43,7 @@ import {
 import { COMMAND_EXIT_CODES, MODEL_ID_PATTERN, RouteLearningGoneContract, type RouteLearningGoneOutput } from '@jevris/contracts';
 import { modelAvailabilityView } from './model-availability.js';
 import { homeRefusal } from './public/home-guard.js';
+import { firstTryLines, firstTryStatus } from './route-learning-first-try.js';
 import { defaultPorts } from './public/ports.js';
 import { ROUTE_LEARNING_HELP } from './route-learning-help.js';
 import { authorized, contextFor, parse, type VerifyAdminOptions } from './verify-admin.js';
@@ -185,8 +186,9 @@ export async function runRouteLearningCommand(argv: readonly string[], write: Wr
         : 'Route learning is off in this workspace: managed workers keep their model and nothing is explored. Outcomes are still counted (jevris route learning on).',
     ];
     if (loaded === null) {
-      const lines = [...header, 'No local outcomes yet: each slice follows the signed baseline release where one supports it, else the baseline model.', ...(gone.lines.length > 0 ? ['', ...gone.lines] : [])];
-      return out({ learned: false, enabled: settings.enabled, version: 0, automatic, slices: [], attribution: [], pendingProposals: 0, unavailable }, lines, COMMAND_EXIT_CODES.ok);
+      const firstTry = firstTryStatus({ home: ctx.home, workspaceRoot: ctx.workspaceRoot, ...(slice === undefined ? {} : { slice }) });
+      const lines = [...header, 'No local outcomes yet: each slice follows the signed baseline release where one supports it, else the baseline model.', '', ...firstTryLines(firstTry), ...(gone.lines.length > 0 ? ['', ...gone.lines] : [])];
+      return out({ learned: false, enabled: settings.enabled, version: 0, automatic, slices: [], attribution: [], pendingProposals: 0, unavailable, firstTry }, lines, COMMAND_EXIT_CODES.ok);
     }
     const ids = slice !== undefined ? [slice] : slicesOf(loaded);
     const slices = ids.map((id) => explainSliceLearning(loaded, id, undefined, registry === undefined ? {} : { registry }));
@@ -199,12 +201,14 @@ export async function runRouteLearningCommand(argv: readonly string[], write: Wr
     ];
     if (slices.length === 0) lines.push('No slice has a baseline or local outcomes yet.');
     for (const s of slices) lines.push('', ...s.lines);
+    const firstTry = firstTryStatus({ home: ctx.home, workspaceRoot: ctx.workspaceRoot, ...(slice === undefined ? {} : { slice }) });
+    lines.push('', ...firstTryLines(firstTry));
     if (gone.lines.length > 0) lines.push('', ...gone.lines);
     if (attribution.length > 0) lines.push('', 'Agreement with the rules-only choice (rates only; no saving is claimed):');
     for (const a of attribution) {
       lines.push(`- ${a.sliceId}: ${String(a.routes)} routes; agreed ${String(a.agreedWithRules)} (verified success ${pct(a.agreedSuccessRate)}), differed ${String(a.differedFromRules)} (verified success ${pct(a.differedSuccessRate)})`);
     }
-    return out({ learned: true, enabled: settings.enabled, version: activeVersion(loaded).version, automatic, slices, attribution, pendingProposals: pending.length, unavailable }, lines, COMMAND_EXIT_CODES.ok);
+    return out({ learned: true, enabled: settings.enabled, version: activeVersion(loaded).version, automatic, slices, attribution, pendingProposals: pending.length, unavailable, firstTry }, lines, COMMAND_EXIT_CODES.ok);
   }
 
   // automatic on is refused before any question while the owner has not locked the thresholds.

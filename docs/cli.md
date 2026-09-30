@@ -254,7 +254,9 @@ status     Each slice's mode (active, advice only, or pinned) and the version th
            signed baseline prior, the other workspaces' outcomes on this machine and the local
            outcomes, shown apart; the posterior; the published priors; any pending proposal;
            how often the chosen model agreed with the rules-only choice (rates, never a
-           saving); and the models found gone on this machine.
+           saving); the Sonnet-first first-try and control tasks (cost per verified task,
+           an estimate when priced from usage; quality is never claimed); and the models
+           found gone on this machine.
 off        Stops every switch and all exploration in this workspace: managed workers keep their
            model. Outcomes are still counted. on turns learning back on.
 pin        Pins a slice to a model, at an effort level with --effort (else the model's default),

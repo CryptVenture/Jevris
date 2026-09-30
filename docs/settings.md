@@ -268,7 +268,7 @@ when its check fails; `baseline` runs the baseline first, as before. It changes 
 model runs first and never what Jevris may do: permissions, scopes, the kill switch, budgets and
 "only a passing check completes a task" are unchanged. It applies only while `mode` and
 `routing.managedWorkers` are `bounded-auto`, route learning is on for the workspace, and the
-slice is not pinned. See [routing.md](routing.md#route-learning).
+slice is not pinned. See [routing.md](routing.md#sonnet-first-routing).
 
 Which harness runs a worker, and whether it signs in with a subscription or an API key, is set
 in `workers.json`, not in these settings. Route learning, which picks a worker's model and
