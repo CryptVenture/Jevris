@@ -68,4 +68,6 @@ declare module '@jevris/sidecar' {
   export function installService(input: ServiceInput, exec?: ServiceExec): ServiceResult;
   export function uninstallService(input: ServiceInput, exec?: ServiceExec): ServiceResult;
   export function serviceStatus(input: ServiceInput, exec?: ServiceExec): ServiceResult;
+  export function serviceReady(input: ServiceInput, exec?: ServiceExec): ServiceResult;
+  export function startService(input: ServiceInput, exec?: ServiceExec): ServiceResult;
 }

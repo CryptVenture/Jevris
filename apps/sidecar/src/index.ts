@@ -23,6 +23,6 @@ export type { ExecutionLocality, LocalityInput } from './locality.js';
 export { sidecarMain, parseMainArgs } from './main.js';
 export { openTelemetry, readDiagnostic, readStatusLine, statusLineText, DIAGNOSTIC_MAX_MS, STATUSLINE_FILE, TRACE_DIR } from './telemetry.js';
 export type { DiagnosticState, RequestCounters, StatusLineBody, Telemetry, TraceInput } from './telemetry.js';
-export { installService, planService, serviceStatus, uninstallService, LAUNCH_AGENT_LABEL, SCHEDULED_TASK_NAME, SYSTEMD_UNIT_NAME } from './service-units.js';
+export { installService, planService, serviceReady, serviceStatus, startService, uninstallService, LAUNCH_AGENT_LABEL, SCHEDULED_TASK_NAME, SYSTEMD_UNIT_NAME } from './service-units.js';
 export { createSecuritySubscriber, proposedEffectOf, suspicionText, triageText, untrustedSpansOf, UNTRUSTED_SPANS_MAX, UNTRUSTED_SPAN_CHARS_MAX, UNTRUSTED_TOTAL_CHARS_MAX } from './security-subscriber.js';
 export type { Exec as ServiceExec, ServiceInput, ServicePlan, ServicePlatform, ServiceResult } from './service-units.js';

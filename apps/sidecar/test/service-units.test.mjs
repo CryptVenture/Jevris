@@ -210,3 +210,61 @@ test('jevris service through the CLI writes the unit for this Node and this Jevr
     rmSync(home, { recursive: true, force: true });
   }
 });
+
+test('serviceReady and startService ask each service manager to start the installed unit, with no forced kill (a clean exit is not restarted by the manager)', () => {
+  const root = realpathSync(mkdtempSync(join(tmpdir(), 'b-service-start-')));
+  try {
+    const cases = [
+      { input: { ...POSIX_INPUT, platform: 'darwin', osHome: root, stateDir: join(root, 'state') }, start: ['launchctl', 'kickstart', 'gui/501/dev.jevris.sidecar'], ready: ['launchctl', 'print', 'gui/501/dev.jevris.sidecar'] },
+      { input: { ...POSIX_INPUT, platform: 'linux', osHome: root, stateDir: join(root, 'state'), env: { XDG_CONFIG_HOME: join(root, 'xdg') } }, start: ['systemctl', '--user', 'start', 'jevris-sidecar.service'], ready: ['systemctl', '--user', 'show', 'jevris-sidecar.service', '--property=ActiveState'] },
+    ];
+    for (const { input, start, ready } of cases) {
+      // No unit yet: nothing is started.
+      let fake = fakeExec();
+      let result = su.startService(input, fake.exec);
+      assert.deepEqual([result.ok, result.state], [false, 'not-installed']);
+      assert.deepEqual(fake.calls, []);
+      assert.equal(su.installService(input, fakeExec().exec).ok, true);
+      // Installed, manager answers: the one start call, and a running unit is not killed.
+      fake = fakeExec();
+      result = su.startService(input, fake.exec);
+      assert.deepEqual([result.ok, result.state], [true, 'running'], JSON.stringify(result));
+      assert.deepEqual(fake.calls, [ready, start]);
+      assert.ok(!fake.calls.flat().includes('-k') && !fake.calls.flat().includes('restart'));
+      // The manager does not answer: unreachable, and nothing is started.
+      fake = fakeExec({ [ready.slice(1).join(' ')]: { status: 1, stdout: '', stderr: 'Could not find service' } });
+      result = su.startService(input, fake.exec);
+      assert.deepEqual([result.ok, result.state], [false, 'unknown']);
+      assert.deepEqual(fake.calls, [ready]);
+      assert.equal(su.serviceReady(input, fakeExec().exec).ok, true);
+      // The start call is refused.
+      fake = fakeExec({ [start.slice(1).join(' ')]: { status: 5, stdout: '', stderr: 'Operation not permitted' } });
+      result = su.startService(input, fake.exec);
+      assert.deepEqual([result.ok, result.state], [false, 'failed']);
+      assert.equal(result.steps.at(-1).detail, 'Operation not permitted');
+      // A unit for another Jevris home is left alone.
+      fake = fakeExec();
+      result = su.startService({ ...input, argv: [...input.argv.slice(0, -1), '/somewhere/else'] }, fake.exec);
+      assert.deepEqual([result.ok, result.state], [false, 'other-home']);
+      assert.deepEqual(fake.calls, []);
+    }
+    // Windows: the task is read back (its XML names the home), then /Run.
+    const win = { ...WIN_INPUT, osHome: root, stateDir: join(root, 'state') };
+    const xml = su.scheduledTaskXml(win);
+    let fake = fakeExec({ '/Query /TN': { status: 0, stdout: xml, stderr: '' } });
+    let result = su.startService(win, fake.exec);
+    assert.deepEqual([result.ok, result.state], [true, 'running'], JSON.stringify(result));
+    assert.deepEqual(fake.calls, [
+      ['schtasks.exe', '/Query', '/TN', '\\Jevris\\Sidecar', '/XML'],
+      ['schtasks.exe', '/Run', '/TN', '\\Jevris\\Sidecar'],
+    ]);
+    fake = fakeExec({ '/Query /TN': { status: 1, stdout: '', stderr: 'ERROR: The system cannot find the file specified.' } });
+    result = su.startService(win, fake.exec);
+    assert.deepEqual([result.ok, result.state], [false, 'not-installed']);
+    assert.equal(fake.calls.length, 1);
+    fake = fakeExec({ '/Query /TN': { status: 0, stdout: xml.replace('Jevris Home', 'Other Home'), stderr: '' } });
+    assert.equal(su.startService(win, fake.exec).state, 'other-home');
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

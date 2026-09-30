@@ -387,6 +387,68 @@ export function serviceStatus(input: ServiceInput, exec: Exec = defaultExec(inpu
   return { ...base, ok: true, state: /^Running$/i.test(status) ? 'running' : 'stopped', pid: null, message: `Task Scheduler reports the task ${status}.` };
 }
 
+/**
+ * Whether this home's sidecar unit is installed and its service manager answers. ok is true with
+ * state 'installed'; otherwise state says why: 'not-installed' (no unit), 'other-home' (the one
+ * per-account unit serves another home) or 'unknown' (the manager did not answer, or has not
+ * loaded the unit). Nothing is started or stopped.
+ */
+export function serviceReady(input: ServiceInput, exec: Exec = defaultExec(input.env)): ServiceResult {
+  const plan = planService(input);
+  const steps: { step: string; ok: boolean; detail?: string }[] = [];
+  const result = (ok: boolean, state: ServiceResult['state'], message: string): ServiceResult => ({ ok, state, unitPath: plan.unitPath, manager: plan.manager, pid: null, steps, message });
+  const none = 'No Jevris sidecar service is installed for this home; the sidecar starts on demand.';
+  const other = 'The installed Jevris sidecar service serves another Jevris home.';
+  const asked = (step: string, out: { readonly status: number | null; readonly stdout: string; readonly stderr: string }): boolean => {
+    steps.push({ step, ok: out.status === 0, ...(out.status === 0 ? {} : { detail: firstLine(out.stderr || out.stdout) || `exit ${String(out.status)}` }) });
+    return out.status === 0;
+  };
+  if (input.platform === 'win32') {
+    const schtasks = tool('win32', 'schtasks', input.env);
+    const query = exec(schtasks, ['/Query', '/TN', SCHEDULED_TASK_NAME, '/XML']);
+    if (query.status !== 0) return result(false, 'not-installed', none);
+    if (!unitServesHome(query.stdout, input)) return result(false, 'other-home', other);
+    return result(true, 'installed', 'Task Scheduler answers.');
+  }
+  const installed = readUnit(plan);
+  if (installed === undefined) return result(false, 'not-installed', none);
+  if (!unitServesHome(installed, input)) return result(false, 'other-home', other);
+  if (input.platform === 'darwin') {
+    const out = exec(tool('darwin', 'launchctl', input.env), ['print', `gui/${String(input.uid ?? 0)}/${LAUNCH_AGENT_LABEL}`]); // path-hygiene: allow launchd service target, not a file path
+    return asked('print', out) ? result(true, 'installed', 'launchd answers.') : result(false, 'unknown', 'launchd has not loaded the LaunchAgent.');
+  }
+  const out = exec(tool('linux', 'systemctl', input.env), ['--user', 'show', SYSTEMD_UNIT_NAME, '--property=ActiveState']);
+  return asked('show', out) ? result(true, 'installed', 'systemd answers.') : result(false, 'unknown', 'No systemd user session answered.');
+}
+
+/**
+ * Starts the installed unit through its own service manager, without a forced kill: launchctl
+ * kickstart (no -k), systemctl --user start, schtasks /Run. A running unit is left running. The
+ * caller stops a running sidecar first (a clean exit), because launchd (SuccessfulExit false),
+ * systemd (Restart=on-failure) and Task Scheduler do not restart a clean exit themselves.
+ */
+export function startService(input: ServiceInput, exec: Exec = defaultExec(input.env)): ServiceResult {
+  const ready = serviceReady(input, exec);
+  if (!ready.ok) return ready;
+  const steps = [...ready.steps];
+  let file: string;
+  let args: readonly string[];
+  if (input.platform === 'darwin') {
+    file = tool('darwin', 'launchctl', input.env);
+    args = ['kickstart', `gui/${String(input.uid ?? 0)}/${LAUNCH_AGENT_LABEL}`]; // path-hygiene: allow launchd service target, not a file path
+  } else if (input.platform === 'linux') {
+    file = tool('linux', 'systemctl', input.env);
+    args = ['--user', 'start', SYSTEMD_UNIT_NAME];
+  } else {
+    file = tool('win32', 'schtasks', input.env);
+    args = ['/Run', '/TN', SCHEDULED_TASK_NAME];
+  }
+  const out = exec(file, args);
+  const ok = out.status === 0;
+  steps.push({ step: 'start', ok, ...(ok ? {} : { detail: firstLine(out.stderr || out.stdout) || `exit ${String(out.status)}` }) });
+  return { ...ready, ok, state: ok ? 'running' : 'failed', steps, message: ok ? `${ready.manager} was asked to start the Jevris sidecar.` : `${ready.manager} refused to start the Jevris sidecar. See the steps.` };
+}
+
 /** Reads back the unit file this module wrote (for status output and tests). */
 export function readUnit(plan: ServicePlan): string | undefined {
   try {

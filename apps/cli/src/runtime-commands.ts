@@ -30,6 +30,8 @@ export interface RuntimeCommandHooks {
   readonly actor?: string;
   /** Runs launchctl, systemctl or schtasks for `jevris service` (tests inject it). */
   readonly serviceExec?: (file: string, args: readonly string[]) => { readonly status: number | null; readonly stdout: string; readonly stderr: string };
+  /** The sidecar probe, stop and start `jevris sidecar` and `jevris service install` use (tests inject them). */
+  readonly sidecar?: Partial<Pick<typeof import('@jevris/sidecar'), 'probeSidecar' | 'stopSidecarProcess' | 'ensureSidecar'>>;
 }
 
 interface Parsed {
@@ -501,10 +503,26 @@ async function runServiceCommand(parsed: Parsed, write: Write | undefined, hooks
   }
   const input = planned.input;
   const exec = serviceExecFor(hooks?.serviceExec);
+  // A running supervised sidecar (the service's own) is stopped cleanly first, so the service
+  // manager starts it on the new unit: a manager leaves an already-running unit alone
+  // (systemctl enable --now, schtasks /Run). An on-demand sidecar is left as it is.
+  let stoppedLine: string | null = null;
+  if (sub === 'install') {
+    const ports = sidecarPorts(sidecar, hooks);
+    const probe = await ports.probeSidecar(given, 500);
+    if (probe.running && probe.foreign !== true && probe.endpoint?.supervised === true) {
+      const stopped = await ports.stopSidecarProcess(given);
+      if (!stopped.stopped) {
+        out(write, `The sidecar (pid ${String(stopped.pid)}) did not stop, so the service was not changed. Stop that process by hand, then run \`jevris service install\` again.\n`);
+        return 1;
+      }
+      if (stopped.method !== 'not-running') stoppedLine = `sidecar: stopped (pid ${String(stopped.pid)}) so the service can start it`;
+    }
+  }
   const result = sub === 'install' ? sidecar.installService(input, exec) : sub === 'uninstall' ? sidecar.uninstallService(input, exec) : sidecar.serviceStatus(input, exec);
   if (json) out(write, `${JSON.stringify(result)}\n`);
   else {
-    const lines = [`service: ${result.state} (${result.manager})`, `unit: ${result.unitPath}`, ...(result.pid !== null ? [`pid: ${String(result.pid)}`] : []), ...result.steps.map((step) => `  ${step.step}: ${step.ok ? 'done' : 'FAILED'}${step.detail !== undefined ? ` (${step.detail})` : ''}`), result.message];
+    const lines = [...(stoppedLine !== null ? [stoppedLine] : []), ...(stoppedLine !== null && !result.ok ? ['The service was not installed; `jevris sidecar start` starts the sidecar again.'] : []), `service: ${result.state} (${result.manager})`, `unit: ${result.unitPath}`, ...(result.pid !== null ? [`pid: ${String(result.pid)}`] : []), ...result.steps.map((step) => `  ${step.step}: ${step.ok ? 'done' : 'FAILED'}${step.detail !== undefined ? ` (${step.detail})` : ''}`), result.message];
     out(write, `${lines.join('\n')}\n`);
   }
   return result.ok ? 0 : 1;
@@ -596,7 +614,7 @@ async function sidecarDiagnose(parsed: Parsed, home: string | undefined, json: b
   return 0;
 }
 
-async function runSidecarCommand(parsed: Parsed, write: Write | undefined, argv: readonly string[]): Promise<number> {
+async function runSidecarCommand(parsed: Parsed, write: Write | undefined, argv: readonly string[], hooks?: RuntimeCommandHooks): Promise<number> {
   const sub = parsed.positionals[1];
   const home = stringFlag(parsed, '--home');
   const json = parsed.flags.get('--json') === true;
@@ -620,8 +638,62 @@ async function runSidecarCommand(parsed: Parsed, write: Write | undefined, argv:
     return 0;
   }
   if (sub === 'metrics') return sidecarMetrics(parsed, home, json, write);
+  if (sub === 'stop' || sub === 'restart' || sub === 'start') return sidecarLifecycle(sub, parsed, home, sidecar, write, hooks);
+  out(write, SIDECAR_USAGE);
+  return 2;
+}
+
+/** The sidecar functions the lifecycle commands call: the real ones, or a test's. */
+function sidecarPorts(sidecar: SidecarModule, hooks: RuntimeCommandHooks | undefined) {
+  return {
+    probeSidecar: hooks?.sidecar?.probeSidecar ?? sidecar.probeSidecar,
+    stopSidecarProcess: hooks?.sidecar?.stopSidecarProcess ?? sidecar.stopSidecarProcess,
+    ensureSidecar: hooks?.sidecar?.ensureSidecar ?? sidecar.ensureSidecar,
+  };
+}
+
+/** Waits for the sidecar the service manager was asked to start; true once it answers. */
+async function awaitServiceStart(ports: ReturnType<typeof sidecarPorts>, home: string | undefined, waitMs: number): Promise<boolean> {
+  const deadline = Date.now() + waitMs;
+  for (;;) {
+    const probe = await ports.probeSidecar(home, 300);
+    if (probe.running && probe.foreign !== true) return true;
+    if (Date.now() >= deadline) return false;
+    await new Promise<void>((done) => setTimeout(() => done(), 100));
+  }
+}
+
+const SERVICE_FIX = 'Run `jevris service status` to see why, and `jevris service install` to register it again.';
+
+/**
+ * `jevris sidecar stop|restart|start`. A sidecar the service manager supervises is never
+ * replaced by an unsupervised one: the manager does not restart a clean exit (launchd
+ * SuccessfulExit false, systemd Restart=on-failure), so a restart stops it cleanly and asks the
+ * manager to start it again, and a start with nothing running asks the manager first.
+ */
+async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parsed, home: string | undefined, sidecar: SidecarModule, write: Write | undefined, hooks: RuntimeCommandHooks | undefined): Promise<number> {
+  const ports = sidecarPorts(sidecar, hooks);
+  const waitRaw = stringFlag(parsed, '--wait-ms');
+  const waitMs = waitRaw !== undefined && /^\d{1,6}$/.test(waitRaw) ? Number(waitRaw) : 5000;
+  const platform = process.platform;
+  const managerPossible = platform === 'darwin' || platform === 'linux' || platform === 'win32';
+  const service = (): { readonly input: ReturnType<typeof serviceInputFor>['input']; readonly exec: ServiceExecHook | undefined } => ({ input: serviceInputFor(sidecar, home).input, exec: serviceExecFor(hooks?.serviceExec) });
+  const probe = await ports.probeSidecar(home, 500);
+  const supervised = probe.running && probe.foreign !== true && probe.endpoint?.supervised === true;
+
+  if (sub === 'restart' && supervised) {
+    // Check the manager before anything is stopped: a refusal leaves the running sidecar alone.
+    const { input, exec } = service();
+    const ready = managerPossible ? sidecar.serviceReady(input, exec) : undefined;
+    if (ready === undefined || !ready.ok) {
+      const why = ready?.message ?? 'There is no service manager on this platform.';
+      out(write, `sidecar restart refused (SERVICE_UNREACHABLE): the sidecar runs under a service manager and it could not be reached. ${why} Nothing was stopped. ${SERVICE_FIX}\n`);
+      return 1;
+    }
+  }
+
   if (sub === 'stop' || sub === 'restart') {
-    const stopped = await sidecar.stopSidecarProcess(home);
+    const stopped = await ports.stopSidecarProcess(home);
     if (stopped.foreign === true) {
       out(write, `${FOREIGN_LOCALITY}\n`);
       return 1;
@@ -632,22 +704,39 @@ async function runSidecarCommand(parsed: Parsed, write: Write | undefined, argv:
     }
     if (sub === 'stop') {
       out(write, stopped.method === 'not-running' ? 'sidecar: not running\n' : `sidecar: stopped (pid ${String(stopped.pid)})\n`);
+      if (supervised) out(write, 'The service manager does not restart a clean stop. `jevris sidecar start` starts it again through the service; it also starts at the next login.\n');
       return 0;
     }
   }
-  if (sub === 'start' || sub === 'restart') {
-    const waitRaw = stringFlag(parsed, '--wait-ms');
-    const waitMs = waitRaw !== undefined && /^\d{1,6}$/.test(waitRaw) ? Number(waitRaw) : 5000;
-    const ensured = await sidecar.ensureSidecar({ ...(home !== undefined ? { home } : {}), waitMs });
-    if (!ensured.ok) {
-      out(write, `${ensured.message}\n`);
+
+  // Start through the service manager when this home's unit is installed and answers.
+  // A restart of a supervised sidecar has no other path: it never spawns an unsupervised one.
+  if (managerPossible && (sub === 'restart' ? supervised : !probe.running)) {
+    const { input, exec } = service();
+    const started = sidecar.startService(input, exec);
+    if (started.ok) {
+      if (await awaitServiceStart(ports, home, waitMs)) {
+        out(write, `sidecar: running (${sub === 'restart' ? 'restarted' : 'started'} by ${started.manager})\n`);
+        return 0;
+      }
+      out(write, `${started.manager} was asked to start the sidecar, but it did not answer within ${String(waitMs)} ms (SERVICE_START_TIMEOUT). Run \`jevris service status\`, then \`jevris sidecar status\`.\n`);
       return 1;
     }
-    out(write, `sidecar: running (${ensured.started ? 'started' : 'already running'})\n`);
-    return 0;
+    if (sub === 'restart') {
+      const detail = started.steps.find((step) => !step.ok)?.detail;
+      out(write, `The sidecar was stopped, but ${started.manager} did not start it (SERVICE_START_FAILED${detail !== undefined ? `: ${detail}` : ''}). ${SERVICE_FIX}\n`);
+      return 1;
+    }
+    // start: no unit for this home, or the manager does not answer; an on-demand start below.
   }
-  out(write, SIDECAR_USAGE);
-  return 2;
+
+  const ensured = await ports.ensureSidecar({ ...(home !== undefined ? { home } : {}), waitMs });
+  if (!ensured.ok) {
+    out(write, `${ensured.message}\n`);
+    return 1;
+  }
+  out(write, `sidecar: running (${ensured.started ? 'started' : 'already running'})\n`);
+  return 0;
 }
 
 // ------------------------------------------------------------------ shared helpers
@@ -1275,7 +1364,7 @@ export async function runRuntimeCommand(argv: readonly string[], write?: Write, 
   const w = write ?? hooks?.write;
   switch (command) {
     case 'sidecar':
-      return runSidecarCommand(parsed, w, argv);
+      return runSidecarCommand(parsed, w, argv, hooks);
     case 'kill-switch':
       return runKillSwitchCommand(parsed, w, hooks);
     case 'store':
