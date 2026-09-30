@@ -8,6 +8,7 @@ import { readFile } from 'node:fs/promises';
 import { ADVISE_CAPABILITIES, ADVISE_CAPABILITY_IDS, COMMAND_EXIT_CODES } from '@jevris/contracts';
 import { homeRefusal } from './public/home-guard.js';
 import { runOperation } from './public/operations.js';
+import { refusalReport } from './public/refusal.js';
 import { defaultPorts } from './public/ports.js';
 import { renderHuman } from './public/render.js';
 import { contextFor, parse, type VerifyAdminOptions } from './verify-admin.js';
@@ -92,7 +93,12 @@ export async function runAdviseCommand(argv: readonly string[], write: Write, op
     ...(parsed.values.has('--task') ? { taskId: parsed.values.get('--task') } : {}),
     input,
   });
-  if (!outcome.ok) return usage(outcome.message);
+  if (!outcome.ok) {
+    const report = refusalReport(outcome, json);
+    if (report === null) return usage(outcome.message);
+    write(`${report.line}\n`);
+    return report.exitCode;
+  }
   write(json ? `${JSON.stringify(outcome.result)}\n` : renderHuman(outcome.result));
   return outcome.exitCode;
 }

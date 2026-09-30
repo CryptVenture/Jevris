@@ -20,6 +20,7 @@ import { COMMAND_EXIT_CODES, DELIVERY_REPORTS, DELIVERY_REPORT_NAMES, type Deliv
 import { writeConfinedOutput } from './host-policy.js';
 import { homeRefusal } from './public/home-guard.js';
 import { runOperation } from './public/operations.js';
+import { refusalReport } from './public/refusal.js';
 import { defaultPorts } from './public/ports.js';
 import { renderHuman } from './public/render.js';
 import { contextFor, parse, type VerifyAdminOptions } from './verify-admin.js';
@@ -136,7 +137,12 @@ export async function runDeliveryCommand(argv: readonly string[], write: Write, 
     ...(parsed.values.has('--task') ? { taskId: parsed.values.get('--task') } : {}),
     input,
   });
-  if (!outcome.ok) return usage(outcome.message);
+  if (!outcome.ok) {
+    const report = refusalReport(outcome, json);
+    if (report === null) return usage(outcome.message);
+    write(`${report.line}\n`);
+    return report.exitCode;
+  }
   const advice = outcome.result.result as SurfacePayloads['capability.advise'];
 
   let bodyLine: string | null = null;

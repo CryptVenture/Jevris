@@ -10,6 +10,9 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 
 const { runPublicCommand, runSurfaceCall } = await import('../dist/public-commands.js');
+const { runAdviseCommand } = await import('../dist/advise-command.js');
+const { runDeliveryCommand } = await import('../dist/delivery-command.js');
+const { refusalReport } = await import('../dist/public/refusal.js');
 const { DEFAULT_CONFIG, configFilePath } = await import('@jevris/orchestrator');
 
 function sandbox(t, mode) {
@@ -63,7 +66,7 @@ test('off: the MCP surface refuses every Jev ask with MODE_OFF and never asks th
   }
   assert.deepEqual(fake.asked, [], 'a refused ask reached the sidecar');
   // Read-only operations still answer.
-  for (const [op, args] of [['status', {}], ['explain', { decisionId: 'd-missing' }], ['configure', {}], ['evidence.get', { handle: 'ev:missing' }]]) {
+  for (const [op, args] of [['status', {}], ['explain', { decisionId: 'd-missing' }], ['configure', {}], ['evidence.get', { handle: `ev:${'0'.repeat(64)}` }]]) {
     const out = await surface(box, fake, op, args);
     assert.equal(out.value.error, undefined, `${op} was refused in off: ${JSON.stringify(out.value)}`);
   }
@@ -79,4 +82,32 @@ test('off: `jevris route` says why and names the command; advise does not refuse
   let again = '';
   await runPublicCommand('route', [], (chunk) => (again += chunk), { ports: ports().ports, env: on.env, cwd: on.workspace });
   assert.doesNotMatch(again, /MODE_OFF/);
+});
+
+// JEV-0037: `jevris advise` and `jevris delivery` call runOperation directly; they used to print the
+// MODE_OFF refusal as a usage error and drop its reason code.
+test('off: `jevris advise` and `jevris delivery` say Refused (MODE_OFF), exit 2, and never ask the sidecar', async (t) => {
+  const off = sandbox(t, 'off');
+  const fake = ports();
+  for (const [name, run, argv] of [
+    ['advise', runAdviseCommand, ['C25']],
+    ['delivery', runDeliveryCommand, ['pr-readiness']],
+  ]) {
+    let text = '';
+    const code = await run(argv, (chunk) => (text += chunk), { ports: fake.ports, env: off.env, cwd: off.workspace });
+    assert.equal(code, 2, name);
+    assert.match(text, /^Refused \(MODE_OFF\): Jevris is off, so capability\.advise was not run/, `${name}: ${text}`);
+    assert.doesNotMatch(text, /Run jevris help/, `${name} printed the usage footer`);
+    let json = '';
+    await run([...argv, '--json'], (chunk) => (json += chunk), { ports: fake.ports, env: off.env, cwd: off.workspace });
+    assert.equal(JSON.parse(json.trimEnd()).error.code, 'MODE_OFF', name);
+  }
+  assert.deepEqual(fake.asked, []);
+});
+
+test('refusalReport keeps a reason code and the exit 1 of an unanswered request; a plain failure has none', () => {
+  assert.deepEqual(refusalReport({ ok: false, exitCode: 2, reasonCode: 'MODE_OFF', message: 'off' }, false), { line: 'Refused (MODE_OFF): off', exitCode: 2 });
+  assert.deepEqual(refusalReport({ ok: false, exitCode: 1, reasonCode: 'SIDECAR_TIMEOUT', message: 'slow' }, false), { line: 'slow (SIDECAR_TIMEOUT)', exitCode: 1 });
+  assert.equal(JSON.parse(refusalReport({ ok: false, exitCode: 1, reasonCode: 'X', message: 'm' }, true).line).error.code, 'X');
+  assert.equal(refusalReport({ ok: false, exitCode: 2, message: 'bad input' }, false), null);
 });
