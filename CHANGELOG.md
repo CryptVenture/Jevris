@@ -167,6 +167,7 @@ The first public release: one package that installs into five coding harnesses o
 - The retention sweep's chunk size stops shrinking at 16 rows (and the free-page step at 16 pages). A step's commit and sync cost does not shrink with its rows, so on a slow disk every write looked slow, the size fell to one row and a 1,500-row sweep ran for more than 120 s.
 - The test-suite serial gate no longer reads a pid marker that is still empty as a dead process: a parallel file that had just written its start marker (or a lock just taken) could look finished, and a serial file ran beside it.
 - The maintenance timing bounds in the tests scale with the same run's own quiet commit time, and the control-service, security-subscriber and surface-e2e tests wait as slow CI servers need.
+- Every CLI command a person runs (`budget`, `task`, `feedback`, `integrate status`, `consent provider`, `route --link`/`--unlink`, `credential reenable`, `route limits clear`, `verify required`, `control`) now asks the sidecar for the background budget (5 s) and waits at least 15 s, instead of the 900 ms hook budget: `budget update` answered DEADLINE on a loaded host. Only a hook keeps the hot budget, and a late answer is still DEADLINE. A lint (`lint/person-budget.lint.mjs`) fails a hot budget anywhere in the CLI.
 
 ### Fixes: Recovery and privacy
 
