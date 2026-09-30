@@ -55,7 +55,7 @@ test('certify claude runs every harness call with the config folder in the profi
         if (line === '--help') return { spawned: true, code: 0, stdout: WORKER_HELP.claude };
         if (line.startsWith('plugin validate')) return { spawned: true, code: 0, stdout: '✔ Validation passed\n' };
         if (line === 'plugin list --json') return { spawned: true, code: 0, stdout: '[{"id":"jevris@jevris-local","enabled":true}]' };
-        if (line.startsWith('plugin details')) return { spawned: true, code: 0, stdout: 'Skills: status, plan, route, checkpoint, recover, verify, explain, configure\n' };
+        if (line.startsWith('plugin details')) return { spawned: true, code: 0, stdout: 'Skills: status, plan, route, checkpoint, recover, verify, explain, configure, guide\n' };
         return { spawned: true, code: 0, stdout: '' };
       },
     };

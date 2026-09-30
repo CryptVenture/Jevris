@@ -184,9 +184,9 @@ test('the files allowlist and the tarball check keep sources out and runtime in 
   assert.equal(result.status, 0, `${result.stdout}\n${result.stderr}`);
 });
 
-test('the tarball ships the eight public skills once, from the shared source, and no rendered tree (SKL-01, PKG-06, DRY)', async () => {
+test('the tarball ships the nine skills once, from the shared source, and no rendered tree (SKL-01, PKG-06, DRY)', async () => {
   const { PUBLIC_SKILLS, SKILL_TREES, duplicatePluginProblems } = await import(pathToFileURL(join(root, 'scripts', 'check-pack.mjs')).href);
-  assert.deepEqual([...PUBLIC_SKILLS].sort(), ['checkpoint', 'configure', 'explain', 'plan', 'recover', 'route', 'status', 'verify']);
+  assert.deepEqual([...PUBLIC_SKILLS].sort(), ['checkpoint', 'configure', 'explain', 'guide', 'plan', 'recover', 'route', 'status', 'verify']);
   assert.deepEqual(SKILL_TREES, ['plugins/shared/skills']);
   for (const name of PUBLIC_SKILLS) assert.equal(existsSync(join(root, 'plugins', 'shared', 'skills', name, 'SKILL.md')), true, name);
   for (const dir of ['plugins/claude/skills', 'plugins/codex/plugin/skills', 'plugins/opencode/skills', 'plugins/antigravity/skills', 'plugins/claude/bin', 'dist/plugins']) {

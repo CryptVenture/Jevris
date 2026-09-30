@@ -16,7 +16,7 @@ const { loadCertifications, coveringCertification } = await import('@jevris/cli/
 const { runDoctorCommand } = await import('../dist/doctor-cli.js');
 const { loadEvidence } = await import('../dist/gate-records.js');
 const { evidenceCommit } = await import('../dist/certification.js');
-const { PUBLIC_COMMAND_NAMES } = await import('../../../packages/contracts/dist/index.js');
+const { SKILL_NAMES } = await import('../../../packages/contracts/dist/index.js');
 
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 
@@ -46,7 +46,7 @@ function stub(harness, answers) {
   };
 }
 
-const allSkills = JSON.stringify([{ name: 'kilo-config', location: 'builtin' }, ...PUBLIC_COMMAND_NAMES.map((name) => ({ name: `jevris-${name}`, location: `/p/jevris-${name}/SKILL.md` }))]);
+const allSkills = JSON.stringify([{ name: 'kilo-config', location: 'builtin' }, ...SKILL_NAMES.map((name) => ({ name: `jevris-${name}`, location: `/p/jevris-${name}/SKILL.md` }))]);
 
 test('certify claude: validates the marketplace, sees the installed plugin and its skills, signs a local record that covers the version', async () => {
   await withHome(async (home) => {
@@ -54,7 +54,7 @@ test('certify claude: validates the marketplace, sees the installed plugin and i
       if (line === '--version') return { stdout: '2.1.282 (Claude Code)\n' };
       if (line.startsWith('plugin validate')) return { stdout: '✔ Validation passed\n' };
       if (line === 'plugin list --json') return { stdout: '[{"id":"jevris@jevris-local","enabled":true}]' };
-      if (line.startsWith('plugin details')) return { stdout: 'Skills: status, plan, route, checkpoint, recover, verify, explain, configure\n' };
+      if (line.startsWith('plugin details')) return { stdout: 'Skills: status, plan, route, checkpoint, recover, verify, explain, configure, guide\n' };
       return {};
     });
     const evidence = join(home, 'evidence');
@@ -129,7 +129,7 @@ test('certify claude: skills.discovery needs every skill named in plugin details
     const result = await certifyHarness({ home, harness: 'claude', json: false, root, cli: fake.cli, policies: [] });
     const skills = result.features.find((item) => item.featureId === 'skills.discovery');
     assert.equal(skills.passed, false);
-    assert.match(skills.detail, /missing plan, route, checkpoint, recover, verify, explain, configure$/, 'a longer word is not the skill');
+    assert.match(skills.detail, /missing plan, route, checkpoint, recover, verify, explain, configure, guide$/, 'a longer word is not the skill');
   });
 });
 
@@ -157,9 +157,9 @@ test('certify antigravity: the throwaway profile gets the hook group enabled, so
   });
 });
 
-test('certify kilo: all 8 jevris-* skills once each and a connected MCP are required; a missing serve leaves plugin.install unsupported', async () => {
+test('certify kilo: all 9 jevris-* skills once each and a connected MCP are required; a missing serve leaves plugin.install unsupported', async () => {
   await withHome(async (home) => {
-    const partial = JSON.stringify(PUBLIC_COMMAND_NAMES.slice(1).map((name) => ({ name: `jevris-${name}` })).concat([{ name: 'status' }]));
+    const partial = JSON.stringify(SKILL_NAMES.slice(1).map((name) => ({ name: `jevris-${name}` })).concat([{ name: 'status' }]));
     const fake = stub('kilo', (line) => {
       if (line === '--version') return { stdout: '7.7.9\n' };
       if (line === 'mcp list') return { stdout: '●  ✓ jevris \u001b[90mconnected\n' };

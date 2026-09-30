@@ -750,9 +750,9 @@ async function skillNames(files) {
   return names;
 }
 
-test('SKL-03: with all five installed, OpenCode and Kilo each find exactly the 8 jevris-* skills, with no duplicate, through every folder they scan', async () => {
-  const { PUBLIC_COMMAND_NAMES } = await import('../../../packages/contracts/dist/index.js');
-  const expected = PUBLIC_COMMAND_NAMES.map((name) => `jevris-${name}`).sort();
+test('SKL-03: with all five installed, OpenCode and Kilo each find exactly the 9 jevris-* skills, with no duplicate, through every folder they scan', async () => {
+  const { SKILL_NAMES } = await import('../../../packages/contracts/dist/index.js');
+  const expected = SKILL_NAMES.map((name) => `jevris-${name}`).sort();
   await withHome(async (home) => {
     const { code, text } = await run(['install', '--home', home, '--yes', '--no-smoke']);
     assert.equal(code, 0, text);
@@ -768,8 +768,8 @@ test('SKL-03: with all five installed, OpenCode and Kilo each find exactly the 8
       assert.equal(new Set(names).size, names.length, `${harness}: no duplicate skill name`);
     }
     assert.deepEqual(external, [], 'nothing Jevris under ~/.claude/skills or ~/.agents/skills');
-    // Claude sees its 8 un-prefixed skills inside the marketplace plugin.
+    // Claude sees its 9 un-prefixed skills inside the marketplace plugin.
     const claude = await skillNames(await skillFiles(home, [join('.claude', 'plugins', 'jevris-local')]));
-    assert.deepEqual([...claude].sort(), [...PUBLIC_COMMAND_NAMES].sort());
+    assert.deepEqual([...claude].sort(), [...SKILL_NAMES].sort());
   });
 });

@@ -5,7 +5,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const { createServer, TOOLS, SUPPORTED_PROTOCOLS, cliRunner, resolveBin, rootPath } = await import('../dist/server.js');
+const { createServer, TOOLS, SUPPORTED_PROTOCOLS, INSTRUCTIONS_MAX_BYTES, cliRunner, resolveBin, rootPath } = await import('../dist/server.js');
 
 const REQUIRED = [
   'jevris_status',
@@ -57,6 +57,33 @@ test('initialize negotiates the requested version when supported, else the newes
   assert.equal(old.result.protocolVersion, SUPPORTED_PROTOCOLS[0]);
   assert.equal(old.result.serverInfo.version, '9.9.9');
   assert.deepEqual(Object.keys(old.result.capabilities).sort(), ['resources', 'tools']);
+});
+
+test('initialize instructions orient the model, stay under the byte cap and name real tools only (orientation)', async () => {
+  const { s } = server();
+  const r = await s.handle({ jsonrpc: '2.0', id: 1, method: 'initialize', params: { protocolVersion: SUPPORTED_PROTOCOLS[0], capabilities: {} } });
+  const text = r.result.instructions;
+  assert.equal(typeof text, 'string');
+  assert.equal(INSTRUCTIONS_MAX_BYTES, 1500);
+  assert.ok(Buffer.byteLength(text, 'utf8') <= INSTRUCTIONS_MAX_BYTES, `${Buffer.byteLength(text, 'utf8')} bytes`);
+  const lines = text.split('\n');
+  assert.ok(lines.length >= 8 && lines.length <= 10, `${lines.length} lines`);
+  assert.ok(lines.every((line) => line.trim().length > 0 && line.length <= 260), 'short plain lines');
+  // Every tool it points at exists, and the ones a session uses to orient are all named.
+  const names = new Set(TOOLS.map((tool) => tool.name));
+  const named = [...text.matchAll(/\bjevris_[a-z_]+/g)].map((m) => m[0]);
+  assert.ok(named.length > 0 && named.every((name) => names.has(name)), named.join(', '));
+  for (const tool of ['jevris_status', 'jevris_explain_decision', 'jevris_plan', 'jevris_plan_route', 'jevris_checkpoint', 'jevris_recover', 'jevris_verify']) assert.ok(text.includes(tool), tool);
+  // The four things a model working in the session must be able to tell.
+  assert.match(text, /never switches a model, changes permissions, marks a check passed or deletes/);
+  assert.match(text, /Stop reminder/);
+  assert.match(text, /"unverified"/);
+  assert.match(text, /jevris verify/);
+  assert.match(text, /never consent or approval/);
+  assert.match(text, /guide skill/);
+  assert.match(text, /jevris CLI/);
+  // Harness-neutral and free of anything from a machine.
+  assert.doesNotMatch(text, /\/Users\/|\/Volumes\/|\/home\/|[A-Za-z]:\\|@[a-z0-9-]+\.[a-z]{2,}|mcp__|\bClaude\b|\bKilo\b|\bCodex\b|\bOpenCode\b/i);
 });
 
 test('tools/list: every §6.4 tool, bounded schemas, annotations, effect class and no destructive tool', async () => {

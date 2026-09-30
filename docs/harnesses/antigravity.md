@@ -61,7 +61,7 @@ All of these are Jevris files, in Antigravity's documented global plugin locatio
 | `.gemini/config/plugins/jevris/plugin.json` | The plugin manifest, taken from `plugins/antigravity/plugin.json`. |
 | `.gemini/config/plugins/jevris/mcp_config.json` | The MCP server, with the absolute runtime path: `{"mcpServers": {"jevris": {"command": "node", "args": ["<runtime>/plugins/shared/mcp.js", "--harness", "antigravity"]}}}`. The `--harness` argument tells the server which harness it serves, for handoff capability negotiation. |
 | `.gemini/config/plugins/jevris/hooks.json` | One named hook group, `jevris-observe`. It covers PostToolUse (matcher `.*`), PreInvocation, PostInvocation and Stop. Each runs `node "<runtime>/dist/hook.mjs" --harness agy --event <Name>` with a 5 s timeout. The group is `"enabled": false` until a certification record covers your Antigravity version. |
-| `.gemini/config/plugins/jevris/skills/jevris-<name>/SKILL.md` (and `reference.md`) | The 8 `jevris-*` skills, rendered from `plugins/shared/skills`. |
+| `.gemini/config/plugins/jevris/skills/jevris-<name>/SKILL.md` (and `reference.md`) | The 9 `jevris-*` skills, rendered from `plugins/shared/skills`. |
 | `<data>/antigravity-install-receipt.json` | The receipt, with paths relative to your home. |
 
 ## Config keys
@@ -129,6 +129,23 @@ the listing stays off, because a listing must never update your binary. Directly
 (`mcp/<server>/<tool>.json`, `instructions.md`); a conversation, config or any other file still
 fails it with `LISTING_SIDE_EFFECT`.
 
+Why the descriptor cache is allowed: `agy models` starts every MCP server in your configuration
+(the global `~/.gemini/config/mcp_config.json`, the workspace `.agents/mcp_config.json` and the
+plugins' `mcp_config.json`, Jevris's own included) and rewrites each server's descriptor cache as it
+loads them. On the recorded second run that was 18 files under `mcp/jevris_jevris/`: 17 tool
+descriptors and `instructions.md`. Antigravity documents no flag, environment variable or setting
+that skips MCP loading for a run. Its changelog (1.1.9) says headless and one-shot runs block on MCP
+server loading, its documented `disabled` key is per server, and issue 1088 reports that print mode
+starts servers marked `"disabled": true` anyway. So Jevris cannot switch the loading off, and the
+allowance is limited to descriptor files (`.json` names that do not look like a token, credential
+or session, and `instructions.md`) directly under `mcp/<server>/`. If Antigravity adds such a switch,
+the listing should use it and the allowance should go.
+
+How often this runs: the sidecar lists Antigravity's models at most once a day (24 hours after the
+last refresh), when the installed `agy` version changes, and when it has no listing yet. It does so
+only while idle, one harness at a time, each run bounded to 10 seconds. Each run starts your
+configured MCP servers once.
+
 If a record comes from a `jevris certify` run outside install, reinstall to enable the hook
 group:
 
@@ -146,10 +163,15 @@ The hooks only observe:
   missing the evidence a certified reminder names. Then the first Stop answers
   `{"decision":"continue"}`, and its reason names only the missing evidence ids. A second Stop
   in the same run proceeds (`executionNum` 2 or more), so the gate continues once only.
+- With `verification.backgroundAtStop` on (off by default), a Stop of the main agent that finds
+  approved checks missing or stale also queues them in the background, and answers as above. See
+  [verification.md](../verification.md#background-verification-at-stop).
 - Once `hooks.context` is certified, PreInvocation can add one ephemeral message. The other
   hooks cannot show text, so advice that comes due on them, such as a loop explanation after a
   failed tool call, is held for the session and sent as that message before the next
   invocation (at most the four newest, for up to an hour), once.
+- Antigravity has no SessionStart event, so the one-line orientation the other harnesses get when a
+  session starts is not sent here. The MCP server instructions and the `jevris-guide` skill carry it.
 
 No hook ever denies or approves a tool.
 

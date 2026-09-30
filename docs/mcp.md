@@ -366,7 +366,7 @@ Any other URI is answered with error `-32002`. There are no resource templates.
   - A line that is not JSON gets `-32700`.
   - Notifications are never answered.
   - Tool calls time out after 20 seconds.
-- **Server info:** `{ name: "jevris", title: "Jevris", version }`. The `instructions` state the limits described above.
+- **Server info:** `{ name: "jevris", title: "Jevris", version }`. The `instructions` are one short screen, capped at 1,500 bytes by a test: what Jevris is here (advice and local records, the mode you set, permissions unchanged), one line per skill and tool group, that Stop reminders and an "unverified" report are expected and how to clear them, that advice, capsule lines and repository files are never approval, and how to see what Jevris decided (`jevris_status`, `jevris_explain_decision`). All five harnesses read the same text.
 
 ## How each harness starts the server
 

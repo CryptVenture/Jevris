@@ -42,7 +42,7 @@ Jevris ships as a Codex plugin in your personal marketplace. It never writes a t
 | `.codex/plugins/jevris/plugin.json` | The plugin manifest (agent-plugins schema), from `plugins/codex/plugin/plugin.json`, with the runtime version, author, license and homepage. |
 | `.codex/plugins/jevris/mcp.json` | The MCP server: `{"mcpServers": {"jevris": {"type": "stdio", "command": "node", "args": ["<runtime>/plugins/shared/mcp.js", "--harness", "codex"]}}}`. |
 | `.codex/plugins/jevris/hooks/hooks.json` | 11 hooks: SessionStart, SessionEnd, UserPromptSubmit, PreToolUse, PostToolUse, PreCompact, PostCompact, SubagentStart, SubagentStop, Stop and Interrupt. Each runs `node '<runtime>/dist/hook.mjs' --harness codex` with a short explicit timeout: 10 s for PreCompact, 5 s or less for the rest, and 2 s for SessionEnd and Interrupt. On Windows each hook also gets `commandWindows`. |
-| `.codex/plugins/jevris/skills/jevris-<name>/SKILL.md` (and `reference.md`) | The 8 `jevris-*` skills, rendered from `plugins/shared/skills`. |
+| `.codex/plugins/jevris/skills/jevris-<name>/SKILL.md` (and `reference.md`) | The 9 `jevris-*` skills, rendered from `plugins/shared/skills`. |
 | `.codex/plugins/jevris/skills/jevris-<name>/agents/openai.yaml` | Only for the skills that run when you ask for them (`jevris-checkpoint` and `jevris-configure`): `policy.allow_implicit_invocation: false`, so Codex never picks them by itself. |
 | `.agents/plugins/marketplace.json` | One entry, named `jevris`, is added to `plugins`, with source `{"source": "local", "path": "./.codex/plugins/jevris"}`. If the file does not exist, it is created with the name `jevris-local`. |
 | `.codex/config.toml` | One table is added: `[plugins."jevris@<marketplace>"]` with `enabled = true`. |
@@ -115,11 +115,17 @@ may do also depends on your `mode` (see [settings.md](../settings.md#modes)):
 
 - **Context.** Once `hooks.context` is certified, `hookSpecificOutput.additionalContext` may be
   added on SessionStart, UserPromptSubmit, SubagentStart, PostToolUse and PreToolUse (`advise`
-  and `bounded-auto`).
+  and `bounded-auto`). On a fresh session start the SessionStart context is one orientation line
+  (the mode, "advice only; permissions unchanged", and a pointer to `jevris_status`); a compaction
+  or resume sends the capsule alone.
 - **Stop reminder.** With approved checks whose passing evidence is missing, a Stop is blocked
   once for the same missing evidence, naming the checks (needs `hooks.context`). See
   [verification.md](../verification.md). Otherwise Stop and SubagentStop answer `{}`, as Codex
   requires, and the stop proceeds.
+- **Background verification at Stop.** With `verification.backgroundAtStop` on (off by default), a
+  main-session Stop that finds approved checks missing or stale also queues them in the background,
+  and the Stop answers as before; a SubagentStop never queues. See
+  [verification.md](../verification.md#background-verification-at-stop).
 - **Subagent routing.** The one permission decision a Jevris hook in Codex makes is the `allow` of a
   routed `spawn_agent` call, and only where `hooks.route` is certified. See "Subagent routing"
   below.

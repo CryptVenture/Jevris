@@ -83,7 +83,7 @@ Paths are under your home. `XDG_CONFIG_HOME` moves `.config` when it points insi
 | Path | What it is |
 | --- | --- |
 | `.config/opencode/plugins/jevris.js` | The Jevris OpenCode plugin. It is rendered from `plugins/shared/shim.js` with OpenCode's values from `plugins/opencode/harness.json`, exports one function (`JevrisPlugin`), and is bound to `<runtime>/dist/hook.mjs`. |
-| `.config/opencode/skills/jevris-<name>/SKILL.md` (and `reference.md`) | The 8 public skills, rendered from `plugins/shared/skills`. |
+| `.config/opencode/skills/jevris-<name>/SKILL.md` (and `reference.md`) | The 9 skills, rendered from `plugins/shared/skills`. |
 | `.config/opencode/opencode.jsonc`, or `opencode.json` | Adds `mcp.jevris`. When Jevris creates the file, it also adds `$schema`. |
 | `<data>/opencode-install-receipt.json` | The receipt, with paths relative to your home. |
 
@@ -105,7 +105,7 @@ Every other key and comment stays byte for byte. Uninstall removes only `mcp.jev
 ## Verify inside OpenCode
 
 - `opencode mcp list`: `jevris` shows as `connected`.
-- `opencode debug skill`: lists the 8 `jevris-*` skills, each once.
+- `opencode debug skill`: lists the 9 `jevris-*` skills, each once.
 - In a session, call the `jevris_status` tool.
 
 Then run:
@@ -154,7 +154,7 @@ until a later turn finishes or you clear it with `jevris route limits clear`. Se
 Every event is fire-and-forget: at most 8 run at once, and any extra is dropped. There are two
 exceptions. Compaction may add lines to `output.context` within 1.5 s, and only once
 `hooks.context` is certified. Jevris saves the capsule and adds its mandatory lines there, once
-per session (the restore Claude Code gets at SessionStart). A top-level session's message and an unpinned `task` call
+per session (the restore Claude Code gets at SessionStart). A new session also gets one orientation line (the mode, "advice only; permissions unchanged", and a pointer to `jevris_status`), held until the session's next message and sent once, when `hooks.context` is certified and Jevris is on. A top-level session's message and an unpinned `task` call
 each wait at most 300 ms (below, and Model routing). Jevris never registers `permission.ask`.
 
 **What the model sees on a turn.** When you send a message in a top-level session, the plugin
@@ -184,6 +184,13 @@ A failed tool call becomes failure evidence, as in Claude Code. There are two ca
 
 Only the first line of the output or error is kept as evidence. Every other part update is still
 dropped. This was read from the OpenCode source at v1.18.32 and Kilo at v7.8.1.
+
+**Background verification at Stop.** `session.idle` of a top-level session is a Stop, so with
+`verification.backgroundAtStop` on (off by default) it queues the approved checks that are missing
+or stale in the background, like any other harness's Stop. A child session's idle is a subagent's
+Stop and never queues. There is no stop gate here, so nothing continues the agent; the receipts
+are there for the next Stop or session. See
+[verification.md](../verification.md#background-verification-at-stop).
 
 A subagent runs as a child session, and only its `session.created` names the parent
 (`parentID`). The plugin remembers the parent of up to 512 child sessions and reports the

@@ -12,7 +12,7 @@ import {
   LISTING_EVIDENCE_PATHS_MAX,
   LISTING_EVIDENCE_PATH_CHARS,
   LISTING_EVIDENCE_PATH_PATTERN,
-  PUBLIC_COMMAND_NAMES,
+  SKILL_NAMES,
   REASON_CODE_PATTERN,
   SECRET_PATTERNS,
   STUB_CASE_EVIDENCE_MAX,
@@ -204,7 +204,7 @@ async function sees(ctx: LiveContext, args: readonly string[], needle: RegExp): 
 /**
  * `claude plugin details jevris@jevris-local` prints the plugin's component inventory
  * (code.claude.com/docs/en/plugins/cli-reference, read 27 September 2026). Certified only when
- * every public command's skill is named there as a word (G17: the check used to match
+ * every skill is named there as a word (G17: the check used to match
  * "status" alone, so seven missing skills still passed).
  */
 async function claudeSkillsListed(ctx: LiveContext): Promise<{ ok: boolean; detail: string }> {
@@ -212,15 +212,15 @@ async function claudeSkillsListed(ctx: LiveContext): Promise<{ ok: boolean; deta
   const ran = await ctx.cli.run(LAUNCHER[ctx.harness], args, RUN_TIMEOUT_MS, ctx.env);
   if (!ran.spawned) return { ok: false, detail: `${args.join(' ')}: not started` };
   if (ran.code !== 0) return { ok: false, detail: `${args.join(' ')}: exit ${ran.code}` };
-  const missing = PUBLIC_COMMAND_NAMES.filter((name) => !new RegExp(`(?<![A-Za-z0-9_-])${name}(?![A-Za-z0-9_-])`).test(ran.stdout));
+  const missing = SKILL_NAMES.filter((name) => !new RegExp(`(?<![A-Za-z0-9_-])${name}(?![A-Za-z0-9_-])`).test(ran.stdout));
   return missing.length === 0
-    ? { ok: true, detail: `${args.join(' ')}: all ${PUBLIC_COMMAND_NAMES.length} skills listed` }
+    ? { ok: true, detail: `${args.join(' ')}: all ${SKILL_NAMES.length} skills listed` }
     : { ok: false, detail: `${args.join(' ')}: missing ${missing.join(', ')}` };
 }
 
 /**
  * `<harness> debug skill` (Kilo, OpenCode) prints the discovered skills as JSON. Certified
- * only when every public command's jevris-<name> skill is there exactly once (SKL-02/03).
+ * only when every jevris-<name> skill is there exactly once (SKL-02/03).
  */
 async function skillsDiscovered(ctx: LiveContext): Promise<{ ok: boolean; detail: string }> {
   const ran = await ctx.cli.run(LAUNCHER[ctx.harness], ['debug', 'skill'], RUN_TIMEOUT_MS, ctx.env);
@@ -236,10 +236,10 @@ async function skillsDiscovered(ctx: LiveContext): Promise<{ ok: boolean; detail
   if (!Array.isArray(list)) return { ok: false, detail: 'debug skill: output is not a JSON list' };
   const names = list.map((item) => (item !== null && typeof item === 'object' ? (item as { name?: unknown }).name : undefined)).filter((name): name is string => typeof name === 'string');
   const ours = names.filter((name) => name.startsWith('jevris-'));
-  const expected = PUBLIC_COMMAND_NAMES.map((name) => `jevris-${name}`);
+  const expected = SKILL_NAMES.map((name) => `jevris-${name}`);
   const missing = expected.filter((name) => !ours.includes(name));
   const duplicated = ours.length !== new Set(ours).size;
-  const unprefixed = names.filter((name) => (PUBLIC_COMMAND_NAMES as readonly string[]).includes(name));
+  const unprefixed = names.filter((name) => (SKILL_NAMES as readonly string[]).includes(name));
   const ok = missing.length === 0 && !duplicated && unprefixed.length === 0 && ours.length === expected.length;
   const problems = [
     missing.length > 0 ? `missing ${missing.join(', ')}` : '',

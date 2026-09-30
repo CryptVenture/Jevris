@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { join } from 'node:path';
 
 const { parseSkillSource, readSkillProfile, readSkillSources, renderSkill, renderSkillTree, skillEntry, skillFolder, skillProfile, USER_ONLY_POLICY } = await import('../dist/skill-render.js');
-const { PUBLIC_COMMAND_NAMES } = await import('../../../packages/contracts/dist/index.js');
+const { SKILL_NAMES } = await import('../../../packages/contracts/dist/index.js');
 
 const PLUGINS = join(import.meta.dirname, '..', '..', '..', 'plugins');
 /** Every harness keeps plugins/<harness>/ with its declarative manifest. */
@@ -13,12 +13,12 @@ const HARNESSES = ['claude', 'codex', 'kilocode', 'opencode', 'antigravity'];
 
 test('every harness manifest declares how it takes skills, and the shared source renders for all five', async () => {
   const entries = await readSkillSources(join(PLUGINS, 'shared', 'skills'));
-  assert.deepEqual(entries.map((e) => e.skill.name), [...PUBLIC_COMMAND_NAMES].sort());
+  assert.deepEqual(entries.map((e) => e.skill.name), [...SKILL_NAMES].sort());
   for (const harness of HARNESSES) {
     const profile = await readSkillProfile(join(PLUGINS, harness));
     const tree = renderSkillTree(entries, profile);
     const folders = [...new Set([...tree.keys()].map((rel) => rel.split('/')[0]))].sort();
-    assert.deepEqual(folders, [...PUBLIC_COMMAND_NAMES].map((name) => `${profile.namespace}${name}`).sort(), harness);
+    assert.deepEqual(folders, [...SKILL_NAMES].map((name) => `${profile.namespace}${name}`).sort(), harness);
     for (const { skill, reference } of entries) {
       const text = tree.get(`${skillFolder(skill.name, profile)}/SKILL.md`);
       const front = text.split('\n---\n')[0];

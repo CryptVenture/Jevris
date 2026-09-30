@@ -12,7 +12,7 @@ import { main } from '../dist/cli.js';
 import { codexHookCommands, codexHooksJson, antigravityHooksJson, harnessExecutableEnv, pointAtRuntime, runHarnessCli, substituteShim } from '../dist/global-harness.js';
 import { resolveExecutable } from '../../../packages/platform/dist/index.js';
 import { jevrisPaths } from '../../../packages/platform/dist/index.js';
-import { PUBLIC_COMMAND_NAMES } from '../../../packages/contracts/dist/index.js';
+import { SKILL_NAMES } from '../../../packages/contracts/dist/index.js';
 
 function hasKey(value, key) {
   if (Array.isArray(value)) return value.some((item) => hasKey(item, key));
@@ -81,7 +81,7 @@ const mcpOf = (home) => join(runtimeOf(home), 'plugins', 'shared', 'mcp.js');
 /** SKL-02: the folder equals the frontmatter name, and outside Claude that name is jevris-<name>. */
 async function assertNamespacedSkills(dir) {
   const folders = (await readdir(dir)).sort();
-  assert.deepEqual(folders, PUBLIC_COMMAND_NAMES.map((name) => `jevris-${name}`).sort(), 'SKL-01: all eight skills, once each');
+  assert.deepEqual(folders, SKILL_NAMES.map((name) => `jevris-${name}`).sort(), 'SKL-01: all nine skills, once each');
   for (const folder of folders) {
     assert.match(folder, /^jevris-[a-z]+$/);
     const text = await readFile(join(dir, folder, 'SKILL.md'), 'utf8');

@@ -2,7 +2,7 @@ import { cp, lstat, readdir, realpath, rm, rmdir } from 'node:fs/promises';
 import { basename, dirname, join, posix, relative, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { findPackageRoot, jevrisPaths, resolveExecutable, resolveHome, shellQuote } from '@jevris/platform';
-import { PUBLIC_COMMAND_NAMES, type CertificationFeature } from '@jevris/contracts';
+import { SKILL_NAMES as ALL_SKILL_NAMES, type CertificationFeature } from '@jevris/contracts';
 import { CLAUDE_GATED_EVENTS } from '@jevris/adapter-claude-code';
 import { EVENT_TIMEOUTS as CODEX_TIMEOUTS, REGISTERED_EVENTS as CODEX_EVENTS } from '@jevris/adapter-codex';
 import { EVENT_TIMEOUTS as AGY_TIMEOUTS, REGISTERED_EVENTS as AGY_EVENTS } from '@jevris/adapter-antigravity';
@@ -159,8 +159,8 @@ export const LEGACY_CLAUDE_PLUGIN_ID = 'jevris@skills-dir';
 /** Home-relative marketplace folder; the plugin is `plugins/jevris` inside it. */
 export const CLAUDE_MARKETPLACE_REL = join('.claude', 'plugins', CLAUDE_MARKETPLACE);
 export const CODEX_MARKETPLACE_DEFAULT = 'jevris-local';
-/** One skill per public command (SKL-01); `status` is required, the others ship as the package has them. */
-const SKILL_NAMES: readonly string[] = PUBLIC_COMMAND_NAMES;
+/** One skill per public command plus the guide (SKL-01); `status` is required, the others ship as the package has them. */
+const SKILL_NAMES: readonly string[] = ALL_SKILL_NAMES;
 /** The one skill source, package-relative; every harness's tree is rendered from it at install. */
 const SKILL_SOURCE = ['plugins', 'shared', 'skills'];
 const MAX_CONFIG = 131072;

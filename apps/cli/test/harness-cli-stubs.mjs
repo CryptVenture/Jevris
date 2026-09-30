@@ -22,8 +22,8 @@ const HELP_FLAGS = {
 export const WORKER_HELP = Object.fromEntries(Object.entries(HELP_FLAGS).map(([bin, flags]) => [bin, `Usage: ${bin}\n\nOptions:\n${flags.map((flag) => `  ${flag}    stand-in`).join('\n')}\n`]));
 
 async function publicCommandNames() {
-  const { PUBLIC_COMMAND_NAMES } = await import(new URL('../../../packages/contracts/dist/index.js', import.meta.url).href);
-  return [...PUBLIC_COMMAND_NAMES];
+  const { SKILL_NAMES } = await import(new URL('../../../packages/contracts/dist/index.js', import.meta.url).href);
+  return [...SKILL_NAMES];
 }
 
 /** The stub program for one harness binary (bin: claude, kilo, codex, opencode or agy). */

@@ -5,7 +5,7 @@ import { readdir, readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { shortlistInstalledSkills } from '@jevris/core';
-import { PUBLIC_COMMAND_NAMES } from '@jevris/contracts';
+import { SKILL_NAMES as ALL_SKILL_NAMES } from '@jevris/contracts';
 
 const repoRoot = join(import.meta.dirname, '..', '..', '..');
 const { TOOLS } = await import('../../../packages/mcp/dist/tools.js');
@@ -21,7 +21,7 @@ const HARNESSES = ['claude', 'codex', 'kilocode', 'opencode', 'antigravity'];
 const PROFILES = Object.fromEntries(await Promise.all(HARNESSES.map(async (harness) => [harness, await readSkillProfile(join(repoRoot, 'plugins', harness))])));
 const TREES = Object.fromEntries(HARNESSES.map((harness) => [harness, renderSkillTree(ENTRIES, PROFILES[harness])]));
 const file = (harness, name, leaf) => TREES[harness].get(`${skillFolder(name, PROFILES[harness])}/${leaf}`);
-const SKILL_NAMES = [...PUBLIC_COMMAND_NAMES].sort();
+const SKILL_NAMES = [...ALL_SKILL_NAMES].sort();
 const WITH_REFERENCE = ['checkpoint', 'plan', 'route', 'verify'];
 
 /**
@@ -36,6 +36,7 @@ const INVOCATION = {
   recover: 'model',
   verify: 'model',
   explain: 'model',
+  guide: 'model',
   checkpoint: 'user',
   configure: 'user',
 };
@@ -43,7 +44,8 @@ const INVOCATION = {
 /**
  * SKL-03 token budget, measured with a deterministic estimator (ceil(chars / 4)) on the
  * Claude tree, which carries the longest frontmatter. Measured at 2026-09-25: largest skill
- * 368, all skills 2462, model-invocable listing 300. The real `claude plugin details` check is
+ * 368, all skills 2462, model-invocable listing 300. With the guide (2026-09-30): all skills 2780,
+ * listing 340; the limits did not move. The real `claude plugin details` check is
  * the opt-in live smoke.
  */
 const BUDGET = { perSkill: 420, total: 2800, listing: 360, description: 250 };
@@ -76,7 +78,7 @@ function rejectsInjection(text) {
   for (const banned of ['/Users/', '/Volumes/', '/home/runner/']) assert.equal(text.includes(banned), false, banned);
 }
 
-test('the eight public skills render for every harness with their reference files and nothing else (SKL-01, SKL-02)', () => {
+test('the nine skills render for every harness with their reference files and nothing else (SKL-01, SKL-02)', () => {
   for (const harness of HARNESSES) {
     // Codex reads a user-only skill's policy from agents/openai.yaml (G9); no other harness has one.
     const policy = (name) => (harness === 'codex' && INVOCATION[name] === 'user' ? [`${skillFolder(name, PROFILES[harness])}/agents/openai.yaml`] : []);

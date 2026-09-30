@@ -414,6 +414,7 @@ export { base64Decode, base64Encode, signRecord, signingPayload, verifyRecordSig
 export * from './sidecar.js';
 export * from './harness-event.js';
 export * from './commands.js';
+export * from './skills.js';
 export * from './jev-provider.js';
 export * from './decision-record.js';
 export * from './routing.js';

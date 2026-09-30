@@ -46,7 +46,7 @@ A **harness** is the coding tool you work in. Jevris installs into five: Claude 
 | --- | --- | --- |
 | **Hooks** | Small commands the harness runs on events such as "session started", "tool finished", "about to stop" | Let Jevris observe the session, and, where certified, add context or ask for missing evidence at Stop |
 | **MCP tools** | 17 tools the model can call (MCP is the standard way harnesses expose tools to a model) | Status, planning, route advice, checkpoints, verification status, decision explanations and more ([mcp.md](mcp.md)) |
-| **Skills** | 8 short instruction files: status, plan, route, checkpoint, recover, verify, explain, configure | Let you or the model use Jevris by name, for example `/jevris:status` in Claude Code |
+| **Skills** | 9 short instruction files: status, plan, route, checkpoint, recover, verify, explain, configure, guide (a short tour) | Let you or the model use Jevris by name, for example `/jevris:status` in Claude Code |
 | **The sidecar** | One background Jevris process per user, started on demand, stopped after 30 idle minutes | Holds the local database, reads the Jev key, answers hooks, tools and commands |
 
 The hooks, tools and skills are thin. They pass requests to the sidecar. If the sidecar is late or down, the hook answers "observe" and your harness carries on as normal. Jevris never blocks a tool call because it failed.

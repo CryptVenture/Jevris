@@ -33,10 +33,10 @@ export const REQUIRED = [
 ];
 
 /**
- * The eight public skills (SKL-01). The package ships their one source; install renders it
+ * The nine skills (SKL-01): one per public command, plus the guide. The package ships their one source; install renders it
  * into each harness's tree in the target home, so no rendered tree is shipped (DRY).
  */
-export const PUBLIC_SKILLS = ['checkpoint', 'configure', 'explain', 'plan', 'recover', 'route', 'status', 'verify'];
+export const PUBLIC_SKILLS = ['checkpoint', 'configure', 'explain', 'guide', 'plan', 'recover', 'route', 'status', 'verify'];
 export const SKILL_TREES = ['plugins/shared/skills'];
 REQUIRED.push(...SKILL_TREES.flatMap((dir) => PUBLIC_SKILLS.map((name) => `${dir}/${name}/SKILL.md`)));
 

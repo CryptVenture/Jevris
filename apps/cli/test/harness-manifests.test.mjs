@@ -16,7 +16,7 @@ const { GLOBAL_HARNESSES } = await import('../dist/global-harness.js');
 const { parseHarnessManifest, mcpEntry } = await import('../dist/harness-manifest.js');
 const { adapterCapabilities } = await import('../dist/conformance-run.js');
 const { parseJsoncTree, nodeValue } = await import('../dist/jsonc-edit.js');
-const { PUBLIC_COMMAND_NAMES } = await import('../../../packages/contracts/dist/index.js');
+const { SKILL_NAMES } = await import('../../../packages/contracts/dist/index.js');
 const claudeAdapter = await import('@jevris/adapter-claude-code');
 const codexAdapter = await import('@jevris/adapter-codex');
 const agyAdapter = await import('@jevris/adapter-antigravity');
@@ -126,10 +126,10 @@ test('installing each harness from its manifest renders its complete tree: skill
       const manifest = await manifestOf(harness);
       const { code, text } = await run(['install', '--harness', manifest.launcher, '--home', home, '--yes', '--no-smoke']);
       assert.equal(code, 0, `${harness}: ${text}`);
-      // Skills: all eight, rendered with the manifest's profile.
+      // Skills: all nine, rendered with the manifest's profile.
       const skills = place(home, manifest.skills.dir);
       const folders = (await readdir(skills)).sort();
-      assert.deepEqual(folders, PUBLIC_COMMAND_NAMES.map((name) => `${manifest.skills.namespace}${name}`).sort(), `${harness}: eight skills`);
+      assert.deepEqual(folders, SKILL_NAMES.map((name) => `${manifest.skills.namespace}${name}`).sort(), `${harness}: nine skills`);
       const status = await readFile(join(skills, `${manifest.skills.namespace}status`, 'SKILL.md'), 'utf8');
       assert.match(status, new RegExp(`^---\\nname: ${manifest.skills.namespace}status\\n`));
       assert.equal(status.includes('allowed-tools:'), manifest.skills.allowedToolsPrefix !== null, `${harness}: allowed-tools only where the harness reads it`);

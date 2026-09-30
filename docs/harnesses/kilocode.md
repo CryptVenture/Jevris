@@ -87,7 +87,7 @@ All paths are under your home directory: `~` on macOS and Linux, `%USERPROFILE%`
 | Path | What it is |
 | --- | --- |
 | `.config/kilo/plugin/jevris.js` | The Jevris Kilo plugin. It is rendered from the shared template `plugins/shared/shim.js` with Kilo's values from `plugins/kilocode/harness.json`, and bound to `<runtime>/dist/hook.mjs`. |
-| `.config/kilo/skills/jevris-<name>/SKILL.md` (and `reference.md`) | The 8 public skills, `jevris-status` through `jevris-configure`, rendered from `plugins/shared/skills`. |
+| `.config/kilo/skills/jevris-<name>/SKILL.md` (and `reference.md`) | The 9 skills, `jevris-status` through `jevris-guide`, rendered from `plugins/shared/skills`. |
 | `.config/kilo/kilo.jsonc`, or `kilo.json` when no `.jsonc` exists | One key is added, `mcp.jevris`. Everything else in the file is kept byte for byte. |
 | `<data>/kilocode-install-receipt.json` | The receipt: every path and edit Jevris made, stored relative to your home. |
 
@@ -108,7 +108,7 @@ That is the only key Jevris adds, and uninstall removes only that key.
 
 - `kilo debug info`: the plugin list names `.../kilo/plugin/jevris.js`.
 - `kilo mcp list`: `jevris` shows as `connected`.
-- `kilo debug skill`: lists `jevris-status`, `jevris-plan`, `jevris-route`, `jevris-checkpoint`, `jevris-recover`, `jevris-verify`, `jevris-explain` and `jevris-configure`, each once.
+- `kilo debug skill`: lists `jevris-status`, `jevris-plan`, `jevris-route`, `jevris-checkpoint`, `jevris-recover`, `jevris-verify`, `jevris-explain`, `jevris-configure` and `jevris-guide`, each once.
 - In a Kilo session, ask for the `jevris_status` tool. It answers with Jevris mode, sidecar state and the kill switch.
 
 Then, outside Kilo:
@@ -159,7 +159,7 @@ until a later turn finishes or you clear it with `jevris route limits clear`. Se
 Every event is fire-and-forget: at most 8 run at once, and any extra is dropped. There are two
 exceptions. Compaction waits at most 1.5 s and may only add lines to `output.context`,
 and only once `hooks.context` is certified for your Kilo version. Jevris saves the capsule and
-adds its mandatory lines there, once per session (the restore Claude Code gets at SessionStart). A top-level session's message
+adds its mandatory lines there, once per session (the restore Claude Code gets at SessionStart). A new session also gets one orientation line (the mode, "advice only; permissions unchanged", and a pointer to `jevris_status`), held until the session's next message and sent once, when `hooks.context` is certified and Jevris is on. A top-level session's message
 and an unpinned `task` call each wait at most 300 ms (below, and Model routing).
 
 **What the model sees on a turn.** When you send a message in a top-level session, the plugin
@@ -189,6 +189,13 @@ A failed tool call becomes failure evidence, as in Claude Code. There are two ca
 
 Only the first line of the output or error is kept as evidence. Every other part update is still
 dropped. This was read from the OpenCode source at v1.18.32 and Kilo at v7.8.1.
+
+**Background verification at Stop.** `session.idle` of a top-level session is a Stop, so with
+`verification.backgroundAtStop` on (off by default) it queues the approved checks that are missing
+or stale in the background, like any other harness's Stop. A child session's idle is a subagent's
+Stop and never queues. There is no stop gate here, so nothing continues the agent; the receipts
+are there for the next Stop or session. See
+[verification.md](../verification.md#background-verification-at-stop).
 
 A subagent runs as a child session, and only its `session.created` names the parent
 (`parentID`). The plugin remembers the parent of up to 512 child sessions and reports the

@@ -105,6 +105,7 @@ export * from './memory/rehydrate.js';
 export * from './memory/handoff.js';
 export * from './memory/facts.js';
 export * from './hooks/certification.js';
+export * from './hooks/orientation.js';
 export * from './hooks/subscriber.js';
 export * from './ops/memory-ops.js';
 export * from './settings/owned-mode.js';
