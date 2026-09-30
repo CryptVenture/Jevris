@@ -700,7 +700,7 @@ const C68: CapabilityDefinition = {
     const external = candidates.filter((c) => c.commands.some((cmd) => EXTERNAL_EFFECT.test(cmd)) || EXTERNAL_EFFECT.test(c.patch.split('\n').filter((l) => l.startsWith('+')).join('\n')));
     const results = await Promise.all(
       candidates.map(async (c) => {
-        const created = await createWorktree(cx.ws, { taskId: `spec-${c.id}`, allowedPaths: scopes.length > 0 ? scopes : ['**'] }, { git: cx.git });
+        const created = await createWorktree(cx.ws, { taskId: `spec-${c.id}`, allowedPaths: scopes.length > 0 ? scopes : ['**'] });
         if (!created.ok) return { id: c.id, applies: false, reason: created.reasonCode, changed: 0, violations: 0, removed: false };
         const wt = created.worktree;
         const dir = join(cx.ws.dataDir, 'tmp', `spec-${randomBytes(6).toString('hex')}`);
@@ -724,7 +724,7 @@ const C68: CapabilityDefinition = {
             await cx.git.run(['clean', '-fdq'], wt.path);
             if (applied && scope.ok) break;
           }
-          const removed = await removeWorktree(cx.ws, wt.id, true, { git: cx.git });
+          const removed = await removeWorktree(cx.ws, wt.id, true);
           const reason = !applied ? 'does-not-apply' : scope.unknown ? 'scope-unknown' : scope.ok ? 'applies-in-scope' : 'writes-outside-scope';
           return { id: c.id, applies: applied, reason, changed: scope.changed.length, violations: scope.violations.length, removed: removed.removed };
         } finally {
