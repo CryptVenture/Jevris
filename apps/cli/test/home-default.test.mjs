@@ -36,7 +36,7 @@ function jevris({ home, work }, argv, { testEnv, input, extra = {} } = {}) {
 const COMMANDS = [
   ['status', ['status', '--json']],
   ['checkpoint', ['checkpoint', '--objective', 'x', '--json']],
-  ['evidence get', ['evidence', 'get', 'output:none', '--json']],
+  ['evidence get', ['evidence', 'get', `ev:${'0'.repeat(64)}`, '--json']],
   ['verify profile', ['verify', 'profile', '--json']],
   ['verify required', ['verify', 'required', 'unit', '--json']],
   ['task reconcile', ['task', 'reconcile', 'T1', '--applied', '--yes', '--json']],

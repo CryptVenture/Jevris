@@ -87,14 +87,26 @@ Every result has the same envelope:
 - a task that is not found locally is reported as not found;
 - a receipt that can't be recorded says so.
 
-The `sidecar.reasonCode` says why the answer is reduced:
+The `sidecar.reasonCode` says why the answer is reduced. Which code you see depends on whether the tool may start the sidecar. It may, unless `JEVRIS_SIDECAR_AUTOSTART=0` is set (see [Settings](#settings) under the hook launcher).
+
+When the tool tried to start the sidecar and could not:
 
 | `sidecar.reasonCode` | Meaning |
 | --- | --- |
-| `SIDECAR_UNAVAILABLE` | The sidecar is not running. |
+| `SIDECAR_UNAVAILABLE` | The sidecar could not be started. |
 | `SIDECAR_STARTING` | The sidecar is still starting. Retry in a moment. |
+| `SIDECAR_REFUSED` | The sidecar refused to start or to be used, for example because of its scope. |
+
+When the tool may not start the sidecar (`JEVRIS_SIDECAR_AUTOSTART=0`), or it started and then could not be reached:
+
+| `sidecar.reasonCode` | Meaning |
+| --- | --- |
+| `NOT_RUNNING` | No sidecar is running. Run `jevris sidecar start`, or unset `JEVRIS_SIDECAR_AUTOSTART`. |
+| `KEY_UNREADABLE` | A sidecar is running, but this client cannot read its key file. |
+| `FOREIGN_LOCALITY` | The running sidecar belongs to another execution environment, so it is not used. |
+| `CONNECT_FAILED`, `ECONNREFUSED`, `ENOENT`, `EAGAIN` | The endpoint is listed but the connection failed, for example after a crash. |
+| `CONNECT_TIMEOUT` | The sidecar did not accept the connection in time. |
 | `SIDECAR_TIMEOUT` | The sidecar did not answer in time. |
-| `SIDECAR_REFUSED` | The sidecar refused this request, for example because of its scope. |
 | `SIDECAR_REJECTED` | The sidecar rejected this request. |
 | `SIDECAR_INVALID_RESULT` | The sidecar answered, but not in the expected shape. Update Jevris. |
 
@@ -108,9 +120,7 @@ Errors come back as a tool result with `isError: true` and one text block. There
 
 | Text begins with | Cause | What to do |
 | --- | --- | --- |
-| `Refused (REFUSED):` | The arguments didn't match the tool's input schema, for example an unknown field such as `home`, a value that is too long, or a malformed id. Also returned when a settings change arrives through MCP. | Fix the arguments. Change settings with the `jevris` CLI. |
-| `Refused (INVALID_JSON):` | The arguments were not valid JSON. | Send a JSON object. |
-| `Refused (OVERSIZE):` | The arguments were larger than 1 MiB. | Send less. |
+| `Refused (REFUSED):` | The arguments didn't match the tool's input, for example an unknown field such as `home`, a value that is too long, a malformed id or handle, or a `capabilityId` that belongs to the other advice tool (`jevris_advise` takes only its own ids, `jevris_delivery_report` only `C57`, `C58`, `C59`, `C60`, `C61` and `C64`). Also returned when a settings change arrives through MCP. | Fix the arguments. Change settings with the `jevris` CLI. |
 | `Refused (MODE_OFF):` | Jevris is in `off` mode. In `off`, `jevris_plan_route`, `jevris_plan`, `jevris_recover`, `jevris_advise` and `jevris_delivery_report` are refused, whether or not the sidecar runs. The other tools still answer. | Raise the mode from a terminal, for example `jevris configure set mode advise`. |
 | `Refused (VERIFY_STATE_UNKNOWN):` | `jevris_verify` did not get an answer from the sidecar in time, so the state of the checks is unknown. | Call `jevris_verify` again. |
 | `Refused: the arguments must be an object.` | `arguments` was an array or a scalar value. | Send an object. |
@@ -121,6 +131,16 @@ Errors come back as a tool result with `isError: true` and one text block. There
 | `The jevris CLI returned no readable answer.` / `returned an unexpected answer.` | Version mismatch or a crash. | Update Jevris. |
 
 An unknown tool name is a protocol error (`-32602`), not a tool result.
+
+Malformed messages are protocol errors too, not tool results:
+
+| Code | Cause |
+| --- | --- |
+| `-32700` | A line was not valid JSON. |
+| `-32600` | The message was not a valid request: a batch, a bad id, or a message larger than 1 MiB. |
+| `-32601` | The method does not exist. |
+
+The server always sends the CLI a valid JSON object of at most 1 MiB, so a tool call cannot end in the CLI's own `INVALID_JSON` or `OVERSIZE` refusals. Those two codes exist only on the internal `jevris __surface` entry, which reads its arguments from standard input and is not part of the tool surface.
 
 A cancelled call gets no response. The server stops the child process when the client sends `notifications/cancelled`.
 
@@ -173,7 +193,7 @@ Picks the most relevant evidence for an intent. It returns handles and short lab
 Returns one evidence item by handle. The item is bounded, may be truncated, and passes through the same egress checks as the CLI.
 
 - **Arguments:**
-  - `handle` (required, such as `ev:` and 64 hex digits, as `jevris verify` names it);
+  - `handle` (required): `ev:` followed by 64 lower-case hex digits, as `jevris verify` names it. Any other form, such as `output:<id>`, is refused;
   - `selectionId` (optional): the `selectionId` of the `jevris_select_evidence` answer that listed the handle. Jevris records which selected evidence was read, as ids only.
 - **Result:** `{ handle, found, mediaType, byteLength, text, truncated }`, and `output` when Jevris recorded how a tool or check output was shown to the model.
 
@@ -182,7 +202,7 @@ Returns one evidence item by handle. The item is bounded, may be truncated, and 
 Returns a task with its state, acceptance checks and runner receipts.
 
 - **Arguments:** `taskId` (required).
-- **Result:** `{ taskId, found, task, receipts }`. In reduced mode `found` is `false`. For an owned task, `worker` is its latest worker run: the model requested and the model that did the work, kept apart, the run's status, and the cost only when the worker reported it.
+- **Result:** `{ taskId, found, task, receipts }`. A blocked task also carries `task.stateReason`, a reason code such as `DEPENDENCY_CANCELLED` (a task it depended on was cancelled, so it can never start). In reduced mode `found` is `false`. For an owned task, `worker` is its latest worker run: the model requested and the model that did the work, kept apart, the run's status, and the cost only when the worker reported it.
 
 #### `jevris_handoff_export`
 
@@ -200,7 +220,7 @@ Validates a task graph. It finds:
 - missing acceptance checks and requirements;
 - parallel tasks that write to the same scope.
 
-- **Arguments:** `tasks` (required): 1 to 1024 task objects.
+- **Arguments:** `tasks` (required): 1 to 1024 task objects. Only each task's TaskNode fields are checked; the scheduling fields of a submitted task (`title`, `models`, `expectedOutputs` and so on) are allowed and ignored.
 - **Result:** `{ valid, taskCount, order, waves, criticalPath, ready, issues, advice }`.
   - `issues` codes are `DUPLICATE_TASK`, `UNKNOWN_DEPENDENCY`, `SELF_DEPENDENCY`, `CYCLE`, `WORKSPACE_SCOPE`, `INVALID_TASK`, `NO_ACCEPTANCE_CHECK`, `NO_REQUIREMENT` and `WRITE_OVERLAP`.
   - An invalid plan is a normal result with `valid: false`.
@@ -252,7 +272,7 @@ Advice on the main-session model and on managed workers. It never switches a mod
 
 #### `jevris_recover`
 
-Classifies repeated failures, oscillation and environment failures, and names one next action. It is advice: nothing is run or restored for you, with one exception. The exception is a failed owned task, named by `taskId`, whose failures repeat. When workers are automatic and the task has not escalated before, Jevris relaunches it once on the next stronger model the task approved ([routing.md](routing.md#when-one-starts)).
+Classifies repeated failures, oscillation and environment failures, and names one next action. A repeat is the same failure fingerprint seen at least twice; one failure is never a repeat. Oscillation is two failures taking turns, at least four in a row (A, B, A, B), in the order given, and its action is to restore the last checkpoint with the user's approval. An exhausted repair budget does not replace that action with a stop, because nothing is restored without a person's approval. It is advice: nothing is run or restored for you, with one exception. The exception is a failed owned task, named by `taskId`, whose failures repeat. When workers are automatic and the task has not escalated before, Jevris relaunches it once on the next stronger model the task approved ([routing.md](routing.md#when-one-starts)).
 
 - **Arguments:**
   - `fingerprints`: up to 256 short failure descriptions, in order;
@@ -317,8 +337,8 @@ Submits a task for Jevris-owned orchestration. The tool is always listed, but it
 
 The task runs under a root budget that already exists in the workspace. This tool cannot create one; a new root budget comes only from `jevris plan --submit` at a terminal. A submitted task starts a worker when the usual conditions hold ([routing.md](routing.md#when-one-starts)); otherwise it is queued.
 
-- **Arguments:** `task` (required): one task object, with `rootBudgetId`, the id of that existing root budget.
-- **Result:** `{ accepted, taskId, leaseIds, reasonCode }`. It lists only the leases actually granted. `OWNED_MODE_UNAVAILABLE` means nothing was granted. `NO_ROOT_BUDGET` means no root budget with that id exists in this workspace, and nothing was submitted. A task with no `rootBudgetId` is refused as `INVALID_TASK`.
+- **Arguments:** `task` (required): one task object, with `rootBudgetId`, the id of that existing root budget. `expectedOutputs` are names, not paths: each entry is letters, digits and `. _ : -` only, up to 128 characters, so `patch` is accepted and `out/file.txt` is not.
+- **Result:** `{ accepted, taskId, leaseIds, reasonCode }`. It lists only the leases actually granted. `OWNED_MODE_UNAVAILABLE` means nothing was granted. `NO_ROOT_BUDGET` means no root budget with that id exists in this workspace, and nothing was submitted. A task with no `rootBudgetId`, or with a field that breaks its rule (such as a path in `expectedOutputs`), is refused as `INVALID_TASK`; `jevris plan --submit` names the field and the rule in the same case. A task that names a cancelled task in `dependencyIds` is refused as `UNKNOWN_DEPENDENCY`; a cancelled task never makes a submit of an unrelated task fail.
 
 ## Resources
 

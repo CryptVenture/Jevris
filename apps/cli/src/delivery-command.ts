@@ -37,8 +37,8 @@ export const DELIVERY_HELP = `Usage: jevris delivery pr-readiness [--task <id>] 
 Delivery reports for the change in this workspace. Each one is advice built from Jevris's own
 records (receipts, the task graph, git and the workspace files):
   pr-readiness  Is the change ready for a pull request? Blockers are mandatory checks without a
-                current pass, requirements no check covers, tasks not verified, and review
-                comments you report.
+                current pass (or no approved mandatory check), requirements no check covers,
+                tasks not verified, and review comments you report.
   ci-triage     Where to start on each failing CI receipt: the change, the CI infrastructure,
                 or a flaky test.
   upgrades      Lockfile changes ranked by risk, with the checks that cover the code using them.

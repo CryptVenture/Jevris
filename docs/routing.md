@@ -275,6 +275,8 @@ At launch, two more checks apply. The harness must hold a sign-in for the model'
 After a submit, later work starts on its own under the same conditions:
 
 - When a task is verified, the tasks that were waiting on it start. So the next wave of the plan needs no new submit.
+- When a worker ends, or you cancel a task with `jevris task cancel`, its slot is free and the next queued task starts. At most `orchestration.maxConcurrentWorkers` (default 2) run at once, so a plan with more independent tasks than that needs no second submit. The kill switch is read again at that moment: if it was turned on while the worker ran, nothing new starts.
+- Cancelling a task cancels nothing else. A queued task that waits on a cancelled one is marked `blocked` with the reason `DEPENDENCY_CANCELLED`, which `jevris_get_task` shows as `stateReason`.
 - When `recover` finds a failed owned task failing the same way again, Jevris relaunches it once on the next stronger model the task approved. This is the one bounded escalation. A new passing check result is still the only way it completes.
 
 Certification of `worker.route` is not one of these conditions in 1.2. It decides only whether route learning may change the model or effort ([below](#certification-of-worker-routing)).

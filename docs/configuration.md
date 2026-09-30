@@ -189,7 +189,7 @@ The counts go with the next event that reaches the launcher, which appends one l
 | `jevris.db.pre-restore-<time>` | The store as it was before `jevris store restore`. |
 | `<data>/evidence/` | Raw tool artifacts, kept for the raw-artifact retention period. |
 | `<state>/jev-circuit.json` | The Jev circuit breaker per provider and account: its state (closed, open, half-open, observe-only or disabled), why it is disabled (`AUTH`, `BILLING` or `ACCOUNT`), when, how long it stays open (at most 15 minutes), and a 16-character fingerprint of the Jev key, never the key. Only the sidecar writes it, owner-only (`0600`). A missing or damaged file starts closed. A billing or account disable clears with `jevris credential reenable` at a terminal, a key refusal with a new key (`jevris credential set`). Not swept by age; `jevris data delete` and `jevris uninstall --delete-data` remove it. |
-| `<data>/decisions/`, `<data>/decision-budget.json` | Decision journal and budget, archived into the store every minute. A journal entry older than the decision retention period is not archived, and the daily sweep removes such entries from the journal, so a decision the sweep removed from the store does not come back. |
+| `<data>/decisions/`, `<data>/decision-budget.json` | Decision journal and budget, archived into the store every minute. A journal entry older than the decision retention period is not archived, and the daily sweep, and `jevris data purge`, remove such entries from the journal, so a decision the sweep removed from the store does not come back and `jevris explain` no longer finds it. `jevris store restore` replaces the store only and leaves these files as they are; the sidecar archives them into the restored store again on its next start. |
 
 | Command | What it does |
 | --- | --- |
@@ -251,7 +251,7 @@ The hook records table in the store (`hook_records`, schema 8) holds the sidecar
 
 The provider consent table (`provider_consent`, schema 9) is not swept. Neither a grant nor a revoke ages out: a grant stays until you revoke it, a revoke stays until consent is given again, and `jevris data delete` removes both. See [privacy.md](privacy.md#consent-per-model-provider).
 
-`jevris data purge [--dry-run]` reports the orchestration records, live-evidence lines and local calibration cases files it removes (or would remove) beside the store rows and raw files.
+`jevris data purge [--dry-run]` reports the orchestration records, live-evidence lines and local calibration cases files it removes (or would remove) beside the store rows and raw files, and the decision journal records it removes (a decision with an unknown effect is kept until its cost is reconciled).
 
 ## Kill switch
 
@@ -271,7 +271,8 @@ The provider consent table (`provider_consent`, schema 9) is not swept. Neither 
 While the switch is stopped:
 
 - hook events are recorded, but no advice or decision follows from them;
-- every sidecar operation that changes something answers `KILL_SWITCH`;
+- every sidecar operation that records or changes something answers `KILL_SWITCH`, except the few that stay open on purpose (the audit log, backup and export, and the switch itself; see [security.md](security.md#the-kill-switch));
+- the local `jevris configure` writes and `jevris data purge` (other than `--dry-run`) are refused too;
 - the MCP owned-mode submit is refused;
 - `jevris data delete` refuses (`KILL_SWITCH_ACTIVE`) and keeps the data and the kill-switch files, so deleting data never lifts a stop.
 

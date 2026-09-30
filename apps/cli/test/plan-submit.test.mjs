@@ -109,6 +109,7 @@ test('plan --submit refuses bad flags before asking, and shows refusals with exi
   assert.equal(conflict.code, 1);
   assert.match(conflict.text, /not submitted \(BUDGET_CONFLICT\)/);
   assert.match(conflict.text, /Use a new --budget id/);
+  assert.match(conflict.text, /current limit/, 'JEV-0034: the hint says the limit is the current one');
 
   const stopped = await plan(box, [...base(box), '--yes', '--json'], { ports: fakePorts({ ok: false, reason: 'refused', reasonCode: 'KILL_SWITCH', message: 'stopped' }).ports });
   assert.equal(stopped.code, 1);
@@ -140,14 +141,19 @@ test('SR-1: a new root budget needs a person; the CLI says so only after a y at 
   assert.deepEqual([fake.calls.at(-1).body.authorizationId, fake.calls.at(-1).body.actor, 'channel' in fake.calls.at(-1).body], ['a0123456789abcdef01234567', 'alice', false]);
   assert.equal((await plan(box, [...base(box), '--authorization', '../x', '--yes'], { ports: fake.ports })).code, 2, 'a malformed id is a usage error');
 
-  // The sidecar's refusals are shown with the way forward and exit 1.
+  // The sidecar's refusals are shown with the way forward. A refusal because no person confirmed
+  // the new budget is a refused request: exit 2 (JEV-0007). Other refusals stay exit 1.
   const refusal = (reasonCode) => fakePorts({ ok: true, result: { ...SUBMITTED, accepted: false, reasonCode, planId: null, rootBudgetId: null, taskIds: [], waves: [] } }).ports;
   const scripted = await plan(box, [...base(box), '--yes'], { ports: refusal('CHANNEL_REFUSED') });
-  assert.equal(scripted.code, 1);
+  assert.equal(scripted.code, 2);
   assert.match(scripted.text, /not submitted \(CHANNEL_REFUSED\)/);
   assert.match(scripted.text, /jevris authorize budget\.increase --scope sprint-1/);
   const wrong = await plan(box, [...base(box), '--authorization', 'a0123456789abcdef01234567', '--yes', '--json'], { ports: refusal('AUTHORIZATION_REFUSED') });
-  assert.deepEqual([wrong.code, wrong.json.accepted, wrong.json.reasonCode], [1, false, 'AUTHORIZATION_REFUSED']);
+  assert.deepEqual([wrong.code, wrong.json.accepted, wrong.json.reasonCode], [2, false, 'AUTHORIZATION_REFUSED']);
+  for (const reasonCode of ['PLAN_INVALID', 'DUPLICATE_TASK', 'BUDGET_CONFLICT', 'STORE_UNAVAILABLE']) {
+    const refused = await plan(box, [...base(box), '--yes', '--json'], { ports: refusal(reasonCode) });
+    assert.deepEqual([refused.code, refused.json.reasonCode], [1, reasonCode], reasonCode);
+  }
 });
 
 test('the plan.submit answer is checked against the contract', () => {

@@ -124,9 +124,31 @@ export function containsToken(hay: string, needle: string): boolean {
 
 const SECRET_REGEXES = SECRET_PATTERNS.map((pattern) => new RegExp(pattern, 'gu'));
 
-/** Replaces every credential shape the contracts refuse with a fixed marker. */
+/**
+ * Credential shapes that are common in command output but too ordinary to refuse in a contract
+ * (SECRET_PATTERNS rejects a string outright, and a sentence about a password is not a leak).
+ * They mask only what is shown or sent; the label stays, so `password=[redacted]` still says
+ * what was there. Each match needs a value: a bare `password` or `Bearer` is left alone.
+ */
+const CREDENTIAL_KEY = '[A-Za-z0-9_.-]*(?:password|passwd|pwd|passphrase|secret)(?:_[A-Za-z0-9_]+)?';
+const DISPLAY_ONLY_REDACTIONS: readonly (readonly [RegExp, string])[] = [
+  // password=hunter2hunter2, DB_PASSWORD: "value", "client_secret": "value"
+  [new RegExp(`(?<![A-Za-z0-9])(${CREDENTIAL_KEY}["']?[ \\t]*[:=][ \\t]*["']?)([^\\s"',;&)]{8,})`, 'giu'), '$1[redacted]'],
+  // Authorization: Bearer <token>, Proxy-Authorization: Basic <token>
+  [/((?:Proxy-)?Authorization["']?[ \t]*[:=][ \t]*["']?(?:Bearer|Basic|Token|Digest)[ \t]+)([^\s"',;]{6,})/giu, '$1[redacted]'],
+  // A JWT anywhere (three base64url parts, the first starting eyJ).
+  [/(?<![A-Za-z0-9_-])eyJ[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*/gu, '[redacted]'],
+];
+
+/** Replaces every credential shape the contracts refuse, and the display-only shapes above, with a fixed marker. */
 export function redactSecrets(text: string): string {
   let out = text;
+  // The display-only shapes go first: a whole JWT or Authorization value is masked as one piece,
+  // not in the fragments the generic patterns would find inside it.
+  for (const [regex, replacement] of DISPLAY_ONLY_REDACTIONS) {
+    regex.lastIndex = 0;
+    out = out.replace(regex, replacement);
+  }
   for (const regex of SECRET_REGEXES) {
     regex.lastIndex = 0;
     out = out.replace(regex, (match) => {

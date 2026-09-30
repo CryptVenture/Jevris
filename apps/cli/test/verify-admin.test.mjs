@@ -257,7 +257,9 @@ test('evidence get returns not found locally and refuses a malformed handle', as
     const code = await runEvidenceCommand(argv, (chunk) => (text += chunk), { ports: fakePorts().ports, env: box.env, cwd: box.work });
     return { code, text };
   };
-  const missing = await run(['get', 'output:nothing-here', '--json']);
+  // JEV-0015: only the ev:<64 hex> handle Jevris issues is accepted; an invented output:<id> handle is refused.
+  assert.equal((await run(['get', 'output:nothing-here', '--json'])).code, 2);
+  const missing = await run(['get', `ev:${'0'.repeat(64)}`, '--json']);
   assert.equal(missing.code, 1);
   const value = JSON.parse(missing.text);
   assert.equal(value.mode, 'reduced');

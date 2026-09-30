@@ -64,15 +64,26 @@ export async function submitPlan(ws: WorkspaceServices, plan: PlanSubmission, no
   const budget = plan.rootBudget as NonNullable<PlanSubmission['rootBudget']>;
   const owner = (plan.ownerId as string).trim();
   const inputs = new Map(plan.tasks.map((t) => [t.id, t]));
-  const reserve = Math.min(budget.shutdownReserveMicroUsd ?? Math.floor(budget.limitMicroUsd / 20), budget.limitMicroUsd - 1);
+  // A reserve or policy the plan did not name is the default for a new budget and the recorded
+  // value for an existing one: `budget update` may have changed the limit since (JEV-0034).
+  const namedReserve = budget.shutdownReserveMicroUsd === undefined ? undefined : Math.min(budget.shutdownReserveMicroUsd, budget.limitMicroUsd - 1);
+  const reserve = namedReserve ?? Math.min(Math.floor(budget.limitMicroUsd / 20), budget.limitMicroUsd - 1);
   const policy = budget.policy ?? 'finish-running';
   const planId = `plan-${hashOf({ ws: ws.workspaceId, tasks: checked.order, budget: budget.id, at: nowMs }).slice(0, 20)}`;
-  // A budget id is written once: resubmitting the same budget reuses it, and a different
-  // limit, reserve, policy or owner under an existing id is refused (it would reset the money).
+  // A budget id is written once: resubmitting the same budget reuses it, and a different limit,
+  // a named reserve or policy that differs, or another owner under an existing id is refused (it
+  // would reset the money). The limit is the recorded one, including after `budget update`.
   const conflict = await ws.host.transact((tx) => {
     const existing = tx.get<BudgetRecord>('budgets', budget.id);
     if (existing !== undefined) {
-      if (existing.limitMicroUsd !== budget.limitMicroUsd || existing.shutdownReserveMicroUsd !== reserve || existing.policy !== policy || existing.ownerId !== owner) return true;
+      if (
+        existing.limitMicroUsd !== budget.limitMicroUsd ||
+        (namedReserve !== undefined && existing.shutdownReserveMicroUsd !== namedReserve) ||
+        (budget.policy !== undefined && existing.policy !== budget.policy) ||
+        existing.ownerId !== owner
+      ) {
+        return true;
+      }
     } else {
       tx.put('budgets', budget.id, {
         id: budget.id,
@@ -117,19 +128,34 @@ export async function submitTask(ws: WorkspaceServices, input: TaskInput, rootBu
   const budget = ws.host.get<BudgetRecord>('budgets', rootBudgetId);
   if (budget === undefined || budget.workspaceId !== ws.workspaceId) return { ok: false, issues: [{ taskId: input.id, code: 'NO_ROOT_BUDGET' }] };
   const existing = listTasks(ws).filter((t) => t.node.state !== 'cancelled');
+  // A cancelled task is out of the graph, so a task that depended on it (now blocked) must not
+  // make every later submit fail: validate the live tasks against the live ids only (JEV-0035).
+  const live = new Set(existing.map((t) => t.node.id));
   const asInputs: TaskInput[] = existing.map((t) => ({
     id: t.node.id,
     requirementIds: t.node.requirementIds,
-    dependencyIds: t.node.dependencyIds,
+    dependencyIds: t.node.dependencyIds.filter((d) => live.has(d)),
     writeScopes: t.node.writeScopes,
     acceptanceCheckIds: t.node.acceptanceCheckIds,
     expectedOutputs: t.expectedOutputs.length > 0 ? t.expectedOutputs : ['existing'],
   }));
   const checked = validatePlan(
-    { workspaceId: ws.workspaceId, tasks: [...asInputs.filter((t) => t.id !== input.id), input], ownerId, rootBudget: { id: budget.id, limitMicroUsd: budget.limitMicroUsd } },
+    {
+      workspaceId: ws.workspaceId,
+      tasks: [...asInputs.filter((t) => t.id !== input.id), input],
+      ownerId,
+      rootBudget: { id: budget.id, limitMicroUsd: budget.limitMicroUsd },
+      // Acceptance checks are the approved runner checks, as for a plan: a task added later does
+      // not get to name one nobody approved (JEV-0038).
+      approvedCheckIds: approvedManifests(ws).map((m) => m.id),
+    },
     nowMs,
   );
-  if (!checked.ok) return { ok: false, issues: checked.issues };
+  if (!checked.ok) {
+    // Only what is wrong with the new task refuses it; a fault in another task is not its doing.
+    const own = checked.issues.filter((i) => i.taskId === input.id || i.taskId === '#plan' || (i.code === 'WRITE_OVERLAP' && (i.detail ?? '').split('~').includes(input.id)));
+    return { ok: false, issues: own.length > 0 ? own : checked.issues };
+  }
   if (getTask(ws, input.id) !== undefined) return { ok: false, issues: [{ taskId: input.id, code: 'DUPLICATE_TASK' }] };
   const node = checked.nodes.find((n) => n.id === input.id);
   if (node === undefined) return { ok: false, issues: [{ taskId: input.id, code: 'INVALID_TASK' }] };

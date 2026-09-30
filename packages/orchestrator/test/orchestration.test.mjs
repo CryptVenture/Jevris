@@ -5,6 +5,9 @@ import { hostname, tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { createRequire, syncBuiltinESMExports } from 'node:module';
 import {
+  approveManifests,
+  blockCancelledDependants,
+  cancelTask,
   criticalPathLengths,
   getPlan,
   getTask,
@@ -13,6 +16,8 @@ import {
   nodeFor,
   reasonCode,
   livenessOf,
+  manifestHash,
+  parseManifest,
   processStartMs,
   openWorkspace,
   scheduleTasks,
@@ -20,6 +25,7 @@ import {
   submitPlan,
   submitTask,
   taskTransition,
+  updateBudget,
   transitionTask,
   validatePlan,
   waiveTask,
@@ -46,6 +52,12 @@ function fixture() {
     } };
 }
 
+/** submitTask takes approved checks only, as a plan does by default (JEV-0038): approve the 'unit' check the tasks name. */
+async function approveUnit(ws) {
+  const manifest = parseManifest({ id: 'unit', argv: [process.execPath, '-e', '0'], resultFormat: 'exit-code' }).manifest;
+  await approveManifests(ws, [manifest], { unit: manifestHash(manifest) }, 'test');
+}
+
 const task = (id, extra = {}) => ({
   id,
   requirementIds: ['R1'],
@@ -68,6 +80,8 @@ test('the plan validator refuses cycles, unknown deps, overlapping concurrent wr
   const codes = (r) => (r.ok ? [] : [...new Set(r.issues.map((i) => i.code))].sort());
   assert.deepEqual(codes(validatePlan({ ...base, tasks: [task('a', { dependencyIds: ['b'] }), task('b', { dependencyIds: ['a'] })] })), ['CYCLE']);
   assert.deepEqual(codes(validatePlan({ ...base, tasks: [task('a', { dependencyIds: ['zz'] })] })), ['UNKNOWN_DEPENDENCY']);
+  // A task that depends on itself is named so, not INVALID_TASK (JEV-0016).
+  assert.deepEqual(validatePlan({ ...base, tasks: [task('a', { dependencyIds: ['a'] })] }).issues, [{ taskId: 'a', code: 'SELF_DEPENDENCY' }]);
   assert.deepEqual(codes(validatePlan({ ...base, tasks: [task('a', { writeScopes: ['src'] }), task('b', { writeScopes: ['src/x.ts'] })] })), ['WRITE_OVERLAP']);
   // The same write set is fine when one node depends on the other.
   assert.equal(validatePlan({ ...base, tasks: [task('a', { writeScopes: ['src'] }), task('b', { writeScopes: ['src/x.ts'], dependencyIds: ['a'] })] }).ok, true);
@@ -229,6 +243,7 @@ test('this process\'s start time is read once: its own lease sweeps start no pro
 test('the verified state cannot be set by a transition call, and submitTask extends a plan (ORC-01)', async () => {
   const f = fixture();
   try {
+    await approveUnit(f.ws);
     await submitPlan(f.ws, plan([task('a')]));
     assert.deepEqual(await transitionTask(f.ws, 'a', 'verified', 'model says done'), { ok: false, reasonCode: 'VERIFY_REQUIRES_COMPLETION' });
     assert.deepEqual(await transitionTask(f.ws, 'a', 'running', 'skip'), { ok: false, reasonCode: 'ILLEGAL_TRANSITION' });
@@ -238,6 +253,50 @@ test('the verified state cannot be set by a transition call, and submitTask exte
     assert.equal(clash.ok, false);
     assert.equal(clash.issues[0].code, 'WRITE_OVERLAP');
     assert.equal((await submitTask(f.ws, task('d'), 'nope', 'alice')).issues[0].code, 'NO_ROOT_BUDGET');
+  } finally {
+    f.done();
+  }
+});
+
+test('cancelling a task blocks its queued dependants with DEPENDENCY_CANCELLED, cancels nothing more, and later submits still work (JEV-0035)', async () => {
+  const f = fixture();
+  try {
+    await approveUnit(f.ws);
+    assert.equal((await submitPlan(f.ws, plan([task('a'), task('b', { dependencyIds: ['a'] }), task('c', { dependencyIds: ['b'] }), task('d')]))).ok, true);
+    const cancelled = await cancelTask(f.ws, f.authority, 'a', 'cancelled by the user', Date.now());
+    assert.equal(cancelled.cancelled, true);
+    assert.equal(getTask(f.ws, 'a').node.state, 'cancelled');
+    // The dependants, direct and transitive, wait as blocked with a reason code; nothing else is cancelled.
+    for (const id of ['b', 'c']) {
+      assert.equal(getTask(f.ws, id).node.state, 'blocked', id);
+      assert.equal(getTask(f.ws, id).stateReason, 'DEPENDENCY_CANCELLED', id);
+    }
+    assert.equal(getTask(f.ws, 'd').node.state, 'validated');
+    // An unrelated task under the same budget is accepted (it was refused with UNKNOWN_DEPENDENCY).
+    const added = await submitTask(f.ws, task('e'), 'b1', 'alice');
+    assert.equal(added.ok, true, JSON.stringify(added));
+    // A task that names the cancelled one is still refused, and the refusal is about that task.
+    const dependant = await submitTask(f.ws, task('f', { dependencyIds: ['a'] }), 'b1', 'alice');
+    assert.equal(dependant.ok, false);
+    assert.deepEqual(dependant.issues.map((i) => [i.taskId, i.code]), [['f', 'UNKNOWN_DEPENDENCY']]);
+    // Marking again changes nothing, and scheduling never runs a blocked dependant.
+    assert.deepEqual(blockCancelledDependants(f.ws), []);
+    const run = await scheduleTasks(f.ws, { authority: f.authority, holder: selfIdentity(), cap: 5 });
+    assert.deepEqual(run.leased.map((g) => g.lease.taskId).sort(), ['d', 'e']);
+  } finally {
+    f.done();
+  }
+});
+
+test('a validated task whose prerequisite was cancelled by another path is blocked by the next scheduling pass (JEV-0035)', async () => {
+  const f = fixture();
+  try {
+    assert.equal((await submitPlan(f.ws, plan([task('a'), task('b', { dependencyIds: ['a'] })]))).ok, true);
+    assert.equal(taskTransition(f.ws, 'a', 'cancelled', 'duplicate of z', { actor: 'human' }).ok, true);
+    assert.equal(getTask(f.ws, 'b').node.state, 'validated');
+    await scheduleTasks(f.ws, { authority: f.authority, holder: selfIdentity(), cap: 2 });
+    assert.equal(getTask(f.ws, 'b').node.state, 'blocked');
+    assert.equal(getTask(f.ws, 'b').stateReason, 'DEPENDENCY_CANCELLED');
   } finally {
     f.done();
   }
@@ -309,6 +368,35 @@ test('a plan records its id; a budget id is written once and a conflicting resub
     const bigger = await submitPlan(f.ws, { ...plan([task('c')]), rootBudget: { id: 'b1', limitMicroUsd: 999_999_999 } });
     assert.deepEqual(bigger, { ok: false, issues: [{ taskId: '#plan', code: 'BUDGET_CONFLICT', detail: 'b1' }] });
     assert.equal(getTask(f.ws, 'c'), undefined, 'a refused plan creates no task');
+  } finally {
+    f.done();
+  }
+});
+
+test('after budget update raised the limit, a plan under that budget names the new limit and keeps the recorded reserve and policy (JEV-0034)', async () => {
+  const f = fixture();
+  try {
+    const at = (limitMicroUsd, extra = {}) => ({ id: 'b1', limitMicroUsd, ...extra });
+    const create = await submitPlan(f.ws, { ...plan([task('a')]), rootBudget: at(5_000_000) });
+    assert.equal(create.ok, true);
+    assert.equal(f.ws.host.get('budgets', 'b1').shutdownReserveMicroUsd, 250_000, 'the default reserve is 5% of the first limit');
+    const raised = await updateBudget(f.ws, { budgetId: 'b1', limitMicroUsd: 8_000_000, authorize: () => true });
+    assert.equal(raised.ok, true);
+    const conflict = { ok: false, issues: [{ taskId: '#plan', code: 'BUDGET_CONFLICT', detail: 'b1' }] };
+    // The old limit is no longer the budget's limit.
+    assert.deepEqual(await submitPlan(f.ws, { ...plan([task('x1')]), rootBudget: at(5_000_000) }), conflict);
+    // A reserve or policy the plan does not name is the recorded one, not 5% of the new limit.
+    const again = await submitPlan(f.ws, { ...plan([task('b')]), rootBudget: at(8_000_000) });
+    assert.equal(again.ok, true, JSON.stringify(again));
+    const record = f.ws.host.get('budgets', 'b1');
+    assert.deepEqual([record.limitMicroUsd, record.shutdownReserveMicroUsd, record.policy, record.ownerId], [8_000_000, 250_000, 'finish-running', 'alice']);
+    // A reserve, a policy or an owner that is named and differs is still a conflict; one that matches is fine.
+    assert.deepEqual(await submitPlan(f.ws, { ...plan([task('x2')]), rootBudget: at(8_000_000, { shutdownReserveMicroUsd: 400_000 }) }), conflict);
+    assert.deepEqual(await submitPlan(f.ws, { ...plan([task('x3')]), rootBudget: at(8_000_000, { policy: 'pause-all' }) }), conflict);
+    assert.deepEqual(await submitPlan(f.ws, { ...plan([task('x4')], { ownerId: 'bob' }), rootBudget: at(8_000_000) }), conflict);
+    assert.deepEqual(await submitPlan(f.ws, { ...plan([task('x5')]), rootBudget: at(9_000_000) }), conflict);
+    assert.equal((await submitPlan(f.ws, { ...plan([task('c')]), rootBudget: at(8_000_000, { shutdownReserveMicroUsd: 250_000, policy: 'finish-running' }) })).ok, true);
+    for (const id of ['x1', 'x2', 'x3', 'x4', 'x5']) assert.equal(getTask(f.ws, id), undefined, `a refused plan creates no task (${id})`);
   } finally {
     f.done();
   }

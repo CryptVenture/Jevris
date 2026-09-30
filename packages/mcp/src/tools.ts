@@ -29,7 +29,8 @@ export interface ToolSpec {
 const ID = '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$';
 /** A model id as a harness reports it (G20; contracts HARNESS_MODEL_ID_PATTERN): provider/model and [1m] too. */
 const HARNESS_MODEL = '^(?:[a-z0-9][a-z0-9._-]{0,63}/){0,2}[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?(?:\\[1m\\])?$';
-const HANDLE = '^[a-z]+:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$';
+/** An evidence handle: the only kind Jevris issues (contracts EVIDENCE_HANDLE_PATTERN). */
+const HANDLE = '^ev:[0-9a-f]{64}$';
 
 const id = (description: string): JsonSchema => ({ type: 'string', pattern: ID, maxLength: 128, description });
 const harnessModel = (description: string): JsonSchema => ({ type: 'string', pattern: HARNESS_MODEL, maxLength: 271, description });
@@ -114,7 +115,7 @@ export const TOOLS: readonly ToolSpec[] = [
     description: 'Returns one evidence item by handle, bounded and possibly truncated, through the same egress checks as the CLI. Read-only.',
     inputSchema: input(
       {
-        handle: { type: 'string', pattern: HANDLE, maxLength: 140, description: 'A handle such as ev:<64 hex>, as jevris verify names it.' },
+        handle: { type: 'string', pattern: HANDLE, maxLength: 67, description: 'An evidence handle, ev: and 64 lower-case hex digits, as jevris verify names it. Other forms are refused.' },
         selectionId: { type: 'string', pattern: '^[A-Za-z][A-Za-z0-9_-]{0,63}$', maxLength: 64, description: 'The selectionId of the evidence selection that listed this handle, if any.' },
       },
       ['handle'],

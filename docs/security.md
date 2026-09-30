@@ -96,7 +96,7 @@ The Jev key is Jevris's own. Your coding harnesses sign in separately, on a subs
 
 **Copies to another machine.** The store records which user and machine created it. A store or backup copied to another machine or user is refused, rather than opened with the wrong owner. The store also refuses to open on a network file system.
 
-**Backups.** `jevris store backup <file>` writes a consistent, owner-only copy and checks its integrity before reporting success. The file must be new, inside your home directory and not reached through a symbolic link. `jevris store restore <file>` stops the sidecar, checks the backup (integrity, the same machine and user, a schema this Jevris understands), keeps the current store beside it as `jevris.db.pre-restore-<time>`, and installs the backup. A backup holds everything the store holds, so keep it where you keep other private files.
+**Backups.** `jevris store backup <file>` writes a consistent, owner-only copy and checks its integrity before reporting success. The file must be new, inside your home directory and not reached through a symbolic link. `jevris store restore <file>` stops the sidecar, checks the backup (integrity, the same machine and user, a schema this Jevris understands), keeps the current store beside it as `jevris.db.pre-restore-<time>`, and installs the backup. The restore replaces the store only: decision records in `<data>/decisions/` are left as they are (the command says so), so a decision made after the backup can still be explained, and the sidecar archives those journal files into the restored store again when it starts and every minute. Retention and `jevris data purge` remove old journal files. A backup holds everything the store holds, so keep it where you keep other private files.
 
 **Exports.** `jevris store export <file>` and `jevris audit export <file>` write JSON lines, owner-only. Neither contains a key or the secret that signs authorizations.
 
@@ -112,13 +112,21 @@ If you share a dump for support, rotate the Jev key afterwards with `jevris cred
 
 ## The kill switch
 
-`jevris kill-switch activate [--reason <text>]` stops every Jevris effect at once. Hook events are still recorded, but no advice or decision follows from them. Sidecar operations that change anything are refused, and owned work stops. You do not need a prepared rollback file. Owned effects still in flight are held for reconciliation, never repeated automatically, and the activation is written to the audit log. If a step fails, the command says which one.
+`jevris kill-switch activate [--reason <text>]` stops every Jevris effect at once. Hook events are still recorded, but no advice or decision follows from them. Sidecar operations that record or change anything are refused (`KILL_SWITCH`), and owned work stops. That includes `jevris data purge` (a `--dry-run` is still allowed), `jevris route learning reset --clear-evidence` (the store learning purge), `jevris authorize`, `jevris consent provider --grant`, `jevris credential reenable`, `jevris route limits clear`, task cancel and revert, verification records, `checkpoint` and `handoff import`; each says to clear the kill switch first. You do not need a prepared rollback file. Owned effects still in flight are held for reconciliation, never repeated automatically, and the activation is written to the audit log. If a step fails, the command says which one.
 
 - `jevris kill-switch status` shows whether it is stopped, and who stopped it, when and why.
 - `jevris kill-switch clear` resumes. It works only from an interactive terminal, never from MCP, a hook or a script.
 - `jevris kill-switch drill` checks that the switch works, then restores the previous state. It records a passed drill only when every check passed. A pack that asks to act automatically stays inactive until a drill has passed on this host.
 
 A damaged, oversized or unreadable flag file counts as stopped.
+
+Some operations stay available while stopped, each for a reason:
+
+- `kill-switch activate`: the switch itself must always be able to turn on again.
+- `audit record`: the audit log must keep recording, including what happens while stopped.
+- `audit verify` and `audit export`: read-only checks on the audit trail. If the sidecar is not running they read the store file directly.
+- `store backup` and `store export`: they copy your data out and change nothing, so you can still take a copy before clearing the switch.
+- The automatic daily retention sweep keeps running while stopped. It only removes data past its retention period, which the configuration already allows. `jevris data purge` is a person's request and is refused.
 
 An administrator can also stop Jevris for everyone on a machine with a managed kill switch (see [configuration.md](configuration.md#managed-policy-administrators)). A user cannot clear it, and a managed file that anyone other than an administrator could write counts as stopped.
 

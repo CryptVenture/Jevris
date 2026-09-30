@@ -20,7 +20,9 @@ cancel stops an owned task: its lease is released and the task is cancelled. Its
 kept, and a worktree with uncommitted or unknown changes is never deleted. Only the CLI can
 cancel; no model tool can. It needs --yes or a y/N answer on a terminal. With --duplicate-of,
 you accept duplicate-work advice (jevris advise C28): the task is cancelled as a duplicate of
-the one you keep, and the cancellation is recorded as such.
+the one you keep, and the cancellation is recorded as such. Nothing else is cancelled: a queued
+task that depended on it (directly or through another queued task) can never start, so it is
+marked blocked with the reason DEPENDENCY_CANCELLED, which the jevris_get_task tool shows as stateReason.
 
 revert-duplicate tells Jevris that a duplicate cancellation was wrong. It is recorded as a false
 cancellation, which the duplicate-work advice learns from; re-plan the work yourself. Only a

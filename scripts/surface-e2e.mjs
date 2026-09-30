@@ -68,7 +68,7 @@ export function toolCases() {
     jevris_explain_decision: { decisionId: 'd-e2e-none' },
     jevris_plan_route: { currentModel: 'claude-opus-4-7', modelPin: 'claude-opus-4-7' },
     jevris_select_evidence: { intent: 'the e2e checkpoint', maxItems: 4 },
-    jevris_evidence_get: { handle: 'output:e2e' },
+    jevris_evidence_get: { handle: `ev:${'e'.repeat(64)}` },
     jevris_checkpoint: { objective: 'Ship the e2e over MCP', constraints: ['Keep the pin'] },
     jevris_get_task: { taskId: 'a' },
     jevris_record_verification: { receiptId: 'r-e2e', checkId: 'unit' },
@@ -394,7 +394,7 @@ async function onePass(product, options, load, prefix, extraEnv) {
     // with the single-use authorization `jevris authorize budget.increase --scope e2e-budget`
     // mints at a terminal (its sidecar request, sent here for the sandbox user), it is accepted.
     const scriptedPlan = jevris(['plan', '--submit', '--graph', join(work, 'owned-plan.json'), '--budget', 'e2e-budget', '--limit-micro-usd', '1000000', '--owner', 'e2e', '--yes', '--json']);
-    record('cli plan --submit refuses a new budget without a person', scriptedPlan.code === 1 && parseJson(scriptedPlan.stdout)?.reasonCode === 'CHANNEL_REFUSED', scriptedPlan.stdout + scriptedPlan.stderr);
+    record('cli plan --submit refuses a new budget without a person', scriptedPlan.code === 2 && parseJson(scriptedPlan.stdout)?.reasonCode === 'CHANNEL_REFUSED', scriptedPlan.stdout + scriptedPlan.stderr);
     const cleanedUser = (env.USER ?? env.USERNAME ?? 'cli').replace(/[^A-Za-z0-9_-]/g, '').slice(0, 63);
     const mintScript = `const { sidecarRequest } = await import(${JSON.stringify(pathToFileURL(join(repoRoot, 'apps', 'sidecar', 'dist', 'index.js')).href)}); const r = await sidecarRequest({ home: process.env.JEVRIS_HOME, op: 'authorization.mint', scope: 'cli', workspace: ${JSON.stringify(work)}, body: { actionClass: 'budget.increase', scope: 'e2e-budget', ttlMs: 300000, actor: ${JSON.stringify(/^[A-Za-z]/.test(cleanedUser) ? cleanedUser : `u${cleanedUser}`.slice(0, 64))}, channel: 'terminal' }, timeoutMs: 30000 }); process.stdout.write(JSON.stringify(r));`;
     const minted = parseJson(spawnSync(process.execPath, ['--input-type=module', '-e', mintScript], { env, cwd: work, encoding: 'utf8', timeout: 60_000, windowsHide: true }).stdout ?? '');

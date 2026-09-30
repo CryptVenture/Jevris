@@ -31,6 +31,7 @@ import type { LeaseAuthority, LeaseGrant, LeaseRecord } from './leases.js';
 import { selfIdentity, type ProcessIdentity } from './liveness.js';
 import { completionLabel, completionOutcome, recordRouteOutcome } from './learning.js';
 import { recordTaskEstimate } from './estimates.js';
+import { blockCancelledDependants } from './scheduler.js';
 import {
   PROVIDER_HARNESSES,
   XAI_PLAN_NOT_ELIGIBLE,
@@ -1358,6 +1359,9 @@ export async function cancelTask(
     const current = getTask(ws, taskId);
     if (current !== undefined && current.node.state !== 'cancelled') taskTransition(ws, taskId, 'cancelled', reason, { actor: 'human', nowMs, patch: { leaseId: null } });
   }
+  // Queued tasks that depended on this one can never start now; say so instead of leaving them
+  // to fail a later, unrelated submit (JEV-0035). Nothing is cancelled for the person.
+  blockCancelledDependants(ws, nowMs);
   const tree: WorktreeRecord | undefined = session === undefined ? undefined : getWorktree(ws, session.worktreeId);
   if (tree !== undefined) await retainWorktree(ws, tree.id, 'kept after cancel');
   return {

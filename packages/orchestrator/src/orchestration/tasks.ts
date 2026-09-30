@@ -376,54 +376,89 @@ function keyList(value: unknown, max = 64): readonly string[] | undefined {
   return out;
 }
 
-/** Parses an untrusted task input (a TaskNode, or a TaskNode plus scheduling fields). */
-export function parseTaskInput(raw: unknown): TaskInput | undefined {
-  if (!isPlain(raw)) return undefined;
+/** What is wrong with one untrusted task: the field and the rule it broke (JEV-0006). */
+export interface TaskInputProblem {
+  /** The task's id when it has a usable one. */
+  readonly taskId: string | null;
+  readonly field: string;
+  /** A plain-text rule, safe to show (it never carries the value). */
+  readonly rule: string;
+}
+
+export type TaskInputCheck = { readonly ok: true; readonly input: TaskInput } | { readonly ok: false; readonly problem: TaskInputProblem };
+
+const KEY_TEXT = '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$';
+const KEY_RULE = `each entry must be a name matching ${KEY_TEXT} (letters, digits, . _ : -, no "/" or spaces)`;
+
+/**
+ * The rule text of each list field. `expectedOutputs` are names for the outputs a task should
+ * produce, not file paths, so an entry with a slash is refused and the rule says so.
+ */
+function listRule(name: string, max: number): string {
+  const names = name === 'expectedOutputs' ? 'names, not paths: ' : '';
+  return `${names}a list of at most ${String(max)} entries; ${KEY_RULE}`;
+}
+
+/**
+ * Checks an untrusted task input (a TaskNode, or a TaskNode plus scheduling fields) and, when it
+ * is not usable, names the first field and the rule it broke, so a person can fix it.
+ */
+export function checkTaskInput(raw: unknown): TaskInputCheck {
+  if (!isPlain(raw)) return { ok: false, problem: { taskId: null, field: 'task', rule: 'each task must be an object' } };
   const id = own(raw, 'id');
-  if (typeof id !== 'string') return undefined;
+  if (typeof id !== 'string') return { ok: false, problem: { taskId: null, field: 'id', rule: 'each task needs a string id' } };
+  const taskId = id.length <= 130 ? id : null;
+  const bad = (field: string, rule: string): TaskInputCheck => ({ ok: false, problem: { taskId, field, rule } });
   const lists = ['requirementIds', 'dependencyIds', 'acceptanceCheckIds', 'resourceKeys', 'toolchains', 'models', 'expectedOutputs', 'labels'] as const;
   const parsed: { [k: string]: unknown } = { id };
   for (const name of lists) {
-    const list = keyList(own(raw, name), name === 'expectedOutputs' ? 128 : name === 'labels' ? 32 : 256);
-    if (list === undefined) return undefined;
+    const max = name === 'expectedOutputs' ? 128 : name === 'labels' ? 32 : 256;
+    const list = keyList(own(raw, name), max);
+    if (list === undefined) return bad(name, listRule(name, max));
     if (name !== 'labels' || list.length > 0) parsed[name] = list;
   }
   const scopes = own(raw, 'writeScopes');
   if (scopes !== undefined) {
-    if (!Array.isArray(scopes) || scopes.length > 256 || !scopes.every((s) => typeof s === 'string')) return undefined;
+    if (!Array.isArray(scopes) || scopes.length > 256 || !scopes.every((s) => typeof s === 'string')) return bad('writeScopes', 'a list of at most 256 path strings');
     parsed['writeScopes'] = scopes;
   }
   const title = own(raw, 'title');
   if (title !== undefined) {
-    if (typeof title !== 'string' || title.length > 300) return undefined;
+    if (typeof title !== 'string' || title.length > 300) return bad('title', 'a string of at most 300 characters');
     parsed['title'] = title;
   }
   const sliceId = own(raw, 'sliceId');
   if (sliceId !== undefined) {
-    if (typeof sliceId !== 'string' || !KEY.test(sliceId)) return undefined;
+    if (typeof sliceId !== 'string' || !KEY.test(sliceId)) return bad('sliceId', `a name matching ${KEY_TEXT}`);
     parsed['sliceId'] = sliceId;
   }
   const risk = own(raw, 'risk');
   if (risk !== undefined) {
-    if (risk !== 'low' && risk !== 'medium' && risk !== 'high' && risk !== 'unknown') return undefined;
+    if (risk !== 'low' && risk !== 'medium' && risk !== 'high' && risk !== 'unknown') return bad('risk', 'one of low, medium, high, unknown');
     parsed['risk'] = risk;
   }
   const dataScope = own(raw, 'dataScope');
   if (dataScope !== undefined) {
-    if (typeof dataScope !== 'string' || !KEY.test(dataScope)) return undefined;
+    if (typeof dataScope !== 'string' || !KEY.test(dataScope)) return bad('dataScope', `a name matching ${KEY_TEXT}`);
     parsed['dataScope'] = dataScope;
   }
   const value = own(raw, 'value');
   if (value !== undefined) {
-    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 100) return undefined;
+    if (typeof value !== 'number' || !Number.isInteger(value) || value < 1 || value > 100) return bad('value', 'a whole number from 1 to 100');
     parsed['value'] = value;
   }
   const estimate = own(raw, 'estimateMicroUsd');
   if (estimate !== undefined) {
-    if (typeof estimate !== 'number' || !Number.isSafeInteger(estimate) || estimate < 0) return undefined;
+    if (typeof estimate !== 'number' || !Number.isSafeInteger(estimate) || estimate < 0) return bad('estimateMicroUsd', 'a whole number of micro-USD, zero or more');
     parsed['estimateMicroUsd'] = estimate;
   }
-  return parsed as unknown as TaskInput;
+  return { ok: true, input: parsed as unknown as TaskInput };
+}
+
+/** Parses an untrusted task input (a TaskNode, or a TaskNode plus scheduling fields). */
+export function parseTaskInput(raw: unknown): TaskInput | undefined {
+  const checked = checkTaskInput(raw);
+  return checked.ok ? checked.input : undefined;
 }
 
 /** The validated node for a task input; task and dependency ids must be store task ids. */

@@ -17,7 +17,7 @@
  */
 import { appendFile, mkdir, mkdtemp, rm, stat } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { jevrisPaths, resolveHome } from '@jevris/platform';
 
 export type Write = (text: string) => void;
@@ -365,7 +365,7 @@ export async function stopSidecarForRemoval(home?: string, options: { readonly r
 
 export type PurgeLearningResult =
   | { readonly ok: true; readonly removed: { readonly [table: string]: number }; readonly via: 'sidecar' | 'store' | 'none' }
-  | { readonly ok: false; readonly reasonCode: 'STORE_REFUSED' | 'INVALID_WORKSPACE' | 'SIDECAR_REFUSED'; readonly message: string };
+  | { readonly ok: false; readonly reasonCode: 'STORE_REFUSED' | 'INVALID_WORKSPACE' | 'SIDECAR_REFUSED' | 'KILL_SWITCH'; readonly message: string };
 
 /**
  * The learning records in the store (decision outcomes, session model changes, advice adherence,
@@ -377,6 +377,11 @@ export type PurgeLearningResult =
 export async function purgeStoreLearning(home: string, options: { readonly workspaceId?: string } = {}): Promise<PurgeLearningResult> {
   if (options.workspaceId !== undefined && !/^[A-Za-z][A-Za-z0-9_-]{0,63}$/.test(options.workspaceId)) {
     return { ok: false, reasonCode: 'INVALID_WORKSPACE', message: 'The workspace id is not a Jevris workspace id.' };
+  }
+  // GOV-02..04 (JEV-0021): a stopped Jevris removes nothing. Checked here as well, because with no sidecar
+  // running this function opens the store itself and never reaches the sidecar's own guard.
+  if (await (await import('./kill-switch.js')).readKillSwitchStopped(home)) {
+    return { ok: false, reasonCode: 'KILL_SWITCH', message: 'The kill switch is on, so no learning records are removed. Clear the kill switch first (jevris kill-switch clear), then run this again.' };
   }
   const sidecar = await import('@jevris/sidecar');
   const probe = await sidecar.probeSidecar(home, 500);
@@ -639,7 +644,8 @@ const MY_HELP: { readonly [command: string]: string } = {
     '  status    schema version, filesystem and health',
     '  backup    a consistent, owner-only, integrity-checked copy (the file must not exist)',
     '  export    every durable table as JSON lines, without authorization secrets',
-    '  restore   stop the sidecar, check the backup (integrity, host, schema), then install it',
+    '  restore   stop the sidecar, check the backup (integrity, host, schema), then install it; the store only:',
+    '            decision records under <data>/decisions are left as they are',
     '  migrate   apply pending schema migrations; --dry-run lists them and changes nothing',
     '  adopt     mark your own store in this home as this machine\'s after a network name change',
     '            made it look copied; interactive terminal only, asks you to type yes',
@@ -649,6 +655,8 @@ const MY_HELP: { readonly [command: string]: string } = {
     'The append-only, hash-chained audit log of policy, kill-switch, egress, credential and data events.',
     '  export    write the log as JSON lines (no secrets); the file must not exist',
     '  verify    check the hash chain; exit 1 names the first tampered row',
+    '            both read the store file directly when no sidecar is running (and it is not started when',
+    '            JEVRIS_SIDECAR_AUTOSTART=0), and both work while the kill switch is on',
   ].join('\n'),
   data: [
     'Usage: jevris data purge [--dry-run] [--home <dir>]',
@@ -695,6 +703,11 @@ type AdminAnswer = { readonly ok: true; readonly result: Record<string, unknown>
 /** One admin request through the sidecar (started on demand; it is the store's only writer). */
 async function adminRequest(home: string, op: string, body: Record<string, unknown>): Promise<AdminAnswer> {
   const sidecar = await import('@jevris/sidecar');
+  // JEV-0018: JEVRIS_SIDECAR_AUTOSTART=0 means no command starts the sidecar; a running one answers.
+  const { autostartAllowed } = await import('./public/context.js');
+  if (!autostartAllowed(process.env) && !(await sidecar.probeSidecar(home, 500)).running) {
+    return { ok: false, reasonCode: 'SIDECAR_AUTOSTART_OFF', message: 'The Jevris sidecar is not running and autostart is off (JEVRIS_SIDECAR_AUTOSTART=0), so this command did not start it. Start it with `jevris sidecar start`, then run this again.' };
+  }
   const ensured = await sidecar.ensureSidecar({ home, waitMs: 5000 });
   if (!ensured.ok) return { ok: false, reasonCode: 'SIDECAR_UNAVAILABLE', message: ensured.message };
   const res = await sidecar.sidecarRequest({ home, op, scope: 'cli', body, timeoutMs: 60_000 });
@@ -930,7 +943,7 @@ async function runStoreCommand(parsed: Parsed, write: Write | undefined, hooks: 
         out(write, `store restore: refused (${restored.reason}). ${restoreAdvice(restored.reason)}\n`);
         return 1;
       }
-      report(write, json, restored, [`store restore: installed (schema ${String(restored.restoredSchemaVersion)}).`, restored.previousMovedTo !== null ? `The previous store was kept at ${restored.previousMovedTo}.` : 'There was no previous store.', 'The sidecar migrates it on its next start.']);
+      report(write, json, restored, [`store restore: installed (schema ${String(restored.restoredSchemaVersion)}).`, restored.previousMovedTo !== null ? `The previous store was kept at ${restored.previousMovedTo}.` : 'There was no previous store.', `Decision records in ${join(dirname(dbPath), 'decisions')} were not changed.`, 'The sidecar migrates it on its next start.']);
       await recordAfterRestart(home, 'store.restore', actorName(hooks), { schemaVersion: restored.restoredSchemaVersion });
       return 0;
     }
@@ -1039,6 +1052,8 @@ function pathAdvice(code: string): string {
     case 'PATH_PARENT_MISSING':
     case 'PATH_PARENT_NOT_DIRECTORY':
       return 'Create the folder first.';
+    case 'SIDECAR_AUTOSTART_OFF':
+      return 'Autostart is off (JEVRIS_SIDECAR_AUTOSTART=0); run `jevris sidecar start` first.';
     default:
       return 'Run `jevris sidecar status` and `jevris doctor`.';
   }
@@ -1067,7 +1082,9 @@ async function runAuditCommand(parsed: Parsed, write: Write | undefined): Promis
   const json = parsed.flags.get('--json') === true;
   if (sub === 'export' && parsed.positionals.length === 3) {
     const target = absolute(parsed.positionals[2] ?? '');
-    const answer = await adminRequest(home, 'audit.export', { path: target });
+    const asked = await adminRequest(home, 'audit.export', { path: target });
+    // JEV-0018: with autostart off and no sidecar running, the log is read from the store file, read-only.
+    const answer = !asked.ok && asked.reasonCode === 'SIDECAR_AUTOSTART_OFF' ? await auditExportFromFile(home, target) : asked;
     if (!answer.ok) {
       out(write, `audit export: refused (${answer.reasonCode}). ${pathAdvice(answer.reasonCode)}\n`);
       return answer.reasonCode.startsWith('PATH_') ? 2 : 1;
@@ -1076,17 +1093,48 @@ async function runAuditCommand(parsed: Parsed, write: Write | undefined): Promis
     return 0;
   }
   if (sub === 'verify' && parsed.positionals.length === 2) {
-    const answer = await adminRequest(home, 'audit.verify', {});
+    const asked = await adminRequest(home, 'audit.verify', {});
+    // JEV-0018: the same read-only fallback; verifying never starts the sidecar and never writes.
+    const answer = !asked.ok && asked.reasonCode === 'SIDECAR_AUTOSTART_OFF' ? await auditVerifyFromFile(home) : asked;
     if (!answer.ok) {
       out(write, `audit verify: unavailable (${answer.reasonCode}). ${answer.message}\n`);
       return 1;
     }
     const intact = answer.result['intact'] === true;
-    report(write, json, answer.result, [intact ? `audit log: intact (${String(answer.result['count'])} rows)` : `audit log: TAMPERED at row ${String(answer.result['brokenAt'])}. Keep the store file for review and run \`jevris store backup\`.`]);
+    report(write, json, answer.result, [intact ? `audit log: intact (${String(answer.result['count'])} rows${answer.result['via'] === 'store-file' ? '; read from the store file, the sidecar is not running' : ''})` : `audit log: TAMPERED at row ${String(answer.result['brokenAt'])}. Keep the store file for review and run \`jevris store backup\`.`]);
     return intact ? 0 : 1;
   }
   out(write, `${MY_HELP['audit'] ?? ''}\n`);
   return 2;
+}
+
+/** The store-file failures the audit fallback reports, as the reason codes the sidecar's own refusals use. */
+function auditFileRefusal(reason: 'store-unreadable' | 'store-corrupt', what: string): AdminAnswer {
+  return { ok: false, reasonCode: reason === 'store-corrupt' ? 'STORE_CORRUPT' : 'STORE_UNREADABLE', message: `The store file could not be read to ${what}. Run \`jevris doctor\`.` };
+}
+
+/** `audit verify` with no sidecar running: the chain is walked over the store file, opened read-only (JEV-0018). */
+async function auditVerifyFromFile(home: string): Promise<AdminAnswer> {
+  const storeApi = await import('@jevris/store');
+  const checked = storeApi.verifyAuditChainAt(join(jevrisPaths({ home }).data, 'jevris.db'));
+  if ('brokenAt' in checked) return { ok: true, result: { intact: false, brokenAt: checked.brokenAt, via: 'store-file' } };
+  if (checked.ok) return { ok: true, result: { intact: true, count: checked.count, head: checked.head, via: 'store-file' } };
+  // No store file yet: there is no audit log, so nothing can be tampered with.
+  if (checked.reason === 'no-store') return { ok: true, result: { intact: true, count: 0, via: 'store-file' } };
+  return auditFileRefusal(checked.reason, 'verify the audit log');
+}
+
+/** `audit export` with no sidecar running: the same path rules and private file as the sidecar's op, read from the store file. */
+async function auditExportFromFile(home: string, path: string): Promise<AdminAnswer> {
+  const sidecar = await import('@jevris/sidecar');
+  const refused = sidecar.outputPathRefusal(home, path);
+  if (refused !== undefined) return { ok: false, reasonCode: refused, message: 'The output path was refused.' };
+  const storeApi = await import('@jevris/store');
+  const read = storeApi.exportAuditJsonlAt(join(jevrisPaths({ home }).data, 'jevris.db'));
+  if (!read.ok && read.reason !== 'no-store') return auditFileRefusal(read.reason, 'export the audit log');
+  const text = read.ok ? read.text : '';
+  if (!sidecar.writeNewPrivate(path, text)) return { ok: false, reasonCode: 'PATH_REFUSED', message: 'The output file could not be created (it may already exist).' };
+  return { ok: true, result: { path, rows: text.length === 0 ? 0 : text.trimEnd().split('\n').length, via: 'store-file' } };
 }
 
 // ------------------------------------------------------------------ data purge (DATA-11)
@@ -1097,6 +1145,11 @@ async function runDataPurge(parsed: Parsed, write: Write | undefined, hooks: Run
   const dryRun = parsed.flags.get('--dry-run') === true;
   const answer = await adminRequest(home, 'data.purge', { dryRun, actor: actorName(hooks) });
   if (!answer.ok) {
+    // GOV-02..04 (JEV-0021): a purge refused because the kill switch is on is a refusal, not an outage.
+    if (answer.reasonCode === 'KILL_SWITCH') {
+      out(write, `data purge: refused (KILL_SWITCH). ${answer.message}\n`);
+      return 2;
+    }
     out(write, `data purge: unavailable (${answer.reasonCode}). ${answer.message}\n`);
     return 1;
   }
@@ -1106,10 +1159,23 @@ async function runDataPurge(parsed: Parsed, write: Write | undefined, hooks: Run
   report(write, json, answer.result, [
     `data purge${dryRun ? ' (dry run)' : ''}: ${String(total)} records and ${String(answer.result['rawFiles'])} raw files ${dryRun ? 'would be removed' : 'removed'}`,
     ...fileRetentionLines(answer.result, dryRun),
+    ...journalLines(answer.result, dryRun),
     `retention: raw artifacts ${String(policy['rawArtifactRetentionDays'])} days, decisions ${String(policy['decisionRetentionDays'])} days; pinned memory, route learning and live-evidence demotions kept`,
     ...(dryRun ? ['Nothing was changed.'] : []),
   ]);
   return 0;
+}
+
+/** JEV-0023: the decision journal files `explain` reads; an unknown effect is kept, never counted as removed. */
+function journalLines(result: Record<string, unknown>, dryRun: boolean): string[] {
+  const journal = result['decisionJournal'];
+  if (typeof journal !== 'object' || journal === null) return [];
+  const count = (name: string): number => {
+    const value = (journal as Record<string, unknown>)[name];
+    return typeof value === 'number' ? value : 0;
+  };
+  const kept = count('keptForReconciliation');
+  return [`decision journal: ${String(count('removed'))} records ${dryRun ? 'would be removed' : 'removed'}${kept > 0 ? `; ${String(kept)} kept until their cost is reconciled` : ''}`];
 }
 
 /** DATA-11: the orchestration history, worker runs, live evidence and calibration cases the purge covers. */
@@ -1140,6 +1206,10 @@ async function runAuthorize(parsed: Parsed, write: Write | undefined, hooks: Run
   const ttlMs = Number(ttlRaw) * 60_000;
   const answer = await adminRequest(home, 'authorization.mint', { actionClass: action, scope, ttlMs, actor: actorName(hooks), channel: 'terminal' });
   if (!answer.ok) {
+    if (answer.reasonCode === 'KILL_SWITCH') {
+      out(write, `authorize: refused (KILL_SWITCH). ${answer.message}\n`);
+      return 2;
+    }
     out(write, `authorize: refused (${answer.reasonCode}). The action must be one of the listed classes, the scope a plain name, and the time at most 15 minutes.\n`);
     return 2;
   }

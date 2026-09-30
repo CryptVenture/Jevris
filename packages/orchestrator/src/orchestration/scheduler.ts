@@ -43,6 +43,36 @@ export interface ScheduleOutcome {
   readonly skipped: readonly { readonly taskId: string; readonly reason: SkipReason }[];
 }
 
+/** Reason recorded on a queued task whose prerequisite was cancelled (JEV-0035). */
+export const DEPENDENCY_CANCELLED = 'DEPENDENCY_CANCELLED';
+
+/**
+ * A prerequisite that was cancelled can never be verified, so every queued task that depends on
+ * it, directly or through another queued task, can never start. Nothing is cancelled for the
+ * person: each is marked `blocked` with the reason DEPENDENCY_CANCELLED, so task status says why
+ * it waits and a person decides (cancel it, or re-plan). Tasks that are leased, running or past
+ * that are left alone.
+ */
+export function blockCancelledDependants(ws: WorkspaceServices, nowMs = Date.now()): readonly string[] {
+  const all = listTasks(ws);
+  // Cancelled tasks, and tasks already blocked by this rule, both pass the doom on.
+  const doomed = new Set<string>(all.filter((t) => t.node.state === 'cancelled' || (t.node.state === 'blocked' && t.stateReason === DEPENDENCY_CANCELLED)).map((t) => t.node.id));
+  const queued = all.filter((t) => t.node.state === 'proposed' || t.node.state === 'validated' || t.node.state === 'ready');
+  const blocked: string[] = [];
+  for (let changed = doomed.size > 0; changed; ) {
+    changed = false;
+    for (const task of queued) {
+      if (doomed.has(task.node.id) || !task.node.dependencyIds.some((d) => doomed.has(d))) continue;
+      const moved = taskTransition(ws, task.node.id, 'blocked', DEPENDENCY_CANCELLED, { actor: 'scheduler', nowMs, expectedRevision: task.node.revision });
+      if (!moved.ok) continue;
+      doomed.add(task.node.id);
+      blocked.push(task.node.id);
+      changed = true;
+    }
+  }
+  return blocked.sort();
+}
+
 /**
  * Promotes validated tasks whose prerequisites are all verified (by checks or a human
  * exception) to `ready`. The store re-checks the dependencies and blocks a task with an
@@ -90,6 +120,7 @@ export async function scheduleTasks(ws: WorkspaceServices, options: ScheduleOpti
     const ready = listTasks(ws, { states: ['ready'] });
     return { promoted: [], leased: [], skipped: ready.map((t) => ({ taskId: t.node.id, reason: 'STOPPED' as const })) };
   }
+  blockCancelledDependants(ws, nowMs);
   const promoted = await promoteReady(ws, nowMs);
   const all = listTasks(ws);
   const skipped: { taskId: string; reason: SkipReason }[] = [];

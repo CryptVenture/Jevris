@@ -209,6 +209,70 @@ test('evidence.get returns a redacted, contract-valid view and is scoped to the 
   }
 });
 
+async function longOutputFixture(script) {
+  const f = await fixture({ approve: false });
+  const m = parseManifest({ id: 'big', argv: [process.execPath, '-e', script], resultFormat: 'exit-code', timeoutMs: 60_000 }).manifest;
+  await approveManifests(f.ws, [m], { big: manifestHash(m) }, 'test');
+  await op('verify').handle(f.ctx('verify', { taskId: null, checkIds: [] }));
+  const receipt = f.ws.receipts.list(f.ws.workspaceId)[0].receipt;
+  const get = () => op('evidence.get').handle(f.ctx('evidence.get', { handle: receipt.rawOutputHandle }));
+  return { f, get };
+}
+
+test('evidence.get on a long output keeps its start and its end, not only the start (JEV-0025)', async () => {
+  const { f, get } = await longOutputFixture("for (let i = 0; i < 12000; i++) console.log('line ' + i + ' ' + 'p'.repeat(20)); console.log('FAILED at the very end');");
+  try {
+    const out = await get();
+    assertContract('evidence.get', out);
+    const text = out.body.text;
+    assert.equal(out.body.truncated, true);
+    assert.ok(out.body.byteLength > 300_000);
+    assert.ok(text.length <= 65_000, String(text.length));
+    assert.match(text, /^line 0 p{20}\n/);
+    assert.match(text, /\nFAILED at the very end\n\n--- stderr ---\n$/, 'the tail of the output is what a failure ends with');
+    assert.match(text, /line 11999 p{20}\n/);
+    assert.match(text, /^\.\.\. \[\d+ characters omitted from the middle; the full output stays in the local evidence store\] \.\.\.$/m);
+    assert.equal(text.includes('line 6000 '), false, 'the middle is what is left out');
+    // Cuts fall on line boundaries: every line of the kept text is a whole line.
+    for (const line of text.split('\n')) assert.match(line, /^(line \d+ p{20}|FAILED at the very end|--- stderr ---|\.\.\. \[.*\] \.\.\.|)$/);
+  } finally {
+    f.done();
+  }
+});
+
+test('a credential the tail cut would split is never returned, whole or in part (JEV-0025)', async () => {
+  // The stored text ends with a 16-character stderr separator, so the last 28,000 characters start 24 characters into the key; the cut moves past the key.
+  const { f, get } = await longOutputFixture("process.stdout.write('a'.repeat(40_000) + ' sk-ant-api03-abcdefghij1234567890 ' + 'b'.repeat(27_974));");
+  try {
+    const out = await get();
+    assertContract('evidence.get', out);
+    assert.equal(out.body.truncated, true);
+    assert.doesNotMatch(out.body.text, /sk-ant|api03|abcdefghij|1234567890/);
+    assert.match(out.body.text, /omitted from the middle/);
+    assert.match(out.body.text, /b{100}\n--- stderr ---\n$/, 'the end of the output is kept');
+  } finally {
+    f.done();
+  }
+});
+
+test('evidence.get masks password assignments, Authorization headers and JWTs in the text and the view (JEV-0026)', async () => {
+  const jwt = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.dozjgNryP4J3jVmNHl0w5N_XgL0n3I9PlFUP0THsR8U';
+  const script = `console.log('connecting with password=hunter2hunter2-password-value'); console.log('Authorization: Bearer ${jwt}'); console.error('the password field is required'); process.exit(1);`;
+  const { f, get } = await longOutputFixture(script);
+  try {
+    const out = await get();
+    assertContract('evidence.get', out);
+    for (const shown of [out.body.text, out.body.output.view]) {
+      assert.doesNotMatch(shown, /hunter2|eyJhbGci|dozjgNry/);
+    }
+    assert.match(out.body.text, /password=\[redacted\]/);
+    assert.match(out.body.text, /Authorization: Bearer \[redacted\]/);
+    assert.match(out.body.text, /the password field is required/, 'prose about a password is left alone');
+  } finally {
+    f.done();
+  }
+});
+
 test('verification.record points at a current receipt, never creates one, and refuses asserted outcomes', async () => {
   const f = await fixture();
   try {

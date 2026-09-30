@@ -623,7 +623,9 @@ export async function setConfigValue(input: {
   const after = input.dryRun ? { ...current, config: checked.value, source: 'file' as const } : readEffectiveConfig({ home: input.home });
   const decision = await (input.sourceEgress ?? hostSourceEgress)(input.home).catch((): SourceEgressDecision => 'not-approved');
   const preference = input.dryRun ? checked.value.privacy.sourceEgress : userEgressPreference(after.path);
-  return payloadOf(after, changed, { decision, preference });
+  const payload = payloadOf(after, changed, { decision, preference });
+  // JEV-0010: a dry run says so in the payload, so no summary reads as if the change was written.
+  return input.dryRun ? { ...payload, dryRun: true as const } : payload;
 }
 
 /** The marker that says the mode-default migration has run for this home (under the state directory). */

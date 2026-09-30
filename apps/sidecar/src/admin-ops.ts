@@ -1,8 +1,9 @@
 import { closeSync, constants, lstatSync, openSync, realpathSync, writeSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type { SidecarOpContext, SidecarOpDefinition, SidecarOpOutcome } from '@jevris/contracts';
+import { DecisionJournal } from '@jevris/core';
 import { isAbsoluteOnAnyPlatform, isInsideOrSame, type JevrisPaths } from '@jevris/platform';
-import type { OpenedStore } from '@jevris/store';
+import { DAY_MS, type OpenedStore } from '@jevris/store';
 import { bodyRecord, ok, refuse } from './ops.js';
 import { resolveRetention } from './retention-policy.js';
 import { sweepFileRetention } from './file-retention.js';
@@ -59,7 +60,8 @@ export function outputPathRefusal(home: string, path: string | undefined): strin
   return undefined;
 }
 
-function writeNewPrivate(path: string, text: string): boolean {
+/** Creates `path` (never over an existing file, never through a symlink) with mode 0600 and writes `text`. */
+export function writeNewPrivate(path: string, text: string): boolean {
   let fd: number;
   try {
     fd = openSync(path, constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0), 0o600);
@@ -145,6 +147,8 @@ export function adminOps(deps: AdminOpsDeps): SidecarOpDefinition[] {
       // `jevris data delete --scope learning` and `jevris route learning reset --clear-evidence`.
       op: 'learning.purge',
       scope: 'admin',
+      // GOV-02..04: a stopped Jevris removes nothing (the owner's rule for JEV-0021).
+      stoppedByKillSwitch: true,
       budget: 'background',
       workspace: 'optional',
       handle: withStore((store, api, ctx) => {
@@ -165,13 +169,19 @@ export function adminOps(deps: AdminOpsDeps): SidecarOpDefinition[] {
       workspace: 'optional',
       handle: withStore(async (store, api, ctx) => {
         const dryRun = bodyRecord(ctx)['dryRun'] === true;
+        // GOV-02..04 (JEV-0021): a stopped Jevris removes nothing; a dry run only reads, so it stays allowed.
+        if (ctx.killSwitchStopped && !dryRun) return refuse('KILL_SWITCH', 'The kill switch is on, so no data is purged. A dry run is still allowed (--dry-run). Clear the kill switch first (jevris kill-switch clear), then purge.');
         const resolved = resolveRetention({ home: deps.home });
         const nowMs = Date.now();
         const result = api.sweepRetention(store, { policy: resolved.policy, nowMs, rawDir: join(deps.paths.data, 'evidence'), dryRun, actor: actorOf(ctx), channel: 'cli' });
         if (!result.ok) return refusal(result);
         // DATA-11: the orchestration ledger's history and worker runs, live evidence, and calibration cases.
         const files = await sweepFileRetention({ home: deps.home, dataDir: deps.paths.data, policy: resolved.policy, nowMs, dryRun });
-        return ok({ dryRun: result.dryRun, policy: resolved.policy, removed: result.removed, rawFiles: result.rawFiles, orchestration: files.orchestration, liveEvidence: files.liveEvidence, calibrationCases: files.calibrationCases, keptPinned: result.keptPinned, vacuumed: result.vacuumed, issues: resolved.issues });
+        // JEV-0023: `explain` reads the decision journal, not the store, so a purge that left the journal's
+        // files behind left expired decisions explainable. Same cutoff as the background sweep's pruneJournal;
+        // a decision with an unknown effect (usage pending, sent and unanswered) is kept.
+        const journal = await new DecisionJournal(join(deps.paths.data, 'decisions')).prune({ beforeMs: nowMs - resolved.policy.decisionRetentionDays * DAY_MS, dryRun });
+        return ok({ dryRun: result.dryRun, policy: resolved.policy, removed: result.removed, decisionJournal: journal, rawFiles: result.rawFiles, orchestration: files.orchestration, liveEvidence: files.liveEvidence, calibrationCases: files.calibrationCases, keptPinned: result.keptPinned, vacuumed: result.vacuumed, issues: resolved.issues });
       }),
     },
     {
@@ -193,6 +203,8 @@ export function adminOps(deps: AdminOpsDeps): SidecarOpDefinition[] {
       budget: 'hot',
       workspace: 'optional',
       handle: withStore((store, api, ctx) => {
+        // GOV-02..04 (JEV-0021): a stopped Jevris grants no authority until the person clears the kill switch.
+        if (ctx.killSwitchStopped) return refuse('KILL_SWITCH', 'The kill switch is on, so no authorization is minted. Clear the kill switch first (jevris kill-switch clear), then mint it again.');
         // The CLI mints only from an interactive terminal and says so; the sidecar accepts the
         // request only on the CLI key and records the terminal channel (GOV-09).
         if (stringField(ctx, 'channel') !== 'terminal') return refuse('CHANNEL_REFUSED');

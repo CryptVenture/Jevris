@@ -312,6 +312,10 @@ Every install and uninstall backs up the files it changes under `<data>/backups/
 - **A harness installed as a `.cmd` shim** (for example `codex.cmd` from npm) is found through `PATHEXT`. If `doctor` cannot find the harness, check that its folder is on your user `PATH` in a new terminal.
 - **Roaming profiles**: config under `%APPDATA%\Jevris` roams; the store, runtime copy and backups under `%LOCALAPPDATA%\Jevris` stay on the machine. Run `jevris install --yes` on each machine.
 
+## A command says Jevris produced an invalid result
+
+`Refused (RESULT_CONTRACT_INVALID): Jevris produced an invalid <command> result (<path> <code>). Report this as a bug.` (exit 2) means the answer Jevris built failed its own output contract, so it was not printed. The named path and code say which field. Nothing you passed was wrong. Run the command again with `--json`, then follow [Report a problem](#report-a-problem) and include the path and code. A workspace folder with a long generated name (for example an OS temporary folder) does not cause this: paths are checked for known credential formats only.
+
 ## Report a problem
 
 Run `jevris doctor --json` and attach its output to an issue: it contains versions, states and reason codes, never a key, a prompt or source text. It does contain file paths, such as your Jevris folders; edit them out if you prefer. For a security problem, follow [SECURITY.md](../SECURITY.md) instead of opening a public issue.

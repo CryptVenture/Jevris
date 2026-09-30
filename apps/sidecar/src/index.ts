@@ -8,6 +8,7 @@ export type { LoadedOps, OpSource } from './ops.js';
 export { BUILD_ID, NonceCache, loadedRuntimeBuild, readEndpoint, runtimeBuild, runtimeFiles, socketCandidates } from './protocol.js';
 export type { RuntimeBuild } from './protocol.js';
 export { ownStoreRefusedMessage, workspaceIdentity } from './state.js';
+export { outputPathRefusal, writeNewPrivate } from './admin-ops.js';
 export { hostScopeForStore, hostScopeId, hostScopeInfo, legacyHostScopeId, legacyHostScopes, storeBelongsHere, type HostScopeInfo, type HostScopePorts, type StoreHostScope } from './host-scope.js';
 export { detectLocality } from './locality.js';
 export { HOOK_LATENCY_FILE, appendHookLatency, hookLatencyFile, parseHookLatencyLine } from './hook-latency.js';

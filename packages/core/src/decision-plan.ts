@@ -6,7 +6,7 @@
  * added on top as a decomposition audit, but it never replaces these checks and is never
  * labelled feasibility.
  */
-import { validateTaskGraph, type PlanPayload, type TaskNode } from '@jevris/contracts';
+import { projectTaskNode, validateTaskGraph, type PlanPayload, type TaskNode } from '@jevris/contracts';
 
 function scopeRoot(scope: string): string {
   const star = scope.indexOf('*');
@@ -25,7 +25,9 @@ export function writeScopesOverlap(a: string, b: string): boolean {
 type Issue = PlanPayload['issues'][number];
 
 /** The deterministic plan payload for a task list (untrusted input). */
-export function planTaskGraph(tasks: readonly unknown[]): PlanPayload {
+export function planTaskGraph(rawTasks: readonly unknown[]): PlanPayload {
+  // A task may carry scheduling fields (`title`, `models`, `expectedOutputs`); only its node is checked.
+  const tasks = rawTasks.map(projectTaskNode);
   const checked = validateTaskGraph(tasks);
   if (!checked.ok) {
     const issues: Issue[] = checked.issues.slice(0, 1024).map((issue) => ({ taskId: issue.taskId.slice(0, 130), code: issue.code }));

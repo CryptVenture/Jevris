@@ -179,6 +179,65 @@ test('audit verify, data purge --dry-run and authorize from a terminal only (GOV
   });
 });
 
+// JEV-0023: `explain` reads the decision journal files, not the store, so a purge has to prune them too.
+test('data purge prunes expired decision journal files, keeps fresh ones and unknown effects, and --dry-run removes nothing (JEV-0023)', { skip: managedHostSkip() }, async () => {
+  const { DecisionJournal } = await import('@jevris/core');
+  await withHome(async ({ home, run }) => {
+    const dir = join(jevrisPaths({ home }).data, 'decisions');
+    const day = 86_400_000;
+    const draft = (sent) => ({
+      specId: 'task-profile', specVersion: 'v1', workspaceId: 'w-purge', taskId: null, evidenceRevision: 'rev-1', lane: 'interactive', mode: 'observe',
+      receivedAt: new Date().toISOString(), questionHash: `sha256:${'a'.repeat(64)}`, packetHash: null, reservationId: null, reservedMicroUsd: 0,
+      sent, usage: null, modelResolved: null,
+    });
+    const id = (n) => `d-${String(n).padStart(8, '0')}-0000-4000-8000-000000000000`;
+    const aged = new DecisionJournal(dir, () => Date.now() - 60 * day);
+    const fresh = new DecisionJournal(dir, () => Date.now() - day);
+    assert.equal((await aged.create(id(1), draft(false))).ok, true);
+    assert.equal((await aged.create(id(2), draft(true))).ok, true); // sent and unanswered: an unknown effect
+    assert.equal((await fresh.create(id(3), draft(false))).ok, true);
+    const file = (n) => join(dir, `${id(n)}.json`);
+
+    let r = await run(['data', 'purge', '--dry-run']);
+    assert.equal(r.code, 0, r.text);
+    assert.match(r.text, /decision journal: 1 records would be removed; 1 kept until their cost is reconciled/);
+    assert.equal(existsSync(file(1)), true, 'a dry run removes nothing');
+
+    r = await run(['data', 'purge']);
+    assert.equal(r.code, 0, r.text);
+    assert.match(r.text, /^data purge: \d+ records and \d+ raw files removed/);
+    assert.match(r.text, /decision journal: 1 records removed; 1 kept until their cost is reconciled/);
+    assert.equal(existsSync(file(1)), false, 'an expired decision is gone, so explain no longer finds it');
+    assert.equal(existsSync(file(2)), true, 'an unknown effect is kept for reconciliation');
+    assert.equal(existsSync(file(3)), true, 'a decision inside the window is kept');
+  });
+});
+
+// JEV-0019: restore replaces the store only. A decision recorded after the backup stays in the journal
+// (so `explain` still finds it), and the command says so.
+test('store restore leaves decision journal files alone and says so (JEV-0019)', { skip: managedHostSkip() }, async () => {
+  const { DecisionJournal } = await import('@jevris/core');
+  await withHome(async ({ home, run }) => {
+    assert.equal((await run(['sidecar', 'start'])).code, 0);
+    const backup = join(home, 'backups', 'before.db');
+    mkdirSync(dirname(backup));
+    assert.equal((await run(['store', 'backup', backup])).code, 0);
+    const dir = join(jevrisPaths({ home }).data, 'decisions');
+    const id = 'd-00000019-0000-4000-8000-000000000000';
+    const created = await new DecisionJournal(dir).create(id, {
+      specId: 'task-profile', specVersion: 'v1', workspaceId: 'w-restore', taskId: null, evidenceRevision: 'rev-1', lane: 'interactive', mode: 'observe',
+      receivedAt: new Date().toISOString(), questionHash: `sha256:${'b'.repeat(64)}`, packetHash: null, reservationId: null, reservedMicroUsd: 0,
+      sent: false, usage: null, modelResolved: null,
+    });
+    assert.equal(created.ok, true);
+    const r = await run(['store', 'restore', backup]);
+    assert.equal(r.code, 0, r.text);
+    assert.match(r.text, /store restore: installed/);
+    assert.ok(r.text.includes(`Decision records in ${dir} were not changed.`), r.text);
+    assert.equal(existsSync(join(dir, `${id}.json`)), true, 'the journal file made after the backup is still there');
+  });
+});
+
 test('jevris help covers every domain B command', async () => {
   for (const command of ['sidecar', 'kill-switch', 'store', 'audit', 'data', 'authorize']) {
     const out = capture();

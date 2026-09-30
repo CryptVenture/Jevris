@@ -33,6 +33,10 @@ declare module '@jevris/sidecar' {
   export function statusLineText(body: ReturnType<typeof readStatusLine>, nowMs: number): string;
   /** The daemon command line (the bundled entry, or bin/jevris.mjs sidecar run). */
   export function sidecarCommand(): readonly string[] | undefined;
+  /** GOV-11: a refusal code when an output path is not inside the home, is not absolute, or is reached through a symlink; undefined when acceptable. */
+  export function outputPathRefusal(home: string, path: string | undefined): string | undefined;
+  /** Creates a new private (0600) file, never over an existing file or through a symlink; false when it could not. */
+  export function writeNewPrivate(path: string, text: string): boolean;
   /** A runtime build id: 16 hex characters (protocol runtimeBuild). */
   export const BUILD_ID: RegExp;
   /** The build under a package or runtime root: a short hash of its dist/bundle-manifest.json, and its source commit. */

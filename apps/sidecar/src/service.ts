@@ -525,6 +525,7 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
       deadline,
       store: options.hooks.storeFor(workspace),
       killSwitchStopped,
+      killSwitchNow: () => options.hooks.killSwitchStopped(),
       ...(adherence !== undefined ? { adviceAdherence: adherence } : {}),
       ...(mode !== undefined ? { mode } : {}),
       engine: off ? engineWhenOff(options.hooks.engine) : options.hooks.engine,

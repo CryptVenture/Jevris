@@ -19,6 +19,7 @@ import type { NativeProbe } from '@jevris/platform';
 import { resultDataTermsLine } from './data-terms.js';
 import { createSurfaceContext } from './public/context.js';
 import { runOperation } from './public/operations.js';
+import { refusalReport } from './public/refusal.js';
 import { defaultPorts, type SurfacePorts } from './public/ports.js';
 import { renderHuman } from './public/render.js';
 import { ROUTE_LEARNING_HELP } from './route-learning-help.js';
@@ -191,7 +192,10 @@ ${ROUTE_LIMITS_HELP}`,
 
 Validates a task graph (a JSON list of TaskNode objects): cycles, unknown dependencies,
 missing acceptance checks and requirements, and parallel tasks that share a write scope.
-Prints waves, the critical path and the tasks that are ready.
+Prints waves, the critical path and the tasks that are ready. Only each task's TaskNode fields
+are checked: the scheduling fields --submit reads (title, models, expectedOutputs and so on)
+are allowed in the file and ignored by this check. With --submit, expectedOutputs are names
+(letters, digits, . _ : -), not file paths: an entry with a slash is refused, naming the field.
 
 With --submit, hands the plan to the Jevris sidecar as owned work under a new root budget and
 prints the plan id, the budget id and the task ids. Only the CLI can submit a plan; no model
@@ -208,10 +212,13 @@ Options:
   --graph <file>             JSON file with the task list, or { tasks, requirementIds?,
                              availableResources? } (required; at most 1 MiB)
   --submit                   Submit the plan instead of only checking it
-  --budget <id>              submit: the root budget id (required). Reusing an id needs the same
-                             limit, reserve, policy and owner.
+  --budget <id>              submit: the root budget id (required). Reusing an id needs the
+                             budget's current limit (after jevris budget update, the raised
+                             one) and the same owner. A reserve or policy you name must match
+                             the recorded one; one you leave out keeps the recorded value.
   --limit-micro-usd <n>      submit: the spending limit in micro-USD, 1 USD = 1000000 (required)
-  --reserve-micro-usd <n>    submit: kept back for shutdown, below the limit (default 0)
+  --reserve-micro-usd <n>    submit: kept back for shutdown, below the limit (default 5% of the
+                             limit for a new budget)
   --budget-policy <policy>   submit: finish-running, cancel-newest or pause-all when the
                              budget runs out
   --owner <id>               submit: the plan owner (default: your user name)
@@ -223,7 +230,8 @@ Options:
   --json                     Print one JSON result line (the command's contract)
 
 Exit codes: 0 answered, or submitted; 1 the plan is invalid, or was not submitted (the reason
-code says why); 2 usage error or refused input, or not confirmed.
+code says why); 2 usage error or refused input, or not confirmed, including a new root budget
+no person confirmed (CHANNEL_REFUSED, AUTHORIZATION_REFUSED).
 
 Examples:
   jevris plan --graph tasks.json
@@ -251,6 +259,11 @@ Examples:
 
 Classifies failure signals (repeats, oscillation, environment failures) and names one
 recovery action from the allowlist. Nothing is retried or changed.
+
+A repeat is the same failure seen at least twice; one failure is never a repeat.
+Oscillation is two failures taking turns, at least four in a row (A, B, A, B), in the
+order given. Its action is to restore the last checkpoint with your approval, and a used-up
+repair budget does not replace that with a stop, because nothing is restored without you.
 
 Options:
   --failure <text>    A failure fingerprint, in the order it happened; repeat
@@ -381,11 +394,11 @@ Examples:
 export const EVIDENCE_HELP = `Usage: jevris evidence get <handle> [--selection <id>] [--json] [--home <dir>] [--workspace <dir>]
 
 Prints one evidence item by handle (as listed by the evidence selection or a receipt), bounded
-and possibly truncated, with secrets redacted. The raw bytes stay in the local evidence store.
+and possibly truncated (a long text keeps its start and end), with secrets redacted. The raw bytes stay in the local evidence store.
 Without the sidecar it reads the local store directly.
 
 Options:
-  <handle>            An evidence handle such as ev:<64 hex> or output:<id>
+  <handle>            An evidence handle: ev: and 64 lower-case hex digits, as jevris verify names it
   --selection <id>    The selectionId of the evidence selection that listed the handle, so the
                       read is counted against that selection
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
@@ -396,7 +409,7 @@ Exit codes: 0 found; 1 not found; 2 usage error or refused input.
 
 Examples:
   jevris evidence get ev:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08
-  jevris evidence get output:build-17 --json`;
+  jevris evidence get ev:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08 --json`;
 
 type Parsed =
   | { readonly ok: true; readonly positionals: readonly string[]; readonly values: ReadonlyMap<string, string>; readonly lists: ReadonlyMap<string, readonly string[]>; readonly sequence: readonly (readonly [string, string])[]; readonly flags: ReadonlySet<string> }
@@ -731,15 +744,14 @@ export async function runPublicCommand(name: PublicCommandName, argv: readonly s
     if (asked === 'confirmed') input = { ...input, confirmed: true };
   }
   const outcome = await runOperation(ctx, name, input);
-  if (!outcome.ok && outcome.exitCode === COMMAND_EXIT_CODES.negative) {
-    // The sidecar took the request and did not answer in time: not a refusal, and nothing is claimed.
-    emitLine(write, json ? JSON.stringify({ error: { code: outcome.reasonCode, message: outcome.message } }) : `${outcome.message} (${outcome.reasonCode})`);
-    return outcome.exitCode;
-  }
-  if (!outcome.ok && outcome.reasonCode !== undefined) {
-    // A refusal with a reason (configure's CHANNEL_REFUSED or CONFIG_INVALID): the code, then the message.
-    emitLine(write, json ? JSON.stringify({ error: { code: outcome.reasonCode, message: outcome.message } }) : `Refused (${outcome.reasonCode}): ${outcome.message}`);
-    return COMMAND_EXIT_CODES.usage;
+  if (!outcome.ok) {
+    // exit 1 (the sidecar took the request and did not answer: not a refusal) or a refusal with a reason
+    // (configure's CHANNEL_REFUSED or CONFIG_INVALID, MODE_OFF): the code, then the message.
+    const report = refusalReport(outcome, json);
+    if (report !== null) {
+      emitLine(write, report.line);
+      return report.exitCode;
+    }
   }
   if (!outcome.ok) return usage(outcome.message);
   let text = json ? `${JSON.stringify(outcome.result)}\n` : renderHuman(outcome.result);
@@ -793,7 +805,12 @@ export async function runEvidenceCommand(argv: readonly string[], write: Write, 
   });
   const selectionId = parsed.values.get('--selection');
   const outcome = await runOperation(ctx, 'evidence.get', { handle: parsed.positionals[1], ...(selectionId !== undefined ? { selectionId } : {}) });
-  if (!outcome.ok) return usage(outcome.message);
+  if (!outcome.ok) {
+    const report = refusalReport(outcome, json);
+    if (report === null) return usage(outcome.message);
+    emitLine(write, report.line);
+    return report.exitCode;
+  }
   write(json ? `${JSON.stringify(outcome.result)}\n` : renderHuman(outcome.result));
   return outcome.exitCode;
 }

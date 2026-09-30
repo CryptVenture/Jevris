@@ -265,6 +265,20 @@ function revision(ctx: SurfaceContext): string {
   return /^[0-9a-f]{7,40}$/.test(value) ? value : 'no-git';
 }
 
+/**
+ * JEV-0022, GOV-02..04: a stopped Jevris writes no capsule. The sidecar refuses `checkpoint` and
+ * `handoff.import` while the kill switch is on; without a sidecar these two commands write the
+ * capsule file from here, so the same refusal is made here, before anything is written.
+ */
+export async function killSwitchWriteRefusal(
+  ctx: SurfaceContext,
+  op: 'checkpoint' | 'handoff.import',
+): Promise<{ readonly ok: false; readonly message: string; readonly reasonCode: 'KILL_SWITCH' } | null> {
+  if (!(await readKillSwitchStopped(ctx.home))) return null;
+  const what = op === 'checkpoint' ? 'no checkpoint is written' : 'no handoff is imported';
+  return { ok: false, reasonCode: 'KILL_SWITCH', message: `The kill switch is on, so ${what}. Clear the kill switch first (jevris kill-switch clear), then run this again.` };
+}
+
 export async function localCheckpoint(ctx: SurfaceContext, input: OpInputs['checkpoint']): Promise<CheckpointPayload> {
   const id = `cap-${ctx.nowMs().toString(36)}-${randomBytes(4).toString('hex')}`;
   const observedAt = isoNow(ctx);
@@ -620,7 +634,7 @@ export async function localConfigure(ctx: SurfaceContext, input: OpInputs['confi
   const now = input.dryRun ? { config: checked.value, modeSource: 'user' as const } : effectiveSettings(ctx);
   return {
     ok: true,
-    payload: { ...base, source: 'file', path: configPath(ctx), valid: true, effective: effectiveView(now.config, egress, checked.value.privacy.sourceEgress, now.modeSource), changed },
+    payload: { ...base, source: 'file', path: configPath(ctx), valid: true, effective: effectiveView(now.config, egress, checked.value.privacy.sourceEgress, now.modeSource), changed, ...(input.dryRun ? { dryRun: true as const } : {}) },
   };
 }
 

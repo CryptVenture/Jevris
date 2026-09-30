@@ -43,6 +43,10 @@ import { capabilityOps } from './ops/capability-ops.js';
 
 const CONTRACT_ID = new RegExp(ID_PATTERN);
 const MAX_EVIDENCE_TEXT = 60_000;
+/** What a long text keeps at each end (JEV-0025); two of them and the marker stay under the contract's 65,536. */
+const EVIDENCE_KEEP_EACH_END = 28_000;
+const EVIDENCE_SNAP_CHARS = 200;
+const EVIDENCE_CONTRACT_MAX = 65_000;
 
 /**
  * The surface payload contract each op answers with. Ops without a surface contract yet
@@ -405,8 +409,12 @@ export function evidencePayload(ws: WorkspaceServices, handle: string) {
   }
   const full = new TextDecoder().decode(bytes);
   const output = outputViewOf(ws, handle);
-  const sliced = full.length > MAX_EVIDENCE_TEXT;
-  const text = redactSecrets(sliced ? full.slice(0, MAX_EVIDENCE_TEXT) : full);
+  let text = full.length > MAX_EVIDENCE_TEXT ? '' : redactSecrets(full);
+  // A long text keeps its start and its end (the failing part is usually last), each piece cut at
+  // a line or word boundary and redacted on its own, so redaction only ever reads the kept slices
+  // and a secret is never split by the cut. A redacted text that would not fit the contract is cut the same way.
+  const sliced = full.length > MAX_EVIDENCE_TEXT || text.length > EVIDENCE_CONTRACT_MAX;
+  if (sliced) text = headAndTail(full);
   let mediaType: 'text/plain' | 'application/json' = 'text/plain';
   if (/^\s*[[{]/.test(full)) {
     try {
@@ -417,6 +425,40 @@ export function evidencePayload(ws: WorkspaceServices, handle: string) {
     }
   }
   return { handle, found: true, mediaType, byteLength: bytes.length, text, truncated: meta.truncated || sliced, output };
+}
+
+/** The first and last `EVIDENCE_KEEP_EACH_END` characters of `full`, redacted, with a marker for what is between. */
+function headAndTail(full: string): string {
+  const headEnd = snapBack(full, EVIDENCE_KEEP_EACH_END);
+  const tailStart = Math.max(headEnd, snapForward(full, full.length - EVIDENCE_KEEP_EACH_END));
+  const omitted = tailStart - headEnd;
+  const head = redactSecrets(full.slice(0, headEnd));
+  const marker = `... [${String(omitted)} characters omitted from the middle; the full output stays in the local evidence store] ...\n`;
+  return `${head}${head.endsWith('\n') ? '' : '\n'}${marker}${redactSecrets(full.slice(tailStart))}`;
+}
+
+function isBoundary(code: number): boolean {
+  return code === 10 || code === 32 || code === 9 || code === 13;
+}
+
+/** A cut at or before `at`, on a newline (else a space) within a short reach, never inside a surrogate pair. */
+function snapBack(text: string, at: number): number {
+  const floor = Math.max(1, at - EVIDENCE_SNAP_CHARS);
+  for (const wanted of [(c: number) => c === 10, isBoundary]) {
+    for (let i = at; i >= floor; i--) if (wanted(text.charCodeAt(i - 1))) return i;
+  }
+  const c = text.charCodeAt(at - 1);
+  return c >= 0xd800 && c <= 0xdbff ? at - 1 : at;
+}
+
+/** A cut at or after `at`, on a line start (else after a space) within a short reach, never inside a surrogate pair. */
+function snapForward(text: string, at: number): number {
+  const ceil = Math.min(text.length, at + EVIDENCE_SNAP_CHARS);
+  for (const wanted of [(c: number) => c === 10, isBoundary]) {
+    for (let i = at; i < ceil; i++) if (wanted(text.charCodeAt(i - 1))) return i;
+  }
+  const c = text.charCodeAt(at);
+  return c >= 0xdc00 && c <= 0xdfff ? at + 1 : at;
 }
 
 /** How the stored output was shown to the model (US15), or null when no view was recorded. */
@@ -579,7 +621,7 @@ export const sidecarOps: readonly SidecarOpDefinition[] = Object.freeze([
   { op: 'verify', scope: 'submit', budget: 'background', stoppedByKillSwitch: true, handle: handleVerify },
   { op: 'verify.status', scope: 'status', budget: 'hot', handle: handleVerifyStatus },
   { op: 'evidence.get', scope: 'status', budget: 'hot', handle: handleEvidenceGet },
-  { op: 'verification.record', scope: 'checkpoint', budget: 'hot', handle: handleVerificationRecord },
+  { op: 'verification.record', scope: 'checkpoint', budget: 'hot', stoppedByKillSwitch: true, handle: handleVerificationRecord },
   { op: 'verify.import-ci', scope: 'submit', budget: 'background', stoppedByKillSwitch: true, handle: handleCiImport },
   { op: 'verify.required', scope: 'status', budget: 'hot', handle: handleVerifyRequired },
   ...taskOps(respond, workspaceOf),

@@ -325,10 +325,12 @@ export async function runRouteLearningCommand(argv: readonly string[], write: Wr
     // decision outcomes and advice-adherence records. Reported as a reason code only.
     const storePurge = await purgeWorkspaceLearning(ctx.home, ctx.workspaceId);
     const purged = storePurge === 'STORE_PURGED' || storePurge === 'NO_STORE';
-    const line = purged ? `This workspace's learning records in the store were removed (${storePurge}).` : `This workspace's learning records in the store were not removed (${storePurge}); run jevris data delete --scope learning to retry.`;
+    const retry = storePurge === 'KILL_SWITCH' ? 'clear the kill switch (jevris kill-switch clear), then run the reset again' : 'run jevris data delete --scope learning to retry';
+    const line = purged ? `This workspace's learning records in the store were removed (${storePurge}).` : `This workspace's learning records in the store were not removed (${storePurge}); ${retry}.`;
     // The local calibration cases file (C's 01c1e29) is built from those records, so it goes too.
-    const calibrationCases = (await removeLocalCalibrationCases(ctx.home, ctx.workspaceId)).ok ? 'REMOVED' : 'REMOVE_FAILED';
-    const casesLine = calibrationCases === 'REMOVED' ? "This workspace's local calibration cases file was removed (REMOVED)." : "This workspace's local calibration cases file was not removed (REMOVE_FAILED); run the reset again.";
+    // A stopped Jevris removes nothing (JEV-0021): the cases file stays with the store records.
+    const calibrationCases = storePurge === 'KILL_SWITCH' ? 'KILL_SWITCH' : (await removeLocalCalibrationCases(ctx.home, ctx.workspaceId)).ok ? 'REMOVED' : 'REMOVE_FAILED';
+    const casesLine = calibrationCases === 'KILL_SWITCH' ? "This workspace's local calibration cases file was not removed (KILL_SWITCH)." : calibrationCases === 'REMOVED' ? "This workspace's local calibration cases file was removed (REMOVED)." : "This workspace's local calibration cases file was not removed (REMOVE_FAILED); run the reset again.";
     return out({ ...changed, storePurge, calibrationCases }, [text, line, casesLine], purged && calibrationCases === 'REMOVED' ? COMMAND_EXIT_CODES.ok : COMMAND_EXIT_CODES.negative);
   }
   return out(changed, [text], COMMAND_EXIT_CODES.ok);

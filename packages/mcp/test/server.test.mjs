@@ -94,6 +94,29 @@ test('a tool result mirrors the CLI result in structuredContent and the text blo
   assert.equal(JSON.stringify(r).includes('presence'), false);
 });
 
+test('jevris_advise and jevris_delivery_report each refuse the other tool\'s capability ids without asking the CLI (JEV-0029)', async () => {
+  const { s, calls } = server();
+  const cases = [
+    ['jevris_advise', 'C57'],
+    ['jevris_advise', 'C64'],
+    ['jevris_delivery_report', 'C25'],
+    ['jevris_delivery_report', 'C47'],
+    ['jevris_advise', 'C999'],
+    ['jevris_delivery_report', 12],
+  ];
+  for (const [name, capabilityId] of cases) {
+    const r = await s.handle(call(1, name, { capabilityId }));
+    assert.equal(r.result.isError, true, `${name} ${String(capabilityId)}`);
+    assert.match(r.result.content[0].text, /^Refused \(REFUSED\): "capabilityId" must be one of C\d+/, `${name} ${String(capabilityId)}`);
+  }
+  assert.deepEqual(calls, [], 'a refused id reached the CLI');
+  for (const [name, capabilityId] of [['jevris_advise', 'C25'], ['jevris_delivery_report', 'C57']]) {
+    const r = await s.handle(call(2, name, { capabilityId }));
+    assert.equal(r.result.isError, false, `${name} ${capabilityId}`);
+  }
+  assert.equal(calls.length, 2);
+});
+
 test('refusal, timeout and spawn failure set isError with a distinct message', async () => {
   const refused = await server({ answer: { kind: 'refused', code: 'REFUSED', message: 'Unknown argument "home".' } }).s.handle(call(1, 'jevris_status', { home: '/x' }));
   assert.equal(refused.result.isError, true);

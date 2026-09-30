@@ -759,6 +759,29 @@ test('verify names a failed check\'s failing tests, at most three and "and N mor
   assert.doesNotMatch(bad, /output:abc123/);
 });
 
+test('evidence get accepts only the ev:<64 hex> handle Jevris issues, in the CLI parser and the MCP schema (JEV-0015)', async (t) => {
+  const box = sandbox(t);
+  const { calls, ports } = fakePorts({ answers: { 'evidence.get': { handle: `ev:${'a'.repeat(64)}`, found: false, mediaType: null, byteLength: null, truncated: false, text: null } } });
+  const env = { ...box.env, JEVRIS_SIDECAR_AUTOSTART: '1' };
+  const ask = async (handle) => {
+    let text = '';
+    const bytes = new TextEncoder().encode(JSON.stringify({ handle }));
+    const code = await runSurfaceCall(['evidence.get'], (chunk) => (text += chunk), async () => bytes, { ports, env, cwd: box.workspace });
+    return { code, text };
+  };
+  for (const bad of ['foo:bar', 'output:build-17', `ev:${'a'.repeat(63)}`, `ev:${'A'.repeat(64)}`, `ev:${'a'.repeat(65)}`, 'ev:missing']) {
+    const out = await ask(bad);
+    assert.equal(out.code, 2, `${bad}: ${out.text}`);
+    assert.match(out.text, /ev:<64 hex>/, bad);
+  }
+  assert.equal(calls.filter((c) => c.kind === 'request' && c.op === 'evidence.get').length, 0, 'a refused handle reached the sidecar');
+  assert.notEqual((await ask(`ev:${'a'.repeat(64)}`)).code, 2);
+  const { TOOLS } = await import('../../../packages/mcp/dist/tools.js');
+  const schema = TOOLS.find((tool) => tool.name === 'jevris_evidence_get').inputSchema.properties.handle;
+  assert.equal(schema.pattern, '^ev:[0-9a-f]{64}$');
+  assert.equal(new RegExp(schema.pattern).test('foo:bar'), false);
+});
+
 test('verify names checks that need another environment, and that is never verified (W12)', async (t) => {
   const box = sandbox(t);
   const payload = {

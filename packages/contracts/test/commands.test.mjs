@@ -339,3 +339,18 @@ test('route learning gone --json: a list of the models found gone on this machin
     assert.equal(contract.validate(bad).ok, false, JSON.stringify(bad).slice(0, 160));
   }
 });
+
+test('a path in a result is not screened for the high-entropy heuristic, only for known credential formats (JEV-0017)', () => {
+  const longName = '/private/var/folders/xx/T/jev-e2e-cli-memory-recover-Ab3xYz9Qw7Lk2Mn/work';
+  const result = envelope('status', statusPayload);
+  const check = (root) => c.surfaceResultContract('status').validate({ ...result, workspace: { id: 'ws-0123456789abcdef', root } });
+  assert.equal(check(longName).ok, true);
+  // A path that carries a provider credential is still refused.
+  assert.equal(check('/work/sk-ant-api03-abcdef/repo').ok, false);
+  assert.equal(check('/work/ghp_abcdefghijklmnopqrstuvwxyz0123456789/repo').ok, false);
+  // Identifiers and reason codes keep the full screening, heuristic included.
+  const entropy = 'Ab3xYz9Qw7Lk2MnPq5Rs8Tu1Vw4Xy6Za';
+  assert.equal(c.containsSecret(entropy), true);
+  assert.equal(new RegExp(c.PROVIDER_SECRET_PATTERNS.join('|'), 'u').test(entropy), false);
+  assert.equal(c.SECRET_PATTERNS.length, c.PROVIDER_SECRET_PATTERNS.length + 1);
+});

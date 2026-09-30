@@ -80,6 +80,12 @@ export function summaryFor(op: SurfaceOperation, payload: unknown, mode: 'full' 
     }
     case 'configure': {
       const p = payload as SurfacePayloads['configure'];
+      // JEV-0010: a dry run says what would change and that nothing was written; it never reads as a change made.
+      if (p.dryRun === true) {
+        return p.changed.length > 0
+          ? `Would change ${p.changed.map((c) => c.key).join(', ')}; nothing was written (dry run); native permissions would not change${tail}.`
+          : `Dry run: no setting would change; nothing was written${tail}.`;
+      }
       if (p.changed.length > 0) return `Changed ${p.changed.map((c) => c.key).join(', ')}; native permissions were not changed${tail}.`;
       return p.valid
         ? `Configuration from ${p.source} is valid; mode is ${p.effective.mode}${tail}.`
@@ -564,12 +570,14 @@ function body(result: SurfaceResult): string[] {
       ];
       for (const issue of p.issues) lines.push(`issue: ${issue.path || '/'} ${issue.code}`);
       for (const c of p.changed) lines.push(`changed: ${c.key} ${c.from} -> ${c.to}`);
+      if (p.dryRun === true) lines.push('dry run: nothing was written');
       return lines;
     }
     case 'task.get': {
       const p = r as SurfacePayloads['task.get'];
       if (!p.found || p.task === null) return [];
       const lines = [line('state', p.task.state)];
+      if (p.task.stateReason !== undefined) lines.push(line('reason', p.task.stateReason));
       for (const receipt of p.receipts.slice(0, 40)) lines.push(`check ${receipt.checkId}: ${receipt.outcome}${receipt.fresh ? '' : ' not-current'} receipt ${receipt.receiptId}`);
       const w = p.worker ?? null;
       if (w === null) lines.push('worker: none ran');

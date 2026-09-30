@@ -99,6 +99,57 @@ The first public release: one package that installs into five coding harnesses o
 
 - New: installation, upgrade and uninstall, troubleshooting, a generated CLI reference and platform-support page, settings, verification, one guide per harness and the parity matrix, MCP tools and the hook launcher, policy packs, multi-host owned workers, model routing and route learning, the model refresh procedure, and RELEASING.md.
 
+### Fixes: Kill switch, authority and settings
+
+- JEV-0021: While the kill switch is on, `data purge` (other than `--dry-run`), the store learning purge, `authorize`, `consent provider --grant`, `credential reenable`, `route limits clear`, task cancel and revert, verification and feedback records, `checkpoint` and `handoff import` are refused with `KILL_SWITCH`; the audit log, backup, export and the switch itself stay open, each documented in security.md.
+- JEV-0022: The local `jevris configure` writes are refused while the kill switch is on, like the sidecar's, instead of changing settings.
+- JEV-0018: `jevris audit verify` and `audit export` read the store file directly when no sidecar is running, and no admin command starts a sidecar when `JEVRIS_SIDECAR_AUTOSTART=0` (it answers `SIDECAR_AUTOSTART_OFF`).
+- JEV-0010: `jevris configure --dry-run` says "Would change ..." and marks the result `dryRun: true`, so a preview is no longer worded as a change.
+- JEV-0031, JEV-0020: the hook launcher names `KILL_SWITCH` as the reason when the sidecar answered while stopped, instead of `NO_PROPOSAL`.
+
+### Fixes: Planning and tasks
+
+- JEV-0004, JEV-0016: `jevris plan --graph` and `jevris_plan` check only a task's TaskNode fields; the scheduling fields `--submit` reads (title, models, expectedOutputs and so on) no longer make the graph check fail. A task that depends on itself is reported as SELF_DEPENDENCY by both plan checks.
+- JEV-0006: `jevris plan --submit` with a task field that breaks a rule (for example an `expectedOutputs` entry with a slash) now answers PLAN_INVALID with an INVALID_TASK issue naming the task, the field and the rule, instead of a bare INVALID_REQUEST. The help and docs/mcp.md say expectedOutputs are names, not paths.
+- JEV-0007: `jevris plan --submit` exits 2 (a refused request) for CHANNEL_REFUSED and AUTHORIZATION_REFUSED, as docs/cli.md says; other plan refusals still exit 1.
+- JEV-0034: `jevris plan --submit` under a budget that `jevris budget update` raised is accepted when the plan names the current limit; a reserve or policy the plan leaves out keeps the recorded value. A refusal names BUDGET_CONFLICT with a hint. The `--reserve-micro-usd` help no longer says "(default 0)": a new budget keeps 5% of its limit.
+- JEV-0035: cancelling a task cancels nothing else. Queued tasks that wait on it are marked `blocked` with the reason `DEPENDENCY_CANCELLED` (shown as `stateReason` by `jevris_get_task`), and a later unrelated `task.submit` is no longer refused with UNKNOWN_DEPENDENCY because of them.
+- JEV-0008: with more independent tasks than `orchestration.maxConcurrentWorkers`, the next queued task now starts when a worker ends and when a running task is cancelled; the kill switch is read again at that moment, so nothing starts while it is on.
+- JEV-0038: `task.submit` (`jevris_submit_task`) refuses an acceptance check that is not an approved runner check (UNKNOWN_CHECK), as `plan --submit` already did.
+
+### Fixes: Verification, evidence and delivery
+
+- JEV-0001: `jevris verify approve` now replaces the approved set instead of merging into it, so a check left out of the manifest loses its approval.
+- JEV-0002: docs state that a receipt Jevris has seen go stale stays stale until the check runs again.
+- JEV-0003: the first `jevris verify` after a lockfile commit or a branch switch is no longer reported stale; only receipts made before the change are invalidated.
+- JEV-0012: `jevris delivery pr-readiness` with no approved mandatory check now names that as its blocker (and the fix) instead of "Not ready: 0 blockers".
+- JEV-0025: `jevris evidence get` on a long output keeps its start and its end, with a marker for what was left out, instead of the start only.
+- JEV-0026: displayed and sent text now masks `password=`/`secret=` style values, `Authorization` header credentials and JWTs.
+- JEV-0009: `jevris checkpoint` invalidates receipts made stale by an edit before it counts open checks, so a stale check shows as open in the capsule and in `retained.openChecks`.
+- JEV-0014: `jevris_handoff_export` and `handoff export` with an unknown task id answer `found: false` instead of exporting the newest workspace capsule.
+
+### Fixes: Recovery and privacy
+
+- JEV-0027: `jevris recover` no longer treats one fresh failure as a stall or a repeat: the stall clock starts at the first signal, not at the epoch, and a class Jev returns that the counted failures do not support is ignored.
+- JEV-0028: `jevris recover` detects oscillation from failures taking turns (A, B, A, B), and an exhausted repair budget no longer replaces its restore-with-approval action with a stop.
+- JEV-0017: a workspace folder with a long generated name (an OS temporary folder) no longer makes every command fail its result contract; paths are checked for known credential formats only. A result that still fails its contract now prints `Refused (RESULT_CONTRACT_INVALID): ...`.
+- JEV-0023: `jevris data purge` also removes expired decision journal files, so `jevris explain` no longer finds a purged decision; it prints a `decision journal:` line and keeps decisions whose cost is not yet reconciled.
+- JEV-0024: `jevris policy check --would-send-source` prints "Egress allowed: ..." and exits 0 when source egress is approved, instead of "refused" with exit 2.
+
+### Fixes: Policy, packs and store
+
+- JEV-0011: `jevris policy rollback` with no previous policy discards a staged policy and exits 0 with a note, or is refused without changing anything; a refused rollback no longer deletes the staged policy.
+- JEV-0036: `jevris pack shadow --report` now accepts the comparison record that `jevris shadow --out` writes, so the documented flow reaches shadow-approved; files that are not shadow evidence are still refused.
+- JEV-0019: `jevris store restore` now says that decision records in `<data>/decisions` were not changed (restore replaces the store only; the sidecar re-archives the journal), and the docs say so.
+
+### Fixes: MCP, skills and docs
+
+- JEV-0029: `jevris_advise` and `jevris_delivery_report` now refuse the other tool's capability ids (`Refused (REFUSED)`) before the CLI is asked; the MCP server enforces the `enum` in each tool's input schema.
+- JEV-0015: an evidence handle is `ev:` and 64 lower-case hex digits everywhere (`jevris evidence get`, `jevris_evidence_get`); other forms such as `output:<id>` are refused with a usage message. Jevris never issued them.
+- JEV-0030, JEV-0013: docs/mcp.md lists the real reduced-mode reason codes (`NOT_RUNNING` when autostart is off, `SIDECAR_UNAVAILABLE` when it failed) and the real error surface (JSON-RPC -32700/-32600/-32601; `INVALID_JSON` and `OVERSIZE` exist only on the internal `jevris __surface` entry).
+- JEV-0032, JEV-0033: the configure skill gives the real command, `jevris configure set <key> <value>`; a docs lint now checks every command and flag the skills name against the CLI reference.
+- JEV-0037: `jevris advise`, `jevris delivery` and `jevris evidence get` keep a refusal's reason code: with the mode off they print `Refused (MODE_OFF): ...` (exit 2) instead of a usage error, and an unanswered request keeps exit 1.
+
 ## v1.1 (milestone, 2026-09-25)
 
 Full delivery programme in the private workspace; not published.

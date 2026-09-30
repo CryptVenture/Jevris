@@ -36,7 +36,9 @@ Examples:
 
 Host policy administration. check explains whether source egress would be allowed for the
 workspace, and never sends anything. stage stages a policy pack manifest; rollback restores the
-previous staged policy. A raw key in a project file is refused.
+previous host policy and discards a staged manifest. With no previous policy it discards a staged
+manifest if there is one (exit 0), otherwise it is refused; a refused rollback changes nothing.
+A raw key in a project file is refused.
 
 Options:
   --home <dir>          Jevris home (default: JEVRIS_HOME, else your home directory)
@@ -59,7 +61,7 @@ report is not a pass. --out may not point inside .jevris/packs.
 Options:
   --home <dir>      Jevris home (default: JEVRIS_HOME, else your home directory)
   --fixture <file>  The labelled fixture to replay (required)
-  --out <file>      Also write the report to this file
+  --out <file>      Also write the comparison record to this file (pack shadow --report accepts it)
 
 ${EXIT}
 

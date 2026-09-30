@@ -94,7 +94,8 @@ export const SELECTION_ID = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 export const MODEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?$/;
 /** A model id as a harness reports it (G20, contracts HARNESS_MODEL_ID_PATTERN). */
 export const HARNESS_MODEL = new RegExp(HARNESS_MODEL_ID_PATTERN);
-const HANDLE = /^[a-z]+:[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/** An evidence handle: the only kind Jevris issues (contracts EVIDENCE_HANDLE_PATTERN). */
+const HANDLE = /^ev:[0-9a-f]{64}$/;
 const CONFIG_KEY = /^[a-zA-Z][a-zA-Z0-9]*(\.[a-zA-Z][a-zA-Z0-9]*){0,3}$/;
 
 type Raw = { readonly [key: string]: unknown };
@@ -436,7 +437,7 @@ const PARSERS: { readonly [K in SurfaceOperation]: (raw: Raw) => OpInputs[K] } =
   'evidence.get'(raw) {
     onlyKeys(raw, ['handle', 'selectionId']);
     return {
-      handle: pattern(raw, 'handle', HANDLE, 'a handle such as ev:<64 hex> (jevris verify names it)', true),
+      handle: pattern(raw, 'handle', HANDLE, 'an evidence handle, ev:<64 hex> with lower-case hex digits (jevris verify names it)', true),
       selectionId: pattern(raw, 'selectionId', SELECTION_ID, 'the selectionId an evidence selection returned', false),
     };
   },

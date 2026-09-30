@@ -44,6 +44,37 @@ export const TaskNodeContract = defineContract<TaskNode>({
   },
 });
 
+/** The ten keys of a TaskNode. */
+export const TASK_NODE_KEYS = [
+  'id',
+  'schemaVersion',
+  'workspaceId',
+  'revision',
+  'state',
+  'requirementIds',
+  'dependencyIds',
+  'writeScopes',
+  'acceptanceCheckIds',
+  'rootBudgetId',
+] as const;
+
+/**
+ * The TaskNode part of a task that may carry scheduling fields (`title`, `models`,
+ * `expectedOutputs`, ...). Those fields belong to a submitted plan, not to the node, so graph
+ * validation ignores them; the strict node contract is not loosened. A value that is not a plain
+ * object is returned as it is, so it still fails the contract.
+ */
+export function projectTaskNode(raw: unknown): unknown {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return raw;
+  const prototype = Object.getPrototypeOf(raw);
+  if (prototype !== Object.prototype && prototype !== null) return raw;
+  const out: { [key: string]: unknown } = {};
+  for (const key of TASK_NODE_KEYS) {
+    if (Object.prototype.hasOwnProperty.call(raw, key)) out[key] = (raw as { [key: string]: unknown })[key];
+  }
+  return out;
+}
+
 export interface TaskGraphIssue {
   readonly taskId: string;
   readonly code: 'DUPLICATE_TASK' | 'UNKNOWN_DEPENDENCY' | 'SELF_DEPENDENCY' | 'CYCLE' | 'WORKSPACE_SCOPE' | 'INVALID_TASK';
@@ -57,10 +88,19 @@ export type TaskGraphResult =
 export function validateTaskGraph(nodes: readonly unknown[]): TaskGraphResult {
   const issues: TaskGraphIssue[] = [];
   const byId = new Map<string, TaskNode>();
+  /** Tasks that depend on themselves: named as such, and known to the tasks that depend on them. */
+  const selfDependent = new Set<string>();
   let workspaceId: string | undefined;
   nodes.forEach((raw, index) => {
     const checked = TaskNodeContract.validate(raw);
     if (!checked.ok) {
+      // The refinement runs only after the schema passed, so `id` is a safe id here.
+      if (checked.issues.length > 0 && checked.issues.every((found) => found.code === 'SELF_DEPENDENCY')) {
+        const id = (raw as TaskNode).id;
+        issues.push({ taskId: id, code: 'SELF_DEPENDENCY' });
+        selfDependent.add(id);
+        return;
+      }
       issues.push({ taskId: `#${index}`, code: 'INVALID_TASK' });
       return;
     }
@@ -72,7 +112,7 @@ export function validateTaskGraph(nodes: readonly unknown[]): TaskGraphResult {
   });
   for (const node of byId.values()) {
     for (const dependency of node.dependencyIds) {
-      if (!byId.has(dependency)) issues.push({ taskId: node.id, code: 'UNKNOWN_DEPENDENCY' });
+      if (!byId.has(dependency) && !selfDependent.has(dependency)) issues.push({ taskId: node.id, code: 'UNKNOWN_DEPENDENCY' });
     }
   }
   if (issues.length > 0) return { ok: false, issues };

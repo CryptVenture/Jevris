@@ -6,7 +6,7 @@ import * as S from './schema.js';
  * must not match any of them, so a key cannot travel inside a validated object.
  */
 const B = '(?:^|[^A-Za-z0-9])';
-export const SECRET_PATTERNS: readonly string[] = Object.freeze([
+export const PROVIDER_SECRET_PATTERNS: readonly string[] = Object.freeze([
   `${B}sk-ant-`,
   `${B}sk-(?:proj-)?[A-Za-z0-9_-]{16,}`,
   `${B}gh[pousr]_[A-Za-z0-9]{20,}`,
@@ -17,9 +17,14 @@ export const SECRET_PATTERNS: readonly string[] = Object.freeze([
   `${B}glpat-`,
   `${B}npm_[A-Za-z0-9]{30,}`,
   '-----BEGIN [A-Z ]*PRIVATE KEY',
-  // A 32+ character run of mixed-case letters and digits: a high-entropy token.
-  '(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}',
 ]);
+
+/** A 32+ character run of mixed-case letters and digits: a high-entropy token (a heuristic, not a known format). */
+export const ENTROPY_SECRET_PATTERN =
+  '(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}';
+
+/** Every credential shape: the provider formats plus the high-entropy heuristic. */
+export const SECRET_PATTERNS: readonly string[] = Object.freeze([...PROVIDER_SECRET_PATTERNS, ENTROPY_SECRET_PATTERN]);
 
 /** Unanchored URL shapes refused in free text: a scheme with an authority, and a www host. */
 export const URL_PATTERNS: readonly string[] = Object.freeze(['[A-Za-z][A-Za-z0-9+.-]*://', '(?:^|[^A-Za-z0-9])www\\.']);

@@ -15,7 +15,7 @@ import { defineContract, type Contract } from './contract.js';
 import { MODES, MODE_SOURCES } from './domain.js';
 import { WorkerModelSchema } from './decision-record.js';
 import { ACCESS_SERVING_HOSTS, AccessLimitsStatusSchema, AccessUsageStatusSchema } from './access-limits.js';
-import { AUTH_MODES, HARNESS_MODEL_ID_PATTERN, Hash, HarnessIdSchema, Id, ModelId, NonNegativeInteger, REASON_CODE_PATTERN, SECRET_PATTERNS, Timestamp, text, type AuthMode } from './primitives.js';
+import { AUTH_MODES, HARNESS_MODEL_ID_PATTERN, Hash, HarnessIdSchema, Id, ModelId, NonNegativeInteger, PROVIDER_SECRET_PATTERNS, REASON_CODE_PATTERN, SECRET_PATTERNS, Timestamp, text, type AuthMode } from './primitives.js';
 import { MAIN_SESSION_MODES, TURN_HARNESSES } from './route-turn.js';
 import { PROVIDER_CONSENT_STATES } from './provider-consent.js';
 import { SERVING_HOST_KINDS } from './serving-hosts.js';
@@ -65,7 +65,13 @@ export type SidecarState = (typeof SIDECAR_STATES)[number];
 const ShortText = text(500);
 const LongText = text(4000);
 const Code = S.string({ pattern: REASON_CODE_PATTERN, notPatterns: SECRET_PATTERNS });
-const PathText = S.string({ minLength: 1, maxLength: 4096, notPatterns: SECRET_PATTERNS });
+/**
+ * A filesystem path. It refuses the known credential formats but not the high-entropy heuristic:
+ * OS temporary folders carry long mixed-case names (a 32-character run is normal there), and a
+ * path is not a credential channel. Anything that leaves the machine is redacted separately
+ * (`redactSecrets`, which keeps the heuristic).
+ */
+const PathText = S.string({ minLength: 1, maxLength: 4096, notPatterns: PROVIDER_SECRET_PATTERNS });
 const Ids = (maxItems = 256) => S.array(Id, { maxItems });
 const Count = NonNegativeInteger;
 /** A verification evidence handle: `ev:` and the 64-hex digest of the kept output (`jevris evidence get`). */
@@ -796,6 +802,10 @@ export const ConfigurePayloadSchema = S.object({
   }),
   /** configure never changes native harness permissions. */
   nativePermissionsChanged: S.literal(false),
+},
+{
+  /** True when `--dry-run` was asked: `changed` is what would change, and nothing was written (JEV-0010). Absent otherwise. */
+  dryRun: S.boolean(),
 });
 export type ConfigurePayload = S.Static<typeof ConfigurePayloadSchema>;
 
@@ -808,6 +818,10 @@ const TaskSchema = S.object({
   requirementIds: Ids(),
   dependencyIds: Ids(),
   acceptanceCheckIds: Ids(),
+},
+{
+  /** Why a blocked task waits, as a reason code (for example DEPENDENCY_CANCELLED); absent when none is recorded (JEV-0035). */
+  stateReason: S.string({ pattern: '^[A-Z][A-Z0-9_]{0,63}$' }),
 });
 
 /**

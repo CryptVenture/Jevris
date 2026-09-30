@@ -105,8 +105,12 @@ export function validatePlan(input: PlanInput, nowMs = Date.now()): PlanResult {
   const nodes: TaskNode[] = [];
   input.tasks.forEach((t, index) => {
     const node = nodeFor(t, input.workspaceId, budgetId, nowMs);
-    if (node === undefined) issues.push({ taskId: typeof t.id === 'string' && t.id.length <= 130 ? t.id : `#${String(index)}`, code: 'INVALID_TASK' });
-    else nodes.push(node);
+    if (node === undefined) {
+      const taskId = typeof t.id === 'string' && t.id.length <= 130 ? t.id : `#${String(index)}`;
+      // A task that depends on itself is named as such, not as a malformed task.
+      const selfDependent = typeof t.id === 'string' && (t.dependencyIds ?? []).includes(t.id);
+      issues.push({ taskId, code: selfDependent ? 'SELF_DEPENDENCY' : 'INVALID_TASK' });
+    } else nodes.push(node);
   });
   const structural = validateTaskGraph(nodes);
   if (!structural.ok) {

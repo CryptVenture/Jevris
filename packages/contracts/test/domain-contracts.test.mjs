@@ -255,6 +255,29 @@ test('TaskNode graphs: a cyclic graph cannot be scheduled (§6.2)', () => {
   }
 });
 
+test('TaskNode graphs: a task that depends on itself is named SELF_DEPENDENCY, not INVALID_TASK (JEV-0016)', () => {
+  const self = c.validateTaskGraph([F.taskNode('a', ['a'])]);
+  assert.equal(self.ok, false);
+  assert.deepEqual(self.issues, [{ taskId: 'a', code: 'SELF_DEPENDENCY' }]);
+  // Its dependants are not reported as depending on an unknown task.
+  assert.deepEqual(c.validateTaskGraph([F.taskNode('a', ['a']), F.taskNode('b', ['a'])]).issues, [{ taskId: 'a', code: 'SELF_DEPENDENCY' }]);
+  // A malformed node stays INVALID_TASK, and a self-dependent malformed node too (the schema fails first).
+  assert.deepEqual(c.validateTaskGraph([{ ...F.taskNode('a'), state: 'nope' }]).issues, [{ taskId: '#0', code: 'INVALID_TASK' }]);
+  assert.deepEqual(c.validateTaskGraph([{ ...F.taskNode('a', ['a']), state: 'nope' }]).issues, [{ taskId: '#0', code: 'INVALID_TASK' }]);
+});
+
+test('projectTaskNode keeps the ten node keys and leaves the strict contract alone (JEV-0004)', () => {
+  const node = F.taskNode('a');
+  const extra = { ...node, title: 'A title', models: ['claude-haiku-4-5'], expectedOutputs: ['out'] };
+  assert.equal(c.TaskNodeContract.validate(extra).ok, false, 'the node contract stays strict');
+  assert.deepEqual(c.projectTaskNode(extra), node);
+  assert.deepEqual(Object.keys(c.projectTaskNode(extra)).sort(), [...c.TASK_NODE_KEYS].sort());
+  assert.equal(c.validateTaskGraph([c.projectTaskNode(extra)]).ok, true);
+  // Not an object: returned as it is, so it still fails.
+  for (const value of [null, 'a', 7, [node]]) assert.equal(c.projectTaskNode(value), value);
+  assert.deepEqual(c.validateTaskGraph([c.projectTaskNode(null)]).issues, [{ taskId: '#0', code: 'INVALID_TASK' }]);
+});
+
 test('AgentLease and BudgetReservation invariants (§6.2)', () => {
   assert.deepEqual(codes(c.AgentLeaseContract.validate({ ...F.agentLease(), expiresAt: F.T0 })), ['EXPIRY_NOT_AFTER_HEARTBEAT']);
   assert.equal(c.AgentLeaseContract.validate({ ...F.agentLease(), fencingToken: 0 }).ok, false);

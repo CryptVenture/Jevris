@@ -149,6 +149,15 @@ test failed: 12 failing tests (test/a.test.mjs: parses an empty file; test/b.tes
 When no failing test could be read from the output, the line says so (`no failing test was
 parsed from its output`), and the handle still leads to the full output.
 
+`jevris evidence get` (and the `--json` result and the MCP tool) returns at most about 56,000
+characters. A longer output keeps its first and last 28,000 characters, each cut at a line or word
+boundary, with a line saying how many characters were left out of the middle, and `truncated` is
+true. The full output stays in the local evidence store, unredacted. What is shown or sent is
+redacted: vendor API keys, private keys, JWTs, `Authorization` header credentials
+(`Authorization: Bearer <token>`) and the values of `password=`, `passwd=`, `secret=` and
+`passphrase=` style assignments are replaced with `[redacted]`, and the label is kept.
+Sentences that only mention a password are left as they are.
+
 A check id that is not approved is refused with `UNKNOWN_CHECK` and the reason, exit code 2,
 and nothing runs:
 

@@ -14,7 +14,7 @@ import { leaseAuthorityFor, type BudgetPolicy, type BudgetRecord, type LeaseAuth
 import { selfIdentity } from '../orchestration/liveness.js';
 import { submitPlan, submitTask, type PlanSubmission } from '../orchestration/plans.js';
 import { scheduleTasks } from '../orchestration/scheduler.js';
-import { TASK_ID, getTask, listTasks, parseTaskInput, taskTransition, type TaskInput } from '../orchestration/tasks.js';
+import { TASK_ID, checkTaskInput, getTask, listTasks, parseTaskInput, taskTransition, type TaskInput, type TaskInputProblem } from '../orchestration/tasks.js';
 import { scriptedWorkerPort } from '../orchestration/test-worker.js';
 import { onBudgetExhausted } from '../orchestration/budget.js';
 import { recordDuplicateRevert } from '../capabilities/orchestration.js';
@@ -57,6 +57,8 @@ export function taskView(ws: WorkspaceServices, taskId: string) {
             requirementIds: [...task.node.requirementIds],
             dependencyIds: [...task.node.dependencyIds],
             acceptanceCheckIds: [...task.node.acceptanceCheckIds],
+            // Why a blocked task waits (DEPENDENCY_CANCELLED, LEASE_EXPIRED ...); only a reason code, never free text.
+            ...(task.node.state === 'blocked' && task.stateReason !== null && /^[A-Z][A-Z0-9_]{0,63}$/.test(task.stateReason) ? { stateReason: task.stateReason } : {}),
           },
     receipts,
     worker: workerView(ws, taskId),
@@ -382,10 +384,43 @@ async function startOwnedWork(
               await recordCounterfactuals(ctx, ws, 'advise', [task.node.id], 'ACTUATOR_UNCERTIFIED');
               return runWith(model);
             });
-    const run = launched.finally(() => background.delete(run));
+    // When a run ends, the freed lease goes to the next queued task (JEV-0008): with more tasks
+    // than `maxConcurrentWorkers`, nothing else would ever start them.
+    const run: Promise<unknown> = launched.then(() => drainQueue(ctx, ws, task.node.id)).finally(() => background.delete(run));
     background.add(run);
   }
   return { leaseIds, reasonCodes, fallback: 'QUEUED' };
+}
+
+/** The kill switch now, not as the request that started the work saw it. Fails closed. */
+async function killSwitchStoppedNow(ctx: SidecarOpContext): Promise<boolean> {
+  if (ctx.killSwitchNow === undefined) return ctx.killSwitchStopped;
+  try {
+    return await ctx.killSwitchNow();
+  } catch {
+    return true;
+  }
+}
+
+/**
+ * After an owned run ends, leases the queued tasks the freed slot allows (JEV-0008). The kill
+ * switch is read live: it may have been set while the run was going, and then nothing new
+ * starts. A task the run left queued (it went back to ready) is not started again by its own
+ * end, so a run that keeps bouncing cannot loop. A failure is traced, never thrown.
+ */
+async function drainQueue(ctx: SidecarOpContext, ws: WorkspaceServices, endedTaskId: string): Promise<void> {
+  try {
+    const left = getTask(ws, endedTaskId)?.node.state;
+    if (left === 'proposed' || left === 'validated' || left === 'ready') return;
+    const stopped = await killSwitchStoppedNow(ctx);
+    if (stopped) {
+      ctx.trace({ event: 'orchestrator.plan-continued', reasonCode: 'KILL_SWITCH' });
+      return;
+    }
+    await continueOwnedWork({ ...ctx, killSwitchStopped: false }, ws);
+  } catch {
+    ctx.trace({ event: 'orchestrator.plan-continued', reasonCode: 'CONTINUE_FAILED' });
+  }
 }
 
 /**
@@ -871,23 +906,45 @@ export interface PlanSubmitPayload {
 const POLICIES: readonly BudgetPolicy[] = ['finish-running', 'cancel-newest', 'pause-all'];
 const MAX_LIMIT_MICRO_USD = 1_000_000_000_000;
 
+/** A task the plan named that cannot be used: which one (by position) and what rule it broke. */
+export interface PlanTaskProblem extends TaskInputProblem {
+  readonly index: number;
+}
+
+/**
+ * Reads the untrusted plan.submit body. `problem` is set when the body is well formed except for
+ * one task's field, so the answer can name that field and rule instead of INVALID_REQUEST.
+ */
+export function readPlanSubmission(body: unknown): { readonly submission: PlanSubmission | undefined; readonly problem?: PlanTaskProblem } {
+  return readPlanSubmissionInner(body);
+}
+
 /** Parses the untrusted plan.submit body, or returns undefined (INVALID_REQUEST). */
 export function parsePlanSubmission(body: unknown): PlanSubmission | undefined {
-  if (!isPlain(body)) return undefined;
+  return readPlanSubmissionInner(body).submission;
+}
+
+function readPlanSubmissionInner(body: unknown): { readonly submission: PlanSubmission | undefined; readonly problem?: PlanTaskProblem } {
+  const none = { submission: undefined };
+  if (!isPlain(body)) return none;
   // authorizationId, actor and channel say who may create a new root budget (the op checks them).
-  for (const key of Object.keys(body)) if (!['plan', 'ownerId', 'rootBudget', 'authorizationId', 'actor', 'channel'].includes(key)) return undefined;
+  for (const key of Object.keys(body)) if (!['plan', 'ownerId', 'rootBudget', 'authorizationId', 'actor', 'channel'].includes(key)) return none;
   const plan = own(body, 'plan');
   const ownerId = own(body, 'ownerId');
   const budget = own(body, 'rootBudget');
-  if (!isPlain(plan) || !isPlain(budget) || typeof ownerId !== 'string' || !CONTRACT_ID.test(ownerId)) return undefined;
-  for (const key of Object.keys(plan)) if (!['tasks', 'requirementIds', 'availableResources'].includes(key)) return undefined;
+  if (!isPlain(plan) || !isPlain(budget) || typeof ownerId !== 'string' || !CONTRACT_ID.test(ownerId)) return none;
+  for (const key of Object.keys(plan)) if (!['tasks', 'requirementIds', 'availableResources'].includes(key)) return none;
   const rawTasks = own(plan, 'tasks');
-  if (!Array.isArray(rawTasks) || rawTasks.length === 0 || rawTasks.length > PLAN_SUBMIT_MAX_TASKS) return undefined;
+  if (!Array.isArray(rawTasks) || rawTasks.length === 0 || rawTasks.length > PLAN_SUBMIT_MAX_TASKS) return none;
   const tasks: TaskInput[] = [];
-  for (const raw of rawTasks) {
-    const input = parseTaskInput(raw);
-    if (input === undefined) return undefined;
-    tasks.push(input);
+  let problem: PlanTaskProblem | undefined;
+  for (const [index, raw] of rawTasks.entries()) {
+    const checked = checkTaskInput(raw);
+    if (!checked.ok) {
+      problem = { ...checked.problem, index };
+      break;
+    }
+    tasks.push(checked.input);
   }
   const ids = (value: unknown): readonly string[] | undefined | null => {
     if (value === undefined) return null;
@@ -895,27 +952,31 @@ export function parsePlanSubmission(body: unknown): PlanSubmission | undefined {
   };
   const requirementIds = ids(own(plan, 'requirementIds'));
   const availableResources = ids(own(plan, 'availableResources'));
-  if (requirementIds === undefined || availableResources === undefined) return undefined;
-  for (const key of Object.keys(budget)) if (!['id', 'limitMicroUsd', 'shutdownReserveMicroUsd', 'policy'].includes(key)) return undefined;
+  if (requirementIds === undefined || availableResources === undefined) return none;
+  for (const key of Object.keys(budget)) if (!['id', 'limitMicroUsd', 'shutdownReserveMicroUsd', 'policy'].includes(key)) return none;
   const id = own(budget, 'id');
   const limit = own(budget, 'limitMicroUsd');
   const reserve = own(budget, 'shutdownReserveMicroUsd');
   const policy = own(budget, 'policy');
-  if (typeof id !== 'string' || !TASK_ID.test(id)) return undefined;
-  if (typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_LIMIT_MICRO_USD) return undefined;
-  if (reserve !== undefined && (typeof reserve !== 'number' || !Number.isSafeInteger(reserve) || reserve < 0 || reserve >= limit)) return undefined;
-  if (policy !== undefined && !(POLICIES as readonly unknown[]).includes(policy)) return undefined;
+  if (typeof id !== 'string' || !TASK_ID.test(id)) return none;
+  if (typeof limit !== 'number' || !Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_LIMIT_MICRO_USD) return none;
+  if (reserve !== undefined && (typeof reserve !== 'number' || !Number.isSafeInteger(reserve) || reserve < 0 || reserve >= limit)) return none;
+  if (policy !== undefined && !(POLICIES as readonly unknown[]).includes(policy)) return none;
+  // Everything else in the body is sound, so the one bad task is what the answer names.
+  if (problem !== undefined) return { submission: undefined, problem };
   return {
-    tasks,
-    ownerId,
-    rootBudget: {
-      id,
-      limitMicroUsd: limit,
-      ...(reserve === undefined ? {} : { shutdownReserveMicroUsd: reserve as number }),
-      ...(policy === undefined ? {} : { policy: policy as BudgetPolicy }),
+    submission: {
+      tasks,
+      ownerId,
+      rootBudget: {
+        id,
+        limitMicroUsd: limit,
+        ...(reserve === undefined ? {} : { shutdownReserveMicroUsd: reserve as number }),
+        ...(policy === undefined ? {} : { policy: policy as BudgetPolicy }),
+      },
+      ...(requirementIds === null ? {} : { requirementIds }),
+      ...(availableResources === null ? {} : { availableResources }),
     },
-    ...(requirementIds === null ? {} : { requirementIds }),
-    ...(availableResources === null ? {} : { availableResources }),
   };
 }
 
@@ -968,8 +1029,18 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
       budget: 'background' as const,
       stoppedByKillSwitch: true,
       async handle(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
-        const submission = parsePlanSubmission(ctx.body);
-        if (submission === undefined) return { ok: false, reasonCode: 'INVALID_REQUEST' };
+        const read = readPlanSubmission(ctx.body);
+        const submission = read.submission;
+        if (submission === undefined) {
+          // One named task with a bad field is answered with that field and its rule (JEV-0006), not a bare
+          // INVALID_REQUEST. A task with no usable id (or that is not an object) has nothing to name, so it stays one.
+          if (read.problem !== undefined && read.problem.taskId !== null) {
+            const { problem } = read;
+            const issue = { taskId: problem.taskId !== null && TASK_ID.test(problem.taskId) ? problem.taskId : `#${String(problem.index)}`, code: 'INVALID_TASK', detail: `${problem.field}: ${problem.rule}`.slice(0, 200) };
+            return { ok: true, body: { accepted: false, reasonCode: 'PLAN_INVALID', planId: null, rootBudgetId: null, taskIds: [], waves: [], leaseIds: [], issues: [issue] } satisfies PlanSubmitPayload };
+          }
+          return { ok: false, reasonCode: 'INVALID_REQUEST' };
+        }
         const body = isPlain(ctx.body) ? ctx.body : {};
         const authorizationId = own(body, 'authorizationId');
         const actor = own(body, 'actor');
@@ -1084,6 +1155,8 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
     {
       op: 'task.cancel',
       scope: 'submit' as const,
+      // GOV-02..04: a stopped Jevris changes no task state.
+      stoppedByKillSwitch: true as const,
       // Background: the answer waits for an in-process run to publish its cancellation.
       budget: 'background' as const,
       async handle(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
@@ -1104,6 +1177,8 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
           await ws.state.transact((tx) => tx.put('duplicate-cancellations', recordKey(ws.workspaceId, taskId), { workspaceId: ws.workspaceId, taskId, survivor: survivorRaw, atMs: Date.now() }));
         }
         ctx.trace({ event: 'orchestrator.task-cancel', taskId, reasonCode: result.reasonCode });
+        // The cancelled task's slot is free: the next queued task starts (JEV-0008).
+        if (result.cancelled) await continueOwnedWorkWithin(ctx, ws);
         return respond(ctx, 'task.get', taskView(ws, taskId));
       },
     },
@@ -1112,6 +1187,7 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
       // cancellation only for a task cancelled as a duplicate. CLI-only; the user re-plans the work.
       op: 'task.revert-duplicate',
       scope: 'submit' as const,
+      stoppedByKillSwitch: true as const,
       budget: 'hot' as const,
       async handle(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
         const taskId = taskIdOf(ctx);

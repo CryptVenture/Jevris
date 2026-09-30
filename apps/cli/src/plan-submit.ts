@@ -106,7 +106,7 @@ function render(result: PlanSubmitResult & { readonly budgetId?: string }): stri
   if (!result.accepted) {
     const lines = [`The plan was not submitted (${result.reasonCode}). Nothing was created.`];
     for (const issue of result.issues) lines.push(`issue: ${issue.taskId} ${issue.code}${issue.detail === null ? '' : ` (${issue.detail})`}`);
-    if (result.reasonCode === 'BUDGET_CONFLICT') lines.push('The budget id exists with other settings. Use a new --budget id, or the same limit, reserve, policy and owner.');
+    if (result.reasonCode === 'BUDGET_CONFLICT') lines.push('The budget id exists with other settings. Use a new --budget id, or the budget\'s current limit (see jevris budget status) and the same owner; a --reserve-micro-usd or --budget-policy you name must match the recorded one.');
     if (result.reasonCode === 'PLAN_INVALID') lines.push('Check the plan with jevris plan --graph <file> first.');
     if (result.reasonCode === 'CHANNEL_REFUSED' || result.reasonCode === 'AUTHORIZATION_REFUSED') {
       lines.push(
@@ -207,5 +207,8 @@ export async function runPlanSubmit(argv: readonly string[], write: Write, optio
   }
   const result = checkPlanSubmitResult(answer.result);
   if (result === null) return out({ accepted: false, reasonCode: 'SIDECAR_INVALID_RESULT' }, 'The sidecar answered in an unexpected shape; the plan state is unknown. Run jevris status.', COMMAND_EXIT_CODES.negative);
-  return out(result, render({ ...result, budgetId }), result.accepted ? COMMAND_EXIT_CODES.ok : COMMAND_EXIT_CODES.negative);
+  // A refusal because no person confirmed the new budget is refused input (2), as the help says;
+  // a plan the sidecar could not accept for another reason (invalid, a conflict) is 1.
+  const needsPerson = result.reasonCode === 'CHANNEL_REFUSED' || result.reasonCode === 'AUTHORIZATION_REFUSED';
+  return out(result, render({ ...result, budgetId }), result.accepted ? COMMAND_EXIT_CODES.ok : needsPerson ? COMMAND_EXIT_CODES.usage : COMMAND_EXIT_CODES.negative);
 }

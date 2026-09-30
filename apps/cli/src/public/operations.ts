@@ -33,6 +33,7 @@ import {
   effectiveConfig,
   explainNotFound,
   harnessModelPin,
+  killSwitchWriteRefusal,
   localCheckpoint,
   localConfigure,
   localEvidenceSelect,
@@ -201,8 +202,11 @@ async function reduced<K extends SurfaceOperation>(
       return done(await routeLocally(ctx, input as OpInputs['route'], reason));
     case 'plan':
       return done(planTaskGraph((input as OpInputs['plan']).tasks));
-    case 'checkpoint':
+    case 'checkpoint': {
+      const stopped = await killSwitchWriteRefusal(ctx, 'checkpoint');
+      if (stopped !== null) return stopped;
       return done(await localCheckpoint(ctx, input as OpInputs['checkpoint']));
+    }
     case 'recover':
       return done(localRecover(input as OpInputs['recover']));
     case 'verify':
@@ -229,8 +233,11 @@ async function reduced<K extends SurfaceOperation>(
       return done({ accepted: false, taskId: null, leaseIds: [], reasonCode: 'OWNED_MODE_UNAVAILABLE' });
     case 'handoff.export':
       return done(localHandoffExport(ctx, input as OpInputs['handoff.export']));
-    case 'handoff.import':
+    case 'handoff.import': {
+      const stopped = await killSwitchWriteRefusal(ctx, 'handoff.import');
+      if (stopped !== null) return stopped;
       return done(await localHandoffImport(ctx, input as OpInputs['handoff.import']));
+    }
     case 'capability.advise': {
       const local = await localCapabilityAdvice(ctx, input as OpInputs['capability.advise']);
       return local === null ? { ok: false, message: `${reason} This report needs the workspace: run it inside a repository or pass --workspace <dir>.` } : done(local);
@@ -572,6 +579,9 @@ export async function runOperation<K extends SurfaceOperation>(ctx: SurfaceConte
     return {
       ok: false,
       exitCode: COMMAND_EXIT_CODES.usage,
+      // A result Jevris built failed its own contract. The reason code is named so the line is never a bare
+      // "report a bug" (the CLI prints `Refused (RESULT_CONTRACT_INVALID): ...`).
+      reasonCode: 'RESULT_CONTRACT_INVALID',
       message: `Jevris produced an invalid ${op} result (${where?.path ?? ''} ${where?.code ?? ''}). Report this as a bug.`,
     };
   }

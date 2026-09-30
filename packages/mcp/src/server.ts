@@ -71,6 +71,24 @@ function own(value: Json, key: string): unknown {
   return Object.hasOwn(value, key) ? value[key] : undefined;
 }
 
+/**
+ * The first top-level argument whose schema lists an `enum` and whose value is outside it, as a
+ * one-line message; null when there is none. A tool's schema is advisory to a client, so this is
+ * the one schema rule the server itself enforces: it keeps jevris_advise and jevris_delivery_report
+ * to their own capability ids (both reach the same capability.advise operation). Full schema
+ * validation is not attempted here.
+ */
+function enumViolation(schema: JsonSchema, args: Json): string | null {
+  const properties = schema['properties'];
+  if (!isObject(properties)) return null;
+  for (const [key, spec] of Object.entries(properties)) {
+    if (!isObject(spec) || !Array.isArray(spec['enum']) || !Object.hasOwn(args, key)) continue;
+    const allowed = spec['enum'] as readonly unknown[];
+    if (!allowed.includes(args[key])) return `"${key}" must be one of ${allowed.map(String).join(', ')}.`;
+  }
+  return null;
+}
+
 function plain(value: unknown): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= 4096 && !value.includes('\0');
 }
@@ -298,6 +316,8 @@ export function createServer(options: ServerOptions): McpServer {
     if (tool === undefined) return { error: { code: -32602, message: `Unknown tool: ${typeof name === 'string' ? name.slice(0, 64) : ''}` } };
     const args = own(params, 'arguments');
     if (args !== undefined && !isObject(args)) return { result: errorResult('Refused: the arguments must be an object.') };
+    const outside = isObject(args) ? enumViolation(tool.inputSchema, args) : null;
+    if (outside !== null) return { result: errorResult(`Refused (REFUSED): ${outside}`) };
     let cancelled = false;
     const listeners: (() => void)[] = [];
     running.set(id, () => {

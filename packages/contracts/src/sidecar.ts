@@ -191,6 +191,12 @@ export interface SidecarOpContext {
   readonly deadline: SidecarDeadline;
   readonly store: unknown;
   readonly killSwitchStopped: boolean;
+  /**
+   * A live read of the kill switch. `killSwitchStopped` is the state when the request arrived; work
+   * that outlives the request (an owned worker's run ending, then leasing the next task) asks this
+   * instead. Absent: the request's value stands. A read that fails counts as stopped.
+   */
+  readonly killSwitchNow?: () => Promise<boolean>;
   /** P5 advice adherence for this workspace; absent when the store is unavailable (rules-only) or for the global workspace. */
   readonly adviceAdherence?: SidecarAdviceAdherence;
   /**
