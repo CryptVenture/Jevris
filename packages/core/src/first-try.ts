@@ -25,14 +25,9 @@
  * uniform Beta(1, 1), and day 1 rests on the cost arithmetic and the bound on the loss, not on a
  * claim that the model is good.
  */
-import type { RoutingModel } from '@jevris/contracts';
+import type { FirstTrySetting, RoutingModel } from '@jevris/contracts';
 import { generationCostMicroUsd, type TokenVolume } from './model-registry.js';
 import { betaCdf, harmProbability, type LearningSettings } from './route-learning.js';
-
-/** `routing.firstTry` values (`auto` from install; `baseline` runs the baseline first, as before). */
-export const FIRST_TRY_VALUES = ['auto', 'baseline'] as const;
-export type FirstTrySetting = (typeof FIRST_TRY_VALUES)[number];
-export const FIRST_TRY_DEFAULT: FirstTrySetting = 'auto';
 
 /**
  * A candidate whose break-even is above this is never a first try: the saving could not cover the

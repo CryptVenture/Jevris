@@ -21,6 +21,15 @@ export type ModelListingSetting = (typeof MODEL_LISTING_VALUES)[number];
 export const MODEL_LISTING_DEFAULT: ModelListingSetting = 'on';
 
 /**
+ * `routing.firstTry` (owner decision 2026-09-30, Sonnet-first routing): `auto` starts a low-risk
+ * owned task on a cheaper first-try model of the baseline's vendor and hands it once to a stronger
+ * model when its acceptance check fails; `baseline` runs the baseline first. Absent means `auto`.
+ */
+export const FIRST_TRY_VALUES = ['auto', 'baseline'] as const;
+export type FirstTrySetting = (typeof FIRST_TRY_VALUES)[number];
+export const FIRST_TRY_DEFAULT: FirstTrySetting = 'auto';
+
+/**
  * `decisions.monthlyBudgetMicroUsd` (owner decision 2026-09-29): the machine-wide monthly limit on
  * Jevris's own Jev decision calls, in integer micro-USD. Absent means the default, 5 USD. 0 means
  * no Jev calls (rules-only). The maximum is 1,000 USD, a bound on a typo, not a price estimate.
@@ -84,6 +93,8 @@ export const JevrisConfigSchema = S.object({
        * decision 2026-09-27, DOMAINS 3f090fa). Absent means `on`; `off` stops all listing.
        */
       modelListing: S.enumOf(MODEL_LISTING_VALUES),
+      /** Sonnet-first routing (owner decision 2026-09-30). Absent means `auto`. */
+      firstTry: S.enumOf(FIRST_TRY_VALUES),
     },
   ),
   orchestration: S.object({

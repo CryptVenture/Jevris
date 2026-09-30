@@ -28,7 +28,7 @@ import {
   type VerifyPayload,
 } from '@jevris/contracts';
 import { DecisionBudget, UNKNOWN_BUDGET_STATUS, budgetStatusView, harnessModelRef } from '@jevris/core';
-import { ADMIN_KEYS, ADMIN_VALUES, DEFAULT_CONFIG, SETTABLE_KEYS, backgroundAtStopOf, jevBudgetOf, machineJevBudget, workspaceJevBudget, clearModeMigrationNotice, invalidUserFileMessage, raiseRefusal, raisesAuthority, layerIssues, mainSessionView, migrateModeDefault, modeMigrationNotice, readEffectiveConfig } from '@jevris/orchestrator';
+import { ADMIN_KEYS, ADMIN_VALUES, DEFAULT_CONFIG, SETTABLE_KEYS, backgroundAtStopOf, firstTryOf, jevBudgetOf, machineJevBudget, workspaceJevBudget, clearModeMigrationNotice, invalidUserFileMessage, raiseRefusal, raisesAuthority, layerIssues, mainSessionView, migrateModeDefault, modeMigrationNotice, readEffectiveConfig } from '@jevris/orchestrator';
 import { ensurePrivateDir, runSync, writePrivateFile } from '@jevris/platform';
 import { resolveHostSourceEgress, type HostEgressDecision } from '../host-policy.js';
 import { readKillSwitchStopped } from '../kill-switch.js';
@@ -138,6 +138,7 @@ export async function localStatus(ctx: SurfaceContext, degradedReason: string): 
     store: storeState(ctx),
     mainSessions,
     backgroundVerifyAtStop: backgroundAtStopOf(config),
+    firstTryRouting: firstTryOf(config),
     modeSource,
     settingsIssues: layerIssues(issues).slice(0, 16).map((issue) => ({ path: issue.path.slice(0, 256), code: issue.code.slice(0, 64) })),
     ...modeNoticeOf(ctx),
@@ -540,6 +541,7 @@ export function effectiveView(config: JevrisConfig, egress: HostEgressDecision, 
     orchestrationEnabled: config.orchestration.enabled,
     monthlyBudgetMicroUsd: jevBudgetOf(config),
     backgroundVerifyAtStop: backgroundAtStopOf(config),
+    firstTryRouting: firstTryOf(config),
   };
 }
 

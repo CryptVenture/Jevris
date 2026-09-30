@@ -383,6 +383,8 @@ export { JSON_SCHEMA_DIALECT, schemaDocuments, schemaId } from './catalogue.js';
 
 export type { JevRequest, JevrisConfig, PackManifest } from './boundary.js';
 export {
+  FIRST_TRY_DEFAULT,
+  FIRST_TRY_VALUES,
   JevRequestContract,
   JevrisConfigContract,
   JEV_BUDGET_DEFAULT_MICRO_USD,
@@ -392,6 +394,7 @@ export {
   MODEL_LISTING_VALUES,
   PACK_DATA_SCOPES,
   PackManifestContract,
+  type FirstTrySetting,
   type ModelListingSetting,
 } from './boundary.js';
 

@@ -12,7 +12,7 @@ import type {
   SidecarWorkspace,
 } from '@jevris/contracts';
 import { createDeadline, isAbsoluteOnAnyPlatform, monotonicClock, type JevrisPaths } from '@jevris/platform';
-import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified } from '@jevris/orchestrator';
+import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, firstTryOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified } from '@jevris/orchestrator';
 import { BUILTIN_OP_NAMES, bodyRecord, ok, refuse, type LoadedOps } from './ops.js';
 import { ANSWER_EVENT_KINDS, PROTOCOL, jevrisPackage, loadedRuntimeBuild } from './protocol.js';
 import { resolveRetention } from './retention-policy.js';
@@ -1169,6 +1169,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       ['reminders', workspaceView.reminders],
       // Owner decision 2026-09-30: whether a main-session Stop queues the missing approved checks.
       ['backgroundVerifyAtStop', settings === undefined ? 'off' : backgroundAtStopOf(settings.config)],
+      // Owner decision 2026-09-30 (Sonnet-first routing): whether a low-risk owned task starts on a cheaper first-try model.
+      ['firstTryRouting', settings === undefined ? 'auto' : firstTryOf(settings.config)],
       ['queue', queueStatus()],
       // Owner 9d6a66d: whether an administrator's registry override is active, or refused (then
       // routing is unavailable, with this reason code).

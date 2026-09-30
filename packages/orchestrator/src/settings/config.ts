@@ -13,7 +13,7 @@
 import { randomBytes } from 'node:crypto';
 import { linkSync, lstatSync, readFileSync, rmSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { JEV_BUDGET_DEFAULT_MICRO_USD, JEV_BUDGET_MAX_MICRO_USD, JevrisConfigContract, MODEL_LISTING_DEFAULT, MODEL_LISTING_VALUES, copyHostDocument, hostJevBudgetCeiling, lowerMode, modeAllows, type HostDocument, type JevrisConfig, type ModeSource } from '@jevris/contracts';
+import { FIRST_TRY_DEFAULT, FIRST_TRY_VALUES, JEV_BUDGET_DEFAULT_MICRO_USD, JEV_BUDGET_MAX_MICRO_USD, JevrisConfigContract, MODEL_LISTING_DEFAULT, MODEL_LISTING_VALUES, copyHostDocument, hostJevBudgetCeiling, lowerMode, modeAllows, type FirstTrySetting, type HostDocument, type JevrisConfig, type ModeSource } from '@jevris/contracts';
 import { authorityFileRefusal, ensurePrivateDir, jevrisPaths, readFileNoFollow, renameWithRetry, writePrivateFile, type DurableWriteResult, type PrivateResult } from '@jevris/platform';
 import { isPlain } from '../util.js';
 import { readManagedPolicy } from './managed-policy.js';
@@ -25,6 +25,8 @@ export const BACKGROUND_AT_STOP_KEY = 'verification.backgroundAtStop';
 export const BACKGROUND_AT_STOP_VALUES = ['off', 'on'] as const;
 export type BackgroundAtStopSetting = (typeof BACKGROUND_AT_STOP_VALUES)[number];
 export const BACKGROUND_AT_STOP_DEFAULT: BackgroundAtStopSetting = 'off';
+/** `routing.firstTry` (owner decision 2026-09-30, Sonnet-first routing): `auto` from install; raising it back from `baseline` needs a person at a terminal. */
+export const FIRST_TRY_KEY = 'routing.firstTry';
 export const WORKSPACE_CONFIG = join('.jevris', 'config.json'); // path-hygiene: allow workspace-relative config location
 const MAX_BYTES = 262_144;
 
@@ -43,7 +45,7 @@ export const DEFAULT_CONFIG: JevrisConfig = Object.freeze({
   // main session is plugin-bounded-auto from install too (owner decision OD-8, DOMAINS f294e43): a turn
   // is switched only under D's gate (approved-scope.ts) and C's route-learning rules; every other
   // harness's main session stays advice-only.
-  routing: { mainSession: 'plugin-bounded-auto', managedWorkers: 'bounded-auto', respectHumanPins: true, calibrationArtifact: null, modelListing: MODEL_LISTING_DEFAULT },
+  routing: { mainSession: 'plugin-bounded-auto', managedWorkers: 'bounded-auto', respectHumanPins: true, calibrationArtifact: null, modelListing: MODEL_LISTING_DEFAULT, firstTry: FIRST_TRY_DEFAULT },
   // Orchestration is on from install (owner decision 5f7053f): owned workers still start only after an explicit
   // submit (plan.submit, or task.submit in owned mode), bounded by its budget, the kill switch and native
   // permissions. worker.route certification does not gate the launch; it gates only route learning's model and
@@ -129,13 +131,15 @@ function setKey<T>(config: T, key: string, value: unknown): T {
 }
 
 /** Keys a workspace file may lower; anything else in it is refused. */
-const WORKSPACE_NARROWABLE: { readonly [key: string]: 'min' | 'off' | 'mode' | 'switch' } = {
+const WORKSPACE_NARROWABLE: { readonly [key: string]: 'min' | 'off' | 'mode' | 'switch' | 'baseline' } = {
   mode: 'mode',
   'routing.managedWorkers': 'mode',
   // An on/off switch: a workspace may only turn it off.
   'routing.modelListing': 'switch',
   // A workspace may only turn background verification at Stop off: a repository file is not consent to run checks.
   [BACKGROUND_AT_STOP_KEY]: 'switch',
+  // A workspace may only turn first-try routing down to `baseline`: a repository file cannot start a second automatic run.
+  [FIRST_TRY_KEY]: 'baseline',
   'orchestration.enabled': 'off',
   'orchestration.maxConcurrentWorkers': 'min',
   'orchestration.maxWorkerDepth': 'min',
@@ -162,7 +166,13 @@ function withOptionalDefaults(config: JevrisConfig): JevrisConfig {
   let next = config;
   if (next.decisions.monthlyBudgetMicroUsd === undefined) next = setKey(next, JEV_BUDGET_KEY, JEV_BUDGET_DEFAULT_MICRO_USD);
   if (next.verification?.backgroundAtStop === undefined) next = setKey(next, BACKGROUND_AT_STOP_KEY, BACKGROUND_AT_STOP_DEFAULT);
+  if (next.routing.firstTry === undefined) next = setKey(next, FIRST_TRY_KEY, FIRST_TRY_DEFAULT);
   return next;
+}
+
+/** The effective `routing.firstTry` of a configuration (absent or anything else: `auto`, the install default). */
+export function firstTryOf(config: JevrisConfig): FirstTrySetting {
+  return config.routing.firstTry === 'baseline' ? 'baseline' : FIRST_TRY_DEFAULT;
 }
 
 /** Whether background verification at Stop is on in a configuration (absent or anything else: off). */
@@ -203,6 +213,7 @@ function narrowWorkspace(config: JevrisConfig, raw: unknown, notes: LayerNote[],
     if (rule === 'min' && typeof value === 'number' && typeof current === 'number' && Number.isInteger(value) && value >= 0) lowered = Math.min(current, value);
     else if (rule === 'off' && value === false) lowered = false;
     else if (rule === 'switch' && (value === 'off' || value === 'on')) lowered = value === 'off' ? 'off' : current;
+    else if (rule === 'baseline' && (value === 'baseline' || value === 'auto')) lowered = value === 'baseline' ? 'baseline' : current;
     else if (rule === 'mode' && typeof value === 'string' && value in MODE_RANK && typeof current === 'string') lowered = (MODE_RANK[value] ?? 9) < (MODE_RANK[current] ?? 0) ? value : current;
     else {
       issues.push({ path: `workspace:${key}`.slice(0, 256), code: 'INVALID_VALUE' });
@@ -435,6 +446,7 @@ function payloadOf(
       orchestrationEnabled: eff.config.orchestration.enabled,
       monthlyBudgetMicroUsd: jevBudgetOf(eff.config),
       backgroundVerifyAtStop: backgroundAtStopOf(eff.config),
+      firstTryRouting: firstTryOf(eff.config),
     },
     changed: changed.slice(0, 32).map((c) => ({ key: c.key.slice(0, 128), from: c.from.slice(0, 128), to: c.to.slice(0, 128) })),
     nativePermissionsChanged: false as const,
@@ -492,6 +504,8 @@ export const SETTABLE_KEYS: { readonly [key: string]: Parser } = {
   'routing.modelListing': oneOf(...MODEL_LISTING_VALUES),
   // Owner decision 2026-09-30: a main-session Stop queues the missing approved checks. Raising to `on` needs a person at a terminal.
   [BACKGROUND_AT_STOP_KEY]: oneOf(...BACKGROUND_AT_STOP_VALUES),
+  // Owner decision 2026-09-30: Sonnet-first routing. Raising `baseline` to `auto` needs a person at a terminal.
+  [FIRST_TRY_KEY]: oneOf(...FIRST_TRY_VALUES),
   // OD-8: `advice-only` turns the per-turn main-session switch off. `owned-sdk-approved` is an
   // administrator's value (ADMIN_VALUES), never set here.
   'routing.mainSession': oneOf('advice-only', 'plugin-bounded-auto'),
@@ -534,6 +548,7 @@ const AUTHORITY_RANK: { readonly [key: string]: { readonly [value: string]: numb
   'routing.managedWorkers': MODE_RANK,
   'routing.mainSession': { 'advice-only': 0, 'plugin-bounded-auto': 1, 'owned-sdk-approved': 2 },
   [BACKGROUND_AT_STOP_KEY]: { off: 0, on: 1 },
+  [FIRST_TRY_KEY]: { baseline: 0, auto: 1 },
 };
 
 /** Money keys: a higher value lets Jevris spend more, so raising one needs a person too (owner decision 2026-09-29). */

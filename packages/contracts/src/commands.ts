@@ -340,6 +340,11 @@ export const StatusPayloadSchema = S.object(
      */
     backgroundVerifyAtStop: S.enumOf(['off', 'on'] as const),
     /**
+     * Owner decision 2026-09-30 (Sonnet-first routing): the effective `routing.firstTry`. `auto` starts a
+     * low-risk owned task on a cheaper first-try model with one hand-off to a stronger one. Absent when unknown.
+     */
+    firstTryRouting: S.enumOf(['auto', 'baseline'] as const),
+    /**
      * Access limits R79 (design 11): the machine's access pauses in force (B's view of core's
      * record), shown in every workspace. Absent or null when the sidecar cannot read it.
      */
@@ -804,6 +809,8 @@ export const ConfigurePayloadSchema = S.object({
       monthlyBudgetMicroUsd: Count,
       /** verification.backgroundAtStop (owner decision 2026-09-30): whether a main-session Stop queues missing approved checks. */
       backgroundVerifyAtStop: S.enumOf(['off', 'on'] as const),
+      /** routing.firstTry (owner decision 2026-09-30): `auto` starts a low-risk owned task on a cheaper first-try model. */
+      firstTryRouting: S.enumOf(['auto', 'baseline'] as const),
     },
   ),
   changed: S.array(S.object({ key: S.string({ maxLength: 128 }), from: S.string({ maxLength: 128 }), to: S.string({ maxLength: 128 }) }), {

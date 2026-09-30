@@ -52,7 +52,7 @@ The settings are one JSON document, `jevris.config.json`, with administrator cei
 | `provider` | `jevris.config.json` `provider.*`; the key itself only in the OS keychain (`jevris credential set`) | `organization.json` `pin.model`; `credentialRef` is always `host-secret:typesafe-primary` |
 | `decisions` | `jevris.config.json` `decisions.*` | `organization.json` `budget.maxRequestBytes`; `budget.monthlyDecisionMicroUsd` in `host.json`, `organization.json` and a managed `policy.json` caps `decisions.monthlyBudgetMicroUsd`; a repository's `.jevris/config.json` may only lower it, for that workspace; `allowUncalibratedActuation` is always `false` |
 | `privacy` | `jevris.config.json` `privacy.*` | egress: only `host.json`, `organization.json` or a managed policy approves it; retention: the `retention` maximums of all three |
-| `routing` | `jevris.config.json` `routing.*`; `calibrationArtifact` comes from `calibration-release.json` | `routing.respectHumanPins` is always `true` |
+| `routing` | `jevris.config.json` `routing.*`; `calibrationArtifact` comes from `calibration-release.json` | `routing.respectHumanPins` is always `true`; `routing.firstTry` (`auto` by default) may only be lowered to `baseline` by a repository's `.jevris/config.json` |
 | `orchestration` | `jevris.config.json` `orchestration.*` | a repository's `.jevris/config.json` may only lower it |
 | `verification` | `jevris.config.json` `verification.backgroundAtStop` (`off` by default) | a repository's `.jevris/config.json` may only turn it off; it does nothing below `bounded-auto` mode |
 | `compaction` | `jevris.config.json` `compaction.*` | fixed in this release |

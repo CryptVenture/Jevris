@@ -452,6 +452,7 @@ function body(result: SurfaceResult): string[] {
       if (p.sessionLinks !== undefined && p.sessionLinks !== null) lines.push(sessionLinksLine(p.sessionLinks));
       if (p.mainSessions !== undefined && p.mainSessions !== null) lines.push(...mainSessionsLines(p.mainSessions));
       if (p.backgroundVerifyAtStop !== undefined) lines.push(line('background verify at stop', p.backgroundVerifyAtStop === 'on' ? 'on (a main-session Stop queues the missing approved checks)' : 'off'));
+      if (p.firstTryRouting !== undefined) lines.push(line('first-try routing', p.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model and is handed once to a stronger one if its check fails; estimates only)' : 'baseline (the baseline model runs first)'));
       if (p.accessLimits !== undefined && p.accessLimits !== null) lines.push(...accessLimitsStatusLines(p.accessLimits));
       if (p.jevCircuit !== undefined && p.jevCircuit !== null) lines.push(jevCircuitLine(p.jevCircuit));
       if (p.accessUsage !== undefined && p.accessUsage !== null) lines.push(...accessUsageStatusLines(p.accessUsage));
@@ -568,6 +569,7 @@ function body(result: SurfaceResult): string[] {
           ? []
           : [line('jev monthly budget', `${p.effective.monthlyBudgetMicroUsd} micro-USD (${jevBudgetText(p.effective.monthlyBudgetMicroUsd)}), machine-wide${p.effective.monthlyBudgetMicroUsd === 0 ? '; 0 means no Jev calls, decisions run rules-only' : ''}`)]),
         ...(p.effective.backgroundVerifyAtStop === undefined ? [] : [line('background verify at stop', p.effective.backgroundVerifyAtStop === 'on' ? 'on (a main-session Stop queues the missing approved checks in the background)' : 'off')]),
+        ...(p.effective.firstTryRouting === undefined ? [] : [line('first-try routing', p.effective.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model, then one hand-off to a stronger one)' : 'baseline')]),
         'native permissions changed: no',
       ];
       for (const issue of p.issues) lines.push(`issue: ${issue.path || '/'} ${issue.code}`);

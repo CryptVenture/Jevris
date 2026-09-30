@@ -156,6 +156,13 @@
             "on",
             "off"
           ]
+        },
+        "firstTry": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "baseline"
+          ]
         }
       },
       "required": [

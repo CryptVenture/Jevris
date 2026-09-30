@@ -146,6 +146,7 @@ the whole file, so the easiest way to start one is to set any key with it.
 | `routing.mainSession` | `plugin-bounded-auto` | you (a raise needs you at a terminal); `owned-sdk-approved` needs an administrator | `advice-only`, `plugin-bounded-auto`, `owned-sdk-approved` | no | yes (`advice-only` below `bounded-auto`) |
 | `routing.managedWorkers` | `bounded-auto` | you (a raise needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `off`, `observe`, `advise`, `bounded-auto` | yes | yes (`mode`) |
 | `routing.modelListing` | `on` | you | `on`, `off` | yes (switch off) | no |
+| `routing.firstTry` | `auto` | you (raising `baseline` to `auto` needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `auto`, `baseline` | yes (lower to `baseline`) | yes (`mode`: it does nothing below `bounded-auto`) |
 | `verification.backgroundAtStop` | `off` | you (turning it on needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `off`, `on` | yes (switch off) | yes (`mode`: it does nothing below `bounded-auto`) |
 | `routing.respectHumanPins` | `true` | nobody | always `true` | no | no |
 | `routing.calibrationArtifact` | `null` | the release process | artifact id or `null` | no | no |
@@ -260,6 +261,15 @@ called. A model is eligible for routing only with such local proof, or after it 
 on that harness. Set it to `off` to stop the listing; a workspace file may turn it off, never
 on.
 
+`routing.firstTry` (default `auto`) is Sonnet-first routing for owned workers. With `auto`, a
+low-risk task that has an approved acceptance check starts on a cheaper model of the baseline's
+own vendor (Sonnet 5.5 against Opus 5.5 on Claude Code) and is handed once to a stronger model
+when its check fails; `baseline` runs the baseline first, as before. It changes which approved
+model runs first and never what Jevris may do: permissions, scopes, the kill switch, budgets and
+"only a passing check completes a task" are unchanged. It applies only while `mode` and
+`routing.managedWorkers` are `bounded-auto`, route learning is on for the workspace, and the
+slice is not pinned. See [routing.md](routing.md#route-learning).
+
 Which harness runs a worker, and whether it signs in with a subscription or an API key, is set
 in `workers.json`, not in these settings. Route learning, which picks a worker's model and
 effort per task slice, has its own commands (`jevris route learning`). Both are in
@@ -268,7 +278,7 @@ effort per task slice, has its own commands (`jevris route learning`). Both are 
 ## Raising what Jevris may do
 
 A `jevris configure set` that raises `mode`, `routing.managedWorkers`, `routing.mainSession`,
-`decisions.monthlyBudgetMicroUsd` or `verification.backgroundAtStop` (`off` to `on`) above its current effective value (your file under the
+`routing.firstTry` (`baseline` to `auto`), `decisions.monthlyBudgetMicroUsd` or `verification.backgroundAtStop` (`off` to `on`) above its current effective value (your file under the
 administrator ceilings) needs a person at an interactive terminal who answers `y`. So does a
 `jevris configure workspace-budget` that raises this workspace's cap or removes it. `configure set` shows the change and asks. It never takes `--yes`, and it refuses
 `--json`, a pipe, a script, a hook, a model's shell and a test run (`JEVRIS_TEST=1`) before it

@@ -508,11 +508,12 @@ native harness permissions; source egress needs administrator approval.
 
 Settable keys (docs/settings.md gives each one's values):
   mode routing.managedWorkers routing.modelListing verification.backgroundAtStop
-  routing.mainSession orchestration.enabled orchestration.maxConcurrentWorkers
-  orchestration.maxWorkerDepth orchestration.maxRepairAttempts decisions.hotPathDeadlineMs
-  decisions.backgroundDeadlineMs decisions.maxQuestions privacy.remoteTelemetry
-  privacy.rawArtifactRetentionDays privacy.decisionRetentionDays
-  compaction.nativeAutoDeferral decisions.monthlyBudgetMicroUsd
+  routing.firstTry routing.mainSession orchestration.enabled
+  orchestration.maxConcurrentWorkers orchestration.maxWorkerDepth
+  orchestration.maxRepairAttempts decisions.hotPathDeadlineMs decisions.backgroundDeadlineMs
+  decisions.maxQuestions privacy.remoteTelemetry privacy.rawArtifactRetentionDays
+  privacy.decisionRetentionDays compaction.nativeAutoDeferral
+  decisions.monthlyBudgetMicroUsd
 
 Options:
   show                Print the effective settings and their sources (the default)
@@ -530,7 +531,8 @@ Options:
                       (rules-only). A first cap and a lower one need nothing; a higher cap
                       or none needs a person at an interactive terminal who answers y.
   --yes               Never confirms a raise. Raising mode, routing.managedWorkers,
-                      routing.mainSession, verification.backgroundAtStop or
+                      routing.mainSession, routing.firstTry (baseline to auto),
+                      verification.backgroundAtStop or
                       decisions.monthlyBudgetMicroUsd above its
                       effective value needs a person at an interactive terminal who answers
                       y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). Lowering and
