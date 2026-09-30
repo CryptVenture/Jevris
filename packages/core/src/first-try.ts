@@ -216,7 +216,7 @@ export function wallPerVerified(stats: FirstTryStats): number | null {
  * else the registry's price estimate. Measured costs are what really happened; the estimate is
  * the tariff at the assumed task size.
  */
-export function measuredBreakEven(candidate: FirstTryCandidate, history: FirstTryHistory, minSamples: number): { readonly breakEven: number; readonly basis: 'measured' | 'estimated' } {
+export function measuredBreakEven(candidate: Pick<FirstTryCandidate, 'breakEven' | 'overheadMicroUsd'>, history: FirstTryHistory, minSamples: number): { readonly breakEven: number; readonly basis: 'measured' | 'estimated' } {
   const first = history.firstTry.firstAttemptCost;
   const step = history.firstTry.stepUpAttemptCost;
   if (first.n >= minSamples && step.n >= minSamples) {
@@ -269,7 +269,7 @@ type VerdictSettings = Pick<LearningSettings, 'nonInferiorityMargin' | 'activate
  * - on baseline: come back only with `minLocalPerArm` finished tasks, P(p < break-even) below
  *   `activateBelow`, no cost or success objection.
  */
-export function firstTryVerdict(input: { readonly history: FirstTryHistory; readonly candidate: FirstTryCandidate; readonly settings: VerdictSettings }): FirstTryVerdict {
+export function firstTryVerdict(input: { readonly history: FirstTryHistory; readonly candidate: Pick<FirstTryCandidate, 'breakEven' | 'overheadMicroUsd'>; readonly settings: VerdictSettings }): FirstTryVerdict {
   const { history, candidate, settings } = input;
   const ft = history.firstTry;
   const ctl = history.control;
@@ -342,7 +342,8 @@ export function decideFirstTry(input: {
   readonly baselineModelId: string;
   readonly volume: TokenVolume;
   readonly overhead: HandoffOverhead;
-  readonly history: FirstTryHistory;
+  /** The workspace's measured history for the candidate; a function because the candidate is derived here. */
+  readonly history: FirstTryHistory | ((candidateModelId: string) => FirstTryHistory);
   readonly settings: VerdictSettings & Pick<LearningSettings, 'explorationRate' | 'adviseExplorationRate'>;
   readonly random: () => number;
 }): FirstTryDecision {
@@ -353,13 +354,14 @@ export function decideFirstTry(input: {
   const candidate = firstTryCandidate({ eligible: input.eligible, baselineModelId: input.baselineModelId, volume: input.volume, overhead: input.overhead });
   if ('none' in candidate) return { route: 'baseline', reasonCode: candidate.reasonCode };
   if (candidate.stepUpModelIds.length === 0) return { route: 'baseline', reasonCode: 'NO_STEP_UP_MODEL', candidate };
-  const verdict = firstTryVerdict({ history: input.history, candidate, settings: input.settings });
+  const history = typeof input.history === 'function' ? input.history(candidate.modelId) : input.history;
+  const verdict = firstTryVerdict({ history, candidate, settings: input.settings });
   // The locked exploration shares, never above the 10% cap.
   const cap = Math.min(0.1, Math.max(0, input.settings.adviseExplorationRate));
   const established = Math.min(cap, Math.max(0, input.settings.explorationRate));
   const draw = input.random();
   if (verdict.mode === 'first-try') {
-    const control = input.history.control.tasks < input.settings.flapFloor ? cap : established;
+    const control = history.control.tasks < input.settings.flapFloor ? cap : established;
     return draw < control
       ? { route: 'control', arm: 'control', propensity: control, reasonCode: 'FIRST_TRY_CONTROL', candidate, verdict }
       : { route: 'first-try', arm: 'first-try', propensity: 1 - control, reasonCode: 'FIRST_TRY', candidate, verdict };
@@ -384,6 +386,8 @@ export interface FirstTryNote {
   readonly stepUpModelIds: readonly string[];
   readonly breakEven: number;
   readonly breakEvenBasis: 'measured' | 'estimated';
+  /** One attempt's verification plus the cache cost of the model change, micro-USD (the break-even's overhead). */
+  readonly overheadMicroUsd: number;
   readonly verdictReason: FirstTryReason;
 }
 
@@ -399,6 +403,7 @@ export function firstTryNote(decision: FirstTryDecision): FirstTryNote | null {
     stepUpModelIds: decision.candidate.stepUpModelIds.slice(0, 8),
     breakEven: decision.verdict.breakEven,
     breakEvenBasis: decision.verdict.breakEvenBasis,
+    overheadMicroUsd: decision.candidate.overheadMicroUsd,
     verdictReason: decision.verdict.reasonCode,
   };
 }

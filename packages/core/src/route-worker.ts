@@ -28,16 +28,21 @@
  * - on a subscription harness there is no per-token charge, so an active slice uses its candidate
  *   directly (the activation already weighed usage and latency); on an API key the router still
  *   weighs dollars between the candidate and the baseline;
+ * - first-try routing (owner decision 2026-09-30, `first-try.ts`): when the slice has no learned or
+ *   pinned model, a low-risk route starts on the baseline vendor's cheaper first-try model and is
+ *   handed once to a stronger one if its check fails; a randomized control share runs the baseline
+ *   first so the two can be compared. The launch reserves the first attempt AND the hand-off;
  * - arms are (model, effort): an active or pinned arm, and an explored one, launch with their
  *   effort (the launch port's `effort`; absent is the model's default). An active effort arm of
  *   the baseline model runs that model at that effort whenever the router's gates allow the model:
  *   the two arms share a model, so there is no model comparison and no cache transition. A
  *   demotion returns to the baseline model with no effort set (its default).
  */
-import { PINNED_MODEL, contentHash, questionHash, servingHostOf, type Action, type JevQuestions, type ModelRegistry } from '@jevris/contracts';
+import { PINNED_MODEL, contentHash, questionHash, servingHostOf, type Action, type FirstTrySetting, type JevQuestions, type ModelRegistry } from '@jevris/contracts';
 import type { DecisionBudget } from './decision-budget.js';
 import { ENCODER_ID } from './decision-tokens.js';
 import type { CalibrationDecision } from './calibration-loader.js';
+import { decideFirstTry, firstTryNote, type FirstTryHistory, type FirstTryNote } from './first-try.js';
 import { generationCostMicroUsd, registryModel } from './model-registry.js';
 import { nativeHarnessOf, qualifiedPublicPriors } from './public-priors.js';
 import { filterCandidates, observeModel, routeTask, type ModelObservation, type QualityEstimate, type RouteInput, type RouteSelection } from './router.js';
@@ -119,6 +124,11 @@ export interface WorkerLearning {
   readonly authMode?: AuthMode;
   /** Models whose scope hit an access limit within `nearLimitHours` (`accessLimitNear`): never explored (R72). */
   readonly nearLimitModelIds?: readonly string[];
+  /**
+   * Sonnet-first routing (owner decision 2026-09-30): the `routing.firstTry` setting and this
+   * workspace's measured first-try history for a candidate. Absent, no route is first-try.
+   */
+  readonly firstTry?: { readonly setting: FirstTrySetting; readonly history: (query: { readonly baselineModelId: string; readonly firstTryModelId: string }) => FirstTryHistory };
 }
 
 /** What the caller logs with the route's outcome (`recordRouteOutcome`). */
@@ -146,6 +156,12 @@ export interface WorkerLearningNote {
    * rules name no valid model id.
    */
   readonly rulesModelId: string | null;
+  /**
+   * Sonnet-first routing: the arm this route was assigned (first-try or control) with its propensity,
+   * the first-try model, the hand-off order and the break-even, for the ledger. Absent when the route
+   * stayed on the baseline for another reason.
+   */
+  readonly firstTry?: FirstTryNote;
 }
 
 export type ManagedWorkerResult =
@@ -298,8 +314,9 @@ export async function runManagedWorker(input: ManagedWorkerInput): Promise<Manag
     rules = { rulesModelId: RULES_ID.test(chosen) ? chosen : null, eligibleModelIds };
     return rules;
   };
+  let firstTryAssigned: FirstTryNote | null = null;
   const note = (exploration: ExplorationChoice | null, usageLimit: WorkerLearningNote['usageLimit'] = null, effort: string | null = selectedEffort): WorkerLearningNote | null =>
-    learning === null || sliceMode === null ? null : { policyVersion: activeVersion(learning.state).version, sliceMode, exploration, authMode, usageLimit, effort, baselineModelId: baselineOf, ...rulesOnly() };
+    learning === null || sliceMode === null ? null : { policyVersion: activeVersion(learning.state).version, sliceMode, exploration, authMode, usageLimit, effort, baselineModelId: baselineOf, ...rulesOnly(), ...(firstTryAssigned === null ? {} : { firstTry: firstTryAssigned }) };
   const nowMs = input.route.policy.nowMs ?? (input.now ?? Date.now)();
   const limitCode = (limit: NonNullable<WorkerLearningNote['usageLimit']>): string => (limit.class === undefined ? 'MODEL_USAGE_LIMITED' : 'ACCESS_LIMITED');
   /** Never launch or retry into an access limit (R72) or a legacy usage limit (R61). */
@@ -415,6 +432,38 @@ export async function runManagedWorker(input: ManagedWorkerInput): Promise<Manag
         registrySnapshotId: input.route.registry.snapshotId,
       };
       return noted(await launchAndSettle(input, explored, reserve, choice.effort), note(choice, null, choice.effort));
+    }
+    // Sonnet-first routing (owner decision 2026-09-30): only where nothing learned or pinned applies to the
+    // slice, on a low-risk route. The first-try model starts the task and a stronger one takes it once if its
+    // check fails; a randomized control share runs the baseline first so the two can be compared.
+    const firstTry = learning.firstTry;
+    if (firstTry !== undefined && !choice.explored && pinnedModel === null && sliceMode !== 'pinned' && !heldAtBaseline && (selection === null || selection.outcome === 'keep-baseline')) {
+      const decision = decideFirstTry({
+        setting: firstTry.setting,
+        risk: learning.risk,
+        automated: mode === 'bounded-auto',
+        learningEnabled: learning.state.settings.enabled,
+        eligible: filterCandidates(input.route.registry, input.route.policy).eligible,
+        baselineModelId,
+        volume: input.route.volume,
+        overhead: { verificationMicroUsd: input.route.assumptions.verificationMicroUsd, ...(input.route.assumptions.cacheTransitionMicroUsd === undefined ? {} : { cacheTransitionMicroUsd: input.route.assumptions.cacheTransitionMicroUsd }) },
+        history: (firstTryModelId) => firstTry.history({ baselineModelId, firstTryModelId }),
+        settings: learning.state.settings,
+        random: learning.random,
+      });
+      firstTryAssigned = firstTryNote(decision);
+      if (decision.route === 'first-try') {
+        const first = registryModel(input.route.registry, decision.candidate.modelId);
+        if (first !== null && limited(first.modelId) === null) {
+          // The reservation covers the first attempt and the one hand-off, never less than before.
+          const retries = input.route.assumptions.retriesPerFailure ?? 1;
+          const first1 = decision.candidate.firstTryAttemptMicroUsd;
+          const reserve = Math.max(1, first1 * (1 + retries), first1 + decision.candidate.stepUpAttemptMicroUsd);
+          const routed: RouteSelection = { outcome: 'select', modelId: first.modelId, baselineModelId, reasonCode: decision.reasonCode, sliceId: learning.sliceId, scored: [], eliminated: [], shadow: [], saving: null, registrySnapshotId: input.route.registry.snapshotId };
+          return noted(await launchAndSettle(input, routed, reserve, null), note(choice));
+        }
+        firstTryAssigned = null;
+      }
     }
     if (selection === null) return noted({ launched: false, reasonCode: heldAtBaseline ? 'LEARNING_ADVISE' : `CALIBRATION_${calibration.eligible ? 'NONE' : calibration.reasonCode}`, selection: null }, note(choice));
     if (selection.outcome !== 'select') return noted({ launched: false, reasonCode: selection.reasonCode, selection }, note(choice, limited(selection.modelId)));

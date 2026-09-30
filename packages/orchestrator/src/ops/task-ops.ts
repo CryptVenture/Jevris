@@ -6,10 +6,10 @@
  * change, with its receipts).
  */
 import { ID_PATTERN, MODEL_ID_PATTERN, PROVIDER_CONSENT_TEXT, modeAllows, type HarnessId, type ModelRegistry, type SidecarOpContext, type SidecarOpOutcome } from '@jevris/contracts';
-import { BUNDLED_MODEL_REGISTRY, loadModelRegistry, providerConsentGate, readModelOffer, routeBaseline, sessionHost, signedInProvidersOf, type ModelOffer, type ProviderConsentReader, type RouteRisk } from '@jevris/core';
+import { BUNDLED_MODEL_REGISTRY, loadModelRegistry, providerConsentGate, readModelOffer, routeBaseline, sessionHost, signedInProvidersOf, stepUpTarget, type ModelOffer, type ProviderConsentReader, type RouteRisk } from '@jevris/core';
 import { readProviderConsent, useAuthorization, type AuthorizationAction } from '@jevris/store';
 import type { WorkspaceServices } from '../workspace.js';
-import { readEffectiveConfig } from '../settings/config.js';
+import { firstTryOf, readEffectiveConfig } from '../settings/config.js';
 import { leaseAuthorityFor, type BudgetPolicy, type BudgetRecord, type LeaseAuthority } from '../orchestration/leases.js';
 import { selfIdentity } from '../orchestration/liveness.js';
 import { submitPlan, submitTask, type PlanSubmission } from '../orchestration/plans.js';
@@ -22,6 +22,7 @@ import { latestCapsule } from '../memory/capsule.js';
 import { restoreText } from '../memory/audit.js';
 import { sliceVolume } from '../orchestration/estimates.js';
 import { drainIntegrationReverts } from '../orchestration/integration-reverts.js';
+import { attachHandOffLease, closeUnhandled, firstTryHistory, handOffPlan, keepFirstTryRoute, noteHandOff } from '../orchestration/first-try.js';
 import { drainRouteLearning, keepEscalatedRoute, keepLearningNote, recordRouteOutcome, runAccessLimited, runIncomplete } from '../orchestration/learning.js';
 import { PROVIDER_HARNESSES, harnessAuthMode, readWorkerAuthSettings, signedInSource, workerProvider, type WorkerAuthMode, type WorkerHarness } from '../orchestration/worker-auth.js';
 import { isCertified } from '../hooks/certification.js';
@@ -372,6 +373,7 @@ async function startOwnedWork(
       escalated !== undefined
         ? runWith(model).then(async (r) => {
             // The escalated run is its own route, not randomized (P2); its outcomes label it.
+            if (r.run !== null) await attachHandOffLease(ws, task.node.id, r.run.leaseId).catch(() => null);
             if (r.run !== null && (await keepEscalatedRoute(ws, { taskId: task.node.id, leaseId: r.run.leaseId, run: r.run, nowMs: engineNow(ctx.engine) }).catch(() => null)) !== null) {
               if (runIncomplete(r.run)) recordRouteOutcome(ws, task.node.id, 'run-incomplete', { run: r.run, nowMs: engineNow(ctx.engine) });
               else if (runAccessLimited(r.run)) recordRouteOutcome(ws, task.node.id, 'usage-limited', { run: r.run, nowMs: engineNow(ctx.engine) });
@@ -529,6 +531,8 @@ export async function relaunchEscalated(
   ws: WorkspaceServices,
   taskId: string,
   history: { readonly failures: readonly string[]; readonly rejectedApproaches: readonly string[] },
+  /** Sonnet-first's hand-off: the route's ladder above the first try, in order (else the task's approved models decide). */
+  firstTry?: { readonly stepUpModelIds: readonly string[]; readonly onTarget?: (to: string) => Promise<void> },
 ): Promise<EscalationState> {
   const task = getTask(ws, taskId);
   const key = recordKey(ws.workspaceId, taskId);
@@ -538,15 +542,18 @@ export async function relaunchEscalated(
   };
   if (task === undefined || task.node.state !== 'failed') return put({ atMs: Date.now(), fromModel: null, toModel: null, state: 'not-relaunchable' });
   const gone = new Set<string>();
-  for (const m of task.models) if ((await modelUnavailableHere(ws.home, m, null)) !== null) gone.add(m);
+  const considered = [...new Set([...task.models, ...(firstTry?.stepUpModelIds ?? [])])];
+  for (const m of considered) if ((await modelUnavailableHere(ws.home, m, null)) !== null) gone.add(m);
   const consent = providerConsentOf(ws);
   const port = await readPortOf(ctx, ws, consent);
   const registry = (await loadModelRegistry({ home: ws.home }).catch(() => null)) ?? BUNDLED_MODEL_REGISTRY;
   // B's review, INFO 14: a model whose provider the consent gate blocks is never the stronger worker.
-  for (const m of await consentBlockedModels(ws, port, registry, consent, task.models)) gone.add(m);
+  for (const m of await consentBlockedModels(ws, port, registry, consent, considered)) gone.add(m);
   // R74 (E7): nor is one an access limit pauses on its scope here.
-  if (port !== null) for (const m of await accessPausedModels({ home: ws.home, registry, port, models: task.models, nowMs: engineNow(ctx.engine) })) gone.add(m);
-  const { from, to } = strongerModel(ws, task, gone);
+  if (port !== null) for (const m of await accessPausedModels({ home: ws.home, registry, port, models: considered, nowMs: engineNow(ctx.engine) })) gone.add(m);
+  const pick = strongerModel(ws, task, gone);
+  const from = pick.from;
+  const to = firstTry === undefined ? pick.to : stepUpTarget(firstTry.stepUpModelIds, gone);
   if (to === null) return put({ atMs: Date.now(), fromModel: from, toModel: null, state: 'no-stronger-worker' });
   const lines = [
     `Bounded escalation (one attempt) after ${from ?? 'the approved model'} failed. Success needs a new passing check result.`,
@@ -556,6 +563,7 @@ export async function relaunchEscalated(
   const text = safeText(lines.join('\n'), ESCALATION_HISTORY_CHARS);
   // C16: the failed route's outcome is a retry (the stronger worker is a new, unrouted attempt).
   recordRouteOutcome(ws, taskId, 'retried', { run: workerRuns(ws, taskId).at(-1) ?? null, nowMs: engineNow(ctx.engine) });
+  if (firstTry?.onTarget !== undefined) await firstTry.onTarget(to);
   const moved = taskTransition(ws, taskId, 'ready', `bounded escalation to ${to}`, { actor: 'runner', nowMs: Date.now() });
   if (!moved.ok) return put({ atMs: Date.now(), fromModel: from, toModel: to, state: 'not-relaunchable' });
   const state = await put({ atMs: Date.now(), fromModel: from, toModel: to, state: 'launched' });
@@ -821,6 +829,8 @@ async function routedRun(
       harness: MODEL_PORT_OF[harness],
       ...scoped,
       ...(host === null ? {} : { servingHost: host.servingHost, hostRouteCertified: host.certified }),
+      // Sonnet-first (owner decision 2026-09-30): the setting and this workspace's measured first-try history.
+      ...(task.sliceId === null ? {} : { firstTry: { setting: firstTrySettingOf(ctx, ws), history: (q: { readonly baselineModelId: string; readonly firstTryModelId: string }) => firstTryHistory(ws, { sliceId: task.sliceId as string, ...q }) } }),
       async launch(input) {
         // The router never widens the task's approved models (or the default set, where unnamed
         // vendors are only on API keys, OD-10), and never routes onto a harness that is not
@@ -858,6 +868,7 @@ async function routedRun(
       // One baseline for route and outcome (P3, OD-3): the router's own, carried in its note;
       // else C's rule: the approved model when registered, else the harness's registry default.
       const kept = await keepLearningNote(ws, { taskId: task.node.id, leaseId: run.leaseId, sliceId: task.sliceId, baselineModelId: routeBase, eligibleModelIds: eligible, risk: task.risk, note: learning, nowMs });
+      if (kept !== null) await keepFirstTryRoute(ws, { taskId: task.node.id, sliceId: task.sliceId, run, note: learning, nowMs }).catch(() => null);
       const now = getTask(ws, task.node.id);
       // The port switch (R63-R67): an access limit is the neutral usage-limited outcome, whether the
       // port says `usage-limit` or `access-limit`; an overload records none (the bounded retry, OP-7).
@@ -871,7 +882,44 @@ async function routedRun(
       // Learning never fails the task path.
     }
   }
+  // A first try that ended with no receipt is handed off once to the next rung (a failed check does the same at the task's completion).
+  await handOffFirstTry(ctx, ws, task.node.id).catch(() => null);
   return ran;
+}
+
+/** `routing.firstTry` now: auto unless a person (or a repository, downward only) set it to baseline. */
+function firstTrySettingOf(ctx: SidecarOpContext, ws: WorkspaceServices): 'auto' | 'baseline' {
+  try {
+    return firstTryOf(readEffectiveConfig({ home: ctx.home, workspaceRoot: ws.workspaceRoot }).config);
+  } catch {
+    return 'baseline';
+  }
+}
+
+/**
+ * The one bounded hand-off of Sonnet-first routing (owner decision 2026-09-30): a first try that
+ * failed (no receipt, or a failing check) goes once to the next rung of the route's ladder, with
+ * the compact history, and completes only from a new passing receipt. No-op for a task that had
+ * no first-try assignment, a control task, a task already handed off, or a first try that has no
+ * deterministic failing label yet. Never throws; with no stronger rung the task ends failed.
+ */
+export async function handOffFirstTry(ctx: SidecarOpContext, ws: WorkspaceServices, taskId: string): Promise<'handed-off' | 'none'> {
+  await drainRouteLearning();
+  const plan = handOffPlan(ws, taskId);
+  if (plan === null) return 'none';
+  const nowMs = engineNow(ctx.engine);
+  const state = getTask(ws, taskId)?.node.state;
+  // A failed check leaves the task awaiting evidence; the hand-off is a relaunch of a failed task.
+  if (state === 'awaiting-evidence') taskTransition(ws, taskId, 'failed', 'FIRST_TRY_FAILED: the first-try model\'s check failed; one hand-off follows', { actor: 'runner', nowMs });
+  if (getTask(ws, taskId)?.node.state !== 'failed') return 'none';
+  // The hand-off is the task's one escalation; a recorded one means it already used it.
+  if (ws.state.get('escalations', recordKey(ws.workspaceId, taskId)) !== undefined) {
+    await closeUnhandled(ws, taskId, nowMs);
+    return 'none';
+  }
+  const result = await relaunchEscalated(ctx, ws, taskId, { failures: [], rejectedApproaches: [] }, { stepUpModelIds: plan.stepUpModelIds, onTarget: (to) => noteHandOff(ws, taskId, to, nowMs) });
+  if (result.state !== 'launched') await closeUnhandled(ws, taskId, nowMs);
+  return result.state === 'launched' ? 'handed-off' : 'none';
 }
 
 // ------------------------------------------------------------------------------ plan.submit
@@ -1116,6 +1164,7 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
         const run = !(isPlain(ctx.body) && own(ctx.body, 'run') === false);
         const done = await completeTask(ws, taskId, { run, nowMs: engineNow(ctx.engine) });
         ctx.trace({ event: 'orchestrator.task-complete', taskId, reasonCode: done.reasonCode });
+        if (!done.verified && (await handOffFirstTry(ctx, ws, taskId).catch(() => 'none')) === 'handed-off') ctx.trace({ event: 'orchestrator.escalation-relaunch', taskId, reasonCode: 'FIRST_TRY_HANDED_OFF' });
         if (done.verified) await continueOwnedWorkWithin(ctx, ws);
         return respond(ctx, 'task.get', taskView(ws, taskId));
       },

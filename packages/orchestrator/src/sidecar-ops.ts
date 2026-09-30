@@ -32,7 +32,7 @@ import { pendingChecks, scheduleVerification, verificationRunKey, type PendingCh
 import { completeTask, taskWorkspace } from './orchestration/workers.js';
 import { getTask } from './orchestration/tasks.js';
 import { isId, isPlain, own, recordKey, redactSecrets, type Rec } from './util.js';
-import { continueOwnedWork, engineNow, taskOps } from './ops/task-ops.js';
+import { continueOwnedWork, engineNow, handOffFirstTry, taskOps } from './ops/task-ops.js';
 import { integrationOps } from './ops/integration-ops.js';
 import { budgetOps } from './ops/budget-ops.js';
 import { controlOps } from './ops/control-ops.js';
@@ -338,7 +338,7 @@ async function handleVerify(ctx: SidecarOpContext): Promise<Outcome> {
     const trace = () => ctx.trace({ event: completing ? 'orchestrator.task-complete-started' : 'orchestrator.verify-started', ...(taskId === null ? {} : { taskId }) });
     // A verified owned task lets its dependents start (W04): the next wave is leased.
     const work = completing && taskId !== null
-      ? () => completeTask(ws, taskId, { nowMs: engineNow(ctx.engine) }).then(async (done) => (done.verified ? (await continueOwnedWork(ctx, ws), done) : done))
+      ? () => completeTask(ws, taskId, { nowMs: engineNow(ctx.engine) }).then(async (done) => (done.verified ? (await continueOwnedWork(ctx, ws), done) : (await handOffFirstTry(ctx, ws, taskId).catch(() => null), done)))
       : (ids: readonly string[]) =>
           runVerification(ws, { ...request, checkIds: ids }).then((outcome) => {
             // P2: a verification run follows new work, so a reverted integrated task is looked for (off the answer path).

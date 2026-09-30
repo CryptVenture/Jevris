@@ -30,6 +30,7 @@
  * directory and never leaves the machine. Recording runs in the background and a failure is
  * dropped: learning never fails or delays the task path.
  */
+import { recordFirstTryOutcome } from './first-try.js';
 import { BUNDLED_MODEL_REGISTRY, LABEL_SOURCE_OF, apiEquivalentCostMicroUsd, learnFromOutcome, loadModelRegistry, routeBaseline, subagentSliceId, type LearnFromOutcomeResult, type OutcomeKind, type RouteRisk } from '@jevris/core';
 import { ACCESS_PAUSE_CLASSES, type ModelRegistry } from '@jevris/contracts';
 import { recordDecisionOutcomes } from '@jevris/store';
@@ -360,6 +361,12 @@ export function recordSubagentOutcome(
  */
 export function recordRouteOutcome(ws: WorkspaceServices, taskId: string, kind: OutcomeKind, detail: OutcomeDetail): void {
   labelDecisions(ws, taskId, kind, detail);
+  // Sonnet-first: the same deterministic label follows the task's first-try ledger row (a verified label needs its receipt).
+  if ((kind !== 'verified-pass' && kind !== 'verified-fail') || (detail.receiptId !== undefined && detail.receiptId !== null && ID.test(detail.receiptId))) {
+    const ledger = recordFirstTryOutcome(ws, taskId, kind, { run: detail.run ?? null, nowMs: detail.nowMs }).catch(() => null);
+    pending.add(ledger);
+    void ledger.finally(() => pending.delete(ledger));
+  }
   const work = (async (): Promise<LearnFromOutcomeResult | null> => {
     const row = learningRow(ws, taskId);
     if (row === undefined || !routeTakesLabel(row, kind)) return null;

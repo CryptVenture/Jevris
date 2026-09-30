@@ -37,7 +37,7 @@ import { filterCandidates, routeTask, type CostAssumptions, type QualityEstimate
 import { DEFAULT_SWITCH_POLICY, switchGuard, transitionCostMicroUsd, type SwitchDecision } from './route-switch.js';
 import { armKey, baselinePriorsFromRelease, learningSettings, learningSliceKey, loadLearningState, reconcileLearning, secureRandom, type AuthMode, type LearningState, type RouteRisk } from './route-learning.js';
 import { sliceTaskVolume } from './task-volume.js';
-import { runManagedWorker, workerCalibrationContext, type ManagedWorkerInput, type ManagedWorkerResult, type OwnedLaunchPort, type WorkerLearningNote } from './route-worker.js';
+import { runManagedWorker, workerCalibrationContext, type ManagedWorkerInput, type ManagedWorkerResult, type OwnedLaunchPort, type WorkerLearning, type WorkerLearningNote } from './route-worker.js';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const MODEL_ID = /^[A-Za-z0-9][A-Za-z0-9._:\-[\]]{0,127}$/;
@@ -439,6 +439,11 @@ export interface ManagedRouteRequest {
   readonly servingHost?: string | null;
   /** Whether the worker's harness has route.host certified at its installed version (D reads the certify record). */
   readonly hostRouteCertified?: boolean;
+  /**
+   * Sonnet-first routing (owner decision 2026-09-30, D fills it): the `routing.firstTry` setting and this
+   * workspace's measured first-try history for a candidate, read from D's ledger. Absent, no route is first-try.
+   */
+  readonly firstTry?: NonNullable<WorkerLearning['firstTry']>;
 }
 
 export type CandidateScopes = { readonly [modelId: string]: { readonly harness: string; readonly authMode: 'api-key' | 'subscription' | 'unknown' } | null };
@@ -664,7 +669,7 @@ export async function routeManagedWorker(
     hostRoute: { certified: request.hostRouteCertified === true, ...(deps.providerConsent === undefined ? {} : { read: deps.providerConsent }) },
     now,
     ...(deps.record === undefined ? {} : { record: deps.record }),
-    ...(learningState === null ? {} : { learning: { state: learningState, sliceId: learningKey, risk: request.risk ?? 'unknown', random: deps.random ?? secureRandom, nearLimitModelIds, ...(request.authMode === undefined ? {} : { authMode: request.authMode }) } }),
+    ...(learningState === null ? {} : { learning: { state: learningState, sliceId: learningKey, risk: request.risk ?? 'unknown', random: deps.random ?? secureRandom, nearLimitModelIds, ...(request.authMode === undefined ? {} : { authMode: request.authMode }), ...(request.firstTry === undefined ? {} : { firstTry: request.firstTry }) } }),
   });
   return withExclusions(result, request.candidateExclusions);
 }

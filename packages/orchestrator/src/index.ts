@@ -135,6 +135,7 @@ export type { RunSpelling } from './orchestration/model-spelling.js';
 export * from './orchestration/integration.js';
 export * from './orchestration/budget.js';
 export * from './orchestration/learning.js';
+export * from './orchestration/first-try.js';
 export * from './orchestration/risk.js';
 export * from './orchestration/worker-auth.js';
 export * from './orchestration/worker-hosts.js';
