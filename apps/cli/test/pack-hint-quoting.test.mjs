@@ -44,7 +44,8 @@ test('pack list: a runtime folder with plain characters prints its bundled-pack 
   const paths = box(t, 'runtime');
   const lines = await list(paths);
   assert.equal(lines.length, 3);
-  for (const line of lines) assert.match(line, /^built-in: jevris\.\S+ \S+ \(advise-only\); install with: jevris pack install \/\S+$/);
+  // An absolute folder, printed bare: /… on POSIX, C:\… on Windows.
+  for (const line of lines) assert.match(line, /^built-in: jevris\.\S+ \S+ \(advise-only\); install with: jevris pack install (?:\/|[A-Za-z]:\\)[^\s'"]+$/);
 });
 
 test('pack list: a runtime folder with a space prints a quoted install folder', async (t) => {
@@ -53,7 +54,9 @@ test('pack list: a runtime folder with a space prints a quoted install folder', 
   assert.equal(lines.length, 3);
   for (const line of lines) {
     const folder = line.match(/install with: jevris pack install (.+)$/)?.[1] ?? '';
-    assert.ok(folder.startsWith("'") && folder.endsWith("'"), `folder not quoted: ${line}`);
+    // POSIX shells take single quotes; Windows (cmd and PowerShell) take double quotes.
+    const q = process.platform === 'win32' ? '"' : "'";
+    assert.ok(folder.startsWith(q) && folder.endsWith(q), `folder not quoted: ${line}`);
     assert.ok(folder.includes('My Runtime Dir'), line);
   }
 });
