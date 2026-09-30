@@ -18,7 +18,7 @@ import { readFile, readdir, lstat, realpath, rename, rm } from 'node:fs/promises
 import { join } from 'node:path';
 import { ensurePrivateDir, jevrisPaths, packsDir, writePrivateFile } from '@jevris/platform';
 import { openLedger, type RecordLedger } from '@jevris/orchestrator';
-import { checkPackOwnership } from '@jevris/core';
+import { buildShadowReport, checkPackOwnership, parseShadowComparison } from '@jevris/core';
 import { SHADOW_REPORT_KIND, sha256Hex, type HostDocument } from '@jevris/contracts';
 import { loadHostPolicy } from '../host-policy.js';
 import { activateKillSwitch, readKillSwitchStopped } from '../kill-switch.js';
@@ -337,16 +337,29 @@ export async function shadowPack(home: string, id: string, version: string, repo
     return refused('SHADOW_REPORT_INVALID', 'unreadable');
   }
   type ShadowFields = { readonly kind?: unknown; readonly schemaVersion?: unknown; readonly recordCount?: unknown; readonly actuationCount?: unknown };
-  let report: ShadowFields | null;
+  let parsed: unknown;
   try {
-    report = JSON.parse(decodeUtf8(bytes)) as ShadowFields | null;
+    parsed = JSON.parse(decodeUtf8(bytes));
   } catch {
-    report = null;
+    parsed = null;
   }
-  if (report === null || report.kind !== SHADOW_REPORT_KIND || report.schemaVersion !== '1.0') return refused('SHADOW_REPORT_INVALID', `not a ${SHADOW_REPORT_KIND} (jevris shadow --out)`);
-  if (typeof report.recordCount !== 'number' || !Number.isInteger(report.recordCount) || report.recordCount < 1) return refused('SHADOW_REPORT_INVALID', 'no shadow records');
-  if (report.actuationCount !== 0) return refused('SHADOW_REPORT_INVALID', 'the shadow run actuated');
-  const recordCount = report.recordCount;
+  // JEV-0036: `jevris shadow --out` writes one comparison record, and the documented flow hands that file
+  // straight to `pack shadow --report`. A record that passes the strict comparison check counts as a
+  // report of one record, built the same way `jevris shadow` builds its own report. Anything else must
+  // be a well-formed report, as before.
+  let recordCount: number;
+  const comparison = parseShadowComparison(parsed);
+  if (comparison !== undefined) {
+    const built = buildShadowReport([comparison]);
+    if ('refused' in built) return refused('SHADOW_REPORT_INVALID', 'the shadow run actuated');
+    recordCount = built.recordCount;
+  } else {
+    const report = (typeof parsed === 'object' && parsed !== null ? parsed : null) as ShadowFields | null;
+    if (report === null || report.kind !== SHADOW_REPORT_KIND || report.schemaVersion !== '1.0') return refused('SHADOW_REPORT_INVALID', `not a ${SHADOW_REPORT_KIND} or a shadow comparison record (jevris shadow --out)`);
+    if (typeof report.recordCount !== 'number' || !Number.isInteger(report.recordCount) || report.recordCount < 1) return refused('SHADOW_REPORT_INVALID', 'no shadow records');
+    if (report.actuationCount !== 0) return refused('SHADOW_REPORT_INVALID', 'the shadow run actuated');
+    recordCount = report.recordCount;
+  }
   const reportHash = `sha256:${sha256Hex(bytes)}`;
   const at = iso(options);
   await ledger.transact((tx) => {

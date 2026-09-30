@@ -18,7 +18,7 @@ export { renderStatus } from './status.js';
 export { adviseFailureLoop } from './loop-advice.js';
 export { handleCheckpointHook, importPortableCapsule, loadMatchingSubset, persistMandatoryFacts } from './checkpoint.js';
 export { formatShortlist, shortlistEvidence, shortlistInstalledSkills } from './shortlist.js';
-export { buildShadowReport, readShadowComparison, recordRecommendationFeedback, recordShadowComparison } from './shadow.js';
+export { buildShadowReport, parseShadowComparison, readShadowComparison, recordRecommendationFeedback, recordShadowComparison } from './shadow.js';
 export { recordSchemaFailure } from './schema-failure-record.js';
 export type { SchemaFailureName, SchemaFailureRecord } from './schema-failure-record.js';
 export { loadReleasedCalibration } from './route-gate.js';

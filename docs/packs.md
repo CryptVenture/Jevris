@@ -38,7 +38,7 @@ jevris pack publisher remove acme
 | --- | --- |
 | `draft` | `jevris pack install <dir>` |
 | `fixture-tested` | `jevris pack test <id>@<version>` runs the pack's fixtures against its rules. A pack with decisions needs fixtures. |
-| `shadow-approved` | `jevris pack shadow <id>@<version> --report <file>` attaches a shadow report with at least one record and no actuation. `jevris shadow --fixture <file> --out <file>` writes one. |
+| `shadow-approved` | `jevris pack shadow <id>@<version> --report <file>` attaches shadow evidence with at least one record and no actuation: either a shadow report or the comparison record that `jevris shadow --fixture <file> --out <file>` writes. A file that is neither, or that shows the shadow run applied, sent or actuated anything, is refused. |
 | `canary` | `jevris pack approve <delta-hash>` activates the version. It needs a person at an interactive terminal who answers `y`; `--yes`, `--json`, a pipe or a script is refused with "Nothing was changed (CHANNEL_REFUSED): ..." and exits 2 (see [security.md](security.md#changes-that-need-a-person-at-a-terminal)). Approval saves the active host policy as `policy-previous.json`. |
 | `stable` | `jevris pack promote <id>`, after passing canary metrics over at least 20 tasks |
 

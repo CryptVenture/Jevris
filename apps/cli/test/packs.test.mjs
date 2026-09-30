@@ -449,6 +449,86 @@ test('PAK-08: each pack binds its calibration per pack, model and encoder; the l
   assert.equal((await registry.approvePack(box.home, ok.deltaHash, box.opts())).ok, true);
 });
 
+// JEV-0036: the documented flow is `jevris shadow --out f`, then `jevris pack shadow <id>@<v> --report f`.
+test('pack shadow accepts the comparison record jevris shadow --out writes, and still refuses records that are not shadow evidence (JEV-0036)', { skip: managedHostSkip() }, async (t) => {
+  const { recordShadowComparison } = await import('../../../packages/core/dist/index.js');
+  const box = sandbox(t);
+  hostPolicy(box.home);
+  assert.equal((await registry.installPack(box.home, writePack(join(box.dir, 'v1'), manifest(), FIXTURE), box.opts())).stage, 'draft');
+  assert.equal((await registry.testPack(box.home, 'jevris.testpack', '0.1.0', box.opts())).stage, 'fixture-tested');
+
+  const destination = join(box.dir, 'comparison.json');
+  const recorded = await recordShadowComparison({
+    policyVersion: 'policyV1',
+    actualModel: 'claude-sonnet-5',
+    rulesInput: { kind: 'known-failure', family: 'type_error' },
+    setting: { provenance: 'administrator', sourceEgress: 'approved-scoped' },
+    untrustedClaims: [],
+    destination,
+  });
+  assert.equal(recorded.fileWritten, true);
+  const good = JSON.parse(readFileSync(destination, 'utf8'));
+  assert.equal(good.kind, undefined, 'the --out file is a comparison record, not a report');
+  const variant = (name, change) => {
+    const path = join(box.dir, `${name}.json`);
+    writeFileSync(path, JSON.stringify(change));
+    return path;
+  };
+  const shadow = (path) => registry.shadowPack(box.home, 'jevris.testpack', '0.1.0', path, box.opts());
+
+  // A record that is not shadow evidence stays refused.
+  for (const [name, bad] of [
+    ['applied', { ...good, applied: true }],
+    ['sent', { ...good, sent: true }],
+    ['actuated', { ...good, actuationCount: 1 }],
+    ['worker', { ...good, actualWorker: 'someone' }],
+    ['schema', { ...good, schemaVersion: '9.9' }],
+    ['extra-key', { ...good, note: 'extra' }],
+    ['not-an-object', [good]],
+    ['empty', {}],
+  ]) {
+    const refused = await shadow(variant(name, bad));
+    assert.equal(refused.ok, false, name);
+    assert.equal(refused.reasonCode, 'SHADOW_REPORT_INVALID', name);
+  }
+  assert.equal((await registry.getPack(box.home, 'jevris.testpack')).versions['0.1.0'].stage, 'fixture-tested', 'a refusal attaches nothing');
+
+  // The record itself is one shadow record.
+  const accepted = await shadow(destination);
+  assert.equal(accepted.ok, true, JSON.stringify(accepted));
+  assert.equal(accepted.recordCount, 1);
+  assert.equal(accepted.reportHash, `sha256:${sha(readFileSync(destination))}`, 'the hash is of the file that was checked');
+  assert.equal((await registry.getPack(box.home, 'jevris.testpack')).versions['0.1.0'].stage, 'shadow-approved');
+});
+
+// JEV-0036: the documented CLI flow, end to end.
+test('jevris shadow --out, then jevris pack shadow --report on that file, reaches shadow-approved (JEV-0036)', { skip: managedHostSkip() }, async (t) => {
+  const { main } = await import('../dist/cli.js');
+  const box = sandbox(t);
+  const fixture = join(box.dir, 'labels.json');
+  writeFileSync(fixture, JSON.stringify({
+    policyVersion: 'policyV1',
+    actualModel: 'claude-sonnet-5',
+    rulesInput: { kind: 'known-failure', family: 'type_error' },
+    jevLabel: 'jev-1.13.0',
+    setting: { provenance: 'administrator', sourceEgress: 'approved-scoped' },
+    untrustedClaims: [],
+  }));
+  const out = join(box.dir, 'shadow.json');
+  let text = '';
+  assert.equal(await main(['shadow', '--home', box.home, '--fixture', fixture, '--out', out], (chunk) => (text += chunk)), 0, text);
+  const run = async (args) => {
+    let answer = '';
+    const code = await runAdminCommand(['pack', ...args, '--home', box.home], (chunk) => (answer += chunk), { packageRoot: root, isTTY: false });
+    return { code, text: answer };
+  };
+  assert.equal((await run(['install', writePack(join(box.dir, 'cli'), manifest(), FIXTURE), '--json'])).code, 0);
+  assert.equal((await run(['test', 'jevris.testpack@0.1.0'])).code, 0);
+  const attached = await run(['shadow', 'jevris.testpack@0.1.0', '--report', out]);
+  assert.equal(attached.code, 0, attached.text);
+  assert.equal((await registry.getPack(box.home, 'jevris.testpack')).versions['0.1.0'].stage, 'shadow-approved');
+});
+
 test('jevris pack: the CLI drives the lifecycle; approval needs a person at a terminal and refuses --yes (SR-1)', { skip: managedHostSkip() }, async (t) => {
   const box = sandbox(t);
   const src = writePack(join(box.dir, 'cli'), manifest(), FIXTURE);

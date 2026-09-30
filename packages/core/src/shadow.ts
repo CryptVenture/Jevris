@@ -439,6 +439,15 @@ export function buildShadowReport(files: readonly object[]): BuildShadowReportRe
   return closedReport(files.length);
 }
 
+/**
+ * JEV-0036: the strict shape check for one decoded comparison record, the file `jevris shadow --out`
+ * writes. `readShadowComparison` uses it after reading a file; `pack shadow` uses it on bytes it has
+ * already read, so the file it hashes is the file it checked.
+ */
+export function parseShadowComparison(value: unknown): ShadowComparisonFile | undefined {
+  return fileFromParsed(value);
+}
+
 export async function readShadowComparison(destination: string): Promise<ReadShadowComparisonResult> {
   if (typeof destination !== 'string' || destination.length === 0) return schemaFailure();
   let bytes: Uint8Array;
