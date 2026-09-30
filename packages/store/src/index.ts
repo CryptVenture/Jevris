@@ -153,8 +153,8 @@ export {
   sessionModelChanges,
 } from './learning.js';
 export type { AdviceAdherenceRow, AdviceKind, AdviceVerdict, DecisionFeedbackInput, DecisionFeedbackReason, DecisionFeedbackRow, DecisionOutcomeInput, DecisionOutcomeRow, LatencyCount, LatencyCounterRow, LatencyScope, OpenAdviceInput } from './learning.js';
-export { adoptStoreHostScope, backupStore, checkBackup, exportStoreJsonl, inspectStore, restoreStore } from './backup.js';
-export type { AdoptResult, BackupCheck, RestoreResult, StoreInspection } from './backup.js';
+export { adoptStoreHostScope, backupStore, checkBackup, exportAuditJsonlAt, exportStoreJsonl, inspectStore, restoreStore, verifyAuditChainAt } from './backup.js';
+export type { AdoptResult, AuditFileRefusal, BackupCheck, RestoreResult, StoreInspection } from './backup.js';
 export { beginOwnedEffect, heldEffects, reconcileEffect, settleOwnedEffect } from './owned-effects.js';
 export type { BeginOwnedEffectInput, HeldEffect, OwnedEffectState, ReconcileEffectInput, SettleOwnedEffectInput } from './owned-effects.js';
 export { ACTIVE_SESSIONS_MAX, SESSION_LINKS_MAX, SESSION_LINK_SQL, SESSION_LINK_VIA, linkSession, listActiveSessions, listSessionLinks, sessionLinkFor, unlinkSession } from './session-link.js';

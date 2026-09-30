@@ -79,6 +79,8 @@ export function jevReenableOps(deps: JevReenableOpsDeps): readonly SidecarOpDefi
       workspace: 'optional',
       async handle(ctx) {
         if (bodyRecord(ctx)['channel'] !== 'terminal') return refuse('CHANNEL_REFUSED', 'Jev is re-enabled only by a person at an interactive terminal.');
+        // GOV-02..04: re-enabling resumes semantic decisions; a stopped Jevris resumes nothing until the person clears the kill switch.
+        if (ctx.killSwitchStopped) return refuse('KILL_SWITCH', 'The kill switch is on, so Jev is not re-enabled. Clear the kill switch first (jevris kill-switch clear), then re-enable Jev.');
         const clear = clearOf(deps.engine());
         if (clear === null) return refuse('NOT_DISABLED', 'Jev has no provider circuit here, so nothing is disabled.');
         let answer: ClearAnswer | null;

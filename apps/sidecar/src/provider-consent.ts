@@ -196,6 +196,8 @@ export function providerConsentOps(deps: ProviderConsentOpsDeps): readonly Sidec
         // A grant widens what may leave the machine: only a person at a terminal (the CLI checks
         // and says so), never MCP, a hook, a pipe or a test run.
         if (stringField(ctx, 'channel') !== 'terminal') return refuse('CHANNEL_REFUSED', 'Consent is given only by a person at an interactive terminal.');
+        // GOV-02..04: a grant widens what may leave the machine; a stopped Jevris widens nothing until the person clears the kill switch.
+        if (ctx.killSwitchStopped) return refuse('KILL_SWITCH', 'The kill switch is on, so consent is not granted. Clear the kill switch first (jevris kill-switch clear), then grant consent.');
         const provider = stringField(ctx, 'provider');
         const textVersion = stringField(ctx, 'textVersion');
         if (provider === undefined || !api.isProviderId(provider)) return refuse('UNKNOWN_PROVIDER');

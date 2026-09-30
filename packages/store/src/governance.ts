@@ -158,30 +158,48 @@ export function readAudit(store: OpenStoreResult, filter: { readonly sinceSeq?: 
   return Array.isArray(result) ? result : [];
 }
 
+export type AuditChainResult = { readonly ok: true; readonly count: number; readonly head: string } | { readonly ok: false; readonly brokenAt: number };
+
+/** The chain walk over an open driver (a live store, or a read-only one for `jevris audit verify` with no sidecar). */
+export function verifyAuditChainOn(driver: SqlDriver): AuditChainResult {
+  let prev = AUDIT_GENESIS;
+  let expected = 1;
+  let count = 0;
+  for (const raw of driver.prepare('SELECT * FROM audit_log ORDER BY seq').all()) {
+    const seq = num(field(raw, 'seq')) ?? -1;
+    const detailText = str(field(raw, 'detail')) ?? '';
+    const hash = rowHash(prev, seq, num(field(raw, 'at_ms')) ?? 0, str(field(raw, 'kind')) ?? '', str(field(raw, 'actor')) ?? '', str(field(raw, 'channel')) ?? '', detailText);
+    if (seq !== expected || field(raw, 'prev_hash') !== prev || field(raw, 'hash') !== hash) return { ok: false as const, brokenAt: seq };
+    prev = hash;
+    expected += 1;
+    count += 1;
+  }
+  return { ok: true as const, count, head: prev };
+}
+
 /** Recomputes the chain. Any edited, reordered or missing row breaks it. */
-export function verifyAuditChain(store: OpenStoreResult): { readonly ok: true; readonly count: number; readonly head: string } | { readonly ok: false; readonly brokenAt: number } | StoreRefusal {
-  return read(store, ({ driver }) => {
-    let prev = AUDIT_GENESIS;
-    let expected = 1;
-    let count = 0;
-    for (const raw of driver.prepare('SELECT * FROM audit_log ORDER BY seq').all()) {
-      const seq = num(field(raw, 'seq')) ?? -1;
-      const detailText = str(field(raw, 'detail')) ?? '';
-      const hash = rowHash(prev, seq, num(field(raw, 'at_ms')) ?? 0, str(field(raw, 'kind')) ?? '', str(field(raw, 'actor')) ?? '', str(field(raw, 'channel')) ?? '', detailText);
-      if (seq !== expected || field(raw, 'prev_hash') !== prev || field(raw, 'hash') !== hash) return { ok: false as const, brokenAt: seq };
-      prev = hash;
-      expected += 1;
-      count += 1;
-    }
-    return { ok: true as const, count, head: prev };
-  });
+export function verifyAuditChain(store: OpenStoreResult): AuditChainResult | StoreRefusal {
+  return read(store, ({ driver }) => verifyAuditChainOn(driver));
+}
+
+function auditJsonl(rows: readonly AuditRow[]): string {
+  return rows.map((r) => `${JSON.stringify({ seq: r.seq, atMs: r.atMs, kind: r.kind, actor: r.actor, channel: r.channel, detail: r.detail, prevHash: r.prevHash, hash: r.hash })}\n`).join('');
 }
 
 /** JSONL export of the audit log with its hashes (`jevris audit export`). */
 export function exportAuditJsonl(store: OpenStoreResult): string {
-  return readAudit(store)
-    .map((r) => `${JSON.stringify({ seq: r.seq, atMs: r.atMs, kind: r.kind, actor: r.actor, channel: r.channel, detail: r.detail, prevHash: r.prevHash, hash: r.hash })}\n`)
-    .join('');
+  return auditJsonl(readAudit(store));
+}
+
+/** The same export over an open driver (a read-only one for `jevris audit export` with no sidecar). */
+export function exportAuditJsonlOn(driver: SqlDriver): string {
+  return auditJsonl(
+    driver
+      .prepare('SELECT * FROM audit_log WHERE seq > ? ORDER BY seq')
+      .all(0)
+      .map(auditRow)
+      .filter((r): r is AuditRow => r !== undefined),
+  );
 }
 
 // ---------------------------------------------------------------- authorization receipts

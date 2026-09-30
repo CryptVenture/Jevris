@@ -283,11 +283,11 @@ export function memoryOps(respond: Respond, workspaceOf: WorkspaceOf) {
     return fn(ctx, respond, ws);
   };
   return [
-    { op: 'checkpoint', scope: 'checkpoint' as const, budget: 'background' as const, handle: wrap(handleCheckpoint) },
+    { op: 'checkpoint', scope: 'checkpoint' as const, budget: 'background' as const, stoppedByKillSwitch: true as const, handle: wrap(handleCheckpoint) },
     { op: 'recover', scope: 'advice' as const, budget: 'background' as const, handle: wrap(handleRecover) },
     { op: 'evidence.select', scope: 'status' as const, budget: 'hot' as const, handle: wrap(handleEvidenceSelect) },
     { op: 'handoff.export', scope: 'checkpoint' as const, budget: 'background' as const, handle: wrap(handleExport) },
-    { op: 'handoff.import', scope: 'checkpoint' as const, budget: 'background' as const, handle: wrap(handleImport) },
+    { op: 'handoff.import', scope: 'checkpoint' as const, budget: 'background' as const, stoppedByKillSwitch: true as const, handle: wrap(handleImport) },
   ];
 }
 

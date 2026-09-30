@@ -14,7 +14,7 @@ import { createRequire } from 'node:module';
 import type { OpenStoreResult, StoreRefusal } from './open.js';
 import { driverFor, restampHostScope, storeFiles } from './open.js';
 import { field, num, refuse, str, write } from './access.js';
-import { appendAuditRow } from './governance.js';
+import { appendAuditRow, exportAuditJsonlOn, verifyAuditChainOn, type AuditChainResult } from './governance.js';
 import { latestSchemaVersion, planMigrations } from './migrate.js';
 import { immediately, readMeta, type SqlDriver } from './schema.js';
 import { acquireWriterLock, releaseWriterLock, writerLockHolder } from './writer-lock.js';
@@ -324,4 +324,43 @@ export function inspectStore(dbPath: string): StoreInspection {
       // closed
     }
   }
+}
+
+export type AuditFileRefusal = { readonly ok: false; readonly reason: 'no-store' | 'store-unreadable' | 'store-corrupt' };
+
+function readAuditFile<T>(dbPath: string, run: (driver: SqlDriver) => T): { readonly ok: true; readonly value: T } | AuditFileRefusal {
+  if (lstatSync(dbPath, { throwIfNoEntry: false }) === undefined) return { ok: false, reason: 'no-store' };
+  let db: SqlDriver;
+  try {
+    db = openReadonly(dbPath);
+  } catch {
+    return { ok: false, reason: 'store-unreadable' };
+  }
+  try {
+    return { ok: true, value: run(db) };
+  } catch (error) {
+    const code = error !== null && typeof error === 'object' ? Reflect.get(error, 'code') : undefined;
+    return { ok: false, reason: typeof code === 'string' && (code.startsWith('SQLITE_CORRUPT') || code.startsWith('SQLITE_NOTADB')) ? 'store-corrupt' : 'store-unreadable' };
+  } finally {
+    try {
+      db.close();
+    } catch {
+      // closed
+    }
+  }
+}
+
+/**
+ * Verifies the audit chain of a store file without opening it as the writer: read-only, no
+ * migration, no lock, nothing written (`jevris audit verify` while no sidecar runs).
+ */
+export function verifyAuditChainAt(dbPath: string): AuditChainResult | AuditFileRefusal {
+  const answer = readAuditFile(dbPath, verifyAuditChainOn);
+  return answer.ok ? answer.value : answer;
+}
+
+/** The audit log's JSONL export, read from a store file the same way (`jevris audit export` while no sidecar runs). */
+export function exportAuditJsonlAt(dbPath: string): { readonly ok: true; readonly text: string } | AuditFileRefusal {
+  const answer = readAuditFile(dbPath, exportAuditJsonlOn);
+  return answer.ok ? { ok: true, text: answer.value } : answer;
 }

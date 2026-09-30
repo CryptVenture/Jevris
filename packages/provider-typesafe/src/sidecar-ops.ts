@@ -981,7 +981,7 @@ export const sidecarOps: readonly SidecarOpDefinition[] = Object.freeze([
   { op: 'cost.report', scope: 'status', budget: 'background', handle: handleCostReport },
   { op: 'calibration.status', scope: 'status', budget: 'hot', workspace: 'optional', handle: handleCalibrationStatus },
   { op: 'calibration.export', scope: 'admin', budget: 'background', handle: handleCalibrationExport },
-  { op: 'decision.feedback', scope: 'submit', budget: 'hot', handle: handleDecisionFeedback },
+  { op: 'decision.feedback', scope: 'submit', budget: 'hot', stoppedByKillSwitch: true, handle: handleDecisionFeedback },
 ] satisfies SidecarOpDefinition[]);
 
 export const sidecarEventSubscribers: readonly SidecarEventSubscriber[] = Object.freeze([createDecisionSubscriber({ handlers: DEFAULT_TRIGGER_HANDLERS, revisions: WORKSPACE_REVISIONS })]);

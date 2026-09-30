@@ -56,6 +56,8 @@ export function accessLimitsOps(deps: AccessLimitsOpsDeps): readonly SidecarOpDe
       workspace: 'optional',
       async handle(ctx) {
         if (bodyRecord(ctx)['channel'] !== 'terminal') return refuse('CHANNEL_REFUSED', 'Access limits are cleared only by a person at an interactive terminal.');
+        // GOV-02..04: clearing a limit resumes held work; a stopped Jevris resumes nothing until the person clears the kill switch.
+        if (ctx.killSwitchStopped) return refuse('KILL_SWITCH', 'The kill switch is on, so access limits are not cleared. Clear the kill switch first (jevris kill-switch clear), then clear the limits.');
         const entries = entriesOf(ctx);
         if (entries === undefined) return refuse('INVALID_INPUT', "Name the limits to clear by their 16-character keys (at most 128), or 'all'.");
         let result: Awaited<ReturnType<typeof clearAccessLimits>>;
