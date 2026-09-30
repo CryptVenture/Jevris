@@ -142,12 +142,52 @@ test('sweep chunks are bounded in time: a slow chunk halves the next, and the pa
   assert.ok(slow > fast + 5, `slow chunks shrink, so more writes and pauses (${slow} against ${fast})`);
 });
 
+// windows-latest (af665fd): the worker sweep of 1507 rows timed out at 120 s. Every write there took
+// over 8 ms for its commit and sync alone, so every chunk "was slow", the size halved write after
+// write down to one row, and the sweep needed about 1500 writes. A step's fixed cost does not
+// shrink with its rows, so the size now stops at a floor. Deterministic: a clock that makes
+// every write slow, whatever its rows.
+test('when every write is slow, the chunk size stops at a floor instead of shrinking to one row', async () => {
+  let at = 0;
+  let pauses = 0;
+  let result;
+  await withStore(async (store, _path, dir) => {
+    const now = Date.now();
+    await seedOld(store, 1500, now);
+    result = api.sweepRetention(store, {
+      policy: { rawArtifactRetentionDays: 7, decisionRetentionDays: 30 },
+      nowMs: now,
+      rawDir: join(dir, 'evidence'),
+      chunkRows: 500,
+      chunkMs: 8,
+      clock: () => (at += 60),
+      pause: () => {
+        pauses += 1;
+      },
+      vacuum: 'incremental',
+    });
+  });
+  assert.equal(result.ok, true, JSON.stringify(result));
+  assert.equal(result.removed.hook_records, 1500);
+  const smallest = Math.min(...result.chunks.slice(0, -1).map((c) => c.rows));
+  assert.ok(smallest >= 16, `no chunk shrank below the floor (smallest ${String(smallest)})`);
+  assert.ok(result.chunks.length <= 120, `the sweep took ${String(result.chunks.length)} writes, not about 1500 (${String(pauses)} pauses)`);
+});
+
 test('a hot write that meets a maintenance chunk waits about one chunk, not busy_timeout', async (t) => {
   // One sweep of 6000 rows in the worker while this connection commits hot writes beside it.
   const scenario = () =>
     withStore(async (store, path, dir) => {
       const now = Date.now();
       await seedOld(store, 6000, now);
+      // This machine's own speed, measured with no sweep running: the same hot commit, same disk.
+      const quiet = [];
+      for (let i = 0; i < 30; i += 1) {
+        await api.hookLedger(store).transact((tx) => tx.put('loop-signals', `quiet${i}`, { i }));
+        const began = performance.now();
+        assert.equal(api.flushHookRecords(store), true);
+        quiet.push(performance.now() - began);
+      }
       const running = sweepInWorker(MAIN, { path, hostScope: 'hostA', policy: { rawArtifactRetentionDays: 7, decisionRetentionDays: 30 }, nowMs: now, rawDir: join(dir, 'evidence') });
       let finished = false;
       void running.done.then(() => {
@@ -171,7 +211,7 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
       assert.equal(outcome.removed.hook_records, 6000);
       assert.ok(during >= 3, `hot writes ran while the worker swept (${during})`);
       assert.equal(api.hookLedger(store).list('stop-reports').length, waits.length, 'every hot write is kept');
-      return { outcome, waits };
+      return { outcome, waits, quiet };
     });
   // What bounds a hot write's wait is the chunk, so the test shows three things.
   // 1. The sweep is chunked: the 6000 rows went in at least 12 deletes of at most 500 rows each
@@ -203,21 +243,27 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
   };
   let timing = [];
   for (let attempt = 1; attempt <= 2; attempt += 1) {
-    const { outcome, waits } = await scenario();
+    const { outcome, waits, quiet } = await scenario();
+    // The 400 ms bounds are for a quiet disk. A runner whose plain commit already takes tens of
+    // ms (windows-latest at af665fd: a hot commit p90 of 72 ms, a 341 ms chunk, a worst commit of
+    // 496 ms) gets the bound this run's own quiet commits earn: 400 ms plus ten of their 90th
+    // percentiles. Still far under busy_timeout (2000 ms) wherever a commit costs under ~160 ms.
+    const nearBusy = 400 + 10 * p90(quiet);
+    const bound = writeBound + 2 * p90(quiet);
     const chunkMs = outcome.chunks.map((c) => c.ms);
     const worst = Math.max(...waits);
     t.diagnostic(
       `attempt ${String(attempt)}: ${String(outcome.chunks.length)} chunks (largest ${String(Math.max(...outcome.chunks.map((c) => c.rows)))} rows), p90 ${p90(chunkMs).toFixed(1)} ms, longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms; ` +
-        `${String(waits.length)} hot commits, p90 ${p90(waits).toFixed(1)} ms, worst ${worst.toFixed(1)} ms`,
+        `${String(waits.length)} hot commits, p90 ${p90(waits).toFixed(1)} ms, worst ${worst.toFixed(1)} ms; quiet p90 ${p90(quiet).toFixed(1)} ms`,
     );
     assert.ok(outcome.chunks.length >= 12, `the sweep ran in ${String(outcome.chunks.length)} chunks`);
     assert.ok(outcome.chunks.every((c) => c.rows <= 500), `no chunk over 500 rows: ${JSON.stringify(outcome.chunks.map((c) => c.rows))}`);
     assert.equal(outcome.chunks.reduce((a, c) => a + c.rows, 0), 6000, 'the chunks hold every removed row');
     timing = [];
-    if (!(p90(chunkMs) < writeBound)) timing.push(`90th percentile of chunk writes ${p90(chunkMs).toFixed(1)} ms`);
-    if (!(p90(waits) < writeBound)) timing.push(`90th percentile of hot commits ${p90(waits).toFixed(1)} ms`);
-    if (!(outcome.longestWriteMs < 400)) timing.push(`longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms`);
-    if (!(worst < 400)) timing.push(`worst hot commit ${worst.toFixed(1)} ms during the sweep`);
+    if (!(p90(chunkMs) < bound)) timing.push(`90th percentile of chunk writes ${p90(chunkMs).toFixed(1)} ms (bound ${bound.toFixed(0)})`);
+    if (!(p90(waits) < bound)) timing.push(`90th percentile of hot commits ${p90(waits).toFixed(1)} ms (bound ${bound.toFixed(0)})`);
+    if (!(outcome.longestWriteMs < nearBusy)) timing.push(`longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms (bound ${nearBusy.toFixed(0)})`);
+    if (!(worst < nearBusy)) timing.push(`worst hot commit ${worst.toFixed(1)} ms during the sweep (bound ${nearBusy.toFixed(0)})`);
     if (timing.length === 0) break;
     t.diagnostic(`attempt ${String(attempt)} broke a timing bound (${timing.join('; ')})${attempt < 2 ? ', measuring again' : ''}`);
   }

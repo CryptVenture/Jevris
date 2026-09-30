@@ -33,6 +33,12 @@ import { tempDir } from './temp-dirs.mjs';
 
 const DIST = import.meta.resolve('../dist/index.js');
 const token = () => randomBytes(24).toString('hex');
+// The client's timeout is a wall-clock wait on an idle socket, and the service runs in this very
+// process. A Windows runner that stalls the process for 10 s (180d3cd on Node 24: this test took
+// 11.5 s instead of 0.4 s and the first acquire answered CONTROL_UNAVAILABLE) trips the 10 s
+// default with nothing wrong in the service. Generous here; the product default stays 10 s.
+const CLIENT_TIMEOUT_MS = 120_000;
+
 const holder = { hostId: 'h-test', pid: 1, startedAtMs: 1, sessionId: null };
 
 /** An in-memory task port: what a host's store does for the lease authority. */
@@ -68,7 +74,7 @@ async function host(dir, name, url, secret, tasks, budget = { limitMicroUsd: 10_
   const ledger = openLedger(join(dir, name));
   await setBudget(ledger, { id: 'b1', workspaceId: 'w1', ownerId: 'alice', shutdownReserveMicroUsd: 0, policy: 'finish-running', ...budget });
   const port = memoryPort(tasks);
-  const client = controlClient({ url, token: () => secret });
+  const client = controlClient({ url, token: () => secret, timeoutMs: CLIENT_TIMEOUT_MS });
   const authority = remoteLeaseAuthority({ client, ledger, tasksFor: (w) => (w === 'w1' ? port : undefined), hostId: `h-${name}` });
   return { ledger, port, client, authority };
 }
@@ -91,7 +97,7 @@ test('control service: tokens select one tenant; tenants never see each other; t
     assert.equal((await b.authority.acquire('w1', [request('t1')], { cap: 2, nowMs: Date.now() })).granted.length, 1);
     assert.equal((await b.authority.heartbeat('w1', got.granted[0].lease.id, 1, Date.now())).reasonCode, 'UNKNOWN_LEASE');
     // A wrong token is refused before the body is read; health needs no token and says nothing else.
-    const wrong = controlClient({ url: svc.url, token: () => token() });
+    const wrong = controlClient({ url: svc.url, token: () => token(), timeoutMs: CLIENT_TIMEOUT_MS });
     assert.equal((await wrong.call('leases', { workspaceId: 'w1' })).reason, 'unauthorized');
     const health = await fetch(new URL('v1/health', svc.url));
     assert.deepEqual(await health.json(), { schemaVersion: 'jevris-control-1' });
@@ -182,7 +188,7 @@ test('control service: a dead holder stamped with this machine\'s earlier host-n
     await setBudget(ledger, { id: 'b1', workspaceId: 'w1', ownerId: 'alice', shutdownReserveMicroUsd: 0, policy: 'finish-running', limitMicroUsd: 10_000_000 });
     const port = memoryPort([{ id: 'old' }, { id: 'theirs' }, { id: 'new' }]);
     // No hostId option: the authority is this machine (the stable id, and its earlier names).
-    const authority = remoteLeaseAuthority({ client: controlClient({ url: svc.url, token: () => secret }), ledger, tasksFor: () => port });
+    const authority = remoteLeaseAuthority({ client: controlClient({ url: svc.url, token: () => secret, timeoutMs: CLIENT_TIMEOUT_MS }), ledger, tasksFor: () => port });
     const mine = { hostId: legacyHostId(hostname()), pid: 7, startedAtMs: 7, sessionId: null };
     const theirs = { hostId: legacyHostId('someone-elses-box'), pid: 8, startedAtMs: 8, sessionId: null };
     const current = { hostId: hostIdentity(), pid: 9, startedAtMs: 9, sessionId: null };
@@ -231,7 +237,7 @@ test('control service: several processes contend for one plan and the service gr
              const rows = new Map(c.ids.map((id) => [id, { state: 'ready', leaseId: null }]));
              const port = { get: (id) => rows.has(id) ? { node: { state: rows.get(id).state, rootBudgetId: 'b1' }, resourceKeys: id === 't5' || id === 't6' ? ['db'] : [] } : undefined,
                leased: (id, leaseId) => (rows.set(id, { state: 'leased', leaseId }), true), expired: () => false, reconciled: () => ({ ok: true }), holding: () => [] };
-             const authority = remoteLeaseAuthority({ client: controlClient({ url: c.url, token: () => process.env.CTL_TOKEN }), ledger, tasksFor: () => port, hostId: c.host });
+             const authority = remoteLeaseAuthority({ client: controlClient({ url: c.url, token: () => process.env.CTL_TOKEN, timeoutMs: 120000 }), ledger, tasksFor: () => port, hostId: c.host });
              const got = await authority.acquire('w1', c.ids.map((taskId) => ({ taskId, ownerId: 'alice', worktreeId: 'wt-' + taskId, reserveMicroUsd: 10, holder: { hostId: c.host, pid: process.pid, startedAtMs: null, sessionId: null } })), { cap: 4, nowMs: Date.now() });
              process.stdout.write(JSON.stringify({ granted: got.granted.map((g) => g.lease.taskId), refused: got.refused.map((r) => r.reasonCode) }));`,
           ],
@@ -247,7 +253,7 @@ test('control service: several processes contend for one plan and the service gr
     assert.equal(new Set(granted).size, granted.length, 'no task is granted twice');
     assert.ok(!(granted.includes('t5') && granted.includes('t6')), 'one holder per resource key');
     assert.ok(results.flatMap((r) => r.refused).every((c) => ['ALREADY_LEASED', 'CAP_REACHED', 'RESOURCE_BUSY'].includes(c)));
-    const client = controlClient({ url, token: () => secret });
+    const client = controlClient({ url, token: () => secret, timeoutMs: CLIENT_TIMEOUT_MS });
     assert.equal((await client.call('leases', { workspaceId: 'w1' })).result.active.length, 4);
   } finally {
     svcProc.stdin.end();
@@ -320,7 +326,7 @@ test('control service: a configured host schedules through it; a workspace migra
     assert.equal(getTask(ws, 'b').node.state, 'leased');
     assert.equal(remote.activeLeases(ws.workspaceId).length, 2);
     // The migrated state cannot be imported twice, even from a copy of the host ledger.
-    const client = controlClient({ url: svc.url, token: () => secret });
+    const client = controlClient({ url: svc.url, token: () => secret, timeoutMs: CLIENT_TIMEOUT_MS });
     const copy = { ...ws, host: { ...ws.host, get: (c, id) => (c === 'control-migrations' ? undefined : ws.host.get(c, id)) } };
     assert.equal((await migrateToControlService(copy, client)).reasonCode, 'IMPORT_CONFLICT');
     // The single-host ledger stays as it was: the service holds its own copy.

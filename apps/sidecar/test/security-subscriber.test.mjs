@@ -128,13 +128,15 @@ test('the hook text is the same whether Jev flags or not; Jev runs in the backgr
 
 test('through the sidecar: the event body carries the spans, and neither the store nor the traces keep their text (GOV-12)', { skip: managedHostSkip() }, async () => {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-security-')));
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers: [createSecuritySubscriber()] });
+  // The hook budget (900 ms) is the product's; this test is about the spans, not that deadline, and a
+  // loaded Windows runner answered DEADLINE at af665fd. The budgets and the client wait are wide, as in daemon.test.mjs.
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers: [createSecuritySubscriber()], subscriberSliceMs: 60_000, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
     const root = join(home, 'ws');
     const { mkdirSync } = await import('node:fs');
     mkdirSync(root);
-    const res = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: 'k-sec-1', envelope: envelope('tool.finished'), untrusted: { spans: [{ id: 'toolu_9', sourceKind: injection.sourceKind, text: injection.text }] } } });
+    const res = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: 'k-sec-1', envelope: envelope('tool.finished'), untrusted: { spans: [{ id: 'toolu_9', sourceKind: injection.sourceKind, text: injection.text }] } }, timeoutMs: 60_000 });
     assert.equal(res.ok, true, JSON.stringify(res));
     assert.equal(res.result.results.security.hookOutcome.kind, 'explain');
     // Nothing in the store or the traces holds the span.

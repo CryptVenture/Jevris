@@ -303,6 +303,8 @@ async function onePass(product, options, load, prefix, extraEnv) {
     const approval = proposed.ok ? await orchestrator.approveManifests(orchestrator.openWorkspace({ home, workspaceRoot: work, platform: process.platform }), proposed.manifests, proposed.hashes, 'cli', Date.now()) : null;
     record('verify approve (as a person at a terminal)', approval !== null && Object.keys(approval.hashes).join(',') === 'unit', proposed.ok ? '' : proposed.reason);
     // A loaded host can answer before the run ends; running `jevris verify` again joins it (documented).
+    // An answer that says verified with ran=false is an earlier run's receipts beside a run of this
+    // command that is still going (windows-latest, af665fd): ask again until a run answers ran=true.
     const parseVerify = (out) => {
       try {
         return JSON.parse(out.stdout);
@@ -312,7 +314,7 @@ async function onePass(product, options, load, prefix, extraEnv) {
     };
     let ran = jevris(['verify', '--check', 'unit', '--json']);
     let verified = parseVerify(ran);
-    for (let again = 0; again < 4 && verified?.result?.readiness !== 'verified'; again += 1) {
+    for (let again = 0; again < 6 && !(verified?.result?.readiness === 'verified' && verified.result.ran === true); again += 1) {
       ran = jevris(['verify', '--check', 'unit', '--json']);
       verified = parseVerify(ran);
     }

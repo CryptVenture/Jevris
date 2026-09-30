@@ -17,7 +17,7 @@
 // files alone run for more than 20 minutes, and a serial file that went ahead at a 1200 s cap ran
 // beside them), and a serial file names the parallel files a capped wait went ahead of.
 import { createHash } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const gate = process.env.JEVRIS_SERIAL_GATE;
@@ -39,11 +39,37 @@ export function alive(pid) {
   }
 }
 
+/** How long a marker file that holds no pid yet counts as "its writer is between create and write". */
+const PID_GRACE_MS = 10_000;
+
+/**
+ * The pid a marker file holds, or null while it holds none. writeFileSync creates the file empty
+ * and then writes it, and on a loaded Windows runner a reader can land between the two: an empty
+ * read is "not written yet" (Number('') is 0, which alive() calls a dead process, and that once let
+ * a serial file run beside a parallel one). Throws when the file does not exist.
+ */
+function pidIn(path) {
+  const text = readFileSync(path, 'utf8').trim();
+  const pid = Number(text);
+  return text.length > 0 && Number.isSafeInteger(pid) && pid > 0 ? pid : null;
+}
+
+/** Whether a marker file with no pid in it is still young enough for its writer to be mid-write. */
+function mid(path, now = Date.now()) {
+  try {
+    return now - statSync(path).mtimeMs < PID_GRACE_MS;
+  } catch {
+    return false;
+  }
+}
+
 /** True when the parallel file behind `marker` has finished: its done marker, or its process gone. */
 export function finished(dir, marker) {
   if (existsSync(join(dir, `${marker}.done`))) return true;
+  const start = join(dir, `${marker}.start`);
   try {
-    return !alive(Number(readFileSync(join(dir, `${marker}.start`), 'utf8')));
+    const pid = pidIn(start);
+    return pid === null ? !mid(start) : !alive(pid);
   } catch {
     return false;
   }
@@ -55,13 +81,13 @@ export function tryLock(dir) {
   try {
     mkdirSync(lock);
   } catch {
-    let owner = 0;
+    let owner = null;
     try {
-      owner = Number(readFileSync(join(lock, 'pid'), 'utf8'));
+      owner = pidIn(join(lock, 'pid'));
     } catch {
       return false; // being written by its new owner
     }
-    if (alive(owner)) return false;
+    if (owner === null ? mid(join(lock, 'pid')) : alive(owner)) return false;
     rmSync(lock, { recursive: true, force: true });
     return false;
   }
@@ -83,7 +109,7 @@ export function unfinished(dir, parallel) {
     if (!started(dir, marker) || finished(dir, marker)) continue;
     let pid = null;
     try {
-      pid = Number(readFileSync(join(dir, `${marker}.start`), 'utf8'));
+      pid = pidIn(join(dir, `${marker}.start`));
     } catch {
       pid = null;
     }
@@ -106,13 +132,15 @@ export function started(dir, marker) {
 
 /** True when a live process other than this one holds the serial lock. */
 export function lockHeld(dir) {
-  let owner = 0;
+  const file = join(dir, 'serial.lock', 'pid');
+  let owner = null;
   try {
-    owner = Number(readFileSync(join(dir, 'serial.lock', 'pid'), 'utf8'));
+    owner = pidIn(file);
   } catch {
     // no lock, or its owner is still writing its pid
     return existsSync(join(dir, 'serial.lock'));
   }
+  if (owner === null) return mid(file); // created, not written yet
   return owner !== process.pid && alive(owner);
 }
 

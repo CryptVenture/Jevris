@@ -301,6 +301,8 @@ function chunkSql(table: string, where: string, key: string | undefined, limit: 
 
 /** Target time of one maintenance write transaction (P10). */
 export const SWEEP_CHUNK_TARGET_MS = 8;
+/** The fewest rows (or pages) a sweep step shrinks to: a step's fixed cost does not shrink with it. */
+export const SWEEP_MIN_STEP = 16;
 
 /**
  * The chunked sweep (P10). Each chunk is its own transaction that sets and clears the maintenance
@@ -338,8 +340,14 @@ function sweepChunked(
   const targetMs = Math.max(1, Math.min(Math.trunc(input.chunkMs ?? SWEEP_CHUNK_TARGET_MS), 1000));
   const clock = input.clock ?? Date.now;
   const pause = input.pause ?? ((): void => undefined);
-  /** Next size for a step that handled `size` in `ms`: halve when slow, double when fast. */
-  const resize = (size: number, ms: number, max: number): number => (ms > targetMs ? Math.max(1, Math.floor(size / 2)) : ms * 4 < targetMs ? Math.min(max, size * 2) : size);
+  /**
+   * Next size for a step that handled `size` in `ms`: halve when slow, double when fast, never
+   * below SWEEP_MIN_STEP. Part of a write's time is fixed (the commit and its sync, which on a
+   * loaded Windows runner took 60 ms or more whatever the rows): without the floor every write
+   * looked slow, the size halved to one row, and a 1500-row sweep took more than 120 s.
+   */
+  const resize = (size: number, ms: number, max: number): number =>
+    ms > targetMs ? Math.max(Math.min(SWEEP_MIN_STEP, max), Math.floor(size / 2)) : ms * 4 < targetMs ? Math.min(max, size * 2) : size;
   let limit = Math.min(maxRows, 100);
   let writes = 0;
   let longest = 0;

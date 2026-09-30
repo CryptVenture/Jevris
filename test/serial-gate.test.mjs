@@ -3,7 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,6 +53,37 @@ test('a parallel file whose process has gone counts as finished, and a lock whos
     assert.equal(tryLock(dir), false, 'held by a live process');
     writeFileSync(join(dir, 'serial.lock', 'pid'), '999999999');
     assert.equal(tryLock(dir), false, 'a stale lock is cleared first');
+    assert.equal(tryLock(dir), true);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+// windows-latest (180d3cd): "a-s1 and p2 did not overlap" failed. writeFileSync creates a marker
+// empty, then writes the pid; a reader that lands between read '' as pid 0, a dead process, so a
+// parallel file that had just started counted as finished (or a lock just taken counted as free,
+// or was stolen). An empty marker is "not written yet" for a short grace, then stale.
+test('a marker or lock whose pid is not written yet counts as live, and as stale once it has sat empty past the grace', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'gate-empty-'));
+  try {
+    const marker = markerOf('z.test.mjs');
+    const start = join(dir, `${marker}.start`);
+    writeFileSync(start, '');
+    assert.equal(finished(dir, marker), false, 'an empty start marker is a file that is starting');
+    assert.deepEqual(unfinished(dir, ['z.test.mjs']).map((item) => item.file), ['z.test.mjs']);
+    const old = new Date(Date.now() - 60_000);
+    utimesSync(start, old, old);
+    assert.equal(finished(dir, marker), true, 'an empty marker that stayed empty is stale');
+
+    mkdirSync(join(dir, 'serial.lock'));
+    const pid = join(dir, 'serial.lock', 'pid');
+    writeFileSync(pid, '');
+    assert.equal(lockHeld(dir), true, 'a lock just taken, pid not written yet, is held');
+    assert.equal(tryLock(dir), false, 'and is not taken over');
+    assert.equal(existsSync(join(dir, 'serial.lock')), true, 'the lock is still there');
+    utimesSync(pid, old, old);
+    assert.equal(lockHeld(dir), false, 'an empty pid that stayed empty is a dead owner');
+    assert.equal(tryLock(dir), false, 'the stale lock is cleared first');
     assert.equal(tryLock(dir), true);
   } finally {
     rmSync(dir, { recursive: true, force: true });
