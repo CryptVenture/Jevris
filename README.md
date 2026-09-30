@@ -22,6 +22,16 @@ Jevris sits beside your coding harness (Claude Code, Kilocode, Codex, OpenCode o
 
 New to Jevris? Start with [Jevris in simple terms](docs/jevris-in-simple-terms.md): what it does and does not do, what it costs, and whether it suits your workflow.
 
+## Watch the explainer
+
+<div align="center">
+
+[![Jevris explainer video: what Jevris does and how it fits beside your coding harness](https://img.youtube.com/vi/VvLZ_i6vOPg/maxresdefault.jpg)](https://youtu.be/VvLZ_i6vOPg)
+
+[Watch the explainer on YouTube](https://youtu.be/VvLZ_i6vOPg)
+
+</div>
+
 ## How it fits together
 
 ```mermaid
