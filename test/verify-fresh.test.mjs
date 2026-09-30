@@ -4,11 +4,13 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { coverageDetail, describeStep, guardCwd, npmCommand, overlayPlan, overlaySummary, parseCounts, parseVerifyArgs, pruneKept, verifyFresh, verifySteps } from '../scripts/verify-fresh.mjs';
+import { fileURLToPath } from 'node:url';
+import { cleanDetail, commitOverlayBaseline, coverageDetail, describeStep, guardCwd, npmCommand, overlayPlan, overlaySummary, parseCounts, parseVerifyArgs, pruneKept, verifyFresh, verifySteps } from '../scripts/verify-fresh.mjs';
 
 // QA: npm run verify:fresh is the one fresh-clone verification every agent uses. It clones HEAD,
 // applies the overlay, runs each step inside the clone only (never in the shared checkout, even
-// from a path with spaces), prints exact counts and cleans up. No test here runs npm.
+// from a path with spaces), prints exact counts and cleans up. No test here runs npm. The clean
+// step's tests run the real scripts/check-clean-tree.mjs, the script CI runs, on the temporary clone.
 
 const git = (cwd, ...args) => {
   const result = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@example.invalid', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
@@ -41,7 +43,8 @@ test('verify:fresh arguments: repeatable --overlay with one or more paths, --fut
   assert.deepEqual(parseVerifyArgs([]), { overlay: [], futureDays: null, dir: null, keep: false });
   assert.deepEqual(parseVerifyArgs(['--overlay', 'a b.txt', 'c', '--future-days', '365', '--overlay', 'd', '--dir', '/x y', '--keep']), { overlay: ['a b.txt', 'c', 'd'], futureDays: 365, dir: '/x y', keep: true });
   for (const bad of [['--overlay'], ['--overlay', '--keep'], ['--future-days', '0'], ['--future-days', 'x'], ['--dir'], ['--bogus']]) assert.throws(() => parseVerifyArgs(bad), Error, bad.join(' '));
-  assert.deepEqual(verifySteps().map((s) => s.id), ['ci', 'rebuild', 'build', 'lint', 'test', 'docs', 'pack']);
+  assert.deepEqual(verifySteps().map((s) => s.id), ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'docs', 'pack']);
+  assert.deepEqual(verifySteps().find((s) => s.id === 'clean'), { id: 'clean', node: ['scripts/check-clean-tree.mjs'] }, 'the script CI runs after the build');
   assert.deepEqual(verifySteps().slice(0, 2), [{ id: 'ci', npm: ['ci', '--ignore-scripts', '--no-audit', '--no-fund'] }, { id: 'rebuild', npm: ['rebuild', 'esbuild'] }], 'installed as CI installs');
   assert.deepEqual(verifySteps(30).at(-1).npm, ['run', 'test:future', '--', '--days', '30', '--no-build']);
 });
@@ -131,7 +134,7 @@ test('verify:fresh clones HEAD from a path with spaces, applies the overlay, run
   const parent = join(base, 'work area');
   const report = await verifyFresh({ mainRoot: main, options: { overlay: ['src dir/a file.txt', 'new file.txt', 'gone.txt'], futureDays: 3700, dir: parent, keep: false }, run, write: (line) => lines.push(line) });
   assert.equal(report.ok, true, lines.join('\n'));
-  assert.deepEqual(seen, ['ci', 'rebuild', 'build', 'lint', 'test', 'docs', 'pack', 'future']);
+  assert.deepEqual(seen, ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'docs', 'pack', 'future']);
   assert.equal(report.head, head);
   assert.ok(lines.includes('verify:fresh: lint: ok 110 tests, 110 pass, 0 fail, 0 skipped (0s)'), lines.join('\n'));
   assert.ok(lines.includes('verify:fresh: test: ok 2181 tests, 2180 pass, 0 fail, 1 skipped (0s)'), lines.join('\n'));
@@ -158,9 +161,110 @@ test('verify:fresh stops after a failed build, keeps the logs, and fails; a fail
 
   const failTest = await verifyFresh({ mainRoot: main, options: { overlay: [], futureDays: null, dir: base, keep: true }, run: async (step) => (step.id === 'test' ? { code: 1, output: SUMMARY(10, 9, 1, 0) } : { code: 0, output: '' }), write: () => undefined });
   assert.equal(failTest.ok, false);
-  assert.deepEqual(failTest.steps.map((s) => s.id), ['ci', 'rebuild', 'build', 'lint', 'test', 'docs', 'pack']);
-  assert.equal(describeStep(failTest.steps[4]), 'test: FAILED (exit 1) 10 tests, 9 pass, 1 fail, 0 skipped (0s)');
+  assert.deepEqual(failTest.steps.map((s) => s.id), ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'docs', 'pack']);
+  assert.equal(describeStep(failTest.steps[5]), 'test: FAILED (exit 1) 10 tests, 9 pass, 1 fail, 0 skipped (0s)');
   assert.equal(existsSync(failTest.clone), true, '--keep keeps the clone');
+});
+
+const CHECK_CLEAN = fileURLToPath(new URL('../scripts/check-clean-tree.mjs', import.meta.url));
+const GENERATED = 'plugins/shared/mcp.js';
+const FROM_SOURCES = 'built from the sources\n';
+
+/**
+ * A fake run that acts like the real steps in the clone: `build` rewrites the generated file from
+ * its "sources" (a fixed text), and `clean` is the real scripts/check-clean-tree.mjs, run in the
+ * clone as CI runs it. Every other step passes.
+ */
+function fakeBuildAndClean(seen) {
+  return async (step, cwd, logPath) => {
+    seen.push(step.id);
+    if (step.id === 'build') writeFileSync(join(cwd, GENERATED), FROM_SOURCES);
+    if (step.id !== 'clean') {
+      writeFileSync(logPath, step.id);
+      return { code: 0, output: '' };
+    }
+    const result = spawnSync(process.execPath, [CHECK_CLEAN], { cwd, encoding: 'utf8' });
+    const output = `${result.stdout}${result.stderr}`;
+    writeFileSync(logPath, output);
+    return { code: result.status ?? 1, output };
+  };
+}
+
+function withGenerated(main, text) {
+  mkdirSync(join(main, 'plugins', 'shared'), { recursive: true });
+  writeFileSync(join(main, GENERATED), text);
+}
+
+test('verify:fresh runs CI\'s "Build leaves the checkout unchanged" after the build: an overlaid generated file out of step with its sources fails and names the file, before lint and test run', async (t) => {
+  const { base, main } = repoWithSpaces(t);
+  withGenerated(main, 'built from a shared tree holding another agent\'s edit\n');
+  const seen = [];
+  const lines = [];
+  const report = await verifyFresh({ mainRoot: main, options: { overlay: [GENERATED, 'src dir/a file.txt'], futureDays: null, dir: base, keep: false }, run: fakeBuildAndClean(seen), write: (line) => lines.push(line) });
+  assert.equal(report.ok, false, lines.join('\n'));
+  assert.deepEqual(seen, ['ci', 'rebuild', 'build', 'clean'], 'a failed clean step ends the run before lint, test, docs and pack');
+  assert.deepEqual(report.steps.map((step) => [step.id, step.code]), [['ci', 0], ['rebuild', 0], ['build', 0], ['clean', 1]]);
+  // One line: the changed path with the regenerate hint, as CI prints it, and not the overlaid source edit.
+  const clean = lines.find((line) => line.startsWith('verify:fresh: clean: FAILED (exit 1)'));
+  assert.ok(clean?.includes('changed: plugins/shared/mcp.js (regenerate: npm run build'), lines.join('\n'));
+  assert.equal(clean.includes('a file.txt'), false, 'the overlay itself is the baseline, not a change');
+  assert.equal(clean.includes('\n'), false);
+  assert.equal(lines.at(-1).startsWith('verify:fresh: FAIL at '), true);
+  assert.equal(readFileSync(join(main, GENERATED), 'utf8'), 'built from a shared tree holding another agent\'s edit\n', 'the main checkout is untouched');
+});
+
+test('verify:fresh fails the clean step too for a generated file committed out of step and for a new file the build writes; a clean overlay passes every step', async (t) => {
+  const { base, main } = repoWithSpaces(t);
+  withGenerated(main, 'committed out of step\n');
+  git(main, 'add', GENERATED);
+  git(main, 'commit', '-q', '-m', 'generated file out of step');
+  const seen = [];
+  const lines = [];
+  const stale = await verifyFresh({ mainRoot: main, options: { overlay: [], futureDays: null, dir: base, keep: false }, run: fakeBuildAndClean(seen), write: (line) => lines.push(line) });
+  assert.equal(stale.ok, false, 'a committed generated file out of step with its sources fails with no overlay at all');
+  assert.ok(lines.some((line) => line.startsWith('verify:fresh: clean: FAILED (exit 1) the build changed the checkout: changed: plugins/shared/mcp.js (regenerate: npm run build')), lines.join('\n'));
+
+  const strays = [];
+  const stray = async (step, cwd, logPath) => {
+    if (step.id === 'build') writeFileSync(join(cwd, 'stray output.txt'), 'the build wrote this\n');
+    return fakeBuildAndClean(strays)(step, cwd, logPath);
+  };
+  const newFile = await verifyFresh({ mainRoot: main, options: { overlay: [GENERATED], futureDays: null, dir: base, keep: false }, run: stray, write: (line) => lines.push(line) });
+  assert.equal(newFile.ok, false);
+  assert.ok(lines.some((line) => line.includes('clean: FAILED (exit 1) the build changed the checkout: changed: plugins/shared/mcp.js') && line.includes('new, not ignored: stray output.txt')), lines.join('\n'));
+
+  // The generated file matches its sources, and the overlay edits sources and a new file: clean.
+  withGenerated(main, FROM_SOURCES);
+  const okSeen = [];
+  const okLines = [];
+  const ok = await verifyFresh({ mainRoot: main, options: { overlay: [GENERATED, 'src dir/a file.txt', 'new file.txt', 'gone.txt'], futureDays: null, dir: base, keep: false }, run: fakeBuildAndClean(okSeen), write: (line) => okLines.push(line) });
+  assert.equal(ok.ok, true, okLines.join('\n'));
+  assert.deepEqual(okSeen, ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'docs', 'pack']);
+  assert.ok(okLines.includes('verify:fresh: clean: ok (0s)'), okLines.join('\n'));
+});
+
+test('verify:fresh commits the overlay in the clone as a baseline, so a clean check sees only what the build changed', (t) => {
+  const { base, main } = repoWithSpaces(t);
+  const clone = join(base, 'the clone');
+  git(base, 'clone', '-q', main, clone);
+  writeFileSync(join(clone, 'kept.txt'), 'overlaid\n');
+  writeFileSync(join(clone, 'added.txt'), 'overlaid\n');
+  rmSync(join(clone, 'gone.txt'));
+  const before = git(clone, 'rev-parse', 'HEAD');
+  commitOverlayBaseline(clone);
+  assert.notEqual(git(clone, 'rev-parse', 'HEAD'), before);
+  assert.equal(git(clone, 'status', '--porcelain'), '');
+  assert.equal(git(clone, 'diff', 'HEAD', '--name-only'), '');
+  // An empty overlay still commits (nothing to add), and the main checkout is untouched.
+  commitOverlayBaseline(clone);
+  assert.equal(git(main, 'log', '--oneline').split('\n').length, 1);
+});
+
+test('verify:fresh names the clean step\'s paths on one line, with the regenerate hint, or nothing when the output names none', () => {
+  const output = 'The build changed the checkout. Regenerate these files and commit them, or stop the build from writing them:\n  changed: docs/cli.md  (regenerate: npm run docs)\n  changed: notes.txt\n  new, not ignored: out/x y.txt\nThen check with: npm run build && npm run check:clean\n';
+  assert.equal(cleanDetail(output), 'the build changed the checkout: changed: docs/cli.md (regenerate: npm run docs); changed: notes.txt; new, not ignored: out/x y.txt');
+  assert.equal(cleanDetail('check:clean: not a git checkout, so there is nothing to compare the build with\n'), null);
+  assert.equal(describeStep({ id: 'clean', code: 1, counts: null, detail: cleanDetail(output), ms: 400 }).startsWith('clean: FAILED (exit 1) the build changed the checkout: '), true);
 });
 
 test('verify:fresh reads node:test and TAP summaries, and runs npm through node without a shell', () => {

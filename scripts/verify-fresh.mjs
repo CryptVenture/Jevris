@@ -8,8 +8,14 @@
  *   no longer exists here but is in HEAD is removed from the clone, as a deletion. A path in
  *   neither is refused (exit 2), so a mistyped path, or several paths the shell passed as one
  *   argument, never leaves the run testing bare HEAD while it prints PASS;
- * - then npm ci, build, lint, test, docs --check and check:pack. With --future-days N, it also
- *   runs test:future for N days;
+ * - then npm ci, build, clean, lint, test, docs --check and check:pack. With --future-days N, it
+ *   also runs test:future for N days;
+ * - the clean step is CI's "Build leaves the checkout unchanged" (scripts/check-clean-tree.mjs,
+ *   npm run check:clean), run right after the build. It fails, naming each path and the command
+ *   that regenerates it, when the build changed a tracked file or wrote a new one .gitignore does
+ *   not cover: a generated file committed or overlaid out of step with its sources. The overlay is
+ *   committed in the clone first, as a baseline, so the check measures what the build changed and
+ *   not the overlay itself;
  * - the test step is the suite run once under coverage (scripts/coverage.mjs), so it also fails
  *   when a package falls below its floor in coverage-floors.json, as CI does;
  * - it prints the exact counts and removes the clone.
@@ -45,6 +51,8 @@ export function verifySteps(futureDays = null) {
     { id: 'ci', npm: ['ci', '--ignore-scripts', '--no-audit', '--no-fund'] },
     { id: 'rebuild', npm: ['rebuild', ...INSTALL_SCRIPT_PACKAGES] },
     { id: 'build', npm: ['run', 'build'] },
+    // CI's "Build leaves the checkout unchanged": the same script, right after the build (BLD-10).
+    { id: 'clean', node: ['scripts/check-clean-tree.mjs'] },
     { id: 'lint', npm: ['run', 'lint'] },
     // The suite once, under coverage, with the per-package floors checked (QA-06).
     { id: 'test', node: ['scripts/coverage.mjs'] },
@@ -55,7 +63,7 @@ export function verifySteps(futureDays = null) {
 }
 
 /** Steps whose failure makes the rest meaningless. */
-const GATING = new Set(['ci', 'rebuild', 'build']);
+const GATING = new Set(['ci', 'rebuild', 'build', 'clean']);
 
 export function parseVerifyArgs(argv) {
   const options = { overlay: [], futureDays: null, dir: null, keep: false };
@@ -332,6 +340,34 @@ function applyOverlay(mainRoot, clone, plan) {
 }
 
 /**
+ * Commits the overlay in the clone, so the clean step compares the build with the tree it was
+ * given: `git diff HEAD` then shows only what the build changed. Only the throwaway clone is
+ * touched. `report.head` still names the commit that was cloned.
+ */
+export function commitOverlayBaseline(clone) {
+  const git = (...args) => spawnSync('git', ['-c', 'user.name=verify-fresh', '-c', 'user.email=verify-fresh@localhost', '-c', 'commit.gpgsign=false', '-c', 'core.autocrlf=false', ...args], { cwd: clone, encoding: 'utf8', shell: false, windowsHide: true });
+  const added = git('add', '-A');
+  if (added.status !== 0) throw new Error(`git add failed in the clone: ${String(added.stderr).trim().slice(0, 300)}`);
+  const committed = git('commit', '--quiet', '--no-verify', '--allow-empty', '-m', 'verify:fresh overlay baseline');
+  if (committed.status !== 0) throw new Error(`git commit failed in the clone: ${String(committed.stderr).trim().slice(0, 300)}`);
+}
+
+/**
+ * The clean step's failure on one line: each changed path with the command that regenerates it,
+ * as scripts/check-clean-tree.mjs prints them, or null when its output names none.
+ */
+export function cleanDetail(text) {
+  const items = [];
+  for (const line of String(text).split(/\r?\n/)) {
+    const changed = /^ {2}changed: (.+?)(?:  \(regenerate: (.+)\))?$/.exec(line);
+    if (changed !== null) items.push(changed[2] === undefined ? `changed: ${changed[1]}` : `changed: ${changed[1]} (regenerate: ${changed[2]})`);
+    const added = /^ {2}new, not ignored: (.+)$/.exec(line);
+    if (added !== null) items.push(`new, not ignored: ${added[1]}`);
+  }
+  return items.length === 0 ? null : `the build changed the checkout: ${items.join('; ')}`;
+}
+
+/**
  * Clones HEAD of `mainRoot`, applies the overlay, runs every step inside the clone and returns
  * the report. `run(step, cwd, logPath)` and `write(line)` are injectable for tests.
  */
@@ -352,6 +388,7 @@ export async function verifyFresh({ mainRoot = MAIN_ROOT, options, run = runStep
   try {
     report.head = cloneHead(mainRoot, clone);
     applyOverlay(mainRoot, clone, plan);
+    commitOverlayBaseline(clone);
     write(`verify:fresh: clone of HEAD ${report.head}${plan.length === 0 ? '' : ` plus ${plan.length} overlay path(s): ${plan.map((p) => (p.action === 'remove' ? `-${p.rel}` : p.rel)).join(', ')}`}`);
     let gated = false;
     for (const step of verifySteps(options.futureDays)) {
@@ -365,7 +402,7 @@ export async function verifyFresh({ mainRoot = MAIN_ROOT, options, run = runStep
       }
       const result = await run(step, clone, join(logs, `${step.id}.log`));
       const counts = ['lint', 'test', 'future'].includes(step.id) ? parseCounts(result.output) : null;
-      const detail = step.id === 'pack' ? (/tarball ok: [^\n]*/.exec(result.output)?.[0] ?? null) : step.id === 'test' ? coverageDetail(result.output) : null;
+      const detail = step.id === 'pack' ? (/tarball ok: [^\n]*/.exec(result.output)?.[0] ?? null) : step.id === 'test' ? coverageDetail(result.output) : step.id === 'clean' && result.code !== 0 ? cleanDetail(result.output) : null;
       const record = { id: step.id, code: result.code, counts, detail, ms: Date.now() - started };
       report.steps.push(record);
       write(`verify:fresh: ${describeStep(record)}`);
