@@ -203,7 +203,7 @@ Returns one evidence item by handle. The item is bounded, may be truncated, and 
 Returns a task with its state, acceptance checks and runner receipts.
 
 - **Arguments:** `taskId` (required).
-- **Result:** `{ taskId, found, task, receipts }`. A blocked task also carries `task.stateReason`, a reason code such as `DEPENDENCY_CANCELLED` (a task it depended on was cancelled, so it can never start). In reduced mode `found` is `false`. For an owned task, `worker` is its latest worker run: the model requested and the model that did the work, kept apart, the run's status, and the cost only when the worker reported it.
+- **Result:** `{ taskId, found, task, receipts }`. A blocked task also carries `task.stateReason`, a reason code such as `DEPENDENCY_CANCELLED` (a task it depended on was cancelled, so it can never start). In reduced mode `found` is `false`. `cancelRequested: true` appears, only while it holds, when a person's `jevris task cancel` was delivered to the task's running worker and the worker has not yet published its end: the task is not cancelled yet, and becomes cancelled shortly. For an owned task, `worker` is its latest worker run: the model requested and the model that did the work, kept apart, the run's status, and the cost only when the worker reported it.
 
 #### `jevris_handoff_export`
 

@@ -96,3 +96,34 @@ test('the reconcile answer is checked, and no MCP tool can reconcile', () => {
   assert.equal(checkReconcileResult({ ...RECONCILED, held: -1 }, 'T1'), null);
   assert.equal(TOOLS.some((tool) => /reconcile/.test(`${tool.name} ${tool.op ?? ''}`)), false);
 });
+
+// A cancel whose abort was delivered but whose run has not published its end yet is "cancel
+// requested" (exit 0, CANCEL_PENDING); it is never "nothing was cancelled" (the E2E bench saw
+// NOT_CANCELLED for a cancel that then took effect).
+const taskView = (state, extra = {}) => ({ taskId: 'T1', found: true, task: { id: 'T1', state, revision: 'rev-3', requirementIds: ['R1'], dependencyIds: [], acceptanceCheckIds: ['fixed'] }, receipts: [], ...extra });
+const cancelPorts = (afterCancel) => fakePorts((input) => ({ ok: true, result: input.op === 'task.cancel' ? afterCancel : taskView('running') }));
+
+test('task cancel: a delivered abort whose run has not ended is CANCEL_PENDING with exit 0, never NOT_CANCELLED', async (t) => {
+  const box = sandbox(t);
+  const pending = await task(box, ['cancel', 'T1', '--yes', '--json'], { ports: cancelPorts(taskView('running', { cancelRequested: true })).ports });
+  assert.equal(pending.code, 0, pending.text);
+  assert.deepEqual([pending.json.cancelled, pending.json.cancelRequested, pending.json.reasonCode, pending.json.task.state], [false, true, 'CANCEL_PENDING', 'running']);
+  const human = await task(box, ['cancel', 'T1', '--yes'], { ports: cancelPorts(taskView('running', { cancelRequested: true })).ports });
+  assert.equal(human.code, 0);
+  assert.match(human.text, /Cancel requested for task T1/);
+  assert.doesNotMatch(human.text, /nothing was cancelled|was not cancelled/i);
+  // The same pending answer when asked again while pending, and the plain answer once it is done.
+  const again = await task(box, ['cancel', 'T1', '--yes', '--json'], { ports: cancelPorts(taskView('running', { cancelRequested: true })).ports });
+  assert.deepEqual([again.code, again.json.reasonCode], [0, 'CANCEL_PENDING']);
+  const done = await task(box, ['cancel', 'T1', '--yes', '--json'], { ports: cancelPorts(taskView('cancelled')).ports });
+  assert.deepEqual([done.code, done.json.cancelled, done.json.reasonCode], [0, true, 'CANCELLED']);
+});
+
+test('task cancel: a task the sidecar did not cancel and no abort was delivered to stays NOT_CANCELLED with exit 1', async (t) => {
+  const box = sandbox(t);
+  const refused = await task(box, ['cancel', 'T1', '--yes', '--json'], { ports: cancelPorts(taskView('failed')).ports });
+  assert.deepEqual([refused.code, refused.json.cancelled, refused.json.reasonCode, refused.json.cancelRequested], [1, false, 'NOT_CANCELLED', undefined]);
+  // A cancel flag on a task that already ended is not a pending cancel either.
+  const ended = await task(box, ['cancel', 'T1', '--yes', '--json'], { ports: cancelPorts(taskView('verified', { cancelRequested: true })).ports });
+  assert.deepEqual([ended.code, ended.json.reasonCode], [1, 'NOT_CANCELLED']);
+});

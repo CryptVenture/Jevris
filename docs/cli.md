@@ -589,6 +589,10 @@ you accept duplicate-work advice (jevris advise C28): the task is cancelled as a
 the one you keep, and the cancellation is recorded as such. Nothing else is cancelled: a queued
 task that depended on it (directly or through another queued task) can never start, so it is
 marked blocked with the reason DEPENDENCY_CANCELLED, which the jevris_get_task tool shows as stateReason.
+A running owned task stops when its run publishes its end. If that has not happened by the time
+the sidecar answers, the answer is CANCEL_PENDING ("cancel requested"), not a failure: the run was
+told to stop and the task becomes cancelled shortly (jevris_get_task shows it). Repeating the
+command answers the same until then, and "already cancelled" after.
 
 revert-duplicate tells Jevris that a duplicate cancellation was wrong. It is recorded as a false
 cancellation, which the duplicate-work advice learns from; re-plan the work yourself. Only a
@@ -609,9 +613,9 @@ Options:
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line
 
-Exit codes: 0 reconciled or cancelled; 1 nothing was reconciled or cancelled (nothing held,
-unknown task, the kill switch is stopped, or the sidecar is not running); 2 usage error or not
-confirmed.
+Exit codes: 0 reconciled, cancelled or cancel requested (CANCEL_PENDING); 1 nothing was
+reconciled or cancelled (nothing held, unknown task, a task already cancelled or verified, the kill
+switch is stopped, or the sidecar is not running); 2 usage error or not confirmed.
 
 Examples:
   jevris task reconcile T1 --applied

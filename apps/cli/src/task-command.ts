@@ -23,6 +23,10 @@ you accept duplicate-work advice (jevris advise C28): the task is cancelled as a
 the one you keep, and the cancellation is recorded as such. Nothing else is cancelled: a queued
 task that depended on it (directly or through another queued task) can never start, so it is
 marked blocked with the reason DEPENDENCY_CANCELLED, which the jevris_get_task tool shows as stateReason.
+A running owned task stops when its run publishes its end. If that has not happened by the time
+the sidecar answers, the answer is CANCEL_PENDING ("cancel requested"), not a failure: the run was
+told to stop and the task becomes cancelled shortly (jevris_get_task shows it). Repeating the
+command answers the same until then, and "already cancelled" after.
 
 revert-duplicate tells Jevris that a duplicate cancellation was wrong. It is recorded as a false
 cancellation, which the duplicate-work advice learns from; re-plan the work yourself. Only a
@@ -43,9 +47,9 @@ Options:
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line
 
-Exit codes: 0 reconciled or cancelled; 1 nothing was reconciled or cancelled (nothing held,
-unknown task, the kill switch is stopped, or the sidecar is not running); 2 usage error or not
-confirmed.
+Exit codes: 0 reconciled, cancelled or cancel requested (CANCEL_PENDING); 1 nothing was
+reconciled or cancelled (nothing held, unknown task, a task already cancelled or verified, the kill
+switch is stopped, or the sidecar is not running); 2 usage error or not confirmed.
 
 Examples:
   jevris task reconcile T1 --applied
@@ -220,6 +224,15 @@ async function runTaskCancel(argv: readonly string[], write: Write, options: Ver
   const view: SurfacePayloads['task.get'] = checked.value;
   if (!view.found || view.task === null) return out({ cancelled: false, reasonCode: 'UNKNOWN_TASK', taskId, task: null }, `There is no task ${taskId} in this workspace; nothing was cancelled.`, COMMAND_EXIT_CODES.negative);
   const cancelled = view.task.state === 'cancelled';
+  // The abort was delivered but the run has not published its end inside the sidecar's deadline: the
+  // task is not cancelled yet and this call did not fail to cancel it. It is not "nothing cancelled".
+  if (!cancelled && view.cancelRequested === true && view.task.state !== 'verified' && view.task.state !== 'failed') {
+    return out(
+      { cancelled: false, cancelRequested: true, reasonCode: 'CANCEL_PENDING', taskId, duplicateOf: survivor ?? null, task: view.task },
+      `Cancel requested for task ${taskId}: its run was told to stop, and the task is still ${view.task.state}. It stops shortly; the jevris_get_task tool shows it as cancelled. Running this command again answers the same until then. Its worktree is kept.`,
+      COMMAND_EXIT_CODES.ok,
+    );
+  }
   return out(
     { cancelled, reasonCode: cancelled ? 'CANCELLED' : 'NOT_CANCELLED', taskId, duplicateOf: survivor ?? null, task: view.task },
     cancelled

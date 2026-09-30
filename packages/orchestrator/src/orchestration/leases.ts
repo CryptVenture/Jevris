@@ -105,6 +105,12 @@ export interface AcquireResult {
   readonly refused: readonly { readonly taskId: string; readonly reasonCode: LeaseRefusalCode }[];
 }
 
+/** How a lease is settled when it is released together with a fenced publish. */
+export interface LeaseRelease {
+  readonly spend: { readonly actualMicroUsd: number | null };
+  readonly reason: string;
+}
+
 export type FenceResult<R> = { readonly ok: true; readonly value: R } | { readonly ok: false; readonly reasonCode: 'STALE_TOKEN' | 'LEASE_NOT_ACTIVE' | 'UNKNOWN_LEASE' };
 
 export interface LeaseAuthority {
@@ -113,7 +119,13 @@ export interface LeaseAuthority {
   release(workspaceId: string, leaseId: string, fencingToken: number, spend: { readonly actualMicroUsd: number | null }, nowMs: number, reason?: string): Promise<{ readonly ok: boolean; readonly reasonCode?: string }>;
   sweep(workspaceId: string, nowMs: number, liveness?: (holder: ProcessIdentity) => Liveness): Promise<readonly string[]>;
   reconcile(workspaceId: string, taskId: string, decision: { readonly spentMicroUsd: number | null; readonly resume: boolean }, nowMs: number): Promise<{ readonly ok: boolean; readonly reasonCode?: string }>;
-  publishFenced<R>(workspaceId: string, taskId: string, fencingToken: number, fn: (tx: LedgerTx) => R, nowMs: number): Promise<FenceResult<R>>;
+  /**
+   * Runs `fn` in one transaction if the token is still the task's newest and its lease is active.
+   * With `release`, the same transaction also releases that lease (a run's end and its lease then
+   * change together, so no request sees a finished run still holding a slot). A remote authority may
+   * ignore `release`: the caller releases afterwards, which answers LEASE_NOT_ACTIVE when this did.
+   */
+  publishFenced<R>(workspaceId: string, taskId: string, fencingToken: number, fn: (tx: LedgerTx) => R, nowMs: number, release?: LeaseRelease): Promise<FenceResult<R>>;
   activeLeases(workspaceId: string | null): readonly LeaseRecord[];
 }
 
@@ -172,6 +184,25 @@ function refuseNewLeases(inner: LeaseAuthority, reasonCode: LeaseRefusalCode): L
     ...inner,
     acquire: async (_workspaceId, requests) => ({ granted: [], refused: requests.map((r) => ({ taskId: r.taskId, reasonCode })) }),
   };
+}
+
+function releaseIn(tx: LedgerTx, workspaceId: string, leaseId: string, fencingToken: number, spend: { readonly actualMicroUsd: number | null }, nowMs: number, reason: string): { readonly ok: boolean; readonly reasonCode?: string } {
+  const key = recordKey(workspaceId, leaseId);
+  const row = tx.get<LeaseRecord>('leases', key);
+  if (row === undefined) return { ok: false, reasonCode: 'UNKNOWN_LEASE' };
+  if (row.lease.fencingToken !== fencingToken) return { ok: false, reasonCode: 'STALE_TOKEN' };
+  if (row.state !== 'active') return { ok: false, reasonCode: 'LEASE_NOT_ACTIVE' };
+  tx.put('leases', key, { ...row, state: 'released', endedAtMs: nowMs, endReason: reason.slice(0, 200) });
+  const res = tx.get<ReservationRecord>('reservations', row.reservationId);
+  if (res !== undefined) {
+    const actual = spend.actualMicroUsd;
+    const reservation: BudgetReservation =
+      actual === null
+        ? { ...res.reservation, state: 'uncertain', actualMicroUsd: null, revision: `v${String(nowMs)}` }
+        : { ...res.reservation, state: 'committed', actualMicroUsd: Math.max(0, Math.trunc(actual)), revision: `v${String(nowMs)}` };
+    tx.put('reservations', row.reservationId, { ...res, reservation, updatedAtMs: nowMs });
+  }
+  return { ok: true };
 }
 
 export function ledgerLeaseAuthority(ledger: RecordLedger, tasksFor: LeaseTaskResolver): LeaseAuthority {
@@ -292,23 +323,7 @@ export function ledgerLeaseAuthority(ledger: RecordLedger, tasksFor: LeaseTaskRe
     },
 
     async release(workspaceId, leaseId, fencingToken, spend, nowMs, reason = 'released') {
-      return ledger.transact((tx) => {
-        const row = tx.get<LeaseRecord>('leases', leaseKey(workspaceId, leaseId));
-        if (row === undefined) return { ok: false, reasonCode: 'UNKNOWN_LEASE' };
-        if (row.lease.fencingToken !== fencingToken) return { ok: false, reasonCode: 'STALE_TOKEN' };
-        if (row.state !== 'active') return { ok: false, reasonCode: 'LEASE_NOT_ACTIVE' };
-        tx.put('leases', leaseKey(workspaceId, leaseId), { ...row, state: 'released', endedAtMs: nowMs, endReason: reason.slice(0, 200) });
-        const res = tx.get<ReservationRecord>('reservations', row.reservationId);
-        if (res !== undefined) {
-          const actual = spend.actualMicroUsd;
-          const reservation: BudgetReservation =
-            actual === null
-              ? { ...res.reservation, state: 'uncertain', actualMicroUsd: null, revision: `v${String(nowMs)}` }
-              : { ...res.reservation, state: 'committed', actualMicroUsd: Math.max(0, Math.trunc(actual)), revision: `v${String(nowMs)}` };
-          tx.put('reservations', row.reservationId, { ...res, reservation, updatedAtMs: nowMs });
-        }
-        return { ok: true };
-      });
+      return ledger.transact((tx) => releaseIn(tx, workspaceId, leaseId, fencingToken, spend, nowMs, reason));
     },
 
     async sweep(workspaceId, nowMs, liveness = (h) => livenessOf(h)) {
@@ -362,7 +377,7 @@ export function ledgerLeaseAuthority(ledger: RecordLedger, tasksFor: LeaseTaskRe
       });
     },
 
-    async publishFenced(workspaceId, taskId, fencingToken, fn, nowMs) {
+    async publishFenced(workspaceId, taskId, fencingToken, fn, nowMs, release) {
       return ledger.transact((tx): FenceResult<never> | { ok: true; value: ReturnType<typeof fn> } => {
         const fence = tx.get<number>('fences', recordKey(workspaceId, taskId)) ?? 0;
         if (fencingToken < fence) return { ok: false, reasonCode: 'STALE_TOKEN' };
@@ -371,7 +386,9 @@ export function ledgerLeaseAuthority(ledger: RecordLedger, tasksFor: LeaseTaskRe
           .find((l) => l.lease.workspaceId === workspaceId && l.lease.taskId === taskId && l.lease.fencingToken === fencingToken);
         if (active === undefined) return { ok: false, reasonCode: 'UNKNOWN_LEASE' };
         if (active.state !== 'active' || Date.parse(active.lease.expiresAt) <= nowMs) return { ok: false, reasonCode: 'LEASE_NOT_ACTIVE' };
-        return { ok: true, value: fn(tx) };
+        const value = fn(tx);
+        if (release !== undefined) releaseIn(tx, workspaceId, active.lease.id, fencingToken, release.spend, nowMs, release.reason);
+        return { ok: true, value };
       });
     },
 

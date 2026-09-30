@@ -29,7 +29,7 @@ import { accessPausedModels } from '../orchestration/access-limits.js';
 import { hostHarnessId, linkedSessionRead } from '../orchestration/worker-hosts.js';
 import { hostRouteCertified } from '../orchestration/approved-scope.js';
 import { refuseLeasedTask } from '../orchestration/workers.js';
-import { MODEL_PORT_OF, cancelTask, completeTask, heldTaskEffects, loadWorkerPort, modelUnavailableHere, reconcileOwnedEffect, runLeasedTask, workerRuns, type RunLeasedTaskResult, type WorkerPort, type WorkerRunRecord } from '../orchestration/workers.js';
+import { MODEL_PORT_OF, cancelPending, cancelTask, completeTask, heldTaskEffects, loadWorkerPort, modelUnavailableHere, reconcileOwnedEffect, runLeasedTask, workerRuns, type RunLeasedTaskResult, type WorkerPort, type WorkerRunRecord } from '../orchestration/workers.js';
 import { isPlain, own, recordKey, safeText } from '../util.js';
 
 const CONTRACT_ID = new RegExp(ID_PATTERN);
@@ -64,6 +64,8 @@ export function taskView(ws: WorkspaceServices, taskId: string) {
     worker: workerView(ws, taskId),
     // Worker runs that ended after a newer lease owned the task: history only (W04).
     lateResults: workerRuns(ws, taskId).filter((r) => r.stale === true).length,
+    // A cancel that was delivered but whose run has not published its end yet.
+    ...(cancelPending(ws, taskId) ? { cancelRequested: true as const } : {}),
   };
 }
 
@@ -1175,11 +1177,13 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
         const survivorRaw = isPlain(ctx.body) ? own(ctx.body, 'duplicateOf') : undefined;
         if (survivorRaw !== undefined && (typeof survivorRaw !== 'string' || !CONTRACT_ID.test(survivorRaw) || survivorRaw === taskId)) return { ok: false, reasonCode: 'INVALID_REQUEST' };
         const authority = (deps.authority ?? leaseAuthorityFor)(ws);
+        // A second cancel of a task whose first one is still pending is the same cancellation: it is not labelled again.
+        const alreadyPending = cancelPending(ws, taskId);
         // Wait for an in-process run to publish its end within this op's deadline (less a margin for the answer).
         const result = await cancelTask(ws, authority, taskId, typeof survivorRaw === 'string' ? `duplicate of ${survivorRaw}` : undefined, Date.now(), Math.max(0, ctx.deadline.remainingMs() - 100));
         // C16: a person's cancellation labels the task's route. A duplicate cancellation says nothing
         // about the model's work, so it is not a route outcome.
-        if (result.cancelled && survivorRaw === undefined) recordRouteOutcome(ws, taskId, 'cancelled', { run: workerRuns(ws, taskId).at(-1) ?? null, nowMs: engineNow(ctx.engine) });
+        if (result.cancelled && !alreadyPending && survivorRaw === undefined) recordRouteOutcome(ws, taskId, 'cancelled', { run: workerRuns(ws, taskId).at(-1) ?? null, nowMs: engineNow(ctx.engine) });
         if (result.cancelled && typeof survivorRaw === 'string') {
           await ws.state.transact((tx) => tx.put('duplicate-cancellations', recordKey(ws.workspaceId, taskId), { workspaceId: ws.workspaceId, taskId, survivor: survivorRaw, atMs: Date.now() }));
         }

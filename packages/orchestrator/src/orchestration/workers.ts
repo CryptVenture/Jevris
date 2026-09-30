@@ -907,7 +907,7 @@ function microUsd(costUsd: number | null): number | null {
 export async function refuseLeasedTask(ws: WorkspaceServices, grant: LeaseGrant, options: { readonly authority: LeaseAuthority; readonly reason: string; readonly reasonCode: string; readonly now?: () => number }): Promise<RunLeasedTaskResult> {
   const now = options.now ?? Date.now;
   const { lease } = grant;
-  const published = await options.authority.publishFenced(ws.workspaceId, lease.taskId, lease.fencingToken, () => taskTransition(ws, lease.taskId, 'blocked', options.reason, { actor: 'runner', nowMs: now(), patch: { leaseId: null } }), now());
+  const published = await options.authority.publishFenced(ws.workspaceId, lease.taskId, lease.fencingToken, () => taskTransition(ws, lease.taskId, 'blocked', options.reason, { actor: 'runner', nowMs: now(), patch: { leaseId: null } }), now(), { spend: { actualMicroUsd: 0 }, reason: options.reason });
   // A newer lease owns the task now: it is not blocked here, and its lease is not ours to release.
   if (!published.ok) return { taskId: lease.taskId, finalState: 'unchanged', run: null, reasonCode: published.reasonCode };
   await options.authority.release(ws.workspaceId, lease.id, lease.fencingToken, { actualMicroUsd: 0 }, now(), options.reason);
@@ -936,7 +936,7 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
   if (task === undefined) return { taskId: lease.taskId, finalState: 'unchanged', run: null, reasonCode: 'UNKNOWN_TASK' };
   const release = (spend: number | null, reason: string) => options.authority.release(ws.workspaceId, lease.id, lease.fencingToken, { actualMicroUsd: spend }, now(), reason);
   const block = async (reason: string, code: string): Promise<RunLeasedTaskResult> => {
-    await options.authority.publishFenced(ws.workspaceId, lease.taskId, lease.fencingToken, () => taskTransition(ws, lease.taskId, 'blocked', reason, { actor: 'runner', nowMs: now(), patch: { leaseId: null } }), now());
+    await options.authority.publishFenced(ws.workspaceId, lease.taskId, lease.fencingToken, () => taskTransition(ws, lease.taskId, 'blocked', reason, { actor: 'runner', nowMs: now(), patch: { leaseId: null } }), now(), { spend: { actualMicroUsd: 0 }, reason });
     await release(0, reason);
     return { taskId: lease.taskId, finalState: 'blocked', run: null, reasonCode: code };
   };
@@ -961,7 +961,7 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
     const state = settle('failed', 0);
     if (state === 'held' || state === 'abandoned') return block(`owned effect ${operationId} is held by the kill switch: reconcile it after clear`, 'OWNED_EFFECT_HELD');
     const reason = `model ${options.model} is not available here (${gone}); it is not launched again until the registry is refreshed or jevris route learning gone clear`;
-    await options.authority.publishFenced(ws.workspaceId, lease.taskId, lease.fencingToken, () => taskTransition(ws, lease.taskId, 'failed', reason, { actor: 'runner', nowMs: now(), patch: { leaseId: null } }), now());
+    await options.authority.publishFenced(ws.workspaceId, lease.taskId, lease.fencingToken, () => taskTransition(ws, lease.taskId, 'failed', reason, { actor: 'runner', nowMs: now(), patch: { leaseId: null } }), now(), { spend: { actualMicroUsd: 0 }, reason });
     await release(0, reason);
     return { taskId: lease.taskId, finalState: 'failed', run: null, reasonCode: 'MODEL_UNAVAILABLE' };
   }
@@ -992,6 +992,7 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
         return taskTransition(ws, lease.taskId, 'blocked', reason, { actor: 'runner', nowMs: at, patch: { leaseId: null } });
       },
       at,
+      { spend: { actualMicroUsd: 0 }, reason },
     );
     await release(0, reason);
     return { taskId: lease.taskId, finalState: 'blocked', run: null, reasonCode: 'ACCESS_LIMITED' };
@@ -1197,6 +1198,9 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
       return taskTransition(ws, lease.taskId, to, reason, { actor: to === 'cancelled' ? 'human' : 'runner', nowMs: endedAtMs, patch: { leaseId: null } });
     },
     endedAtMs,
+    // The lease is released in the same transaction as the end (see LeaseAuthority.publishFenced): a submit
+    // never sees the finished run still holding a slot. The release below settles a remote authority.
+    { spend: { actualMicroUsd: held ? null : spend }, reason: held ? 'owned effect held' : `worker ${outcome.status}` },
   );
   if (!published.ok) {
     // A newer lease owns the task now: keep the result as history only, change nothing.
@@ -1313,10 +1317,29 @@ export function reconcileOwnedEffect(ws: WorkspaceServices, input: ReconcileOwne
 // ------------------------------------------------------------------------------- cancel
 
 export interface CancelResult {
+  /** The cancel was accepted: the task is cancelled, or (with `pending`) its run was told to stop. */
   readonly cancelled: boolean;
   readonly reasonCode: string;
+  /**
+   * The abort was delivered, but the run has not published its end yet (its end did not land inside
+   * the caller's wait, or it belongs to another process). The task still reaches `cancelled` on its
+   * own; until then it is not cancelled, and this call did not fail to cancel it.
+   */
+  readonly pending: boolean;
   readonly signalled: 'in-process' | 'requested' | 'none';
   readonly worktree: { readonly id: string; readonly status: 'clean' | 'dirty' | 'unknown'; readonly deleted: false } | null;
+}
+
+/**
+ * A cancel was delivered to this task's running owned session and the session has not published its
+ * end yet: the request is still on file, the run is still live, and the task is not terminal.
+ */
+export function cancelPending(ws: WorkspaceServices, taskId: string): boolean {
+  const key = sessionKey(ws.workspaceId, taskId);
+  if (ws.host.get('cancel-requests', key) === undefined) return false;
+  const state = getTask(ws, taskId)?.node.state;
+  if (state === undefined || state === 'cancelled' || state === 'verified' || state === 'failed') return false;
+  return running.has(key) || ws.host.get<OwnedSessionRecord>('owned-sessions', key)?.state === 'running';
 }
 
 export async function cancelTask(
@@ -1329,8 +1352,8 @@ export async function cancelTask(
   settleWaitMs = 0,
 ): Promise<CancelResult> {
   const task = getTask(ws, taskId);
-  if (task === undefined) return { cancelled: false, reasonCode: 'UNKNOWN_TASK', signalled: 'none', worktree: null };
-  if (task.node.state === 'cancelled' || task.node.state === 'verified') return { cancelled: false, reasonCode: 'TERMINAL', signalled: 'none', worktree: null };
+  if (task === undefined) return { cancelled: false, reasonCode: 'UNKNOWN_TASK', pending: false, signalled: 'none', worktree: null };
+  if (task.node.state === 'cancelled' || task.node.state === 'verified') return { cancelled: false, reasonCode: 'TERMINAL', pending: false, signalled: 'none', worktree: null };
   const key = sessionKey(ws.workspaceId, taskId);
   const session = ws.host.get<OwnedSessionRecord>('owned-sessions', key);
   let signalled: CancelResult['signalled'] = 'none';
@@ -1364,9 +1387,12 @@ export async function cancelTask(
   blockCancelledDependants(ws, nowMs);
   const tree: WorktreeRecord | undefined = session === undefined ? undefined : getWorktree(ws, session.worktreeId);
   if (tree !== undefined) await retainWorktree(ws, tree.id, 'kept after cancel');
+  // The abort was delivered; the task is cancelled only once its run publishes that end. Say which.
+  const pending = signalled !== 'none' && getTask(ws, taskId)?.node.state !== 'cancelled';
   return {
     cancelled: true,
-    reasonCode: 'CANCELLED',
+    reasonCode: pending ? 'CANCEL_PENDING' : 'CANCELLED',
+    pending,
     signalled,
     worktree: tree === undefined ? null : { id: tree.id, status: await worktreeStatus(tree), deleted: false },
   };

@@ -873,6 +873,11 @@ export const TaskGetPayloadSchema = S.object(
     worker: S.nullable(TaskWorkerRunSchema),
     /** Worker runs that ended after a newer lease owned the task; kept as history, they changed nothing. */
     lateResults: Count,
+    /**
+     * A cancel was delivered to a running owned task, which has not yet published its end:
+     * present, and true, only while the task is not yet cancelled. Absent otherwise.
+     */
+    cancelRequested: S.boolean(),
   },
 );
 export type TaskGetPayload = S.Static<typeof TaskGetPayloadSchema>;

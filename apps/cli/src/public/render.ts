@@ -580,6 +580,8 @@ function body(result: SurfaceResult): string[] {
       if (!p.found || p.task === null) return [];
       const lines = [line('state', p.task.state)];
       if (p.task.stateReason !== undefined) lines.push(line('reason', p.task.stateReason));
+      // A cancel was delivered and the run has not published its end yet: the task stops shortly.
+      if (p.cancelRequested === true) lines.push(line('cancel', 'requested; the run is stopping'));
       for (const receipt of p.receipts.slice(0, 40)) lines.push(`check ${receipt.checkId}: ${receipt.outcome}${receipt.fresh ? '' : ' not-current'} receipt ${receipt.receiptId}`);
       const w = p.worker ?? null;
       if (w === null) lines.push('worker: none ran');
