@@ -1,6 +1,6 @@
 # Cross-platform matrix (BLD-10). Nine cells: three OSes x Node 22.14.0, 24 and latest.
 # Each cell runs npm ci, build, the generated-file and clean-tree checks, lint, test, the pack
-# check and npm audit signatures; the Linux cells also run two opt-in tests by path.
+# check and npm audit signatures; the Linux cells also run three opt-in tests by path.
 # coverage runs the suite once under coverage on Linux and fails below a package's floor.
 # pack-smoke installs the packed tarball into a temp prefix on each OS and drives every
 # command against a temp HOME with stub harnesses (PKG-08, RLS-04). bench runs the OBS-04
@@ -97,6 +97,15 @@ jobs:
         env:
           JEVRIS_TEST_DOCKER_IMAGE: node:24
         run: node scripts/test.mjs --no-build apps/sidecar/test/opt-in/container.test.mjs
+      # ORC-12: two client containers and a service container on a private Docker network share one
+      # lease authority. The test skips inside npm test unless JEVRIS_TEST_DOCKER_IMAGE names an image and
+      # Docker answers; this step sets it and runs the whole file by path, so the test runs on every
+      # Linux cell even though the Test step above reports it skipped.
+      - name: Container lease authority (ORC-12)
+        if: runner.os == 'Linux'
+        env:
+          JEVRIS_TEST_DOCKER_IMAGE: node:24
+        run: node scripts/test.mjs --no-build packages/orchestrator/test/control-service.test.mjs
       - name: Pack check
         run: npm run check:pack
       - name: Registry signatures

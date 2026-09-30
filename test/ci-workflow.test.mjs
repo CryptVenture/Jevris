@@ -93,6 +93,15 @@ test('the Linux cells run the container locality test in a real container after 
   assert.match(job.slice(at, run), /JEVRIS_TEST_DOCKER_IMAGE: node:24/);
 });
 
+test('the Linux cells run the ORC-12 container lease test, which skips in npm test without Docker', () => {
+  const job = jobBlock(ci, 'test');
+  const at = job.indexOf('- name: Container lease authority (ORC-12)');
+  const run = job.indexOf('run: node scripts/test.mjs --no-build packages/orchestrator/test/control-service.test.mjs');
+  assert.equal(at > job.indexOf('run: npm run build') && run > at, true, 'the test runs after the build');
+  assert.match(job.slice(at, run), /if: runner\.os == 'Linux'/);
+  assert.match(job.slice(at, run), /JEVRIS_TEST_DOCKER_IMAGE: node:24/);
+});
+
 test('the pack-smoke job writes the threat-model record on each OS into the uploaded evidence (GOV-14)', () => {
   const job = jobBlock(ci, 'pack-smoke');
   const smoke = job.indexOf('run: node scripts/pack-smoke.mjs --full --npx');
