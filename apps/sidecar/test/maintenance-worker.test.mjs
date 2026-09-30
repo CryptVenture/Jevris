@@ -188,23 +188,38 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
   // those, a connection that synced every commit, is fixed (52f2beb). The percentile still fails
   // when chunking is broken: with a huge chunk size the sweep is a few large deletes and step 1
   // fails; with no chunking at all it is one delete, which is its own 90th percentile.
+  // Why the timing checks get one more try: run 36651204396 (windows-latest) failed `worst < 400`
+  // with one hot commit at 2547.7 ms while the same run's chunks were healthy (a 500-row chunk
+  // is well under 100 ms) and its 90th percentiles were normal. One commit stalled for longer
+  // than busy_timeout while the chunk timings show no lock held that long, so the stall came
+  // from the runner (a paused process, antivirus, disk flush), not from chunking. A stall is
+  // not repeatable; a chunking bug is, because it shows in every run. So the structural checks
+  // (chunk count, chunk size, rows) run on every attempt and fail at once, and the timing
+  // checks fail only when a second, fresh sweep also breaks them.
   const writeBound = process.platform === 'win32' ? 100 : 50;
-  const { outcome, waits } = await scenario();
   const p90 = (values) => {
     const sorted = [...values].sort((a, b) => a - b);
     return sorted[Math.max(0, Math.ceil(sorted.length * 0.9) - 1)] ?? 0;
   };
-  const chunkMs = outcome.chunks.map((c) => c.ms);
-  const worst = Math.max(...waits);
-  t.diagnostic(
-    `${String(outcome.chunks.length)} chunks (largest ${String(Math.max(...outcome.chunks.map((c) => c.rows)))} rows), p90 ${p90(chunkMs).toFixed(1)} ms, longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms; ` +
-      `${String(waits.length)} hot commits, p90 ${p90(waits).toFixed(1)} ms, worst ${worst.toFixed(1)} ms`,
-  );
-  assert.ok(outcome.chunks.length >= 12, `the sweep ran in ${String(outcome.chunks.length)} chunks`);
-  assert.ok(outcome.chunks.every((c) => c.rows <= 500), `no chunk over 500 rows: ${JSON.stringify(outcome.chunks.map((c) => c.rows))}`);
-  assert.equal(outcome.chunks.reduce((a, c) => a + c.rows, 0), 6000, 'the chunks hold every removed row');
-  assert.ok(p90(chunkMs) < writeBound, `90th percentile of chunk writes ${p90(chunkMs).toFixed(1)} ms`);
-  assert.ok(p90(waits) < writeBound, `90th percentile of hot commits ${p90(waits).toFixed(1)} ms`);
-  assert.ok(outcome.longestWriteMs < 400, `longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms`);
-  assert.ok(worst < 400, `worst hot commit ${worst.toFixed(1)} ms during the sweep`);
+  let timing = [];
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    const { outcome, waits } = await scenario();
+    const chunkMs = outcome.chunks.map((c) => c.ms);
+    const worst = Math.max(...waits);
+    t.diagnostic(
+      `attempt ${String(attempt)}: ${String(outcome.chunks.length)} chunks (largest ${String(Math.max(...outcome.chunks.map((c) => c.rows)))} rows), p90 ${p90(chunkMs).toFixed(1)} ms, longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms; ` +
+        `${String(waits.length)} hot commits, p90 ${p90(waits).toFixed(1)} ms, worst ${worst.toFixed(1)} ms`,
+    );
+    assert.ok(outcome.chunks.length >= 12, `the sweep ran in ${String(outcome.chunks.length)} chunks`);
+    assert.ok(outcome.chunks.every((c) => c.rows <= 500), `no chunk over 500 rows: ${JSON.stringify(outcome.chunks.map((c) => c.rows))}`);
+    assert.equal(outcome.chunks.reduce((a, c) => a + c.rows, 0), 6000, 'the chunks hold every removed row');
+    timing = [];
+    if (!(p90(chunkMs) < writeBound)) timing.push(`90th percentile of chunk writes ${p90(chunkMs).toFixed(1)} ms`);
+    if (!(p90(waits) < writeBound)) timing.push(`90th percentile of hot commits ${p90(waits).toFixed(1)} ms`);
+    if (!(outcome.longestWriteMs < 400)) timing.push(`longest maintenance write ${outcome.longestWriteMs.toFixed(1)} ms`);
+    if (!(worst < 400)) timing.push(`worst hot commit ${worst.toFixed(1)} ms during the sweep`);
+    if (timing.length === 0) break;
+    t.diagnostic(`attempt ${String(attempt)} broke a timing bound (${timing.join('; ')})${attempt < 2 ? ', measuring again' : ''}`);
+  }
+  assert.deepEqual(timing, [], 'both sweeps broke a timing bound');
 });
