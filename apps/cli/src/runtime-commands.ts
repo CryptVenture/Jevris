@@ -275,6 +275,8 @@ export interface SidecarBuildPorts {
   readonly probe: (home: string) => Promise<{ readonly running: boolean; readonly pid: number | null; readonly supervised: boolean }>;
   readonly health: (home: string) => Promise<{ readonly ok: boolean; readonly result?: unknown }>;
   readonly stop: (home: string) => Promise<{ readonly stopped: boolean }>;
+  /** Starts the sidecar (with the wait `jevris sidecar start` gives it); `reasonCode` names why it did not come up. */
+  readonly start: (home: string) => Promise<{ readonly ok: boolean; readonly reasonCode?: string }>;
   /** The build a runtime folder holds (protocol runtimeBuild), or null without a bundle. */
   readonly installedBuild: (runtimeDir: string) => { readonly id: string } | null;
 }
@@ -288,6 +290,10 @@ async function defaultBuildPorts(): Promise<SidecarBuildPorts> {
     },
     health: (home) => sidecar.sidecarRequest({ home, op: 'health', scope: 'cli', body: {} }),
     stop: (home) => sidecar.stopSidecarProcess(home),
+    start: async (home) => {
+      const ensured = await sidecar.ensureSidecar({ home, waitMs: 5000 });
+      return ensured.ok ? { ok: true } : { ok: false, reasonCode: `SIDECAR_${ensured.reason.toUpperCase()}` };
+    },
     installedBuild: (runtimeDir) => sidecar.runtimeBuild(runtimeDir),
   };
 }
@@ -301,10 +307,22 @@ async function defaultBuildPorts(): Promise<SidecarBuildPorts> {
  *   idle (the daemon's build check) and the next hook or command starts the installed build.
  * - A supervised one retires itself the same way, so its service manager starts it again.
  * - Otherwise, and for a sidecar from before build ids (it cannot retire itself), it is stopped
- *   now with the graceful shutdown frame; the next hook or command starts the installed build.
+ *   now with the graceful shutdown frame (in-flight requests drain first), and the installed
+ *   build is started at once on the same endpoint, so the first hooks after the install are
+ *   answered and do not run rules-only.
+ * - A sidecar that was not running is not started (autostart on the next hook is unchanged), and
+ *   neither is one when JEVRIS_SIDECAR_AUTOSTART=0 is set. A supervised sidecar is never started
+ *   next to its service; a service manager restarts only a sidecar that retires itself.
+ * - A start that fails never fails the install: the line names the reason code and the fix.
  * Returns the one line to print, or null when no sidecar runs or it already runs this build.
  */
-export async function refreshSidecarBuild(input: { readonly home: string; readonly runtimeDir: string; readonly ports?: SidecarBuildPorts }): Promise<string | null> {
+export async function refreshSidecarBuild(input: {
+  readonly home: string;
+  readonly runtimeDir: string;
+  readonly ports?: SidecarBuildPorts;
+  /** The environment install runs in (default process.env); only JEVRIS_SIDECAR_AUTOSTART is read. */
+  readonly env?: { readonly [key: string]: string | undefined };
+}): Promise<string | null> {
   try {
     const ports = input.ports ?? (await defaultBuildPorts());
     const installed = ports.installedBuild(input.runtimeDir);
@@ -322,12 +340,28 @@ export async function refreshSidecarBuild(input: { readonly home: string; readon
     if (running !== null && runs > 0) {
       return `sidecar build: ${who} runs an older build and is finishing ${runs === 1 ? 'a verification run' : `${runs} verification runs`}; it restarts on the installed build once ${runs === 1 ? 'it ends' : 'they end'}`;
     }
-    if (running !== null && probe.supervised) {
-      return `sidecar build: ${who} runs an older build; its service restarts it on the installed build within a minute, once it is idle`;
+    if (probe.supervised) {
+      if (running !== null) return `sidecar build: ${who} runs an older build; its service restarts it on the installed build within a minute, once it is idle`;
+      // Stopping it would end it cleanly, and a service manager does not restart a clean exit.
+      return `sidecar build: ${who} is supervised and runs a build from before build ids, which cannot retire itself; fix: jevris service install`;
     }
     const stopped = await ports.stop(input.home);
     if (!stopped.stopped) return `sidecar build: ${who} runs an older build and did not stop; fix: jevris sidecar restart`;
-    return `sidecar build: stopped ${who}, which ran an older build; the next hook or command starts the installed build`;
+    const was = `stopped ${who}, which ran an older build`;
+    const { autostartAllowed } = await import('./public/context.js');
+    if (!autostartAllowed(input.env ?? process.env)) {
+      return `sidecar build: ${was}; autostart is off (JEVRIS_SIDECAR_AUTOSTART=0), so nothing starts the installed build; fix: jevris sidecar start`;
+    }
+    const started = await ports.start(input.home).catch(() => ({ ok: false as const, reasonCode: 'SIDECAR_UNAVAILABLE' }));
+    if (!started.ok) {
+      return `sidecar build: ${was}; the installed build did not start (${started.reasonCode ?? 'SIDECAR_UNAVAILABLE'}); fix: the next hook or jevris sidecar start starts it`;
+    }
+    const after = await ports.health(input.home).catch(() => ({ ok: false as const }));
+    const now = after.ok ? rec(after.result)['build'] : undefined;
+    if (after.ok && typeof now === 'string' && now !== installed.id) {
+      return `sidecar build: ${was}; the sidecar that started runs another build than the installed one (${now}, installed ${installed.id}); fix: jevris sidecar restart`;
+    }
+    return `sidecar build: restarted ${who} on the installed build (it ran an older build); hooks are answered again at once`;
   } catch {
     return 'sidecar build: the running sidecar could not be checked; if it misbehaves, run jevris sidecar restart';
   }

@@ -37,9 +37,9 @@ What `install` does on an upgrade:
 The first time a new version's sidecar opens the decision store, it applies any schema migrations (see below).
 
 A running sidecar keeps the code it started with, even when you reinstall the same version. Install compares its build with the runtime it just installed. The comparison uses a build id, a hash of the runtime's bundle manifest, not the version string. When the builds differ, install prints one `sidecar build:` line:
-- An idle sidecar is stopped with a graceful shutdown. The next hook or command starts the installed build.
+- A sidecar with no verification run under way is stopped with a graceful shutdown (in-flight requests finish first), and install starts the installed build at once on the same endpoint, so the first hooks after the install are answered and do not run rules-only. Install starts a sidecar only if one was running before, and not when `JEVRIS_SIDECAR_AUTOSTART=0` is set (the line then says `jevris sidecar start`). If the start fails, install still succeeds and the line names the reason code; the next hook or `jevris sidecar start` starts it.
 - A sidecar with a verification run under way is left to finish it. It then restarts itself on the installed build.
-- A sidecar under `jevris service install` restarts itself once idle, and its service manager starts the new build.
+- A sidecar under `jevris service install` restarts itself once idle, and its service manager starts the new build. Install never starts a second, unsupervised sidecar next to it.
 
 `jevris doctor` flags a sidecar still on an older build, with the fix `jevris sidecar restart`.
 

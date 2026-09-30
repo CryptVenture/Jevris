@@ -511,7 +511,7 @@ export async function runAdminCommand(argv: readonly string[], write?: Write, ho
         });
     // A running sidecar keeps the code it started with: move it onto the build just installed.
     const { refreshSidecarBuild } = await import('./runtime-commands.js');
-    const sidecarLine = report.runtime === null ? null : await refreshSidecarBuild({ home, runtimeDir: report.runtime.dir, ...(hooks?.sidecarBuild === undefined ? {} : { ports: hooks.sidecarBuild }) });
+    const sidecarLine = report.runtime === null ? null : await refreshSidecarBuild({ home, runtimeDir: report.runtime.dir, env: hooks?.env ?? process.env, ...(hooks?.sidecarBuild === undefined ? {} : { ports: hooks.sidecarBuild }) });
     const sidecarLines = sidecarLine === null ? [] : [sidecarLine];
     return emitReport(write, 'install', home, report, json, { certification, auth, results, command: commandLines, sidecar: sidecarLines });
   }
