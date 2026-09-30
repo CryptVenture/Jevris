@@ -142,7 +142,7 @@ test('raw protocol: oversize lines, parse errors and notifications never stop th
     }
   });
   const waitFor = async (predicate) => {
-    for (let i = 0; i < 200; i += 1) {
+    for (let i = 0; i < 1_200; i += 1) {
       const found = lines.find(predicate);
       if (found !== undefined) return found;
       await new Promise((resolve) => setTimeout(resolve, 25));

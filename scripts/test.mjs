@@ -8,7 +8,7 @@
  * - Runs every test file by default, or only the files named as arguments.
  * - Runs the latency-bound files (SERIAL_TEST_FILES) last and one at a time, with no other test
  *   file beside them, in the same node --test run (scripts/test-serial-gate.mjs).
- * - Bounds every test (--test-timeout, 120 s, on Node 24 and later: see testTimeoutArgs) and
+ * - Bounds every test (--test-timeout, 300 s, on Node 24 and later: see testTimeoutArgs) and
  *   every test file: a file silent for JEVRIS_TEST_FILE_SILENT_S (default 600 s, well
  *   above --test-timeout) ends itself and every process it started, and fails with
  *   FILE_SILENT_BOUND (scripts/test-file-bound.mjs), so a file a leaked child keeps alive cannot
@@ -769,14 +769,14 @@ async function main(argv) {
 }
 
 /**
- * `--test-timeout=120000` where node:test applies it to each test (Node 24 and later). Node 22
+ * `--test-timeout=300000` where node:test applies it to each test (Node 24 and later). Node 22
  * and 23 apply it to each whole file instead (checked on 22.14.0, 22.23.3, 23.6.0 and 23.11.1):
  * there it cut every file that ran longer than two minutes, including a latency-bound file
  * waiting at the serial gate, so those runs pass none and rely on the per-file silence bound.
  */
 export function testTimeoutArgs(version = process.versions.node) {
   const major = Number.parseInt(String(version).split('.')[0] ?? '', 10);
-  return Number.isInteger(major) && major >= 24 ? ['--test-timeout=120000'] : [];
+  return Number.isInteger(major) && major >= 24 ? ['--test-timeout=300000'] : [];
 }
 
 /** A run with no test file named is the full suite, and takes the host suite lock. */

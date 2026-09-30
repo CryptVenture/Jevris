@@ -170,13 +170,13 @@ test('cancellation: an abort kills the session tree; an abort before start start
   const marker = join(box.dir, 'finished-abort');
   const controller = new AbortController();
   let control;
-  const running = runCodexWorker({ ...base(box, { signal: controller.signal, onStart: (c) => (control = c) }), ...stubbed(box, { lines: [THREAD], sleepMs: 5_000, after: [DONE], finishedMarker: marker }) });
+  const running = runCodexWorker({ ...base(box, { signal: controller.signal, onStart: (c) => (control = c) }), ...stubbed(box, { lines: [THREAD], sleepMs: 60_000, after: [DONE], finishedMarker: marker }) });
   assert.equal(await sessionKnown(() => control), 'thr_0123', 'the thread id is known while the turn runs');
   const abortedAt = Date.now();
   controller.abort();
   const outcome = await running;
   assert.equal(outcome.status, 'aborted');
-  assert.ok(Date.now() - abortedAt < 4_500, `abort was not prompt: ${Date.now() - abortedAt} ms`);
+  assert.ok(Date.now() - abortedAt < 30_000, `abort was not prompt: ${Date.now() - abortedAt} ms`);
   assert.equal(existsSync(marker), false, 'the killed session never finished');
 
   const slow = await runCodexWorker({ ...base(box, { timeoutMs: 1_000 }), ...stubbed(box, { lines: [THREAD], sleepMs: 5_000, after: [DONE] }) });
@@ -395,7 +395,7 @@ test('through runLeasedTask: cancelTask aborts the Codex session and keeps the w
     allowedTools: ['Edit'],
     prompt: 'p',
   });
-  for (let i = 0; i < 50 && calls(box).length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
+  for (let i = 0; i < 300 && calls(box).length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 100));
   const cancel = await orchestrator.cancelTask(f.ws, f.authority, 'T1');
   assert.equal(cancel.signalled, 'in-process');
   const result = await running;

@@ -58,7 +58,7 @@ function realPortsRunningOld(installedId) {
     },
     stop: (home) => sidecar.stopSidecarProcess(home),
     start: async (home) => {
-      const ensured = await sidecar.ensureSidecar({ home, waitMs: 8000 });
+      const ensured = await sidecar.ensureSidecar({ home, waitMs: 60_000 });
       return ensured.ok ? { ok: true } : { ok: false, reasonCode: `SIDECAR_${ensured.reason.toUpperCase()}` };
     },
     installedBuild: () => ({ id: installedId }),
@@ -69,7 +69,7 @@ test('a running sidecar is replaced by a new process (on the same socket path of
   const home = tempHome();
   try {
     await withEntry(async () => {
-      const first = await sidecar.ensureSidecar({ home, waitMs: 8000 });
+      const first = await sidecar.ensureSidecar({ home, waitMs: 60_000 });
       assert.equal(first.ok, true, JSON.stringify(first));
       const before = await sidecar.probeSidecar(home, 500);
       const built = await sidecar.sidecarRequest({ home, op: 'health', scope: 'cli', body: {} });
@@ -101,7 +101,7 @@ test('autostart off stops the old sidecar and starts none (real ports)', async (
   const home = tempHome();
   try {
     await withEntry(async () => {
-      const first = await sidecar.ensureSidecar({ home, waitMs: 8000 });
+      const first = await sidecar.ensureSidecar({ home, waitMs: 60_000 });
       assert.equal(first.ok, true, JSON.stringify(first));
       const line = await refreshSidecarBuild({ home, runtimeDir: '/unused', ports: realPortsRunningOld('ffffffffffffffff'), env: { JEVRIS_SIDECAR_AUTOSTART: '0' } });
       assert.match(line, /autostart is off \(JEVRIS_SIDECAR_AUTOSTART=0\)/);

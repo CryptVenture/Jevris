@@ -158,7 +158,7 @@ async function crash(d) {
   const before = d.sidecar();
   if (!d.step('running', before.state === 'running' && Number.isSafeInteger(before.pid), JSON.stringify(before))) return;
   process.kill(before.pid, 'SIGKILL');
-  for (let i = 0; i < 100 && alive(before.pid); i += 1) await waitMs(100);
+  for (let i = 0; i < 300 && alive(before.pid); i += 1) await waitMs(100);
   d.step('killed', !alive(before.pid));
   // The next command answers and starts a new sidecar. On a loaded host the cold start can
   // outlast the command's wait, so the answer may say the sidecar is still starting.
@@ -247,7 +247,7 @@ async function interruptedUpdate(d) {
   if (!d.step('running', Number.isSafeInteger(before.pid))) return;
   // The update kills the running sidecar: its endpoint, pidfile and writer lock stay behind.
   process.kill(before.pid, 'SIGKILL');
-  for (let i = 0; i < 100 && alive(before.pid); i += 1) await waitMs(100);
+  for (let i = 0; i < 300 && alive(before.pid); i += 1) await waitMs(100);
   const gone = deadPid();
   // A spawner the update killed held the spawn lock.
   writeFileSync(join(d.paths.runtime, 'spawn.lock'), JSON.stringify({ pid: gone, atMs: Date.now() }), { mode: 0o600 });
@@ -287,7 +287,7 @@ async function staleResult(d) {
     const wanted = (row) => (decisionId !== null ? row.decisionId === decisionId : row.reasonCode === 'DEADLINE');
     let status;
     let decisions = [];
-    const until = Date.now() + 15_000;
+    const until = Date.now() + 60_000;
     do {
       status = d.jevris(['status', '--json'], stub.env);
       decisions = status.json?.result?.recentDecisions ?? [];

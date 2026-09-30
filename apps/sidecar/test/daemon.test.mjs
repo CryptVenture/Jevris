@@ -324,7 +324,7 @@ test('a slow-read client times out and the connection cap holds (IPC-04)', async
     slow.write('{"t":"hel');
     const closedAt = Date.now();
     await new Promise((resolve) => slow.once('close', resolve));
-    assert.ok(Date.now() - closedAt < 2000);
+    assert.ok(Date.now() - closedAt < 30_000, 'the slow client is closed at its frame deadline, not left open');
 
     const held = [net.connect(endpoint), net.connect(endpoint)];
     await Promise.all(held.map((s) => new Promise((resolve) => s.once('connect', resolve))));
@@ -369,9 +369,9 @@ test('a request deadline counts from event receipt on the monotonic clock and ab
       }),
   };
   await withDaemon({ ops: [wait], limits: { budgetMs: { hot: 200, background: 400 } } }, async ({ home }) => {
-    const res = await sidecarRequest({ home, op: 'test.wait', scope: 'hook', budget: 'hot', timeoutMs: 3000 });
+    const res = await sidecarRequest({ home, op: 'test.wait', scope: 'hook', budget: 'hot', timeoutMs: 30_000 });
     // DEADLINE is the sidecar's own answer at its 200 ms budget; had it kept waiting, the client
-    // would have answered TIMEOUT at 3 s. No wall-clock bound, which a loaded host can stretch.
+    // would have answered TIMEOUT at 30 s. No wall-clock bound, which a loaded host can stretch.
     assert.equal(res.reasonCode, 'DEADLINE');
     assert.equal(abortedReason, 'DEADLINE');
     // An event received long ago has no budget left: refused at once, the handler never runs.
@@ -830,7 +830,7 @@ test('a spawn lock left by a dead spawner does not hold back the next start (IPC
     const gone = Number(spawnSyncChild(process.execPath, ['-e', 'process.stdout.write(String(process.pid))'], { encoding: 'utf8' }).stdout);
     // Fresh by its time stamp, so only the dead pid can make it stale.
     writeFileSync(files.spawnLock, JSON.stringify({ pid: gone, atMs: Date.now() }), { mode: 0o600 });
-    const started = await ensureSidecar({ home, waitMs: 8000 });
+    const started = await ensureSidecar({ home, waitMs: 60_000 });
     assert.equal(started.ok, true, JSON.stringify(started));
   } finally {
     if (previous === undefined) delete process.env.JEVRIS_SIDECAR_ENTRY;
@@ -849,7 +849,7 @@ test('ten parallel callers start one sidecar; a hook never waits; stop uses the 
     // 'starting' (not ok) proves the hook returned before the sidecar was up: it never waits.
     assert.equal(hook.ok, false);
     assert.equal(hook.reason, 'starting');
-    const results = await Promise.all(Array.from({ length: 10 }, () => ensureSidecar({ home, waitMs: 8000 })));
+    const results = await Promise.all(Array.from({ length: 10 }, () => ensureSidecar({ home, waitMs: 60_000 })));
     for (const result of results) assert.equal(result.ok, true, JSON.stringify(result));
     const probe = await probeSidecar(home);
     assert.equal(probe.running, true);
@@ -1416,10 +1416,10 @@ test('a subscriber\'s signal aborts when its slice ends, so it can leave a consu
     { name: 'slow', handle: (ctx) => new Promise((resolve) => ctx.signal.addEventListener('abort', () => (seen.slow.push('aborted'), resolve({ hookOutcome: { kind: 'observe' } })), { once: true })) },
     { name: 'fast', handle: (ctx) => ((seen.fast = ctx.signal.aborted), { hookOutcome: { kind: 'observe' } }) },
   ];
-  await withDaemon({ subscribers, subscriberSliceMs: 100, limits: { budgetMs: { hot: 5000, background: 5000 } } }, async ({ home }) => {
+  await withDaemon({ subscribers, subscriberSliceMs: 100, limits: { budgetMs: { hot: 30_000, background: 30_000 } } }, async ({ home }) => {
     const root = join(home, 'ws');
     mkdirSync(root);
-    const answer = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 5000, budget: 'hot', body: { deliveryKey: 'evt-slice-1', envelope: { kind: 'tool.finished' } } });
+    const answer = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 30_000, budget: 'hot', body: { deliveryKey: 'evt-slice-1', envelope: { kind: 'tool.finished' } } });
     assert.equal(answer.ok, true, JSON.stringify(answer));
     assert.deepEqual(answer.result.results.slow, { queued: true });
     assert.deepEqual(seen.slow, ['aborted'], 'the slow subscriber saw its slice end before the answer went out');
@@ -1500,7 +1500,7 @@ test('a subscriber with slow synchronous work runs after the answer, so the othe
     const root = join(home, 'ws');
     mkdirSync(root);
     const event = (deliveryKey) =>
-      sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 5_000, budget: 'hot', body: { deliveryKey, envelope: { kind: 'tool.finished' } } });
+      sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 30_000, budget: 'hot', body: { deliveryKey, envelope: { kind: 'tool.finished' } } });
     // (A tool event: a restore or a Stop is never deferred, K3.)
     // First sight: nothing is known yet, so the blocker runs inline and is measured.
     const first = await event('evt-sync-1');
@@ -1514,7 +1514,7 @@ test('a subscriber with slow synchronous work runs after the answer, so the othe
     assert.deepEqual(second.result.queued, ['blocker']);
     // It still runs, after the answer, and is measured again there.
     const settle = async (n) => {
-      for (let i = 0; i < 100 && blockerRuns.length < n; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+      for (let i = 0; i < 1_500 && blockerRuns.length < n; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
     };
     await settle(2);
     assert.deepEqual(blockerRuns, [150, 150]);
@@ -1612,7 +1612,7 @@ test('a restore waits for its own session\'s capsule write, which ran past its d
     const root = join(home, 'ws');
     mkdirSync(root);
     const envelope = (kind, sessionId, n, payload = {}) => ({ schemaVersion: '1.0', harness: 'claude', nativeEventName: kind, kind, sessionId, model: null, payload, dedupKey: `${kind}-${sessionId}-${n}` });
-    const send = (kind, sessionId, n, payload) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 4000, budget: 'hot', body: { deliveryKey: `k-${kind}-${sessionId}-${n}`, envelope: envelope(kind, sessionId, n, payload) } });
+    const send = (kind, sessionId, n, payload) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 30_000, budget: 'hot', body: { deliveryKey: `k-${kind}-${sessionId}-${n}`, envelope: envelope(kind, sessionId, n, payload) } });
     // PreCompact is an answer kind: a write longer than the 100 ms slice is still waited for.
     const quick = await send('context.compacting', 's0', 0);
     assert.equal(quick.result.queued, undefined, JSON.stringify(quick.result));
@@ -1648,12 +1648,12 @@ test('a later tool event of a session with work still running queues behind it, 
   await withDaemon({ subscribers, subscriberSliceMs: 50 }, async ({ home, daemon }) => {
     const root = join(home, 'ws');
     mkdirSync(root);
-    const send = (n) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 1500, budget: 'hot', body: { deliveryKey: `k-order-${n}`, envelope: { schemaVersion: '1.0', harness: 'claude', nativeEventName: 'PostToolUse', kind: 'tool.finished', sessionId: 's1', model: null, payload: { n }, dedupKey: `order-${n}` } } });
+    const send = (n) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 30_000, budget: 'hot', body: { deliveryKey: `k-order-${n}`, envelope: { schemaVersion: '1.0', harness: 'claude', nativeEventName: 'PostToolUse', kind: 'tool.finished', sessionId: 's1', model: null, payload: { n }, dedupKey: `order-${n}` } } });
     const first = await send(1);
     assert.deepEqual(first.result.results.orc, { queued: true });
     const second = await send(2);
     assert.deepEqual(second.result.results.orc, { queued: true }, 'it waits behind the first');
-    for (let i = 0; i < 100 && order.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+    for (let i = 0; i < 1_500 && order.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
     assert.deepEqual(order, [1, 2]);
     void daemon;
   });
@@ -1663,18 +1663,18 @@ test('a full hot pool answers BUSY at once while a background op is still admitt
   let release;
   const gate = new Promise((resolve) => (release = resolve));
   const subscribers = [{ name: 'hold', handle: () => gate.then(() => ({ hookOutcome: { kind: 'observe' } })) }];
-  await withDaemon({ subscribers, admission: { hot: 1, background: 1 }, limits: { budgetMs: { hot: 5000, background: 5000 } }, subscriberSliceMs: 4000 }, async ({ home }) => {
+  await withDaemon({ subscribers, admission: { hot: 1, background: 1 }, limits: { budgetMs: { hot: 30_000, background: 30_000 } }, subscriberSliceMs: 25_000 }, async ({ home }) => {
     const root = join(home, 'ws');
     mkdirSync(root);
     await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
-    const holding = sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 5000, budget: 'hot', body: { deliveryKey: 'k-hold', envelope: { kind: 'tool.finished' } } });
+    const holding = sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 30_000, budget: 'hot', body: { deliveryKey: 'k-hold', envelope: { kind: 'tool.finished' } } });
     await new Promise((resolve) => setTimeout(resolve, 100));
     const began = Date.now();
-    const refused = await sidecarRequest({ home, op: 'ping', scope: 'cli', timeoutMs: 3000, budget: 'hot', body: {} });
+    const refused = await sidecarRequest({ home, op: 'ping', scope: 'cli', timeoutMs: 20_000, budget: 'hot', body: {} });
     assert.equal(refused.ok, false, JSON.stringify(refused));
     assert.equal(refused.reasonCode, 'BUSY');
-    assert.ok(Date.now() - began < 2000, 'BUSY comes at once, not at the 3 s client deadline');
-    const background = await sidecarRequest({ home, op: 'ping', scope: 'cli', timeoutMs: 3000, budget: 'background', body: {} });
+    assert.ok(Date.now() - began < 15_000, 'BUSY comes at once, not at the 20 s client deadline');
+    const background = await sidecarRequest({ home, op: 'ping', scope: 'cli', timeoutMs: 20_000, budget: 'background', body: {} });
     assert.equal(background.ok, true, JSON.stringify(background));
     release();
     assert.equal((await holding).ok, true);

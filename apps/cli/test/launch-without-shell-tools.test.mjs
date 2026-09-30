@@ -77,7 +77,7 @@ async function endSidecarsUnder(base) {
     }
   }
   for (const pid of pids) {
-    for (let i = 0; i < 100 && alive(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    for (let i = 0; i < 600 && alive(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     if (alive(pid)) process.kill(pid, 'SIGKILL');
   }
 }

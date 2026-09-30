@@ -100,7 +100,7 @@ test('every mode by every action, through the hook launcher and a running sideca
     return runLauncher({ harness: 'claude', event: null }, JSON.stringify(native), deps, Date.now());
   };
   const settle = async (count) => {
-    for (let i = 0; i < 200 && calls.length < count; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+    for (let i = 0; i < 3_000 && calls.length < count; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
   };
   const traced = (event) => logs.filter((entry) => entry.event === `trace:${event}`).length;
 

@@ -199,7 +199,7 @@ test('a failing receipt labels verified-fail; a person\'s cancel labels cancelle
       await g.submit(duplicate ? ['T0', 'T1'] : ['T1'], false);
       // Cancel once the waiting task's session is running, however long setup took (bounded poll).
       const waitingId = duplicate ? 'T0' : 'T1';
-      for (let i = 0; i < 400 && !ownedSessions(g.ws).some((o) => o.taskId === waitingId && o.state === 'running'); i += 1) await new Promise((r) => setTimeout(r, 25));
+      for (let i = 0; i < 1_200 && !ownedSessions(g.ws).some((o) => o.taskId === waitingId && o.state === 'running'); i += 1) await new Promise((r) => setTimeout(r, 25));
       assert.ok(ownedSessions(g.ws).some((o) => o.taskId === waitingId && o.state === 'running'), 'the waiting task is running');
       const cancelled = await g.call('task.cancel', duplicate ? { taskId: 'T0', duplicateOf: 'T1' } : { taskId: 'T1' });
       assert.equal(cancelled.ok, true, JSON.stringify(cancelled));

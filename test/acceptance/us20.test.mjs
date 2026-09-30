@@ -62,14 +62,14 @@ story('US20', async ({ then, sandbox, evidence }) => {
     });
     assert.equal(submitted.leaseIds.length, 1);
     const first = submitted.leaseIds[0];
-    for (let i = 0; i < 200 && !orchestrator.ownedSessions(ws).some((s) => s.taskId === 'T1' && s.state === 'running'); i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+    for (let i = 0; i < 1_200 && !orchestrator.ownedSessions(ws).some((s) => s.taskId === 'T1' && s.state === 'running'); i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
     // The old lease expires into reconciliation; a person reconciles and a new fenced lease runs.
     holderDead = true;
     const reconciled = await op('task.reconcile', { taskId: 'T1', resolution: 'abandoned' });
     holderDead = false;
     evidence(reconciled);
     assert.deepEqual([reconciled.reconciled, reconciled.reasonCode, reconciled.taskState], [true, 'LEASE_RECONCILED', 'leased']);
-    for (let i = 0; i < 200 && orchestrator.getTask(ws, 'T1')?.node.state !== 'awaiting-evidence'; i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+    for (let i = 0; i < 1_200 && orchestrator.getTask(ws, 'T1')?.node.state !== 'awaiting-evidence'; i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
     assert.equal(orchestrator.getTask(ws, 'T1').node.state, 'awaiting-evidence', 'the new lease\'s worker did not finish');
     assert.notEqual(orchestrator.getTask(ws, 'T1').leaseId ?? null, first);
     // Now the old worker returns.

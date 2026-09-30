@@ -133,7 +133,7 @@ test('a session under a new harness version asks for that harness only', async (
   const r = createModelOfferRefresher({ ports, isIdle: () => true, now: () => now });
   r.noteHarnessVersion('opencode', '3.0.0');
   r.noteHarnessVersion('codex', '1.1.0');
-  for (let i = 0; i < 50 && calls.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  for (let i = 0; i < 6_000 && calls.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
   await r.tick();
   assert.deepEqual(calls.map((c) => c.harness), ['codex']);
 });
@@ -149,12 +149,12 @@ test('the sidecar refreshes the offer at its first idle moment after start, and 
     assert.equal(started.ok, true, started.ok ? '' : started.message);
     try {
       await started.daemon.state.startupMaintenance();
-      for (let i = 0; i < 200 && calls.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      for (let i = 0; i < 3_000 && calls.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
       assert.deepEqual(calls.map((c) => c.harness), ['codex']);
       const envelope = { schemaVersion: '1.0', harness: 'codex', nativeEventName: 'SessionStart', kind: 'session.started', sessionId: 's1', model: null, payload: {}, dedupKey: 'k1' };
       const res = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: repo, body: { envelope, deliveryKey: 'k1', harnessVersion: '2.0.0' } });
       assert.equal(res.ok, true, JSON.stringify(res));
-      for (let i = 0; i < 200 && calls.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+      for (let i = 0; i < 3_000 && calls.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
       assert.deepEqual(calls.map((c) => c.harness), ['codex', 'codex'], 'the new version was listed');
     } finally {
       await started.daemon.stop('test');

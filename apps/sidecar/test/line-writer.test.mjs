@@ -23,7 +23,7 @@ function text(path) {
   }
 }
 async function settle(check) {
-  for (let i = 0; i < 200 && !check(); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+  for (let i = 0; i < 6_000 && !check(); i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
 }
 
 test('lines are queued, not written in the caller\'s turn, then written together in order', async () => {

@@ -36,7 +36,7 @@ test('with JEVRIS_SIDECAR_AUTOSTART=0 no hook, CLI command or MCP tool starts th
   // The pair: the same hook without the variable starts the sidecar (the stand-in records it).
   const started = box.hook('claude', { ...native, session_id: 's-autostart-2' });
   assert.equal(started.code, 0);
-  for (let i = 0; i < 200 && !existsSync(marker); i += 1) await delay(50);
+  for (let i = 0; i < 600 && !existsSync(marker); i += 1) await delay(50);
   assert.equal(existsSync(marker), true, 'without the variable the hook did not start the sidecar');
   assert.equal(readFileSync(marker, 'utf8'), 'started\n', 'exactly one start: none of the calls with the variable started it');
 });

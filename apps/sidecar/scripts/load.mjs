@@ -336,7 +336,7 @@ function loopBetween(box, fromMs, toMs) {
 async function start(box) {
   const started = await jevris(box, ['sidecar', 'start', '--home', box.home, '--wait-ms', '60000']);
   if (started.code !== 0) throw new Error(`sidecar start failed (exit ${started.code})`);
-  for (let i = 0; i < 100 && readFileSync(box.lagFile, 'utf8').length === 0; i += 1) await sleep(100);
+  for (let i = 0; i < 300 && readFileSync(box.lagFile, 'utf8').length === 0; i += 1) await sleep(100);
   if (readFileSync(box.lagFile, 'utf8').length === 0) throw new Error('the instrumented sidecar did not report');
   for (let i = 0; i < 5; i += 1) await hook(box, nativeEvent('pre', { session: 'warm', cwd: box.work }));
   box.settledMs = await settle(box);

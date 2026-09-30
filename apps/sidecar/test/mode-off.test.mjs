@@ -142,7 +142,7 @@ test('off through a running sidecar: Jev asks refused, reads answered, no engine
   const route = await ask('route', {}, 'mcp');
   assert.notEqual(route.reasonCode, 'MODE_OFF');
   await started.daemon.state.startupMaintenance();
-  for (let i = 0; i < 100 && listed.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
+  for (let i = 0; i < 1_500 && listed.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
   assert.deepEqual(listed, ['codex'], 'the listing did not run once the mode allowed it');
 });
 

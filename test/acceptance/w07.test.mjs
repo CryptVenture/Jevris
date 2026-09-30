@@ -59,7 +59,7 @@ workflow('W07', 'Jev unavailable or the developer goes offline', async ({ t, the
   writeFileSync(circuitFile, `${JSON.stringify(saved)}\n`, { mode: 0o600 });
   assert.equal(box.jevris(['sidecar', 'start', '--home', box.home], { extraEnv: up.env }).code, 0);
   const back = timed(() => run(['recover', ...FAILURE], up.env));
-  const until = Date.now() + 15_000;
+  const until = Date.now() + 60_000;
   while (!circuit().some((entry) => entry.state !== 'open' && entry.state !== 'half-open') && Date.now() < until) await new Promise((r) => setTimeout(r, 200));
   const restored = circuit().map((entry) => entry.state);
   const statusUp = run(['status'], up.env);

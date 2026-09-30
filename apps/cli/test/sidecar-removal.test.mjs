@@ -103,7 +103,7 @@ test('doctor reports a sidecar killed without cleanup as degraded, and idle agai
         return false;
       }
     };
-    for (let i = 0; i < 200 && alive(running.pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+    for (let i = 0; i < 1_200 && alive(running.pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
     const stale = await sidecarDoctorView(home);
     assert.equal(stale.state, 'not-running');
     assert.equal(stale.degraded, true);

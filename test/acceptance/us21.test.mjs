@@ -33,7 +33,7 @@ story('US21', async ({ then, sandbox, evidence }) => {
   };
   const path = worktree();
   assert.notEqual(path, null, 'T1 has no worktree');
-  for (let i = 0; i < 100 && !(existsSync(join(path, 'lib', 'limit.mjs')) && readFileSync(join(path, 'lib', 'limit.mjs'), 'utf8') === EDIT); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+  for (let i = 0; i < 600 && !(existsSync(join(path, 'lib', 'limit.mjs')) && readFileSync(join(path, 'lib', 'limit.mjs'), 'utf8') === EDIT); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(readFileSync(join(path, 'lib', 'limit.mjs'), 'utf8'), EDIT, 'the worker has not made its edit');
 
   await then('Jevris stops scheduling new work, signals owned processes, retains recoverable artifacts and never force-deletes an unknown dirty worktree', async () => {

@@ -50,7 +50,7 @@ test('the bound reads a whole number of seconds, walks the process tree below a 
   assert.deepEqual(descendants(10, () => []), []);
   // Windows: 30 names a parent that died before 10 took its pid, so it is not 10's child.
   assert.deepEqual(descendants(10, () => [[10, 1, 500], [11, 10, 600], [30, 10, 100], [31, 30, 700]]), [11]);
-  assert.equal(DEFAULT_FILE_SILENT_S > 120, true, 'above --test-timeout, so a slow test is never cut');
+  assert.equal(DEFAULT_FILE_SILENT_S > 300, true, 'above --test-timeout, so a slow test is never cut');
   const gated = { NODE_OPTIONS: `--import=preload --import=${SERIAL_GATE_URL}` };
   const bound = fileBound(gated, {});
   assert.equal(bound.JEVRIS_TEST_FILE_SILENT_S, String(DEFAULT_FILE_SILENT_S));
@@ -113,8 +113,8 @@ test('a latency-bound file waiting its turn behind the serial gate is not cut by
 test('the runner passes --test-timeout only on a Node that applies it to each test, not each file', async (t) => {
   assert.deepEqual(testTimeoutArgs('22.14.0'), []);
   assert.deepEqual(testTimeoutArgs('23.11.1'), []);
-  assert.deepEqual(testTimeoutArgs('24.0.0'), ['--test-timeout=120000']);
-  assert.deepEqual(testTimeoutArgs('26.5.0'), ['--test-timeout=120000']);
+  assert.deepEqual(testTimeoutArgs('24.0.0'), ['--test-timeout=300000']);
+  assert.deepEqual(testTimeoutArgs('26.5.0'), ['--test-timeout=300000']);
   const dir = mkdtempSync(join(tmpdir(), 'file-bound-timeout-'));
   t.after(() => rmSync(dir, { recursive: true, force: true }));
   // Longer than the 1 s timeout in all, though each test is well inside its own 10 s.

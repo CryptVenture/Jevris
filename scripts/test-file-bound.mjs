@@ -19,7 +19,7 @@ import { relative } from 'node:path';
 
 export const FILE_SILENT_ENV = 'JEVRIS_TEST_FILE_SILENT_S';
 export const FILE_SILENT_REASON = 'FILE_SILENT_BOUND';
-/** The runner's default: well above --test-timeout (120 s), so a slow test is never cut. */
+/** The runner's default: well above --test-timeout (300 s), so a slow test is never cut. */
 export const DEFAULT_FILE_SILENT_S = 600;
 const TEST_FILE = /\.test\.[cm]?js$/;
 const GRACE_MS = 2000;

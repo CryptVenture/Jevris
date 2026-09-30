@@ -15,7 +15,7 @@ const ROOT = join(import.meta.dirname, '..', '..', '..');
  */
 const PENDING = {};
 
-test('every CLI command, MCP tool and hook event works end to end against the sidecar', { skip: managedHostSkip(), timeout: 300_000 }, async (t) => {
+test('every CLI command, MCP tool and hook event works end to end against the sidecar', { skip: managedHostSkip(), timeout: 500_000 }, async (t) => {
   const report = await surfaceE2E({
     bin: join(ROOT, 'bin', 'jevris.mjs'),
     mcp: join(ROOT, 'plugins', 'shared', 'mcp.js'),

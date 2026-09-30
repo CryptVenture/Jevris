@@ -60,7 +60,7 @@ function fixture() {
 }
 
 async function until(check) {
-  for (let i = 0; i < 1000 && !check(); i += 1) await new Promise((r) => setTimeout(r, 20));
+  for (let i = 0; i < 1_500 && !check(); i += 1) await new Promise((r) => setTimeout(r, 20));
   return check();
 }
 

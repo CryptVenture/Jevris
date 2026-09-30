@@ -60,7 +60,7 @@ test('jevris sidecar metrics, diagnose and statusline (OBS-02, OBS-03)', { skip:
     assert.equal((await run(['sidecar', 'diagnose', 'off', '--home', home])).text, 'diagnostic mode: off\n');
 
     // The cache is written at start and after requests; statusline reads it without a request.
-    const until = Date.now() + 5000;
+    const until = Date.now() + 30_000;
     do {
       r = await run(['sidecar', 'statusline', '--home', home]);
       if (r.text.startsWith('jevris: ') && !r.text.includes('not running')) break;

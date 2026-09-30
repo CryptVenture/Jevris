@@ -70,7 +70,7 @@ workflow('W09', 'Budget exhaustion midway through work', async ({ then, sandbox,
   const update = (args) => box.jevris(['budget', 'update', 'b1', ...args, '--yes'], { json: true });
   const taskState = (id) => side('task.get', { taskId: id }).result?.task?.state ?? null;
   const waitFor = async (check, label) => {
-    for (let i = 0; i < 200; i += 1) {
+    for (let i = 0; i < 300; i += 1) {
       if (check()) return;
       await sleep(100);
     }

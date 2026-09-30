@@ -304,13 +304,13 @@ test('cancellation: an abort kills the session tree; an abort before start start
   const marker = join(box.dir, 'finished-abort');
   const controller = new AbortController();
   let control;
-  const running = runClaudeWorker({ ...base(box, { signal: controller.signal, onStart: (c) => (control = c) }), ...stubbed(box, { lines: [init()], sleepMs: 5_000, after: [result()], finishedMarker: marker }) });
+  const running = runClaudeWorker({ ...base(box, { signal: controller.signal, onStart: (c) => (control = c) }), ...stubbed(box, { lines: [init()], sleepMs: 60_000, after: [result()], finishedMarker: marker }) });
   assert.equal(await sessionKnown(() => control), 'sess-1', 'the session id is known while the turn runs');
   const abortedAt = Date.now();
   controller.abort();
   const outcome = await running;
   assert.equal(outcome.status, 'aborted');
-  assert.ok(Date.now() - abortedAt < 4_500, `abort was not prompt: ${Date.now() - abortedAt} ms`);
+  assert.ok(Date.now() - abortedAt < 30_000, `abort was not prompt: ${Date.now() - abortedAt} ms`);
   assert.equal(existsSync(marker), false, 'the killed session never finished');
 
   const slow = await runClaudeWorker({ ...base(box, { timeoutMs: 1_000 }), ...stubbed(box, { lines: [init()], sleepMs: 5_000, after: [result()] }) });

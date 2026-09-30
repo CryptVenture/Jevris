@@ -101,7 +101,7 @@ test('restart of a supervised sidecar stops it cleanly and starts it through its
   await withScene(async ({ home }) => {
     const s = scene();
     await install(home, s);
-    const result = await run(['sidecar', 'restart', '--home', home, '--wait-ms', '3000'], s.hooks);
+    const result = await run(['sidecar', 'restart', '--home', home, '--wait-ms', '60000'], s.hooks);
     assert.equal(result.code, 0, result.text);
     assert.match(result.text, /sidecar: running \(restarted by /);
     assert.ok(!s.events.includes('ensure'), `no unsupervised sidecar is spawned: ${s.events.join(' | ')}`);
@@ -173,7 +173,7 @@ test('start with nothing running starts the installed service through its manage
   await withScene(async ({ home }) => {
     const s = scene({ running: false });
     await install(home, s);
-    const result = await run(['sidecar', 'start', '--home', home, '--wait-ms', '3000'], s.hooks);
+    const result = await run(['sidecar', 'start', '--home', home, '--wait-ms', '60000'], s.hooks);
     assert.equal(result.code, 0, result.text);
     assert.match(result.text, /sidecar: running \(started by /);
     assert.ok(!s.events.includes('ensure'), s.events.join(' | '));

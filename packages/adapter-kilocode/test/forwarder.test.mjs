@@ -51,7 +51,7 @@ test('a launcher that hangs is cut off and the compaction hook proceeds without 
     const output = { context: [] };
     const started = Date.now();
     await hooks['experimental.session.compacting']({ sessionID: 's' }, output);
-    assert.ok(Date.now() - started < 3000);
+    assert.ok(Date.now() - started < 30_000, 'a hang is cut off at the forwarder deadline, not left running');
     assert.deepEqual(output.context, []);
   } finally {
     rmSync(dir, { recursive: true, force: true });

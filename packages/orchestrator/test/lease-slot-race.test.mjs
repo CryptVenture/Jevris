@@ -19,7 +19,7 @@ function git(cwd, ...args) {
 }
 
 async function until(check, what) {
-  const end = Date.now() + 10_000;
+  const end = Date.now() + 60_000;
   while (Date.now() < end) {
     if (await check()) return;
     await new Promise((resolve) => setTimeout(resolve, 20));

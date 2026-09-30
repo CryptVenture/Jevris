@@ -201,7 +201,7 @@ test('the host suite lock is first come, first served: waiters take it in the or
     children.push(new Promise((done) => child.on('close', (code) => done(code === 0 ? 0 : `${name} exited ${String(code)}: ${stderr.trim()}`))));
     // The next waiter arrives only once this one's ticket is in the queue.
     const want = children.length;
-    for (let i = 0; i < 400 && liveTickets(join(dir, 'jevris-host-suite.lock'), { sweep: false }).length < want; i += 1) await new Promise((done) => setTimeout(done, 10));
+    for (let i = 0; i < 3_000 && liveTickets(join(dir, 'jevris-host-suite.lock'), { sweep: false }).length < want; i += 1) await new Promise((done) => setTimeout(done, 10));
   }
   assert.equal(liveTickets(join(dir, 'jevris-host-suite.lock'), { sweep: false }).length, names.length, 'every waiter queued');
   holder.release();

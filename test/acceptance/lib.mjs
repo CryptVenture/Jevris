@@ -316,7 +316,7 @@ export async function sandbox(t, options = {}) {
       } catch {
         // already gone
       }
-      for (let i = 0; i < 100 && alive(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+      for (let i = 0; i < 600 && alive(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
       const survived = alive(pid);
       if (survived) process.kill(pid, 'SIGKILL');
       await sweepAndRemove(dir, t, options.keep === true);
@@ -386,7 +386,7 @@ async function sweepSandboxSidecars(dir, t) {
     }
   }
   for (const pid of pids) {
-    for (let i = 0; i < 100 && alive(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
+    for (let i = 0; i < 600 && alive(pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 50));
     if (alive(pid)) process.kill(pid, 'SIGKILL');
   }
 }

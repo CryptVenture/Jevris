@@ -281,7 +281,7 @@ test('a crashed worker: the dead holder\'s lease is swept, the task blocks (LEAS
     }));
     assert.equal(plan.body.leaseIds.length, 1);
     // The first worker is mid-run (waiting) when its holder dies.
-    for (let i = 0; i < 200 && !ownedSessions(ws).some((o) => o.taskId === 'T1' && o.state === 'running'); i += 1) await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 1_200 && !ownedSessions(ws).some((o) => o.taskId === 'T1' && o.state === 'running'); i += 1) await new Promise((r) => setTimeout(r, 25));
     holderDead = true;
     const rec = await sidecarOps.find((o) => o.op === 'task.reconcile').handle(ctx('task.reconcile', { taskId: 'T1', resolution: 'abandoned' }));
     // Reconciled to ready, then leased again at once (the plan continues).
@@ -349,7 +349,7 @@ test('A\'s bug 1: task.reconcile answers within its deadline when leasing the ne
       channel: 'terminal', rootBudget: { id: 'b1', limitMicroUsd: 5_000_000 },
     }));
     assert.equal(plan.body.leaseIds.length, 1);
-    for (let i = 0; i < 200 && !ownedSessions(ws).some((o) => o.taskId === 'T1' && o.state === 'running'); i += 1) await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 1_200 && !ownedSessions(ws).some((o) => o.taskId === 'T1' && o.state === 'running'); i += 1) await new Promise((r) => setTimeout(r, 25));
     holderDead = true;
     slow = true;
     // The continuation is held at the port load until released below, so this answer can only
@@ -359,7 +359,7 @@ test('A\'s bug 1: task.reconcile answers within its deadline when leasing the ne
     assert.deepEqual([rec.body.reconciled, rec.body.reasonCode, rec.body.taskState], [true, 'LEASE_RECONCILED', 'ready'], JSON.stringify(rec.body));
     holderDead = false;
     release();
-    for (let i = 0; i < 200 && getTask(ws, 'T1').node.state === 'ready'; i += 1) await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 1_200 && getTask(ws, 'T1').node.state === 'ready'; i += 1) await new Promise((r) => setTimeout(r, 25));
     assert.notEqual(getTask(ws, 'T1').node.state, 'ready', 'the continuation leased the task after the answer');
     writeFileSync(join(dir, 'go'), '');
     await drainBackgroundWorkers();
@@ -713,7 +713,7 @@ test('approvedScopeFor: the leased task\'s write scopes are the approved paths; 
     setTaskOpDeps({ workerPort: async () => scriptedWorkerPort(env, f.ws.home) });
     await f.submit(undefined);
     // Read the scope once T1's session is running, however long setup took (bounded poll).
-    for (let i = 0; i < 400 && !ownedSessions(f.ws).some((o) => o.taskId === 'T1' && o.state === 'running'); i += 1) await new Promise((r) => setTimeout(r, 25));
+    for (let i = 0; i < 1_200 && !ownedSessions(f.ws).some((o) => o.taskId === 'T1' && o.state === 'running'); i += 1) await new Promise((r) => setTimeout(r, 25));
     const scope = approvedScopeFor(f.ws, null);
     assert.deepEqual([scope.taskId, scope.paths, scope.effects], ['T1', ['mod'], []]);
     // OD-8: the task's risk and D's per-turn switch gate. No harness named: advice only.
@@ -730,7 +730,7 @@ test('approvedScopeFor: the leased task\'s write scopes are the approved paths; 
     // (onSessionId, F 5bb12a6) and the runner binds it to the running owned session, so the
     // session's own hook events find the task while the run is live (bounded poll).
     let running;
-    for (let i = 0; i < 400; i += 1) {
+    for (let i = 0; i < 1_200; i += 1) {
       running = ownedSessions(f.ws).find((o) => o.taskId === 'T1' && o.state === 'running');
       if (running?.sessionId) break;
       await new Promise((r) => setTimeout(r, 25));
@@ -835,7 +835,7 @@ async function runningOpencodeWorker(f) {
   setTaskOpDeps({ workerPort: async () => scriptedWorkerPort(env, f.ws.home) });
   await f.submit(undefined);
   let running;
-  for (let i = 0; i < 400; i += 1) {
+  for (let i = 0; i < 1_200; i += 1) {
     running = ownedSessions(f.ws).find((o) => o.taskId === 'T1' && o.state === 'running' && o.sessionId !== null && o.harness !== undefined);
     if (running !== undefined) break;
     await new Promise((r) => setTimeout(r, 25));
@@ -846,7 +846,7 @@ async function runningOpencodeWorker(f) {
   const wt = openWorkspace({ home: f.ws.home, workspaceRoot: tree.path, env: { HOME: f.ws.home }, store: f.store });
   assert.notEqual(wt.workspaceId, f.ws.workspaceId);
   // Another reader sees the binding once its commit is on disk (bounded poll).
-  for (let i = 0; i < 400 && !wt.host.list('owned-sessions').some((o) => o.sessionId === running.sessionId); i += 1) await new Promise((r) => setTimeout(r, 25));
+  for (let i = 0; i < 1_200 && !wt.host.list('owned-sessions').some((o) => o.sessionId === running.sessionId); i += 1) await new Promise((r) => setTimeout(r, 25));
   await new Promise((r) => setTimeout(r, 25));
   return { running, wt, finish: async () => { writeFileSync(go, ''); await drainBackgroundWorkers(); } };
 }
