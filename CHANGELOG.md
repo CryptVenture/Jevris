@@ -142,6 +142,7 @@ The first public release: one package that installs into five coding harnesses o
 ### Fixes: Policy, packs and store
 
 - JEV-0011: `jevris policy rollback` with no previous policy discards a staged policy and exits 0 with a note, or is refused without changing anything; a refused rollback no longer deletes the staged policy.
+- JEV-0041: a printed copy-and-run command now quotes a path or other value that needs it (`jevris pack list` install folder, the `node <entry>` fallback and `service uninstall --home` next steps, the doctor `route learning gone clear` fix), so it still works under a folder with a space in its name; POSIX gets single quotes and Windows double quotes, and a plain value prints exactly as before. One `shellQuote` helper in `@jevris/platform`.
 - JEV-0036: `jevris pack shadow --report` now accepts the comparison record that `jevris shadow --out` writes, so the documented flow reaches shadow-approved; files that are not shadow evidence are still refused.
 - JEV-0019: `jevris store restore` now says that decision records in `<data>/decisions` were not changed (restore replaces the store only; the sidecar re-archives the journal), and the docs say so.
 

@@ -1,7 +1,7 @@
 import { cp, lstat, readdir, realpath, rm, rmdir } from 'node:fs/promises';
 import { basename, dirname, join, posix, relative, resolve, win32 } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { findPackageRoot, jevrisPaths, resolveExecutable, resolveHome } from '@jevris/platform';
+import { findPackageRoot, jevrisPaths, resolveExecutable, resolveHome, shellQuote } from '@jevris/platform';
 import { PUBLIC_COMMAND_NAMES, type CertificationFeature } from '@jevris/contracts';
 import { CLAUDE_GATED_EVENTS } from '@jevris/adapter-claude-code';
 import { EVENT_TIMEOUTS as CODEX_TIMEOUTS, REGISTERED_EVENTS as CODEX_EVENTS } from '@jevris/adapter-codex';
@@ -1577,7 +1577,7 @@ export async function installGlobal(input: InstallOptions, certified: HookCertif
     // A new runtime re-points the launcher; a `jevris` that is not Jevris's own stays as it is.
     const written = await writeLauncher(place, input.node ?? process.execPath, commandEntry);
     note(ctx, 'runtime', written.ok ? written.action : 'keep', written.path, written.ok ? 'jevris command' : written.reason);
-    if (!written.ok) ctx.nextSteps.push(`The jevris command was not written: ${written.reason}. Run Jevris as: node ${commandEntry}`);
+    if (!written.ok) ctx.nextSteps.push(`The jevris command was not written: ${written.reason}. Run Jevris as: node ${shellQuote(commandEntry)}`);
   }
   return report({
     ok: true,
@@ -1637,7 +1637,7 @@ export async function stopSidecarBeforeRemoval(home: string, removeService: bool
   try {
     const { stopSidecarForRemoval } = await import('./runtime-commands.js');
     const stopped = await stopSidecarForRemoval(home, { removeService: ownHome, ...(serviceExec === undefined ? {} : { serviceExec }) });
-    const nextStep = removeService && !ownHome ? `If you ran jevris service install for ${home}, also run jevris service uninstall --home ${home}.` : null;
+    const nextStep = removeService && !ownHome ? `If you ran jevris service install for ${home}, also run jevris service uninstall --home ${shellQuote(home)}.` : null;
     return { ok: stopped.stopped, message: stopped.message, serviceRemoval: ownHome, nextStep };
   } catch {
     return { ok: false, message: 'The Jevris sidecar could not be checked. Run `jevris sidecar stop`, then retry.', serviceRemoval: false, nextStep: null };

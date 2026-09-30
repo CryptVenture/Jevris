@@ -3,6 +3,7 @@
  * shows them: `jevris route learning gone`, `route learning status` and `jevris doctor` read the
  * same entries through this one function, under the registry the router uses.
  */
+import { shellQuote } from '@jevris/platform';
 import { BUNDLED_MODEL_REGISTRY, loadModelAvailability, loadModelRegistry, modelAvailabilityLines, type ModelAvailabilityEntry } from '@jevris/core';
 
 export interface ModelAvailabilityView {
@@ -28,7 +29,7 @@ export async function modelAvailabilityView(home: string): Promise<ModelAvailabi
 export function modelAvailabilityDoctorLines(view: ModelAvailabilityView): string[] {
   return view.entries.map((entry, i) => {
     const text = view.lines[i] ?? '';
-    const fix = entry.reasonCode === 'MODEL_GONE' ? ` Fix, once the model is back: jevris route learning gone clear ${entry.modelId} --yes` : '';
+    const fix = entry.reasonCode === 'MODEL_GONE' ? ` Fix, once the model is back: jevris route learning gone clear ${shellQuote(entry.modelId)} --yes` : '';
     return `modelAvailability ${entry.modelId}: ${text}${fix}`;
   });
 }

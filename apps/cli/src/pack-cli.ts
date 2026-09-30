@@ -9,6 +9,7 @@
 import { lstat, readFile, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
 import { COMMAND_EXIT_CODES } from '@jevris/contracts';
+import { shellQuote } from '@jevris/platform';
 import { PACK_HELP } from './pack-help.js';
 import { adviseOnly, manifestHash, packOwns } from './packs/manifest.js';
 import { readPackDir } from './packs/files.js';
@@ -199,7 +200,7 @@ export async function runPackCommand(input: PackCommandInput, write: Write): Pro
       const records = await listPackRecords(input.home);
       const builtin = await builtinPacks(input.root);
       const lines = records.length === 0 ? ['no packs installed'] : records.flatMap(recordLines);
-      for (const item of builtin) lines.push(`built-in: ${item.id} ${item.version}${item.adviseOnly ? ' (advise-only)' : ''}; install with: jevris pack install ${item.dir}`);
+      for (const item of builtin) lines.push(`built-in: ${item.id} ${item.version}${item.adviseOnly ? ' (advise-only)' : ''}; install with: jevris pack install ${shellQuote(item.dir)}`);
       return emit(write, input, 'list', { ok: true, packs: records, builtin }, lines, COMMAND_EXIT_CODES.ok);
     }
     case 'inspect':

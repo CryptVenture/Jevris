@@ -35,6 +35,7 @@ export {
   type Clock,
   type Deadline,
 } from './clock.js';
+export { shellQuote } from './shell-quote.js';
 export {
   escapeCmdArgument,
   escapeCmdCommand,
