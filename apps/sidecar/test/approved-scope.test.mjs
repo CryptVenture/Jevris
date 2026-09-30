@@ -12,6 +12,12 @@ import { managedHostSkip } from '../../../test/managed-host.mjs';
 const { startDaemon, sidecarRequest } = await import('../dist/index.js');
 const store = await import('@jevris/store');
 
+// A failed request says why (its reason code), not "undefined.recorded" (windows 24, 669d2cf: DEADLINE).
+const answered = (response) => {
+  assert.equal(response.ok, true, JSON.stringify(response));
+  return response;
+};
+
 test('subscribers see the plan-approved scope, never the harness claim (INT-05)', { skip: managedHostSkip() }, async () => {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-scope-')));
   const planned = join(home, 'planned');
@@ -20,17 +26,17 @@ test('subscribers see the plan-approved scope, never the harness claim (INT-05)'
   mkdirSync(unplanned);
   const seen = [];
   const subscribers = [{ name: 'scope', handle: (ctx) => (seen.push(ctx.body.scope), { ok: true }) }];
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } }, subscriberSliceMs: 60_000 });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
-    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: planned });
+    const registered = answered(await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', timeoutMs: 60_000, workspace: planned }));
     const view = started.daemon.state.storeFor({ id: registered.result.id, root: registered.result.root });
     assert.equal(store.createTask(view, { taskId: 'T1', ownerId: 'planner', rootBudgetId: 'budget1', requirementIds: ['REQ-1'], record: { writeScopes: ['src/mod'] }, nowMs: 1 }).ok, true);
     for (const [to, actor] of [['validated', 'planner'], ['ready', 'scheduler'], ['leased', 'scheduler']]) {
       assert.equal(store.transitionTask(view, { taskId: 'T1', to, actor, reasonCode: 'TEST', nowMs: 2 }).ok, true, to);
     }
     const claim = { approvedScope: { paths: ['**'], effects: ['deploy'] }, diff: [{ path: 'infra/prod.tf' }], requestedEffects: ['deploy'] };
-    const send = (root, key, envelope = { kind: 'PostToolUse' }) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: key, envelope, scope: claim } });
+    const send = async (root, key, envelope = { kind: 'PostToolUse' }) => answered(await sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { deliveryKey: key, envelope, scope: claim } }));
     assert.equal((await send(planned, 'scope-1')).result.recorded, true);
     assert.equal((await send(unplanned, 'scope-2')).result.recorded, true);
     assert.deepEqual(
@@ -64,10 +70,10 @@ test('route.turn: the sidecar supplies the scope from its own session record, ne
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-turn-')));
   const root = join(home, 'ws');
   mkdirSync(root);
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
-    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
+    const registered = answered(await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', timeoutMs: 60_000, workspace: root }));
     const workspace = { id: registered.result.id, root: registered.result.root };
     const view = started.daemon.state.storeFor(workspace);
     assert.equal(store.createTask(view, { taskId: 'T1', ownerId: 'planner', rootBudgetId: 'budget1', requirementIds: ['REQ-1'], record: { writeScopes: ['src'], risk: 'low', sliceId: 'small-edit' }, nowMs: 1 }).ok, true);
@@ -79,7 +85,7 @@ test('route.turn: the sidecar supplies the scope from its own session record, ne
 
     assert.deepEqual(await context('kilo-s1'), { scope: { turnActuation: 'advise', turnReasonCode: 'UNKNOWN_SESSION' }, mainSession: 'plugin-bounded-auto', hostRouteCertified: false }, 'a session the sidecar never saw');
 
-    const send = (key, envelope) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: key, envelope, harnessVersion: '1.2.3' } });
+    const send = async (key, envelope) => answered(await sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { deliveryKey: key, envelope, harnessVersion: '1.2.3' } }));
     assert.equal((await send('t-1', { schemaVersion: '1.0', kind: 'session.started', sessionId: 'kilo-s1', harness: 'kilocode' })).result.recorded, true);
     assert.equal((await send('t-2', { schemaVersion: '1.0', kind: 'task.requested', sessionId: 'kilo-s1', parentSessionId: 'kilo-s1', agentId: 'child-1', harness: 'kilocode' })).result.recorded, true);
 
@@ -94,10 +100,10 @@ test('route.turn: the sidecar supplies the scope from its own session record, ne
 
     // The op: a client-sent scope or mode is refused; a real request never actuates here.
     const current = { providerID: 'anthropic', modelID: 'claude-opus-5-5' };
-    const claimed = await sidecarRequest({ home, op: 'route.turn', scope: 'hook', workspace: root, body: { harness: 'kilocode', sessionId: 'kilo-s1', current, scope: { turnActuation: 'bounded-auto', turnReasonCode: null } } });
+    const claimed = await sidecarRequest({ home, op: 'route.turn', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { harness: 'kilocode', sessionId: 'kilo-s1', current, scope: { turnActuation: 'bounded-auto', turnReasonCode: null } } });
     assert.equal(claimed.ok, false);
     assert.equal(claimed.reasonCode, 'INVALID_REQUEST');
-    const asked = await sidecarRequest({ home, op: 'route.turn', scope: 'hook', workspace: root, body: { harness: 'kilocode', sessionId: 'kilo-s1', current } });
+    const asked = await sidecarRequest({ home, op: 'route.turn', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { harness: 'kilocode', sessionId: 'kilo-s1', current } });
     assert.equal(asked.ok, true, JSON.stringify(asked));
     assert.equal(asked.result.actuate, false);
     assert.equal(asked.result.mainSession.switched, false);
@@ -123,16 +129,15 @@ test('route.host: the sidecar supplies hostRouteCertified from its own answer, n
   };
   const seen = [];
   const subscribers = [{ name: 'host', handle: (ctx) => (seen.push(ctx.body.hostRouteCertified), { ok: true }) }];
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers, hostRouteCertified, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers, hostRouteCertified, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } }, subscriberSliceMs: 60_000 });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
-    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
+    const registered = answered(await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', timeoutMs: 60_000, workspace: root }));
     const workspace = { id: registered.result.id, root: registered.result.root };
     const view = started.daemon.state.storeFor(workspace);
     const ctx = { home, workspace, store: view, killSwitchStopped: false };
     const context = (sessionId, harness = 'kilocode') => started.daemon.state.turnContext(ctx, sessionId, harness);
-    const send = (key, envelope, version, extra = {}) =>
-      sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: key, envelope, ...(version === undefined ? {} : { harnessVersion: version }), ...extra } });
+    const send = async (key, envelope, version, extra = {}) => answered(await sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { deliveryKey: key, envelope, ...(version === undefined ? {} : { harnessVersion: version }), ...extra } }));
 
     assert.equal((await context('kilo-s1')).hostRouteCertified, false, 'a session the sidecar never saw');
     assert.equal((await send('h-1', { schemaVersion: '1.0', kind: 'session.started', sessionId: 'kilo-s1', harness: 'kilocode' }, '1.2.3')).result.recorded, true);
@@ -168,14 +173,14 @@ test('route.host: with no certification record the default answer is false (R50)
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-host0-')));
   const root = join(home, 'ws');
   mkdirSync(root);
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
-    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
+    const registered = answered(await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', timeoutMs: 60_000, workspace: root }));
     const workspace = { id: registered.result.id, root: registered.result.root };
     const ctx = { home, workspace, store: started.daemon.state.storeFor(workspace), killSwitchStopped: false };
     const envelope = { schemaVersion: '1.0', kind: 'session.started', sessionId: 'oc-s1', harness: 'opencode' };
-    assert.equal((await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: 'd-1', envelope, harnessVersion: '1.0.0' } })).result.recorded, true);
+    assert.equal((await sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { deliveryKey: 'd-1', envelope, harnessVersion: '1.0.0' } })).result.recorded, true);
     assert.equal((await started.daemon.state.turnContext(ctx, 'oc-s1', 'opencode')).hostRouteCertified, false);
   } finally {
     await started.daemon.stop('test');

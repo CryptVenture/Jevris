@@ -145,14 +145,14 @@ test('the sidecar refreshes the offer at its first idle moment after start, and 
     const { mkdirSync } = await import('node:fs');
     mkdirSync(repo);
     const { ports, calls } = fakePorts({ installed: ['codex'] });
-    const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, liveCertification: false, modelOffer: ports, modelOfferIdleMs: 0 });
+    const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, liveCertification: false, modelOffer: ports, modelOfferIdleMs: 0, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
     assert.equal(started.ok, true, started.ok ? '' : started.message);
     try {
       await started.daemon.state.startupMaintenance();
       for (let i = 0; i < 3_000 && calls.length === 0; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
       assert.deepEqual(calls.map((c) => c.harness), ['codex']);
       const envelope = { schemaVersion: '1.0', harness: 'codex', nativeEventName: 'SessionStart', kind: 'session.started', sessionId: 's1', model: null, payload: {}, dedupKey: 'k1' };
-      const res = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: repo, body: { envelope, deliveryKey: 'k1', harnessVersion: '2.0.0' } });
+      const res = await sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace: repo, body: { envelope, deliveryKey: 'k1', harnessVersion: '2.0.0' } });
       assert.equal(res.ok, true, JSON.stringify(res));
       for (let i = 0; i < 3_000 && calls.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
       assert.deepEqual(calls.map((c) => c.harness), ['codex', 'codex'], 'the new version was listed');

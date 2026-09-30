@@ -71,7 +71,7 @@ test('P5 through the sidecar: advice not followed twice in a session is not repe
   const previous = process.env[TEST_CALIBRATION_KEYS_ENV];
   process.env[TEST_CALIBRATION_KEYS_ENV] = prepareHome(home);
   try {
-    const started = await startDaemon({ home, idleMs: 0, log: () => undefined, liveCertification: false });
+    const started = await startDaemon({ home, idleMs: 0, log: () => undefined, liveCertification: false, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
     assert.equal(started.ok, true, started.ok ? '' : started.message);
     let ws;
     try {
@@ -79,7 +79,7 @@ test('P5 through the sidecar: advice not followed twice in a session is not repe
       const event = async (sessionId, kind, model, payload = {}) => {
         seq += 1;
         const key = `p5-${seq}`;
-        const res = await sidecarRequest({ home, op: 'event', workspace: repo, scope: 'hook', body: { deliveryKey: key, envelope: { schemaVersion: '1.0', harness: 'claude', nativeEventName: kind, kind, sessionId, model, payload, dedupKey: key, flags: {} } } });
+        const res = await sidecarRequest({ home, op: 'event', workspace: repo, scope: 'hook', timeoutMs: 60_000, body: { deliveryKey: key, envelope: { schemaVersion: '1.0', harness: 'claude', nativeEventName: kind, kind, sessionId, model, payload, dedupKey: key, flags: {} } } });
         assert.equal(res.ok, true, JSON.stringify(res));
       };
       const ask = async (sessionId) => {

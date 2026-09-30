@@ -34,7 +34,7 @@ test('status shows the effective mode, the named model pin and the active owned 
   mkdirSync(root);
   const config = jevrisPaths({ home }).config;
   mkdirSync(config, { recursive: true });
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
     const status = async (body = {}) => {
@@ -80,7 +80,7 @@ test('status shows the effective mode, the named model pin and the active owned 
     assert.deepEqual((await status({ modelPin: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789' })).routing, { modelPin: null, pinned: false });
 
     // One owned task leased (a worker is starting) is an active worker; a validated one is not.
-    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
+    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', timeoutMs: 60_000, workspace: root });
     const view = started.daemon.state.storeFor({ id: registered.result.id, root: registered.result.root });
     const task = (taskId, states) => {
       assert.equal(store.createTask(view, { taskId, ownerId: 'planner', rootBudgetId: 'budget1', requirementIds: ['REQ-1'], record: { writeScopes: ['src'], risk: 'low' }, nowMs: 1 }).ok, true);

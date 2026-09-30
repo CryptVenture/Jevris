@@ -66,22 +66,22 @@ test('K13 to K15 passing: certify records route.host, and the sidecar default re
   mkdirSync(workspace);
   const stamped = [];
   const subscribers = [{ name: 'host', handle: (ctx) => (stamped.push(ctx.body.hostRouteCertified), { ok: true }) }];
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers, log: () => undefined, subscriberSliceMs: 60_000, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
-    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace });
+    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', timeoutMs: 60_000, workspace });
     const ws = { id: registered.result.id, root: registered.result.root };
     const ctx = { home, workspace: ws, store: started.daemon.state.storeFor(ws), killSwitchStopped: false };
     const context = (sessionId) => started.daemon.state.turnContext(ctx, sessionId, HARNESS);
     const start = (key, sessionId, harnessVersion) =>
-      sidecarRequest({ home, op: 'event', scope: 'hook', workspace, body: { deliveryKey: key, harnessVersion, envelope: { schemaVersion: '1.0', kind: 'session.started', sessionId, harness: HARNESS } } });
+      sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace, body: { deliveryKey: key, harnessVersion, envelope: { schemaVersion: '1.0', kind: 'session.started', sessionId, harness: HARNESS } } });
     assert.equal((await start('rh-1', 'kilo-in', VERSION)).result.recorded, true);
     assert.equal((await start('rh-2', 'kilo-out', '7.8.0')).result.recorded, true);
     assert.equal((await context('kilo-in')).hostRouteCertified, true, 'the recorded session at the certified version');
     assert.equal((await context('kilo-out')).hostRouteCertified, false, 'a session at another minor version');
     // The path C's subagent route reads (trigger-handlers): the event body the sidecar stamps, whatever the plugin claimed.
     const worker = (key, sessionId, harnessVersion, claim) =>
-      sidecarRequest({ home, op: 'event', scope: 'hook', workspace, body: { deliveryKey: key, harnessVersion, hostRouteCertified: claim, envelope: { schemaVersion: '1.0', kind: 'worker.started', sessionId, harness: HARNESS } } });
+      sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace, body: { deliveryKey: key, harnessVersion, hostRouteCertified: claim, envelope: { schemaVersion: '1.0', kind: 'worker.started', sessionId, harness: HARNESS } } });
     assert.equal((await worker('rh-3', 'kilo-in', VERSION, false)).result.recorded, true);
     assert.equal(stamped.at(-1), true, 'a worker event of the certified session carries hostRouteCertified true');
     assert.equal((await worker('rh-4', 'kilo-out', '7.8.0', true)).result.recorded, true);

@@ -151,14 +151,14 @@ test('route.turn: off and observe give no switch and no text; advise caps the ma
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'jevris-mode-turn-')));
   const ws = join(home, 'ws');
   mkdirSync(join(ws, '.git'), { recursive: true });
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, liveCertification: false, modelOffer: false });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, liveCertification: false, modelOffer: false, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   t.after(async () => {
     await started.daemon.stop('test');
     rmSync(home, { recursive: true, force: true });
   });
   const ask = (i) =>
-    sidecarRequest({ home, op: 'route.turn', scope: 'hook', workspace: ws, budget: 'hot', body: { harness: 'opencode', sessionId: `turn-${i}`, current: { providerID: 'anthropic', modelID: 'claude-opus-4-5' }, modelPin: null } });
+    sidecarRequest({ home, op: 'route.turn', scope: 'hook', workspace: ws, budget: 'hot', timeoutMs: 60_000, body: { harness: 'opencode', sessionId: `turn-${i}`, current: { providerID: 'anthropic', modelID: 'claude-opus-4-5' }, modelPin: null } });
   const seen = {};
   let i = 0;
   for (const mode of MODES) {

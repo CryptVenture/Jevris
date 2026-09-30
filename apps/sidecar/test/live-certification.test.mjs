@@ -95,7 +95,7 @@ test('through the sidecar: one live event per recorded delivery, a re-check at s
     versionOf: (_home, harness) => (harness === 'claude' ? '2.1.280' : null),
     root: () => '/pkg',
   };
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, liveCertification });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, liveCertification, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true);
   try {
     assert.ok(await waitFor(() => rechecks.length === 1), 'the start re-check ran');
@@ -103,7 +103,7 @@ test('through the sidecar: one live event per recorded delivery, a re-check at s
     const root = join(home, 'ws');
     mkdirSync(root);
     const send = (envelope, harnessVersion) =>
-      sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 5000, body: { envelope, deliveryKey: envelope.dedupKey, ...(harnessVersion !== undefined ? { harnessVersion } : {}) } });
+      sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 60_000, body: { envelope, deliveryKey: envelope.dedupKey, ...(harnessVersion !== undefined ? { harnessVersion } : {}) } });
     const start = sessionStart();
     assert.equal((await send(start, '2.1.282')).ok, true);
     const again = await send(start, '2.1.282');
@@ -124,13 +124,13 @@ test('through the sidecar: one live event per recorded delivery, a re-check at s
 
 test("with F's real modules: the event log is owner-only and content-free, and a test run starts no re-check (HCF)", { skip: managedHostSkip() }, async () => {
   const home = tempHome();
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true);
   try {
     const root = join(home, 'ws');
     mkdirSync(root);
     const envelope = promptEvent();
-    const res = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 5000, body: { envelope, deliveryKey: envelope.dedupKey, harnessVersion: '2.1.280' } });
+    const res = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 60_000, body: { envelope, deliveryKey: envelope.dedupKey, harnessVersion: '2.1.280' } });
     assert.equal(res.ok, true, JSON.stringify(res));
     const file = join(jevrisPaths({ home }).data, 'live-evidence', 'events.jsonl');
     assert.ok(await waitFor(() => {

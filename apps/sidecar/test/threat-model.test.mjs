@@ -50,7 +50,7 @@ async function withRealSidecar(t, fn) {
   const home = tempHome();
   const root = join(home, 'repo');
   mkdirSync(root);
-  const started = await startDaemon({ home, idleMs: 0, log: () => undefined });
+  const started = await startDaemon({ home, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
     return await fn({ home, root, stub });
@@ -123,7 +123,7 @@ test('content at a path a frame names is never read into the store, the log or a
 if (posix) {
   test('a key file swapped for a symlink to a planted key makes the client fail closed (GOV-14, IPC-03)', async () => {
     const home = tempHome();
-    const started = await startDaemon({ home, packageOps: false, idleMs: 0, store: false, log: () => undefined });
+    const started = await startDaemon({ home, packageOps: false, idleMs: 0, store: false, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
     assert.equal(started.ok, true, started.ok ? '' : started.message);
     try {
       const files = runtimeFiles({ home });
@@ -143,7 +143,7 @@ if (posix) {
 
 test('an endpoint file rewritten to point at a squatter makes the client fail closed and send it nothing (GOV-14, IPC-03, IPC-05)', async () => {
   const home = tempHome();
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, store: false, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, store: false, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
     const files = runtimeFiles({ home });

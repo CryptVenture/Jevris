@@ -29,10 +29,10 @@ test('session.link end to end: records only, exact hints, one recent candidate o
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-link-')));
   const root = join(home, 'ws');
   mkdirSync(root);
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
-    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
+    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', timeoutMs: 60_000, workspace: root });
     const workspace = { id: registered.result.id, root: registered.result.root };
     const view = started.daemon.state.storeFor(workspace);
     const task = (taskId, states) => {
@@ -44,7 +44,7 @@ test('session.link end to end: records only, exact hints, one recent candidate o
     task('T3', [['validated', 'planner']]);
     const cli = (op, body) => sidecarRequest({ home, op, scope: 'cli', workspace: root, body });
     const link = (body) => cli('session.link', { channel: 'terminal', ...body });
-    const started_ = (key, sessionId, harness) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: key, envelope: { schemaVersion: '1.0', kind: 'session.started', sessionId, harness } } });
+    const started_ = (key, sessionId, harness) => sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { deliveryKey: key, envelope: { schemaVersion: '1.0', kind: 'session.started', sessionId, harness } } });
 
     for (const scope of ['hook', 'mcp']) {
       const refused = await sidecarRequest({ home, op: 'session.link', scope, workspace: root, body: { taskId: 'T1', harness: 'kilocode', channel: 'terminal' } });
@@ -122,10 +122,10 @@ test('status lists the links of in-use owned-worker worktrees after its own, mar
     if (workers === 'throw') throw new Error('unreadable');
     return workers;
   };
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, ownedWorktrees });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, ownedWorktrees, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
-    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });
+    const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', timeoutMs: 60_000, workspace: root });
     const own = started.daemon.state.storeFor({ id: registered.result.id, root: registered.result.root });
     const one = started.daemon.state.storeFor({ id: 'wWorkerOne', root: null });
     const two = started.daemon.state.storeFor({ id: 'wWorkerTwo', root: null });

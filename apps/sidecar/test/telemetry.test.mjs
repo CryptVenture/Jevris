@@ -144,14 +144,14 @@ test('a request is traced from receipt to outcome; counters, diagnostic mode and
       },
     },
   ];
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, engine: null, subscribers, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, engine: null, subscribers, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } }, subscriberSliceMs: 60_000 });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   let statusRunning;
   try {
     await started.daemon.state.startupMaintenance();
     statusRunning = statusLineText(readStatusLine(stateDir), Date.now());
     const envelope = { schemaVersion: '1.0', kind: 'PostToolUse', harness: 'claude-code', sessionId: `sess-${CANARY}`, payload: { source: `function ${CANARY}() { return "${SECRET}"; }` } };
-    const sent = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: `dk-${CANARY}`, envelope } });
+    const sent = await sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { deliveryKey: `dk-${CANARY}`, envelope } });
     assert.equal(sent.ok, true, JSON.stringify(sent));
     const metrics = await sidecarRequest({ home, op: 'metrics', scope: 'cli', body: { sinceHours: 1 } });
     assert.equal(metrics.ok, true, JSON.stringify(metrics));
@@ -159,12 +159,12 @@ test('a request is traced from receipt to outcome; counters, diagnostic mode and
     assert.ok(metrics.result.requests.byOp.event.count >= 1);
     assert.equal(typeof metrics.result.requests.byOp.event.p95Ms, 'number');
     // Diagnostic mode is an admin op: a hook cannot turn it on; the CLI can, and it is audited.
-    assert.equal((await sidecarRequest({ home, op: 'diagnostic.set', scope: 'hook', body: { minutes: 5 } })).reasonCode, 'SCOPE_DENIED');
+    assert.equal((await sidecarRequest({ home, op: 'diagnostic.set', scope: 'hook', timeoutMs: 60_000, body: { minutes: 5 } })).reasonCode, 'SCOPE_DENIED');
     const on = await sidecarRequest({ home, op: 'diagnostic.set', scope: 'cli', body: { minutes: 5, actor: 'tester' } });
     assert.equal(on.ok, true, JSON.stringify(on));
     assert.equal(on.result.active, true);
     assert.equal((await sidecarRequest({ home, op: 'diagnostic.set', scope: 'cli', body: { minutes: 61 } })).reasonCode, 'INVALID_DURATION');
-    await sidecarRequest({ home, op: 'status', scope: 'hook', workspace: root, body: {} });
+    await sidecarRequest({ home, op: 'status', scope: 'hook', timeoutMs: 60_000, workspace: root, body: {} });
     assert.equal((await sidecarRequest({ home, op: 'diagnostic.set', scope: 'cli', body: { minutes: 0 } })).result.active, false);
   } finally {
     await started.daemon.stop('test');

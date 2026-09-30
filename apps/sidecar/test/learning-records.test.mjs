@@ -65,7 +65,7 @@ test('the sidecar persists its op answers and the hook misses as daily counters,
       client.hookLatencyLine({ harness: 'codex', reasonCode: 'SIDECAR_UNAVAILABLE', elapsedMs: 40, atMs: now }),
       'not a line\n',
     ].join(''));
-    const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+    const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
     assert.equal(started.ok, true, started.ok ? '' : started.message);
     try {
       for (let i = 0; i < 3; i += 1) assert.equal((await sidecarRequest({ home, op: 'ping', scope: 'cli' })).ok, true);
@@ -103,7 +103,7 @@ test('a session event that changes the model is recorded, and the learning purge
   const repo = join(home, 'repo');
   mkdirSync(repo);
   try {
-    const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+    const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
     assert.equal(started.ok, true, started.ok ? '' : started.message);
     let ws;
     try {
@@ -112,7 +112,7 @@ test('a session event that changes the model is recorded, and the learning purge
         ['session.started', 'claude-opus-5-5', 'k1', {}],
         ['model.changed', 'claude-opus-5-5', 'k2', { toModel: 'claude-sonnet-5' }],
       ]) {
-        const res = await sidecarRequest({ home, op: 'event', workspace: repo, scope: 'hook', body: { envelope: envelope(kind, model, key, payload), deliveryKey: key } });
+        const res = await sidecarRequest({ home, op: 'event', workspace: repo, scope: 'hook', timeoutMs: 60_000, body: { envelope: envelope(kind, model, key, payload), deliveryKey: key } });
         assert.equal(res.ok, true, JSON.stringify(res));
       }
       ws = (await sidecarRequest({ home, op: 'workspace.register', workspace: repo, scope: 'cli' })).result.id;
@@ -197,10 +197,10 @@ test("C's advice handlers get an advice-adherence port on the op context, bound 
         return { ok: true, body: { port: true, opened, overrides: port.overrides(advice) } };
       },
     };
-    const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, liveCertification: false, ops: [probe] });
+    const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, liveCertification: false, ops: [probe], limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
     assert.equal(started.ok, true, started.ok ? '' : started.message);
     try {
-      const res = await sidecarRequest({ home, op: 'test.adherence', scope: 'hook', workspace: repo, body: {} });
+      const res = await sidecarRequest({ home, op: 'test.adherence', scope: 'hook', timeoutMs: 60_000, workspace: repo, body: {} });
       assert.equal(res.ok, true, JSON.stringify(res));
       assert.deepEqual(res.result, { port: true, opened: [true, true, false], overrides: 1 }, 'the second advice closed the first as no-change');
     } finally {

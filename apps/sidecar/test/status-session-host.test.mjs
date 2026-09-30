@@ -17,11 +17,11 @@ test('status names each harness session host and whether its tariff is known (R5
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-host-status-')));
   const root = join(home, 'ws');
   mkdirSync(root);
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined });
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, log: () => undefined, limits: { budgetMs: { hot: 60_000, background: 60_000 } } });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
     const send = (key, sessionId, harness, model) =>
-      sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: key, envelope: { schemaVersion: '1.0', kind: 'session.started', sessionId, harness, model }, harnessVersion: '1.0.0' } });
+      sidecarRequest({ home, op: 'event', scope: 'hook', timeoutMs: 60_000, workspace: root, body: { deliveryKey: key, envelope: { schemaVersion: '1.0', kind: 'session.started', sessionId, harness, model }, harnessVersion: '1.0.0' } });
     const status = async () => {
       const answer = await sidecarRequest({ home, op: 'status', scope: 'cli', workspace: root, body: {} });
       assert.equal(answer.ok, true, JSON.stringify(answer));

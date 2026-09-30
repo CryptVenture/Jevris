@@ -17,6 +17,10 @@ import { testFiles } from './test-hygiene.lint.mjs';
  *   until-bound  A wait deadline under 10 s: `const until = Date.now() + 5000`.
  *   start-wait   A real sidecar start that waits under 10 s: `ensureSidecar({ waitMs: 8000 })`,
  *                `--wait-ms 3000`.
+ *   hot-daemon   A test that starts a real daemon (startDaemon) and sends hook-scope or hot-budget
+ *                requests with the default 900 ms budget: `limits: { budgetMs: { hot: 60_000,
+ *                background: 60_000 } }` on the daemon and `timeoutMs: 60_000` on the request
+ *                (windows-latest DEADLINE in approved-scope INT-05 and security-subscriber GOV-12).
  *   exact-time   An assertion that names a step's exact run time, such as "(0s)" (verify:fresh
  *                printed "(1s)" on a slow runner).
  *
@@ -35,6 +39,7 @@ export const FLOOR_MS = 10_000;
 
 /** `file:rule` entries, each with the reason the short bound is the subject of the test. */
 export const ALLOW = new Map([
+  ['apps/sidecar/test/answer-lane.test.mjs:hot-daemon', 'the answer lane budget and the hot budget are what the file tests'],
   ['test/file-bound.test.mjs:poll-bound', 'the loops sit in fixture files the test writes to drive the file bound itself'],
 ]);
 
@@ -46,6 +51,9 @@ const SLEEP = /(?:setTimeout\((?:\w+|\([^)]*\)\s*=>\s*\w+\(\)|[^,]+),\s*([\d_]+)
 const UNTIL = /^[ \t]*(?:const|let)\s+(?:until|end|stopAt|giveUpAt)\s*=\s*Date\.now\(\)\s*\+\s*([\d_]+)\b/gm;
 const START_WAIT = /(?:ensureSidecar\(\{[^}]*\bwaitMs:\s*([\d_]+)|['"]--wait-ms['"],\s*['"](\d+)['"])/g;
 const EXACT_TIME = /\(\d+s\)/;
+const STARTS_DAEMON = /\bstartDaemon\(|\bwithDaemon\(/;
+const HOT_REQUEST = /scope: 'hook'|budget: 'hot'/;
+const RAISED_BUDGET = /budgetMs:\s*\{\s*hot:\s*([\d_]+)/g;
 
 /** Findings in one file's text: [{ rule, line, detail }]. */
 export function slowFindings(text) {
@@ -62,6 +70,10 @@ export function slowFindings(text) {
   for (const m of text.matchAll(START_WAIT)) {
     const ms = num(m[1] ?? m[2]);
     if (ms > 0 && ms < FLOOR_MS) out.push({ rule: 'start-wait', line: lineOf(text, m.index), detail: `${ms} ms` });
+  }
+  if (STARTS_DAEMON.test(text) && HOT_REQUEST.test(text)) {
+    const raised = [...text.matchAll(RAISED_BUDGET)].some((m) => num(m[1]) >= 30_000);
+    if (!raised) out.push({ rule: 'hot-daemon', line: lineOf(text, text.search(HOT_REQUEST)), detail: 'hook or hot requests to a real daemon with the default 900 ms budget' });
   }
   text.split('\n').forEach((line, index) => {
     if (/\bassert|\bok\(/.test(line) && EXACT_TIME.test(line)) out.push({ rule: 'exact-time', line: index + 1, detail: line.trim().slice(0, 80) });
@@ -107,5 +119,10 @@ test('the detector flags short polling loops, wait deadlines, start waits and ex
   assert.deepEqual(rules("run(['sidecar', 'start', '--wait-ms', '60000']);"), []);
   assert.deepEqual(rules("assert.ok(lines.includes('verify:fresh: lint: ok 110 tests (0s)'));"), ['exact-time']);
   assert.deepEqual(rules("assert.ok(lines.map(noSeconds).includes('verify:fresh: lint: ok 110 tests'));"), []);
+  const daemon = (limits) => `const s = await startDaemon({ home${limits} });\nsidecarRequest({ op: 'event', scope: 'hook' });`;
+  assert.deepEqual(rules(daemon('')), ['hot-daemon']);
+  assert.deepEqual(rules(daemon(', limits: { budgetMs: { hot: 900, background: 5000 } }')), ['hot-daemon']);
+  assert.deepEqual(rules(daemon(', limits: { budgetMs: { hot: 60_000, background: 60_000 } }')), []);
+  assert.deepEqual(rules("await startDaemon({ home }); sidecarRequest({ op: 'status', scope: 'cli' });"), []);
   assert.deepEqual(rules("const SUMMARY = 'test: FAILED (exit 1) 10 tests (2s)';"), []);
 });
