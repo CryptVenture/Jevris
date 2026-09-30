@@ -118,6 +118,17 @@ sign-in in the temporary profile. Antigravity has no custom model endpoint, so i
 the stub-provider cases the other harnesses run: whether `agy --model` accepts a routed model
 slug is checked only in a real run on the maintainer's machine.
 
+**The model listing (`models.list`).** Certify runs `agy models` twice with
+`AGY_CLI_DISABLE_AUTO_UPDATE=true`, the opt-out Antigravity's documentation names (only the
+literal `true` works; `1` does not, per agy issue 1046). Whether that keeps agy from writing its
+`updater` files on `agy models` is not documented, so the certify run decides: any file under
+`.gemini/antigravity-cli/updater` on either run fails the listing with `LISTING_SELF_UPDATE` and
+the listing stays off, because a listing must never update your binary. Directly in
+`.gemini/antigravity-cli`, the second run may touch the conversation database's `-shm` (and its
+`-wal` when it is empty or gone), logs, and the cache of MCP tool descriptors
+(`mcp/<server>/<tool>.json`, `instructions.md`); a conversation, config or any other file still
+fails it with `LISTING_SIDE_EFFECT`.
+
 If a record comes from a `jevris certify` run outside install, reinstall to enable the hook
 group:
 

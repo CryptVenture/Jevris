@@ -250,6 +250,16 @@ certified when certify passes there.
   `ROUTE_HOST_NEEDS_SESSION_ROUTE` when `session.route` did not pass in the same run), and a route
   through a gateway or third-party host stays advice only. The maintainer's certify run of 28 September
   2026 came before these cases, so no record certifies them yet; the next `jevris certify` run does.
+- **The model listing (`models.list`).** Certify runs `opencode models` twice in the throwaway profile
+  (`OPENCODE_DISABLE_AUTOUPDATE=1`) and checks the second run. Between the two runs
+  it folds the profile's SQLite write-ahead logs into their databases (`opencode.db`), so frames the
+  warm-up run left in `opencode.db-wal` when it was killed are not counted as a change of the second
+  run. What the second run may still touch is `opencode.db-shm`, an empty or missing `opencode.db-wal`,
+  caches and logs. A `opencode.db` that changed, or a `opencode.db-wal` that holds data, is a real write and
+  fails it with `LISTING_SIDE_EFFECT`. The maintainer's first check (30 September 2026) named exactly
+  those files, which is what the fold addresses; a certify run on the version after this change
+  shows whether they were the warm-up's. The record of an earlier run keeps its result until you run
+  `jevris certify --harness opencode` again.
 - **Your project's config wins.** A route is never written to a provider that your project
   redefines, for example with its own `baseURL`. Before writing, the plugin reads `opencode.json[c]` and `.opencode/opencode.json[c]` in each
   folder from the working directory up to the worktree root. It writes nothing when one of them

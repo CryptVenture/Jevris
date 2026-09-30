@@ -153,3 +153,7 @@ declare const process: {
     [Symbol.asyncIterator](): AsyncIterator<Uint8Array | string>;
   };
 };
+
+declare module 'node:module' {
+  export function createRequire(url: string | URL): (id: string) => unknown;
+}

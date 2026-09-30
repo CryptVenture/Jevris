@@ -3,6 +3,8 @@
 // no test starts a real harness binary. Temp homes only.
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { copyFileSync, existsSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -740,4 +742,215 @@ test('K21: a certified usage read lifts the window an earlier reading set; an un
   assert.equal(offer.usageReadCertified(unsupported, '0.157.1', NOW), false);
   assert.equal(offer.usageReadCertified(coveringLoad('codex', '0.157.1', ['access.usage-read']), '0.157.1', NOW), true);
   assert.equal(offer.usageReadCertified(coveringLoad('codex', '0.157.1', ['access.usage-read']), '0.157.1', NOW, 'win32'), process.platform === 'win32', 'another OS is not covered');
+});
+
+// ---- SQLite side files: a warm-up run's leftover write-ahead frames are not the second run's writes ----
+
+const Sqlite = createRequire(import.meta.url)('better-sqlite3');
+
+/**
+ * A database as a killed harness leaves it: rows committed to the write-ahead log, not yet
+ * checkpointed into the `.db` (the copies are taken while the writer still holds the log).
+ */
+function leaveUncheckpointed(path, rows = 3) {
+  const seed = new Sqlite(path);
+  seed.pragma('journal_mode = WAL');
+  seed.exec('CREATE TABLE IF NOT EXISTS t (n INTEGER)');
+  seed.close();
+  const db = new Sqlite(path);
+  db.pragma('wal_autocheckpoint = 0');
+  for (let i = 0; i < rows; i += 1) db.prepare('INSERT INTO t VALUES (?)').run(i);
+  copyFileSync(path, `${path}.keep`);
+  copyFileSync(`${path}-wal`, `${path}-wal.keep`);
+  db.close();
+  copyFileSync(`${path}.keep`, path);
+  copyFileSync(`${path}-wal.keep`, `${path}-wal`);
+  return () => {
+    for (const suffix of ['.keep', '-wal.keep', '-shm']) rmSyncQuiet(`${path}${suffix}`);
+  };
+}
+
+function rmSyncQuiet(path) {
+  try {
+    rmSync(path, { force: true });
+  } catch {
+    // Already gone.
+  }
+}
+
+/** A stand-in listing: the first call runs `first`, the second `second`; both answer with one model. */
+function twice(first, second) {
+  let count = 0;
+  return async () => {
+    count += 1;
+    await (count === 1 ? first : second)();
+    return { ok: true, models: ['gpt-5.5'] };
+  };
+}
+
+test('certify case: SQLite frames the warm-up left in a write-ahead log do not fail the second run (Kilo, OpenCode, Codex)', async () => {
+  for (const [harness, rel] of [
+    ['kilocode', '.local/share/kilo/kilo.db'],
+    ['opencode', '.local/share/opencode/opencode.db'],
+    ['codex', '.codex/state_5.sqlite'],
+  ]) {
+    await withBox(async (profile) => {
+      const path = join(profile, ...rel.split('/'));
+      await mkdir(join(path, '..'), { recursive: true });
+      // The second run only opens the database and closes it, which checkpoints the warm-up's frames.
+      const readOnly = async () => {
+        const db = new Sqlite(path);
+        db.prepare('SELECT count(*) FROM t').get();
+        db.close();
+      };
+      const result = await offer.modelListCheck({ harness, env: {}, profile, run: twice(async () => leaveUncheckpointed(path), readOnly) });
+      assert.equal(result.passed, true, `${harness}: ${result.detail}`);
+      assert.ok(!result.touched.includes(rel), `${harness}: the main database did not change on the second run`);
+    });
+  }
+});
+
+test('certify case: a genuine row written on the second run still fails, closed cleanly or left in the log', async () => {
+  for (const [harness, rel] of [
+    ['kilocode', '.local/share/kilo/kilo.db'],
+    ['opencode', '.local/share/opencode/opencode.db'],
+    ['codex', '.codex/state_5.sqlite'],
+  ]) {
+    for (const hold of [false, true]) {
+      await withBox(async (profile) => {
+        const path = join(profile, ...rel.split('/'));
+        await mkdir(join(path, '..'), { recursive: true });
+        const held = [];
+        const writes = async () => {
+          const db = new Sqlite(path);
+          db.pragma('wal_autocheckpoint = 0');
+          db.prepare('INSERT INTO t VALUES (99)').run();
+          if (hold) held.push(db);
+          else db.close();
+        };
+        try {
+          // The warm-up leaves frames too: the fix must fold them in without hiding this write.
+          const result = await offer.modelListCheck({ harness, env: {}, profile, run: twice(async () => leaveUncheckpointed(path), writes) });
+          assert.deepEqual([result.passed, result.reasonCode], [false, 'LISTING_SIDE_EFFECT'], `${harness} hold=${hold}: ${result.detail}`);
+          assert.match(result.detail, hold ? /-wal/ : /\.(?:db|sqlite)(?:,|$)/);
+        } finally {
+          for (const db of held) db.close();
+        }
+      });
+    }
+  }
+});
+
+test('certify case: a second run that writes a row to a database with no leftover log fails as before', async () => {
+  await withBox(async (profile) => {
+    const path = join(profile, '.local', 'share', 'kilo', 'kilo.db');
+    await mkdir(join(path, '..'), { recursive: true });
+    const seed = new Sqlite(path);
+    seed.pragma('journal_mode = WAL');
+    seed.exec('CREATE TABLE t (n INTEGER)');
+    seed.close();
+    const insert = async () => {
+      const db = new Sqlite(path);
+      db.prepare('INSERT INTO t VALUES (1)').run();
+      db.close();
+    };
+    const result = await offer.modelListCheck({ harness: 'kilocode', env: {}, profile, run: twice(async () => undefined, insert) });
+    assert.deepEqual([result.passed, result.reasonCode], [false, 'LISTING_SIDE_EFFECT']);
+  });
+});
+
+test('checkpointProfileDatabases folds the log into the database inside the profile only and skips what is not a database', async () => {
+  await withBox(async (profile) => {
+    const other = await mkdtemp(join(tmpdir(), 'jevris-model-offer-outside-'));
+    try {
+      const inside = join(profile, 'a.db');
+      const outside = join(other, 'b.db');
+      const cleanup = [leaveUncheckpointed(inside), leaveUncheckpointed(outside)];
+      // A text file named like a database, with a non-empty log beside it, is never opened.
+      await writeFile(join(profile, 'fake.db'), 'not a database');
+      await writeFile(join(profile, 'fake.db-wal'), 'frame');
+      // A log with no database beside it, and an empty log, are ignored.
+      await writeFile(join(profile, 'lone.db-wal'), 'frame');
+      await writeFile(join(profile, 'empty.db'), 'x');
+      await writeFile(join(profile, 'empty.db-wal'), '');
+      const count = await offer.checkpointProfileDatabases(profile, await offer.snapshotTree(profile));
+      assert.equal(count, 1);
+      assert.equal(existsSync(`${inside}-wal`) ? statSync(`${inside}-wal`).size : 0, 0, 'the log in the profile is folded in');
+      assert.ok(statSync(`${outside}-wal`).size > 0, 'a database outside the profile is untouched');
+      assert.equal(readFileSync(join(profile, 'fake.db'), 'utf8'), 'not a database');
+      // The rows survived the checkpoint.
+      const db = new Sqlite(inside, { readonly: true });
+      assert.equal(db.prepare('SELECT count(*) AS c FROM t').get().c, 3);
+      db.close();
+      for (const run of cleanup) run();
+    } finally {
+      await rm(other, { recursive: true, force: true });
+    }
+  });
+});
+
+test('checkpointProfileDatabases does nothing for a snapshot with no log', async () => {
+  assert.equal(await offer.checkpointProfileDatabases('/nonexistent-profile', new Map([['a.db', '10:1']])), 0);
+});
+
+// ---- Antigravity: the documented update opt-out, and its startup side files ----
+
+test('the Antigravity listing sets its documented update opt-out to the literal true; no other harness gets it', () => {
+  const env = offer.listingEnv('antigravity', { HOME: '/x', KEEP: 'y' });
+  assert.equal(env.AGY_CLI_DISABLE_AUTO_UPDATE, 'true', 'agy honours only the literal true, not 1');
+  assert.equal(env.HOME, '/x');
+  assert.equal(env.KEEP, 'y');
+  for (const harness of ['claude', 'codex', 'opencode', 'kilocode']) assert.equal(offer.listingEnv(harness, {}).AGY_CLI_DISABLE_AUTO_UPDATE, undefined, harness);
+});
+
+test('Antigravity: its conversation database side files and MCP descriptor cache are allowed; the updater and real data are not', async () => {
+  const allowed = offer.allowedListingWrite;
+  const dir = '.gemini/antigravity-cli';
+  assert.equal(allowed('antigravity', `${dir}/conversation_summaries.db-shm`, null, 32768), true);
+  assert.equal(allowed('antigravity', `${dir}/conversation_summaries.db-wal`, null, 0), true);
+  assert.equal(allowed('antigravity', `${dir}/conversation_summaries.db-wal`, null, 4096), false, 'a log that holds a write');
+  assert.equal(allowed('antigravity', `${dir}/conversation_summaries.db`, null, 4096), false, 'the database itself');
+  assert.equal(allowed('antigravity', `${dir}/mcp/jevris_jevris/jevris_advise.json`, null, 900), true);
+  assert.equal(allowed('antigravity', `${dir}/mcp/jevris_jevris/instructions.md`, null, 900), true);
+  assert.equal(allowed('antigravity', `${dir}/mcp/jevris_jevris/oauth_token.json`, null, 90), false, 'a credential-looking name');
+  assert.equal(allowed('antigravity', `${dir}/mcp/jevris_jevris/notes.txt`, null, 90), false);
+  assert.equal(allowed('antigravity', `${dir}/mcp/jevris_jevris/sub/x.json`, null, 90), false);
+  assert.equal(allowed('antigravity', `${dir}/settings.json`, null, 90), false, 'config');
+  assert.equal(allowed('antigravity', `${dir}/conversations/1.pb`, null, 90), false, 'a conversation');
+  assert.equal(allowed('antigravity', `x/${dir}/conversation_summaries.db-shm`, null, 0), false);
+  assert.equal(allowed('kilocode', `${dir}/conversation_summaries.db-shm`, null, 0), false, "another harness's files");
+  assert.equal(offer.classifyTouchedPath(`${dir}/updater/update.lock`), 'self-update');
+  assert.equal(offer.classifyTouchedPath(`${dir}/updater/update_status.json`), 'self-update');
+  assert.equal(offer.classifyTouchedPath(`${dir}/cli.log`), 'harmless');
+  assert.equal(offer.classifyTouchedPath(`${dir}/log/cli-20260930_014442.log`), 'harmless');
+  // Codex's per-process helper folder (codex-rs/arg0: <CODEX_HOME>/tmp/arg0/codex-arg0*) is a temporary folder.
+  for (const file of ['.lock', 'apply_patch', 'applypatch', 'codex-execve-wrapper']) assert.equal(offer.classifyTouchedPath(`.codex/tmp/arg0/codex-arg08ZsOkq/${file}`), 'harmless', file);
+
+  await withBox(async (profile) => {
+    const put = async (path, body) => {
+      await mkdir(join(profile, path, '..'), { recursive: true });
+      await writeFile(join(profile, path), body);
+    };
+    // The owner's run of agy, minus the update files (paths from the evidence file).
+    const secondRun = [
+      `${dir}/cli.log`,
+      `${dir}/conversation_summaries.db-shm`,
+      `${dir}/log/cli-20260930_014442.log`,
+      `${dir}/mcp/jevris_jevris/instructions.md`,
+      `${dir}/mcp/jevris_jevris/jevris_advise.json`,
+      `${dir}/mcp/jevris_jevris/jevris_status.json`,
+    ];
+    let count = 0;
+    const run = (extra) => async () => {
+      count += 1;
+      for (const path of [...secondRun, ...extra]) await put(path, `x${count}`);
+      return { ok: true, models: ['gemini-3.8-flash'] };
+    };
+    const ok = await offer.modelListCheck({ harness: 'antigravity', env: {}, profile, run: run([]) });
+    assert.equal(ok.passed, true, ok.detail);
+    const updating = await offer.modelListCheck({ harness: 'antigravity', env: {}, profile, run: run([`${dir}/updater/update.lock`]) });
+    assert.deepEqual([updating.passed, updating.reasonCode], [false, 'LISTING_SELF_UPDATE'], 'an updater file still fails it');
+    const session = await offer.modelListCheck({ harness: 'antigravity', env: {}, profile, run: run([`${dir}/conversations/1.pb`]) });
+    assert.deepEqual([session.passed, session.reasonCode], [false, 'LISTING_SIDE_EFFECT'], 'a conversation still fails it');
+  });
 });

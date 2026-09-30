@@ -95,7 +95,14 @@ jevris certify --harness codex
 the temporary profile and checks the second run. Besides caches and logs, that run may touch only
 Codex's own startup files, directly in its home folder: a SQLite database's
 `-shm` file, its `-wal` file when it is empty or gone afterwards, the log database
-`logs_<n>.sqlite` and its side files, and anything in the temporary folder `.tmp`. Any other
+`logs_<n>.sqlite` and its side files, and anything in the temporary folder `.tmp`. Codex's
+per-process helper folder `tmp/arg0/codex-arg0*` (the `apply_patch` and `applypatch` links, the exec
+wrapper and a `.lock`, which Codex makes in `<home>/tmp/arg0` at every startup and clears when stale)
+is a temporary folder too and never counts. Between the two runs, certify folds every write-ahead
+log in the temporary profile into its database, so frames the warm-up run left behind are not
+counted against the second run; a `-wal` that still holds data after the second run holds a real
+write of that run (Codex's `goals`, `memories`, `queue` and `state` databases each showed one on
+the first check) and fails it. Any other
 write fails the listing, including a change to a main `.sqlite` file, `config.toml`,
 `auth.json`, a rules file or a session. A listing that fails this check is recorded as
 `LISTING_SIDE_EFFECT`, and Jevris then does not ask Codex for its model list.

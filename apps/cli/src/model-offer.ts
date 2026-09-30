@@ -37,13 +37,15 @@
  * - 512 ids, each checked against MODEL_ID_PATTERN and the secret patterns.
  *
  * The harness's no-update variables are set: OPENCODE_DISABLE_AUTOUPDATE, KILO_DISABLE_AUTOUPDATE
- * and KILO_NO_DAEMON, plus `-c check_for_update_on_startup=false` for Codex.
+ * and KILO_NO_DAEMON, AGY_CLI_DISABLE_AUTO_UPDATE=true for Antigravity (only the literal `true`
+ * disables it; `1` does not, agy issue 1046), plus `-c check_for_update_on_startup=false` for Codex.
  *
  * A result carries only the ids, the harness version, or a reason code. It never carries output
  * text, which can name an account. B's sidecar schedules the refresh, and C's
  * `recordModelListing` writes `<data>/route-learning/model-offer.json`.
  */
-import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, open, readdir, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join, relative, sep } from 'node:path';
 import { MODEL_ID_PATTERN, SECRET_PATTERNS, type ModelRegistry } from '@jevris/contracts';
@@ -217,6 +219,9 @@ export function listingEnv(harness: GlobalHarness, base: Env): { [key: string]: 
     env['KILO_DISABLE_AUTOUPDATE'] = '1';
     env['KILO_NO_DAEMON'] = '1';
   }
+  // Antigravity's documented opt-out (docs/cli/troubleshooting). Only the literal `true` works:
+  // agy 1.2.x does not honour `1` (google-antigravity/antigravity-cli issue 1046).
+  if (harness === 'antigravity') env['AGY_CLI_DISABLE_AUTO_UPDATE'] = 'true';
   return env;
 }
 
@@ -844,6 +849,12 @@ const CLAUDE_MARKETPLACE_LOCK = '.claude/plugins/known_marketplaces.json.lock';
 const CODEX_LOG_DATABASE = /^logs_\d{1,6}\.sqlite(?:-shm|-wal)?$/;
 const CODEX_SQLITE_SHM = /^[A-Za-z0-9_]{1,64}\.sqlite-shm$/;
 const CODEX_SQLITE_WAL = /^[A-Za-z0-9_]{1,64}\.sqlite-wal$/;
+// Antigravity's second-run files: its conversation database's side files and its MCP descriptor cache.
+const AGY_DB_SHM = /^[A-Za-z0-9_]{1,64}\.db-shm$/;
+const AGY_DB_WAL = /^[A-Za-z0-9_]{1,64}\.db-wal$/;
+const AGY_MCP_SERVER = /^[A-Za-z0-9_.-]{1,96}$/;
+const AGY_MCP_DESCRIPTOR = /^[A-Za-z0-9_.-]{1,96}\.json$/;
+const AGY_MCP_SECRET_NAME = /token|oauth|auth|cred|secret|key|session|password/i;
 
 /**
  * A second-run write the owner allowed (DOMAINS 0a9dc8c), by path only:
@@ -864,6 +875,10 @@ const CODEX_SQLITE_WAL = /^[A-Za-z0-9_]{1,64}\.sqlite-wal$/;
  *   gone afterwards; the log database `logs_<n>.sqlite` and its side files, as logs; and anything
  *   in `.codex/.tmp`, a temporary folder like `tmp`. A main `.sqlite` file other than the log
  *   database is never allowed, and neither is any config, auth or rules file.
+ * - Antigravity, directly in `.gemini/antigravity-cli`: a database's `-shm`, its `-wal` when empty or
+ *   gone, and the MCP descriptor cache `mcp/<server>/<tool>.json` and `instructions.md` (never a
+ *   token- or credential-like name). The `updater` folder is LISTING_SELF_UPDATE, never allowed.
+ * (`.codex/tmp/arg0` needs no entry here: `tmp` is a harmless folder in classifyTouchedPath.)
  */
 export function allowedListingWrite(harness: GlobalHarness, path: string, pid: number | null, sizeAfter: number | null, warmUpPid: number | null = null): boolean {
   const segments = path.split('/');
@@ -890,7 +905,107 @@ export function allowedListingWrite(harness: GlobalHarness, path: string, pid: n
     if (entryOf(pid)) return true;
     return warmUpPid !== pid && entryOf(warmUpPid) && sizeAfter === null;
   }
+  if (harness === 'antigravity') {
+    // Antigravity (agy), directly in `.gemini/antigravity-cli`: its conversation database's side
+    // files as for Kilo (the `-wal` only empty or gone), and the cache of the MCP tool descriptors
+    // it re-reads from each configured server at startup, `mcp/<server>/<tool>.json` and
+    // `instructions.md`. A file whose name suggests a token or a credential is never a descriptor.
+    // The updater folder is not here: it is LISTING_SELF_UPDATE, whatever else is allowed.
+    if (segments[0] !== '.gemini' || segments[1] !== 'antigravity-cli') return false;
+    const rest = segments.slice(2);
+    if (rest.length === 1) {
+      const file = rest[0] ?? '';
+      if (AGY_DB_SHM.test(file)) return true;
+      return AGY_DB_WAL.test(file) && (sizeAfter === null || sizeAfter === 0);
+    }
+    if (rest.length === 3 && rest[0] === 'mcp') {
+      const server = rest[1] ?? '';
+      const file = rest[2] ?? '';
+      return AGY_MCP_SERVER.test(server) && (AGY_MCP_DESCRIPTOR.test(file) || file === 'instructions.md') && !AGY_MCP_SECRET_NAME.test(file);
+    }
+    return false;
+  }
   return false;
+}
+
+const SQLITE_MAGIC = 'SQLite format 3\u0000';
+/** At most this many databases are checkpointed in one profile; a profile holds a handful. */
+export const CHECKPOINT_CAP = 64;
+
+interface CheckpointDriver {
+  pragma(source: string): unknown;
+  close(): void;
+}
+type CheckpointDriverCtor = new (path: string, options: { readonly fileMustExist: boolean; readonly timeout: number }) => CheckpointDriver;
+
+function loadCheckpointDriver(): CheckpointDriverCtor | null {
+  try {
+    return createRequire(import.meta.url)('better-sqlite3') as CheckpointDriverCtor;
+  } catch {
+    return null;
+  }
+}
+
+async function isSqliteFile(path: string): Promise<boolean> {
+  let handle;
+  try {
+    handle = await open(path, 'r');
+    const bytes = new Uint8Array(SQLITE_MAGIC.length);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    return bytesRead === bytes.length && String.fromCharCode(...bytes) === SQLITE_MAGIC;
+  } catch {
+    return false;
+  } finally {
+    await handle?.close().catch(() => undefined);
+  }
+}
+
+/**
+ * Folds every SQLite write-ahead log left in the THROWAWAY profile into its database
+ * (`wal_checkpoint(TRUNCATE)`), so that frames a warm-up run left behind cannot show up as writes
+ * of the checked run. A harness killed at the end of its listing never checkpoints; the next run
+ * that opens the database and closes it cleanly does, and that turns the main `.db` (or the
+ * `-wal`) into a change of the second run that the second run did not make. After this, a
+ * database with a non-empty `-wal`, or a `.db` that changed, on the second run holds a write of
+ * that run.
+ *
+ * Only a database (by its file header, not its name) that has a non-empty `-wal` in `snapshot` is
+ * opened, and only inside `profile`. Nothing here reads a row. An unavailable driver, a locked or
+ * damaged file is skipped: the check then stays as strict as before, never looser. Returns how
+ * many were checkpointed.
+ */
+export async function checkpointProfileDatabases(profile: string, snapshot: TreeSnapshot): Promise<number> {
+  const candidates: string[] = [];
+  for (const [rel, stamp] of snapshot) {
+    if (stamp === 'dir' || !rel.endsWith('-wal')) continue;
+    const size = Number(stamp.split(':')[0]);
+    if (!Number.isSafeInteger(size) || size <= 0) continue;
+    const main = rel.slice(0, -'-wal'.length);
+    const mainStamp = snapshot.get(main);
+    if (mainStamp === undefined || mainStamp === 'dir') continue;
+    candidates.push(main);
+    if (candidates.length >= CHECKPOINT_CAP) break;
+  }
+  if (candidates.length === 0) return 0;
+  const Driver = loadCheckpointDriver();
+  if (Driver === null) return 0;
+  let done = 0;
+  for (const rel of candidates) {
+    const path = join(profile, ...rel.split('/'));
+    if (!(await isSqliteFile(path))) continue;
+    try {
+      const db = new Driver(path, { fileMustExist: true, timeout: 2000 });
+      try {
+        db.pragma('wal_checkpoint(TRUNCATE)');
+        done += 1;
+      } finally {
+        db.close();
+      }
+    } catch {
+      // Locked, damaged or not a database after all: leave it; the check stays strict.
+    }
+  }
+  return done;
 }
 
 /**
@@ -914,6 +1029,9 @@ export async function modelListCheck(input: {
   const listingInput: RawListingInput = { harness: input.harness, env: input.env, cwd: input.profile };
   const start = await snapshotTree(input.profile);
   const warm = await run(listingInput);
+  // The warm-up may leave SQLite write-ahead frames (a killed process never checkpoints); fold them
+  // in now so that the second run's own close cannot make them look like its writes.
+  await checkpointProfileDatabases(input.profile, await snapshotTree(input.profile));
   const before = await snapshotTree(input.profile);
   const warmUp = touchedPaths(start, before);
   const listed = await run(listingInput);
