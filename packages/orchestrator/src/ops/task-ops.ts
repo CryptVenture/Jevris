@@ -1012,12 +1012,19 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
         const raw = isPlain(ctx.body) ? own(ctx.body, 'task') : undefined;
         const input = parseTaskInput(raw);
         const rootBudgetId = isPlain(raw) ? own(raw, 'rootBudgetId') : undefined;
-        const refuse = (reasonCode: string, taskId: string | null = null) => respond(ctx, 'task.submit', { accepted: false, taskId, leaseIds: [], reasonCode });
-        if (input === undefined || typeof rootBudgetId !== 'string' || !CONTRACT_ID.test(input.id)) return refuse('INVALID_TASK');
+        const refuse = (reasonCode: string, taskId: string | null = null, detail?: string) =>
+          respond(ctx, 'task.submit', { accepted: false, taskId, leaseIds: [], reasonCode, ...(detail === undefined ? {} : { detail: safeText(detail, 500) }) });
+        if (input === undefined) {
+          // Name the field and the rule, as plan.submit does, so the caller can fix the task (JEV-0040).
+          const checked = checkTaskInput(raw);
+          return checked.ok ? refuse('INVALID_TASK') : refuse('INVALID_TASK', null, `${checked.problem.field}: ${checked.problem.rule}`);
+        }
+        if (typeof rootBudgetId !== 'string') return refuse('INVALID_TASK', null, 'rootBudgetId: the id of a root budget that already exists in this workspace');
+        if (!CONTRACT_ID.test(input.id)) return refuse('INVALID_TASK', null, 'id: letters, digits, . _ - only, starting with a letter or digit, at most 128 characters');
         const budget = ws.host.get<BudgetRecord>('budgets', rootBudgetId);
         if (budget === undefined || budget.workspaceId !== ws.workspaceId) return refuse('NO_ROOT_BUDGET', input.id);
         const added = await submitTask(ws, input, rootBudgetId, budget.ownerId);
-        if (!added.ok) return refuse(added.issues[0]?.code ?? 'INVALID_TASK', input.id);
+        if (!added.ok) return refuse(added.issues[0]?.code ?? 'INVALID_TASK', input.id, added.issues[0]?.detail);
         const started = await startOwnedWork(ctx, ws, [input.id]);
         return respond(ctx, 'task.submit', { accepted: true, taskId: input.id, leaseIds: started.leaseIds, reasonCode: started.reasonCodes.get(input.id) ?? started.fallback });
       },

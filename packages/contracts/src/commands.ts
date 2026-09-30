@@ -940,6 +940,10 @@ export const TaskSubmitPayloadSchema = S.object({
   taskId: S.nullable(Id),
   leaseIds: Ids(64),
   reasonCode: Code,
+},
+{
+  /** Why a task was refused, when it can be said: the field and the rule it broke, or the check or scope involved (JEV-0040). Absent otherwise. */
+  detail: ShortText,
 });
 export type TaskSubmitPayload = S.Static<typeof TaskSubmitPayloadSchema>;
 

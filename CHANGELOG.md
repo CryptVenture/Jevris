@@ -116,6 +116,8 @@ The first public release: one package that installs into five coding harnesses o
 - JEV-0035: cancelling a task cancels nothing else. Queued tasks that wait on it are marked `blocked` with the reason `DEPENDENCY_CANCELLED` (shown as `stateReason` by `jevris_get_task`), and a later unrelated `task.submit` is no longer refused with UNKNOWN_DEPENDENCY because of them.
 - JEV-0008: with more independent tasks than `orchestration.maxConcurrentWorkers`, the next queued task now starts when a worker ends and when a running task is cancelled; the kill switch is read again at that moment, so nothing starts while it is on.
 - JEV-0038: `task.submit` (`jevris_submit_task`) refuses an acceptance check that is not an approved runner check (UNKNOWN_CHECK), as `plan --submit` already did.
+- JEV-0040: a refused `task.submit` (`jevris_submit_task`, `jevris task submit`) now says why in an optional `detail`: the field and the rule it broke, or the check or scope involved. The reason code and the result shape are otherwise unchanged.
+- JEV-0039: documented, and pinned by a test, that a verified or failed task keeps its write scope (it can be reopened), so a new task writing the same path needs a declared dependency.
 
 ### Fixes: Verification, evidence and delivery
 

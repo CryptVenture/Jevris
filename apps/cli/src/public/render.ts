@@ -111,7 +111,7 @@ export function summaryFor(op: SurfaceOperation, payload: unknown, mode: 'full' 
     }
     case 'task.submit': {
       const p = payload as SurfacePayloads['task.submit'];
-      return p.accepted ? `Task ${p.taskId ?? ''} was submitted with ${plural(p.leaseIds.length, 'lease')}${tail}.` : `The task was not submitted (${p.reasonCode})${tail}.`;
+      return p.accepted ? `Task ${p.taskId ?? ''} was submitted with ${plural(p.leaseIds.length, 'lease')}${tail}.` : `The task was not submitted (${p.reasonCode})${p.detail === undefined ? '' : `: ${p.detail}`}${tail}.`;
     }
     case 'handoff.export': {
       const p = payload as SurfacePayloads['handoff.export'];
