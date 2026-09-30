@@ -118,7 +118,7 @@ jobs:
       - name: Generated docs match the release build
         run: node scripts/docs.mjs --check
       - name: Collect installed end-to-end evidence
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           pattern: installed-e2e-*
           path: ci-evidence
@@ -200,7 +200,7 @@ jobs:
           node scripts/checksums.mjs release-assets/*.tgz release-assets/*.cdx.json release-assets/THIRD_PARTY_NOTICES.md --out release-assets/SHA256SUMS
           node scripts/checksums.mjs --check release-assets/SHA256SUMS
       - name: Collect notes and gates report
-        uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           path: release-inputs
       # The trusted publisher allows npm stage publish only. The staged version joins next, and
