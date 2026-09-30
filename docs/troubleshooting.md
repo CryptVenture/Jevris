@@ -307,7 +307,7 @@ Every install and uninstall backs up the files it changes under `<data>/backups/
 ## Windows
 
 - **`npx` is blocked in PowerShell** ("running scripts is disabled", after the release): use `npx.cmd @webventures/jevris ...`, or run from Command Prompt.
-- **`EPERM` or `EBUSY` while installing**: antivirus or an indexer briefly holds a file. Jevris retries atomic writes a few times; if it still fails, run the command again.
+- **`EPERM` or `EBUSY` while installing**: antivirus or an indexer briefly holds a file. Jevris retries atomic writes and its local record reads a few times; if it still fails, run the command again.
 - **Long paths**: a very deep home or `JEVRIS_HOME` can exceed the 260-character limit in older tools. Enable long paths (`LongPathsEnabled`) or use a shorter `JEVRIS_HOME`.
 - **A harness installed as a `.cmd` shim** (for example `codex.cmd` from npm) is found through `PATHEXT`. If `doctor` cannot find the harness, check that its folder is on your user `PATH` in a new terminal.
 - **Roaming profiles**: config under `%APPDATA%\Jevris` roams; the store, runtime copy and backups under `%LOCALAPPDATA%\Jevris` stay on the machine. Run `jevris install --yes` on each machine.

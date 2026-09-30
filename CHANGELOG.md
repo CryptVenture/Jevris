@@ -130,6 +130,7 @@ The first public release: one package that installs into five coding harnesses o
 - JEV-0026: displayed and sent text now masks `password=`/`secret=` style values, `Authorization` header credentials and JWTs.
 - JEV-0009: `jevris checkpoint` invalidates receipts made stale by an edit before it counts open checks, so a stale check shows as open in the capsule and in `retained.openChecks`.
 - JEV-0014: `jevris_handoff_export` and `handoff export` with an unknown task id answer `found: false` instead of exporting the newest workspace capsule.
+- On Windows, a local record that could not be read for a moment (a file being replaced or scanned: `EPERM`, `EBUSY`, `EACCES`) no longer reads as absent. The read waits and tries again, as the write already did, so an approved check no longer reads back as unapproved and `jevris verify` no longer runs nothing.
 
 ### Fixes: Recovery and privacy
 

@@ -182,12 +182,18 @@ function sleepSync(ms: number): void {
 }
 
 function readRecord(path: string): { readonly id: string; readonly v: unknown } | undefined {
-  let text: string;
-  try {
-    if (statSync(path).size > MAX_RECORD_BYTES) return undefined;
-    text = readFileSync(path, 'utf8');
-  } catch {
-    return undefined;
+  let text: string | undefined;
+  // A file being replaced or scanned can refuse a read for a moment on Windows (EPERM, EBUSY,
+  // EACCES). That is not an absent record: wait and read again, as the rename in the write does.
+  for (let attempt = 0; text === undefined; attempt += 1) {
+    try {
+      if (statSync(path).size > MAX_RECORD_BYTES) return undefined;
+      text = readFileSync(path, 'utf8');
+    } catch (error) {
+      const code = typeof error === 'object' && error !== null ? Reflect.get(error, 'code') : undefined;
+      if (attempt >= 7 || (code !== 'EPERM' && code !== 'EBUSY' && code !== 'EACCES')) return undefined;
+      sleepSync(10 * (attempt + 1));
+    }
   }
   try {
     const parsed: unknown = JSON.parse(text);
