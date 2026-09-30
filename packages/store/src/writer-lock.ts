@@ -8,7 +8,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import { closeSync, constants, fsyncSync, lstatSync, openSync, readFileSync, unlinkSync, writeSync } from 'node:fs';
 import { hostname } from 'node:os';
-import { machineIdentity } from '@jevris/platform';
+import { machineIdentity, readSharedFileSync } from '@jevris/platform';
 
 /**
  * The host a lock names: a hash of the stable machine id, so a host-name change (macOS renames
@@ -69,7 +69,7 @@ function readHolder(path: string): WriterLockHolder | 'unreadable' | 'missing' {
     const st = lstatSync(path, { throwIfNoEntry: false });
     if (st === undefined) return 'missing';
     if (!st.isFile()) return 'unreadable';
-    text = readFileSync(path, 'utf8');
+    text = readSharedFileSync(path, 'utf8');
   } catch (error) {
     return typeof error === 'object' && error !== null && Reflect.get(error, 'code') === 'ENOENT' ? 'missing' : 'unreadable';
   }

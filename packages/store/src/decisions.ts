@@ -15,6 +15,7 @@ import { lstatSync, readFileSync, renameSync } from 'node:fs';
 import type { OpenStoreResult, StoreRefusal } from './open.js';
 import { field, isId, isMs, nullableNum, nullableStr, num, read, refuse, str, write } from './access.js';
 import type { SqlDriver } from './schema.js';
+import { readSharedFileSync } from '@jevris/platform';
 
 const LABEL = /^[A-Za-z0-9][A-Za-z0-9_.:/@+-]{0,127}$/;
 const RECORD_CAP = 131_072;
@@ -570,7 +571,7 @@ export function importLegacyLedger(
     const st = lstatSync(file, { throwIfNoEntry: false });
     if (st === undefined) return { ok: true, imported: 0, retiredTo: null };
     if (!st.isFile()) return refuse('path-refused');
-    text = readFileSync(file, 'utf8');
+    text = readSharedFileSync(file, 'utf8');
   } catch {
     return refuse('store-unavailable');
   }

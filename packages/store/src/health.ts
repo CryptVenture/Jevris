@@ -5,6 +5,7 @@
  * `jevris sidecar status` show: a code, the phase and a time, never a path, a row or SQL.
  */
 import { chmodSync, lstatSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { readSharedFileSync } from '@jevris/platform';
 
 export type StoreFaultCode = 'store-full' | 'store-corrupt' | 'store-io' | 'store-readonly';
 
@@ -76,7 +77,7 @@ export function readDiagnostic(dbPath: string): StoreDiagnostic | undefined {
   try {
     const st = lstatSync(target, { throwIfNoEntry: false });
     if (st === undefined || !st.isFile()) return undefined;
-    const parsed: unknown = JSON.parse(readFileSync(target, 'utf8'));
+    const parsed: unknown = JSON.parse(readSharedFileSync(target, 'utf8'));
     if (parsed === null || typeof parsed !== 'object' || Reflect.get(parsed, 'schema') !== 'jevris-store-diagnostic-1') return undefined;
     const code = Reflect.get(parsed, 'code');
     if (typeof code !== 'string' || !(code in ACTIONS)) return undefined;

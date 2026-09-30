@@ -3,7 +3,7 @@ import { closeSync, fstatSync, lstatSync, openSync, readSync, constants as fsCon
 import type { Socket } from 'node:net';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { isAbsoluteFor, jevrisPaths, pathApiFor, type EnvLike } from '@jevris/platform';
+import { isAbsoluteFor, jevrisPaths, pathApiFor, retryTransientSync, type EnvLike } from '@jevris/platform';
 import type {
   SidecarBudgetClass,
   SidecarClientKind,
@@ -227,14 +227,31 @@ const MAX_SMALL_FILE = 8192;
  * this user with no group or other bits; on Windows the private runtime directory's ACL,
  * applied by the daemon, protects it.
  */
-export function readPrivateSmall(path: string, platform: string = process.platform): Buffer | undefined {
+export function readPrivateSmall(path: string, platform: string = process.platform, deps: PrivateReadDeps = {}): Buffer | undefined {
+  const fs = { lstatSync, openSync, fstatSync, readSync, closeSync, ...deps.fs };
+  // A transient EPERM, EBUSY or EACCES (Windows: a writer or scanner holds the file) is retried
+  // a few times, so a live sidecar's endpoint is not read as absent (windows-latest, 84ccf26).
+  try {
+    return retryTransientSync(() => readOnce(fs, path, platform), deps.pause);
+  } catch {
+    return undefined;
+  }
+}
+
+/** The file-system calls of readPrivateSmall; a test replaces them. */
+export interface PrivateReadDeps {
+  readonly fs?: Partial<Pick<typeof import('node:fs'), 'lstatSync' | 'openSync' | 'fstatSync' | 'readSync' | 'closeSync'>>;
+  readonly pause?: (ms: number) => void;
+}
+
+function readOnce(fs: Required<NonNullable<PrivateReadDeps['fs']>>, path: string, platform: string): Buffer | undefined {
   let fd: number | undefined;
   try {
     const flags = fsConstants.O_RDONLY | (platform === 'win32' ? 0 : (fsConstants.O_NOFOLLOW ?? 0));
-    const before = lstatSync(path, { throwIfNoEntry: false });
+    const before = fs.lstatSync(path, { throwIfNoEntry: false });
     if (before === undefined || before.isSymbolicLink() || !before.isFile()) return undefined;
-    fd = openSync(path, flags);
-    const st = fstatSync(fd);
+    fd = fs.openSync(path, flags);
+    const st = fs.fstatSync(fd);
     if (!st.isFile() || st.size > MAX_SMALL_FILE) return undefined;
     if (platform !== 'win32') {
       const me = typeof process.getuid === 'function' ? process.getuid() : undefined;
@@ -244,17 +261,15 @@ export function readPrivateSmall(path: string, platform: string = process.platfo
     const buffer = Buffer.alloc(Number(st.size));
     let read = 0;
     while (read < buffer.byteLength) {
-      const n = readSync(fd, buffer, read, buffer.byteLength - read, read);
+      const n = fs.readSync(fd, buffer, read, buffer.byteLength - read, read);
       if (n <= 0) break;
       read += n;
     }
     return buffer.subarray(0, read);
-  } catch {
-    return undefined;
   } finally {
     if (fd !== undefined) {
       try {
-        closeSync(fd);
+        fs.closeSync(fd);
       } catch {
         // nothing to report
       }

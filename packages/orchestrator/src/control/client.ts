@@ -18,7 +18,7 @@ import { request as httpRequest, type IncomingMessage } from 'node:http';
 import { request as httpsRequest } from 'node:https';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { assertOwnerOnly, isAbsoluteOnAnyPlatform } from '@jevris/platform';
+import { assertOwnerOnly, isAbsoluteOnAnyPlatform, readSharedFileSync } from '@jevris/platform';
 import type { RecordLedger } from '../ledger.js';
 import type { AcquireResult, BudgetRecord, FenceResult, LeaseAuthority, LeaseGrant, LeaseRecord, LeaseRefusalCode, ReservationRecord } from '../orchestration/leases.js';
 import { hostIdentity, isThisHost, livenessOf } from '../orchestration/liveness.js';
@@ -276,7 +276,7 @@ export type ControlSettingsResult = { readonly configured: false } | { readonly 
 export function readControlSettings(configDir: string): ControlSettingsResult {
   let text: string;
   try {
-    text = readFileSync(join(configDir, CONTROL_SETTINGS_FILE), 'utf8');
+    text = readSharedFileSync(join(configDir, CONTROL_SETTINGS_FILE), 'utf8');
   } catch {
     return { configured: false };
   }
@@ -300,7 +300,7 @@ export function readControlSettings(configDir: string): ControlSettingsResult {
 export async function readTokenFile(path: string): Promise<string> {
   const check = await assertOwnerOnly(path);
   if (!check.ok) throw new Error(`control: the token file is not owner-only (${check.reason})`);
-  const token = readFileSync(path, 'utf8').trim();
+  const token = readSharedFileSync(path, 'utf8').trim();
   if (token.length < MIN_TOKEN_CHARS || !/^[\x21-\x7e]+$/.test(token)) throw new Error('control: the token file does not hold a usable token');
   return token;
 }

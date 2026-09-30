@@ -4,6 +4,7 @@ import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSyn
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { scanRead } from '../../../test/live-files.mjs';
 
 // OBS-01: JSONL traces follow each request from receipt to outcome with stable ids; workspace,
 // task, session and delivery ids are keyed HMACs; reason codes are bounded; a grep finds no
@@ -36,7 +37,7 @@ function allText(dir) {
     const path = join(dir, name);
     const st = lstatSync(path);
     if (st.isDirectory()) text += allText(path);
-    else if (st.isFile() && !name.endsWith('.db') && !name.endsWith('-wal') && !name.endsWith('-shm')) text += readFileSync(path, 'utf8');
+    else if (st.isFile() && !name.endsWith('.db') && !name.endsWith('-wal') && !name.endsWith('-shm')) text += scanRead(path, 'utf8');
   }
   return text;
 }

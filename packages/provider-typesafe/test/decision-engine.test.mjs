@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { scanRead } from '../../../test/live-files.mjs';
 
 const provider = await import('../dist/index.js');
 const core = await import('@jevris/core');
@@ -307,7 +308,7 @@ test('DEC-11: createSidecarEngine with a key uses the production SDK port; the k
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const path = join(dir, entry.name);
       if (entry.isDirectory()) scan(path);
-      else assert.equal(readFileSync(path, 'utf8').includes(KEY), false, path);
+      else assert.equal(scanRead(path, 'utf8').includes(KEY), false, path);
     }
   };
   scan(home);

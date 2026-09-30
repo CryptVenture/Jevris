@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rename
 import { tmpdir } from 'node:os';
 import { join, relative } from 'node:path';
 import { startJevStub } from '../../../test/acceptance/jev-stub.mjs';
+import { scanRead } from '../../../test/live-files.mjs';
 
 // Threat-model cases that go through the running sidecar (GOV-14), beside the replay,
 // oversize, slow-read, key-proof and private-endpoint cases in daemon.test.mjs:
@@ -34,7 +35,7 @@ function treeText(dir) {
     const full = join(dir, name);
     const st = statSync(full);
     if (st.isDirectory()) out += treeText(full);
-    else if (st.isFile()) out += readFileSync(full).toString('latin1');
+    else if (st.isFile()) out += scanRead(full).toString('latin1');
   }
   return out;
 }

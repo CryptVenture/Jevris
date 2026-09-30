@@ -3,6 +3,7 @@ import { closeSync, constants, lstatSync, mkdirSync, openSync, readFileSync, rea
 import { fdLineWriter, type LineWriter } from './line-writer.js';
 import { join } from 'node:path';
 import type { SidecarTraceEvent } from '@jevris/contracts';
+import { readSharedFileSync } from '@jevris/platform';
 
 /**
  * Local observability for the sidecar (SSOT §17.5; OBS-01, OBS-02, OBS-03).
@@ -136,7 +137,7 @@ function traceKey(stateDir: string): Uint8Array {
   try {
     const st = lstatSync(path, { throwIfNoEntry: false });
     if (st !== undefined && st.isFile() && !st.isSymbolicLink() && st.size >= 32 && st.size <= 128) {
-      const key = Buffer.from(readFileSync(path, 'utf8').trim(), 'base64url');
+      const key = Buffer.from(readSharedFileSync(path, 'utf8').trim(), 'base64url');
       if (key.length === 32) return key;
     }
     if (st === undefined) {
@@ -186,7 +187,7 @@ export function readDiagnostic(stateDir: string, nowMs: number): DiagnosticState
     const path = join(stateDir, DIAGNOSTIC_FILE);
     const st = lstatSync(path, { throwIfNoEntry: false });
     if (st === undefined || !st.isFile() || st.isSymbolicLink() || st.size > 1024) return { active: false, untilMs: null };
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readSharedFileSync(path, 'utf8')) as Record<string, unknown>;
     const until = parsed['untilMs'];
     const setAt = parsed['setAtMs'];
     if (parsed['schemaVersion'] !== DIAGNOSTIC_SCHEMA || !isSafeCount(until) || !isSafeCount(setAt)) return { active: false, untilMs: null };
@@ -464,7 +465,7 @@ export function readStatusLine(stateDir: string): StatusLineBody | undefined {
     const path = join(stateDir, STATUSLINE_FILE);
     const st = lstatSync(path, { throwIfNoEntry: false });
     if (st === undefined || !st.isFile() || st.isSymbolicLink() || st.size > 4096) return undefined;
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as Record<string, unknown>;
+    const parsed = JSON.parse(readSharedFileSync(path, 'utf8')) as Record<string, unknown>;
     if (parsed['schemaVersion'] !== STATUSLINE_SCHEMA || !isSafeCount(parsed['writtenAtMs']) || !isSafeCount(parsed['pid'])) return undefined;
     const today = parsed['today'] as Record<string, unknown> | undefined;
     if (today === undefined || today === null || typeof today !== 'object') return undefined;

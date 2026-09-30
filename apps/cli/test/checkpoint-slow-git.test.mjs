@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { chmodSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
+import { scanRead } from '../../../test/live-files.mjs';
 
 process.env.JEVRIS_SIDECAR_AUTOSTART = '0';
 
@@ -45,7 +46,7 @@ function capsuleTexts(home) {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith('.json')) found.push(readFileSync(full, 'utf8'));
+      else if (entry.name.endsWith('.json')) found.push(scanRead(full, 'utf8'));
     }
   };
   walk(home);

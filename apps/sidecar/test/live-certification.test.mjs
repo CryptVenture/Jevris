@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync } 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { waitForText } from '../../../test/live-files.mjs';
 
 // F's live certification evidence and background re-checks, wired into the sidecar by B.
 const { envelopeShape, liveHarnessOf, recordDelivery, reverifyHarnesses } = await import('../dist/live-certification.js');
@@ -133,14 +134,8 @@ test("with F's real modules: the event log is owner-only and content-free, and a
     const res = await sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 60_000, body: { envelope, deliveryKey: envelope.dedupKey, harnessVersion: '2.1.280' } });
     assert.equal(res.ok, true, JSON.stringify(res));
     const file = join(jevrisPaths({ home }).data, 'live-evidence', 'events.jsonl');
-    assert.ok(await waitFor(() => {
-      try {
-        return readFileSync(file, 'utf8').length > 0;
-      } catch {
-        return false;
-      }
-    }), 'the live event was appended');
-    const text = readFileSync(file, 'utf8');
+    // The file is appended by the daemon: wait for it with the retrying reader.
+    const text = await waitForText(file);
     assert.equal(text.includes(CANARY), false, 'no event content');
     assert.match(text, /"h":"claude"/);
     if (posix) assert.equal(statSync(file).mode & 0o077, 0);

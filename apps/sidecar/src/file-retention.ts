@@ -3,6 +3,7 @@ import { lstatSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { openLedger } from '@jevris/orchestrator';
 import { CALIBRATION_CASES_RETENTION, DAY_MS, LIVE_EVIDENCE_RETENTION, ORCHESTRATION_RETENTION, type RetentionPolicy } from '@jevris/store';
+import { readSharedFileSync } from '@jevris/platform';
 
 /**
  * Retention for the Jevris data that lives in files beside the store (DATA-11): the
@@ -54,7 +55,7 @@ function recordFile(root: string, collection: string, id: string): string {
 
 function readRecord(path: string): { readonly id: string; readonly v: unknown } | undefined {
   try {
-    const parsed: unknown = JSON.parse(readFileSync(path, 'utf8'));
+    const parsed: unknown = JSON.parse(readSharedFileSync(path, 'utf8'));
     if (parsed === null || typeof parsed !== 'object') return undefined;
     const id = Reflect.get(parsed, 'id');
     return typeof id === 'string' ? { id, v: Reflect.get(parsed, 'v') } : undefined;

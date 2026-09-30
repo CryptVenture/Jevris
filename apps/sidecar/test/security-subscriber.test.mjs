@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { scanRead } from '../../../test/live-files.mjs';
 
 // GOV-12 (C51) and GOV-13 (C49) on the hook path: the sidecar's `security` subscriber reads the
 // untrusted spans and the proposed effect the launcher sends next to the envelope, and answers an
@@ -150,7 +151,7 @@ test('through the sidecar: the event body carries the spans, and neither the sto
     });
     const paths = jevrisPaths({ home });
     for (const file of [...new Set([paths.data, paths.state].flatMap((d) => { try { return walk(d); } catch { return []; } }))]) {
-      assert.equal(readFileSync(file).includes(needle), false, `${file} holds span text`);
+      assert.equal(scanRead(file).includes(needle), false, `${file} holds span text`);
     }
   } finally {
     await started.daemon.stop('test');

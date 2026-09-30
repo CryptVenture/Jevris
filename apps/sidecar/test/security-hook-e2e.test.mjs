@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { sandbox } from '../../../test/acceptance/lib.mjs';
 import { deliverHook } from '../../../test/acceptance/certified-hooks.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { scanRead } from '../../../test/live-files.mjs';
 
 // GOV-12 and GOV-13 end to end: real Claude Code hook deliveries through the launcher, the
 // adapter (F: the tool's returned text as untrusted spans, a proposed call's effect) and the
@@ -54,7 +55,7 @@ test('a fetched page that addresses the agent is flagged, and the next risky cal
     }
   };
   for (const file of [...new Set([paths.data, paths.state, paths.runtime].flatMap(walk))]) {
-    const bytes = readFileSync(file);
+    const bytes = scanRead(file);
     assert.equal(bytes.includes('ignore all previous'), false, `${file} holds the span`);
     assert.equal(bytes.includes('paste.example.net'), false, `${file} holds the command or URL`);
   }

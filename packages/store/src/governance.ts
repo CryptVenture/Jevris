@@ -13,6 +13,7 @@ import { chmodSync, closeSync, constants, lstatSync, openSync, readFileSync, wri
 import type { OpenStoreResult, StoreRefusal } from './open.js';
 import { StoreStop, field, isId, isMs, num, read, refuse, str, write } from './access.js';
 import type { SqlDriver } from './schema.js';
+import { readSharedFileSync } from '@jevris/platform';
 
 export const AUDIT_KINDS = [
   'policy.load',
@@ -234,7 +235,7 @@ export function authorizationKey(store: OpenStoreResult): Uint8Array | undefined
       if (!st.isFile()) return undefined;
       chmodSync(path, 0o600);
     }
-    const text = readFileSync(path, 'utf8').trim();
+    const text = readSharedFileSync(path, 'utf8').trim();
     if (!/^[a-f0-9]{64}$/.test(text)) return undefined;
     const key = new TextEncoder().encode(text);
     keys.set(store.resolvedPath, key);

@@ -9,6 +9,7 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { guardStdin } from '../../../scripts/child-stdin.mjs';
+import { readLive } from '../../../test/live-files.mjs';
 
 const { hookLatencyFile, parseHookLatencyLine } = await import('@jevris/sidecar/client');
 const claude = await import('@jevris/adapter-claude-code');
@@ -38,7 +39,7 @@ function runBin(home, argv, { input, env = {}, keepOpen = false } = {}) {
 function lines(home) {
   const file = hookLatencyFile({ env: { ...process.env, JEVRIS_HOME: home } });
   if (!existsSync(file)) return [];
-  return readFileSync(file, 'utf8').split('\n').filter((line) => line.length > 0).map((line) => parseHookLatencyLine(line));
+  return readLive(file, 'utf8').split('\n').filter((line) => line.length > 0).map((line) => parseHookLatencyLine(line));
 }
 
 test('the watchdog answers and then records one HOOK_WATCHDOG line under the harness id', async (t) => {

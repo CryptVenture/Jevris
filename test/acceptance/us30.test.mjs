@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { startJevStub } from './jev-stub.mjs';
 import { load, story } from './lib.mjs';
+import { scanRead } from '../live-files.mjs';
 
 // A Jev answer that names an option the question never offered, or whose probabilities do not
 // sum to one, must be refused by validation: no action, and a redacted record naming the
@@ -19,7 +20,7 @@ function filesText(dir) {
   for (const name of names) {
     const full = join(dir, name);
     if (statSync(full).isDirectory()) out += filesText(full);
-    else out += readFileSync(full).toString('latin1');
+    else out += scanRead(full).toString('latin1');
   }
   return out;
 }

@@ -3,6 +3,7 @@ import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { calibratedRoute, SLICE } from './calibrated-route.mjs';
 import { load, story } from './lib.mjs';
+import { scanRead } from '../live-files.mjs';
 
 // US03: observe mode with approved egress; `jevris route` evaluates a real route decision on a
 // released calibration (synthetic, signed here and trusted only in this test home). Sonnet 5
@@ -30,7 +31,7 @@ function harnessFiles(home) {
     for (const name of existsSync(dir) ? readdirSync(dir) : []) {
       const path = join(dir, name);
       if (statSync(path).isDirectory()) walk(path);
-      else out[relative(home, path)] = readFileSync(path, 'utf8');
+      else out[relative(home, path)] = scanRead(path, 'utf8');
     }
   };
   for (const dir of ['.claude', '.codex', '.config/opencode', '.kilo', '.gemini']) walk(join(home, dir));

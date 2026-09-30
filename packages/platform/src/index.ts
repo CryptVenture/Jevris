@@ -35,6 +35,7 @@ export {
   type Clock,
   type Deadline,
 } from './clock.js';
+export { SHARED_READ_TRIES, TRANSIENT_READ_CODES, readSharedFileSync, retryTransientSync } from './shared-read.js';
 export { shellQuote } from './shell-quote.js';
 export {
   escapeCmdArgument,

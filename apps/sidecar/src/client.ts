@@ -15,6 +15,7 @@ import { detectLocality } from './locality.js';
 // P8: the hook launcher appends its deadline misses through this client entry (E's bin.ts).
 export { HOOK_LATENCY_FILE, HOOK_LATENCY_FILE_MAX_BYTES, appendHookLatency, hookLatencyFile, hookLatencyLine, parseHookLatencyLine } from './hook-latency.js';
 export type { HookLatencyEntry } from './hook-latency.js';
+import { readSharedFileSync } from '@jevris/platform';
 import {
   CREDENTIAL_ENV_NAME,
   FOREIGN_LOCALITY_MESSAGE,
@@ -361,7 +362,7 @@ function takeSpawnLock(files: RuntimeFiles): boolean {
 
 function spawnLockStale(files: RuntimeFiles): boolean {
   try {
-    const text = readFileSync(files.spawnLock, 'utf8');
+    const text = readSharedFileSync(files.spawnLock, 'utf8');
     const parsed = JSON.parse(text) as { readonly pid?: unknown; readonly atMs?: unknown };
     // A spawner that died (an update or a crash killed it) holds nothing: take the lock now
     // rather than leave every caller rules-only for the stale window.
@@ -535,7 +536,7 @@ async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
 
 function readPidfile(files: RuntimeFiles): number | undefined {
   try {
-    const text = readFileSync(files.pid, 'utf8').trim();
+    const text = readSharedFileSync(files.pid, 'utf8').trim();
     if (!/^\d{1,10}$/.test(text)) return undefined;
     const pid = Number(text);
     return Number.isSafeInteger(pid) && pid > 0 ? pid : undefined;
@@ -551,7 +552,7 @@ function readPidfile(files: RuntimeFiles): number | undefined {
 /** The live pid in a small lock file (`{ pid, atMs }`), other than this process. */
 function liveLockPid(path: string): number | undefined {
   try {
-    const parsed = JSON.parse(readFileSync(path, 'utf8')) as { readonly pid?: unknown; readonly atMs?: unknown };
+    const parsed = JSON.parse(readSharedFileSync(path, 'utf8')) as { readonly pid?: unknown; readonly atMs?: unknown };
     const pid = parsed.pid;
     if (typeof pid !== 'number' || !Number.isSafeInteger(pid) || pid <= 0 || pid === process.pid || !pidAlive(pid)) return undefined;
     return pid;

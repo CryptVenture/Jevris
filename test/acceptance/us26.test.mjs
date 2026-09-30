@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { startJevStub } from './jev-stub.mjs';
 import { load, story } from './lib.mjs';
+import { scanRead } from '../live-files.mjs';
 
 // Egress is approved, so evidence text may go to Jev; a credential or a sensitive path inside
 // it must still be removed or rejected before transport (GOV-08, C50). The credentials are
@@ -39,7 +40,7 @@ function allText(dir) {
     const full = join(dir, name);
     const st = statSync(full);
     if (st.isDirectory()) out += allText(full);
-    else if (st.size < 32 * 1024 * 1024) out += readFileSync(full).toString('latin1');
+    else if (st.size < 32 * 1024 * 1024) out += scanRead(full).toString('latin1');
   }
   return out;
 }
