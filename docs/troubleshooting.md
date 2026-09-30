@@ -101,7 +101,7 @@ settings issue: user: INVALID_JSON; your jevris.config.json cannot be used, so t
 
 A command refused with `MODE_OFF` means Jevris is off: in off mode it makes no Jev call. Run `jevris configure set mode advise` (or another mode) at a terminal to turn it back on.
 
-`Nothing was changed (CHANNEL_REFUSED): raising <key> to <value> widens what Jevris may do ...` means a `jevris configure set` would raise `mode`, `routing.managedWorkers` or `routing.mainSession`, and it did not come from a person at an interactive terminal. Run the same command yourself in a terminal, without `--yes` or `--json`, and answer `y`. Lowering needs no one. See [settings.md](settings.md#raising-what-jevris-may-do).
+`Nothing was changed (CHANNEL_REFUSED): raising <key> to <value> widens what Jevris may do ...` means a `jevris configure set` would raise `mode`, `routing.managedWorkers`, `routing.mainSession` or `verification.backgroundAtStop`, and it did not come from a person at an interactive terminal. Run the same command yourself in a terminal, without `--yes` or `--json`, and answer `y`. Lowering needs no one. See [settings.md](settings.md#raising-what-jevris-may-do).
 
 While the running sidecar has Jev turned off after a refused key, billing or account, doctor also prints its `jev: disabled for ...` line, marked `!`, with the command that clears it (see **degraded** below). Doctor asks only a sidecar that is already running: it never starts one and never reads the circuit file, so with no sidecar running there is no `jev` line.
 
@@ -153,7 +153,7 @@ Without a key Jevris keeps working rules-only, which is a supported mode.
 
 ## The sidecar does not start
 
-Commands start the local sidecar on demand. If `jevris status` shows it `not-running`, `refused` or `timeout`:
+Commands start the local sidecar on demand, unless autostart is off (`JEVRIS_SIDECAR_AUTOSTART=0`); then start it with `jevris sidecar start`. If `jevris status` shows it `not-running`, `refused` or `timeout`:
 
 ```sh
 jevris sidecar status

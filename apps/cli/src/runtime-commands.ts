@@ -1135,7 +1135,7 @@ async function runStoreAdopt(home: string, dbPath: string, json: boolean, write:
   }
   report(write, json, { adopted: adopted.changed, schemaVersion: adopted.schemaVersion }, [
     adopted.changed ? 'store adopt: done; the store now carries this machine\'s identity (audited as store.adopt).' : 'store adopt: the store already carries this machine\'s identity; nothing was changed.',
-    'Run `jevris sidecar start` (hooks also start it on demand).',
+    'Run `jevris sidecar start` (hooks also start it on demand, unless JEVRIS_SIDECAR_AUTOSTART=0).',
   ]);
   return 0;
 }
