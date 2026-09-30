@@ -14,6 +14,7 @@
  * - The sidecar clears under the record's lock and writes the audit row. A sidecar that is not
  *   running means nothing is cleared: the CLI never writes the record itself.
  */
+import { personRequest } from './public/context.js';
 import { ACCESS_PAUSE_CLASSES, AccessScopeSchema, COMMAND_EXIT_CODES, defineContract, schema as S } from '@jevris/contracts';
 import { accessLimitLines, accessScopeText, readAccessLimits, type AccessLimitEntry } from '@jevris/core';
 import { homeRefusal } from './public/home-guard.js';
@@ -155,7 +156,7 @@ export async function runRouteLimitsCommand(argv: readonly string[], write: Writ
     const ensured = await ctx.ports.sidecar.ensure({ home: ctx.home, waitMs: ctx.sidecarWaitMs });
     if (!ensured.ok) return refused(`SIDECAR_${ensured.reason.toUpperCase()}`);
   }
-  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'access-limits.clear', workspace: ctx.workspaceRoot ?? '', body: { entries: reset ? 'all' : keys, channel: 'terminal' }, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'access-limits.clear', workspace: ctx.workspaceRoot ?? '', body: { entries: reset ? 'all' : keys, channel: 'terminal' }, scope: 'cli', ...personRequest(ctx) });
   if (!answer.ok) return refused(answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`);
   const checked = ClearAnswerContract.validate(answer.result);
   if (!checked.ok || !checked.value.cleared.every((c) => keys.includes(c.key))) return refused('SIDECAR_INVALID_RESULT');

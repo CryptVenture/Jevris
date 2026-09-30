@@ -61,7 +61,7 @@ test('task reconcile needs a person: unconfirmed sends nothing; a yes answer or 
   assert.match(asked, /task T1 as applied\?/);
   assert.equal(yes.text, 'Reconciled owned effect op-lease-1 as applied; task T1 is ready.\n');
   const request = fake.calls.at(-1);
-  assert.deepEqual([request.op, request.scope, request.budget, request.workspace], ['task.reconcile', 'cli', 'hot', box.work]);
+  assert.deepEqual([request.op, request.scope, request.budget, request.workspace], ['task.reconcile', 'cli', 'background', box.work]);
   assert.equal(request.body.taskId, 'T1');
   assert.equal(request.body.resolution, 'applied');
 

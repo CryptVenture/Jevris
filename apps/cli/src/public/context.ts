@@ -31,6 +31,20 @@ export interface SurfaceContext {
   nowMs(): number;
 }
 
+/** How long a person's command waits for the sidecar: past its 5 s background budget. */
+export const PERSON_WAIT_MS = 15_000;
+
+/**
+ * The budget and client wait of a request made for a person's command (or an MCP tool call) that
+ * does real work: a store write, a network round trip, a git read, a ledger transaction. It asks
+ * for the background budget (5 s), not the hook's hot one (900 ms), which a loaded host overran
+ * (DEADLINE on a budget update, a migration). Only a hook keeps the hot budget; a late answer is
+ * still DEADLINE.
+ */
+export function personRequest(ctx: { readonly requestTimeoutMs: number }): { readonly timeoutMs: number; readonly budget: 'background' } {
+  return { timeoutMs: Math.max(ctx.requestTimeoutMs, PERSON_WAIT_MS), budget: 'background' };
+}
+
 export interface ContextInput {
   readonly home?: string | undefined;
   readonly workspace?: string | undefined;

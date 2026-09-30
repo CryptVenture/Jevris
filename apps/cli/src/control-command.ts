@@ -12,6 +12,7 @@
  * never taken from argv, the environment or the JSON. Every sidecar answer is checked before it
  * is shown.
  */
+import { personRequest } from './public/context.js';
 import { readFileSync } from 'node:fs';
 import { userInfo } from 'node:os';
 import { COMMAND_EXIT_CODES } from '@jevris/contracts';
@@ -208,11 +209,7 @@ export async function runControlCommand(argv: readonly string[], write: Write, o
     workspace: ctx.workspaceRoot,
     body: sub === 'status' ? {} : { actor },
     scope: 'cli',
-    // A person's command that reaches a service over the network, not a hook: the sidecar's
-    // background budget (5 s), not the hot one (900 ms), which a loaded host (a Windows CI runner)
-    // overran for one import round trip (DEADLINE). The client waits past that budget.
-    timeoutMs: Math.max(ctx.requestTimeoutMs, 15_000),
-    budget: 'background',
+    ...personRequest(ctx),
   });
   if (!answer.ok) {
     const code = answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`;

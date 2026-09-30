@@ -12,6 +12,7 @@
  * refuses it from any other client, and the kill switch stops it. It needs --yes or a y/N
  * answer on a terminal. Every answer is checked against D's shape before it is shown.
  */
+import { personRequest } from './public/context.js';
 import { COMMAND_EXIT_CODES, ID_PATTERN } from '@jevris/contracts';
 import { checkEstimates, estimatesLine, type EstimatesView } from './learning-report.js';
 import { homeRefusal } from './public/home-guard.js';
@@ -239,7 +240,7 @@ export async function runBudgetCommand(argv: readonly string[], write: Write, op
     sub === 'status'
       ? { budgetId }
       : { budgetId, ...(limit === undefined ? {} : { limitMicroUsd: limit, authorizationId }), ...(resume ? { resume: true } : {}), actor: actorName(options.env ?? process.env) };
-  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: sub === 'status' ? 'budget.get' : 'budget.update', workspace: ctx.workspaceRoot, body, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: sub === 'status' ? 'budget.get' : 'budget.update', workspace: ctx.workspaceRoot, body, scope: 'cli', ...personRequest(ctx) });
   if (!answer.ok) {
     const code = answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`;
     const hint = code === 'KILL_SWITCH' ? ' The kill switch is stopped; clear it first with jevris kill-switch clear.' : answer.reason === 'unavailable' ? ' Start the sidecar with jevris sidecar start and retry.' : '';

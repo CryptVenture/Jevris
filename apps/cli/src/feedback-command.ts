@@ -7,6 +7,7 @@
  * shows it as hypotheses for a reviewed release. The op needs the submit scope, so no model tool
  * or hook can record feedback. It asks nothing. Every answer is checked before it is shown.
  */
+import { personRequest } from './public/context.js';
 import { COMMAND_EXIT_CODES } from '@jevris/contracts';
 import { GIVEN_FEEDBACK_REASONS, isDecisionId } from '@jevris/core';
 import { homeRefusal } from './public/home-guard.js';
@@ -111,7 +112,7 @@ export async function runFeedbackCommand(argv: readonly string[], write: Write, 
     if (!ensured.ok) return refused(`SIDECAR_${ensured.reason.toUpperCase()}`);
   }
   const body = accepted ? { decisionId, accepted: true } : reason === undefined ? { decisionId, accepted: false } : { decisionId, accepted: false, reason };
-  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'decision.feedback', workspace: ctx.workspaceRoot, body, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'decision.feedback', workspace: ctx.workspaceRoot, body, scope: 'cli', ...personRequest(ctx) });
   if (!answer.ok) return refused(answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`);
   const recorded = checkFeedbackRecorded(answer.result);
   if (recorded === null) return refused('SIDECAR_INVALID_RESULT');

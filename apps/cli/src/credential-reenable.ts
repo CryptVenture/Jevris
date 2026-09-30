@@ -15,6 +15,7 @@
  *   `jevris credential set` (AUTH_NEEDS_NEW_KEY).
  * - Every text is fixed: reason codes and classes, never a key, a fingerprint or remote text.
  */
+import { personRequest } from './public/context.js';
 import { COMMAND_EXIT_CODES, defineContract, schema as S } from '@jevris/contracts';
 import { OPERATOR_HELP } from './operator-help.js';
 import { homeRefusal } from './public/home-guard.js';
@@ -88,7 +89,7 @@ export async function runCredentialReenableCommand(argv: readonly string[], writ
     return COMMAND_EXIT_CODES.negative;
   };
   // Never started for this: the disable is the running sidecar's state.
-  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'jev.reenable', workspace: ctx.workspaceRoot ?? '', body: { channel: 'terminal' }, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'jev.reenable', workspace: ctx.workspaceRoot ?? '', body: { channel: 'terminal' }, scope: 'cli', ...personRequest(ctx) });
   // After the op may have run (a timeout, an answer Jevris cannot read), whether Jev was
   // re-enabled is unknown: never reported as unchanged (B's LOW 34).
   const unconfirmed = (reasonCode: string, why: string): number => {

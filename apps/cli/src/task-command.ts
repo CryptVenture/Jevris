@@ -4,6 +4,7 @@
  * (submit scope; no MCP tool or hook can reach it), and a person confirms it: after it, the
  * task moves from blocked to ready.
  */
+import { personRequest } from './public/context.js';
 import { userInfo } from 'node:os';
 import { COMMAND_EXIT_CODES, surfacePayloadContract, type SurfacePayloads } from '@jevris/contracts';
 import { defaultPorts } from './public/ports.js';
@@ -161,8 +162,7 @@ export async function runTaskCommand(argv: readonly string[], write: Write, opti
     workspace: ctx.workspaceRoot,
     body: { taskId, resolution, ...(actor === undefined ? {} : { actor }) },
     scope: 'cli',
-    timeoutMs: ctx.requestTimeoutMs,
-    budget: 'hot',
+    ...personRequest(ctx),
   });
   if (!answer.ok) {
     const code = answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`;
@@ -208,12 +208,12 @@ async function runTaskCancel(argv: readonly string[], write: Write, options: Ver
     if (!ensured.ok) return out({ cancelled: false, reasonCode: `SIDECAR_${ensured.reason.toUpperCase()}`, taskId }, 'The Jevris sidecar is not running, so nothing was cancelled. Start it with jevris sidecar start and retry.', COMMAND_EXIT_CODES.negative);
   }
   // A task already cancelled or verified is terminal: this call cancels nothing (D's TERMINAL).
-  const before = await ctx.ports.sidecar.request({ home: ctx.home, op: 'task.get', workspace: ctx.workspaceRoot, body: { taskId }, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+  const before = await ctx.ports.sidecar.request({ home: ctx.home, op: 'task.get', workspace: ctx.workspaceRoot, body: { taskId }, scope: 'cli', ...personRequest(ctx) });
   const prior = before.ok ? surfacePayloadContract('task.get').validate(before.result) : null;
   if (prior !== null && prior.ok && prior.value.taskId === taskId && prior.value.task !== null && (prior.value.task.state === 'cancelled' || prior.value.task.state === 'verified')) {
     return out({ cancelled: false, reasonCode: 'NOT_CANCELLED', taskId, duplicateOf: survivor ?? null, task: prior.value.task }, `Task ${taskId} is already ${prior.value.task.state}; nothing was cancelled.`, COMMAND_EXIT_CODES.negative);
   }
-  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'task.cancel', workspace: ctx.workspaceRoot, body: survivor === undefined ? { taskId } : { taskId, duplicateOf: survivor }, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'task.cancel', workspace: ctx.workspaceRoot, body: survivor === undefined ? { taskId } : { taskId, duplicateOf: survivor }, scope: 'cli', ...personRequest(ctx) });
   if (!answer.ok) {
     const code = answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`;
     const hint = code === 'KILL_SWITCH' ? ' The kill switch is stopped; clear it first with jevris kill-switch clear.' : answer.reason === 'unavailable' ? ' Start the sidecar with jevris sidecar start and retry.' : '';
@@ -275,7 +275,7 @@ async function runTaskRevertDuplicate(argv: readonly string[], write: Write, opt
     if (!ensured.ok) return out({ recorded: false, reasonCode: `SIDECAR_${ensured.reason.toUpperCase()}`, taskId }, 'The Jevris sidecar is not running, so nothing was recorded. Start it with jevris sidecar start and retry.', COMMAND_EXIT_CODES.negative);
   }
   const actor = actorName();
-  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'task.revert-duplicate', workspace: ctx.workspaceRoot, body: actor === undefined ? { taskId } : { taskId, actor }, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: 'task.revert-duplicate', workspace: ctx.workspaceRoot, body: actor === undefined ? { taskId } : { taskId, actor }, scope: 'cli', ...personRequest(ctx) });
   if (!answer.ok) {
     const code = answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`;
     const hint = code === 'KILL_SWITCH' ? ' The kill switch is stopped; clear it first with jevris kill-switch clear.' : answer.reason === 'unavailable' ? ' Start the sidecar with jevris sidecar start and retry.' : '';

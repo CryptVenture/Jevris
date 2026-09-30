@@ -17,6 +17,7 @@ import { COMMAND_EXIT_CODES, HARNESS_IDS, ID_PATTERN, SESSION_ID_PATTERN, Sessio
 import { homeRefusal } from './public/home-guard.js';
 import { defaultPorts } from './public/ports.js';
 import type { SurfaceContext } from './public/context.js';
+import { personRequest } from './public/context.js';
 import { contextFor, parse, type VerifyAdminOptions } from './verify-admin.js';
 
 type Write = (chunk: string) => void;
@@ -101,7 +102,7 @@ export async function requestSessionLink(ctx: SurfaceContext, request: LinkReque
   const body = link
     ? { taskId: request.taskId, ...optional, ...(request.replace === true ? { replace: true } : {}), ...(request.via === undefined ? {} : { via: request.via }), channel: 'terminal' }
     : optional;
-  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: link ? 'session.link' : 'session.unlink', workspace: ctx.workspaceRoot, body, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+  const answer = await ctx.ports.sidecar.request({ home: ctx.home, op: link ? 'session.link' : 'session.unlink', workspace: ctx.workspaceRoot, body, scope: 'cli', ...personRequest(ctx) });
   if (!answer.ok) return refused(answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`);
   const checked = SessionLinkResultContract.validate(answer.result);
   if (!checked.ok) return refused('SIDECAR_INVALID_RESULT');

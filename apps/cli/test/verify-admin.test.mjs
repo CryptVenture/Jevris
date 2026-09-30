@@ -164,7 +164,7 @@ test('waive records a named authority and required shows it as waived, never pas
   assert.equal(required.code, 1, 'unit is missing');
   assert.deepEqual(required.json.checks.map((c) => [c.checkId, c.status, c.waiverAuthority]), [['e2e', 'waived', 'alice'], ['unit', 'missing', null]]);
   const request = op.calls.find((c) => c.kind === 'request');
-  assert.deepEqual([request.op, request.scope, request.budget, request.body], ['verify.required', 'cli', 'hot', { checkIds: ['e2e', 'unit'] }]);
+  assert.deepEqual([request.op, request.scope, request.budget, request.body], ['verify.required', 'cli', 'background', { checkIds: ['e2e', 'unit'] }]);
 
   const down = await verify(box, ['required', 'e2e', '--json']);
   assert.equal(down.code, 1, 'no local report: receipts are read only by the sidecar');

@@ -11,6 +11,7 @@
  * holds, and the sidecar refuses approve from any other client. Approve needs --yes or a y/N
  * answer on a terminal. Every answer is checked against D's shape before it is shown.
  */
+import { personRequest } from './public/context.js';
 import { userInfo } from 'node:os';
 import { COMMAND_EXIT_CODES } from '@jevris/contracts';
 import { homeRefusal } from './public/home-guard.js';
@@ -215,8 +216,7 @@ export async function runIntegrateCommand(argv: readonly string[], write: Write,
     workspace: ctx.workspaceRoot,
     body: sub === 'run' ? { taskIds: args } : sub === 'status' ? (args[0] === undefined ? {} : { integrationId: args[0] }) : { integrationId: args[0], ...(actor === undefined ? {} : { actor }) },
     scope: 'cli',
-    timeoutMs: sub === 'status' ? ctx.requestTimeoutMs : Math.max(ctx.requestTimeoutMs, 300_000),
-    budget: sub === 'status' ? 'hot' : 'background',
+    ...(sub === 'status' ? personRequest(ctx) : { timeoutMs: Math.max(ctx.requestTimeoutMs, 300_000), budget: 'background' as const }),
   });
   if (!answer.ok) {
     const code = answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`;
@@ -232,7 +232,7 @@ export async function runIntegrateCommand(argv: readonly string[], write: Write,
     const until = Date.now() + FOLLOW_LIMIT_MS;
     while (report.state === 'running' && Date.now() < until) {
       await new Promise<void>((resolve) => setTimeout(resolve, FOLLOW_INTERVAL_MS));
-      const next = await ctx.ports.sidecar.request({ home: ctx.home, op: 'integration.get', workspace: ctx.workspaceRoot, body: { integrationId: report.id }, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'hot' });
+      const next = await ctx.ports.sidecar.request({ home: ctx.home, op: 'integration.get', workspace: ctx.workspaceRoot, body: { integrationId: report.id }, scope: 'cli', ...personRequest(ctx) });
       if (!next.ok) break;
       const found = isRec(next.result) && Array.isArray(next.result['reports']) && next.result['reports'].length === 1 ? checkIntegration(next.result['reports'][0]) : null;
       if (found === null || found.id !== report.id) return invalid();

@@ -69,7 +69,7 @@ test('feedback sends accepted, a reasoned rejection or an unspecified one to dec
     assert.equal(shown.asked, false);
     assert.equal(shown.text, `${RECORDED.lines.join('\n')}\n`);
     const request = fake.calls.at(-1);
-    assert.deepEqual([request.op, request.scope, request.budget, request.workspace], ['decision.feedback', 'cli', 'hot', box.work]);
+    assert.deepEqual([request.op, request.scope, request.budget, request.workspace], ['decision.feedback', 'cli', 'background', box.work]);
     assert.deepEqual(request.body, body, flags.join(' '));
   }
   const json = await run(box, [ID, '--rejected', '--json'], fakePorts({ ok: true, result: { ...RECORDED, result: 'replaced' } }).ports);

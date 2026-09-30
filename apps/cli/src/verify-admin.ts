@@ -31,7 +31,7 @@ import {
   waiveCheck,
   workspaceIdFor,
 } from '@jevris/orchestrator';
-import { createSurfaceContext, type SurfaceContext } from './public/context.js';
+import { createSurfaceContext, type SurfaceContext, personRequest } from './public/context.js';
 import { defaultPorts, type SurfacePorts } from './public/ports.js';
 import { homeRefusal } from './public/home-guard.js';
 
@@ -397,8 +397,7 @@ async function requiredFromSidecar(ctx: SurfaceContext, checkIds: readonly strin
     workspace: ctx.workspaceRoot ?? ctx.workspaceId,
     body: { checkIds: [...checkIds] },
     scope: 'cli',
-    timeoutMs: ctx.requestTimeoutMs,
-    budget: 'hot',
+    ...personRequest(ctx),
   });
   if (!answer.ok) return { ok: false, reasonCode: answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}` };
   // The op answers one line per distinct id in its own order (D sorts them). Lines are matched

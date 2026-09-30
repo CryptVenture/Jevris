@@ -19,6 +19,7 @@
  * - Every sidecar answer is checked before it is shown. Grants and revokes are audited by the
  *   sidecar in the same transaction.
  */
+import { personRequest } from './public/context.js';
 import { lstat, readFile } from 'node:fs/promises';
 import { COMMAND_EXIT_CODES, PROVIDER_CONSENT_TEXT, SERVING_HOST_IDS, consentText, providerConsentPhrase, servingHostOf, type ProviderConsentText, type ServingHostConsentText } from '@jevris/contracts';
 import { BUNDLED_MODEL_REGISTRY, BUNDLED_REGISTRY_SOURCES, loadModelRegistry, modelRegistryFile, validateModelRegistry } from '@jevris/core';
@@ -318,10 +319,10 @@ export async function runConsentCommand(argv: readonly string[], write: Write, o
     const ensured = await ctx.ports.sidecar.ensure({ home: ctx.home, waitMs: ctx.sidecarWaitMs });
     if (!ensured.ok) return refused(`SIDECAR_${ensured.reason.toUpperCase()}`);
   }
-  const call = (op: string, body: object, budget: 'hot' | 'background') => ctx.ports.sidecar.request({ home: ctx.home, op, workspace: ctx.workspaceRoot ?? '', body, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget });
+  const call = (op: string, body: object) => ctx.ports.sidecar.request({ home: ctx.home, op, workspace: ctx.workspaceRoot ?? '', body, scope: 'cli', ...personRequest(ctx) });
 
   if (revoke) {
-    const answer = await call('provider.consent.revoke', all ? { all: true, actor: actorName(ctx.env) } : { provider, actor: actorName(ctx.env) }, 'hot');
+    const answer = await call('provider.consent.revoke', all ? { all: true, actor: actorName(ctx.env) } : { provider, actor: actorName(ctx.env) });
     if (!answer.ok) return refused(answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`);
     const r = answer.result as { readonly result?: unknown; readonly providers?: unknown } | null;
     const result = r?.result;
@@ -342,7 +343,7 @@ export async function runConsentCommand(argv: readonly string[], write: Write, o
     return out({ changed: result === 'revoked', result, providers }, lines, COMMAND_EXIT_CODES.ok);
   }
 
-  const status = await call('provider.consent.status', {}, 'background');
+  const status = await call('provider.consent.status', {});
   if (!status.ok) return refused(status.reasonCode ?? `SIDECAR_${status.reason.toUpperCase()}`);
   const stored = checkConsentStatus(status.result);
   if (stored === null) return refused('SIDECAR_INVALID_RESULT');
@@ -374,7 +375,7 @@ export async function runConsentCommand(argv: readonly string[], write: Write, o
     write('\nNot granted: the phrase did not match. Nothing changed.\n');
     return COMMAND_EXIT_CODES.usage;
   }
-  const answer = await call('provider.consent.grant', { provider: id, textVersion: shown.version, channel: 'terminal', actor: actorName(ctx.env) }, 'hot');
+  const answer = await call('provider.consent.grant', { provider: id, textVersion: shown.version, channel: 'terminal', actor: actorName(ctx.env) });
   if (!answer.ok) return refused(answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`);
   const r = answer.result as { readonly result?: unknown; readonly provider?: unknown; readonly textVersion?: unknown; readonly party?: unknown } | null;
   if ((r?.result !== 'granted' && r?.result !== 'already-granted') || r.provider !== id || r.textVersion !== shown.version) return refused('SIDECAR_INVALID_RESULT');
