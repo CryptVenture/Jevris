@@ -168,6 +168,8 @@ The first public release: one package that installs into five coding harnesses o
 - The test-suite serial gate no longer reads a pid marker that is still empty as a dead process: a parallel file that had just written its start marker (or a lock just taken) could look finished, and a serial file ran beside it.
 - The maintenance timing bounds in the tests scale with the same run's own quiet commit time, and the control-service, security-subscriber and surface-e2e tests wait as slow CI servers need.
 - Every CLI command a person runs (`budget`, `task`, `feedback`, `integrate status`, `consent provider`, `route --link`/`--unlink`, `credential reenable`, `route limits clear`, `verify required`, `control`) now asks the sidecar for the background budget (5 s) and waits at least 15 s, instead of the 900 ms hook budget: `budget update` answered DEADLINE on a loaded host. Only a hook keeps the hot budget, and a late answer is still DEADLINE. A lint (`lint/person-budget.lint.mjs`) fails a hot budget anywhere in the CLI.
+- The sidecar log and trace rotation no longer skips silently when the rename onto the old `.1` file fails for a moment (on Windows, `EPERM`, `EBUSY` or `EACCES` while another handle has it open): the rename is retried with a short backoff, then the old file is replaced, and if that also fails the next write tries again, so the log no longer grows past its cap and no line is lost or reordered.
+- Tests: every test that starts a real sidecar and sends hook or hot requests now raises the sidecar's hot budget and the request wait, and reports a failed answer's body; a lint rule (`hot-daemon` in `lint/slow-ci.lint.mjs`) keeps it so.
 
 ### Fixes: Recovery and privacy
 
