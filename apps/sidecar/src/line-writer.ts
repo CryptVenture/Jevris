@@ -10,7 +10,7 @@
  * - `flushSync` writes what is queued at once, for shutdown and for a trace file that is being
  *   closed; a write in flight then finishes first on the libuv pool.
  */
-import { appendFile, appendFileSync, rename, renameSync, statSync, write, writeSync } from 'node:fs';
+import { appendFile, appendFileSync, rename, renameSync, statSync, unlink, unlinkSync, write, writeSync } from 'node:fs';
 
 /** Queued bytes past which a line is dropped (and counted). */
 export const MAX_PENDING_BYTES = 4 * 1024 * 1024;
@@ -125,38 +125,105 @@ function createWriter(target: Target, initialSize: number, options: { readonly m
   };
 }
 
+/** The file-system calls the log writer makes; a test replaces them to make a rename fail. */
+export interface LogFs {
+  readonly appendFile: typeof appendFile;
+  readonly appendFileSync: typeof appendFileSync;
+  readonly rename: typeof rename;
+  readonly renameSync: typeof renameSync;
+  readonly statSync: typeof statSync;
+  readonly unlink: typeof unlink;
+  readonly unlinkSync: typeof unlinkSync;
+}
+
+const NODE_FS: LogFs = { appendFile, appendFileSync, rename, renameSync, statSync, unlink, unlinkSync };
+
+/** A rename onto an existing `.1` fails on Windows while a scanner or another handle holds it. */
+const RETRIABLE = new Set(['EPERM', 'EBUSY', 'EACCES']);
+/** Rename attempts before the old `.1` is replaced instead; the waits between are 5, 10, 20, 40 ms. */
+export const ROTATE_RENAME_TRIES = 5;
+const backoffMs = (attempt: number): number => 5 * 2 ** attempt;
+const codeOf = (error: unknown): string | undefined => (typeof error === 'object' && error !== null ? (error as { code?: string }).code : undefined);
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
 /**
  * The sidecar log: appends to `path` (owner-only), and moves it to `<path>.1` once it would pass
  * `rotateBytes`. The rename happens before the chunk that would cross the limit is written.
+ *
+ * A rename that fails with EPERM, EBUSY or EACCES is tried again a few times, then the old `.1` is
+ * removed and the rename tried once more. Only if that also fails is the chunk appended to the
+ * un-rotated file, and the rotation stays pending for the next write: a rotation is never skipped
+ * silently and a line is never dropped or moved. A missing source (ENOENT) is nothing to rotate.
  */
-export function pathLineWriter(path: string, rotateBytes: number, options: { readonly maxPendingBytes?: number } = {}): LineWriter {
+export function pathLineWriter(path: string, rotateBytes: number, options: { readonly maxPendingBytes?: number; readonly fs?: Partial<LogFs> } = {}): LineWriter {
+  const fs: LogFs = { ...NODE_FS, ...options.fs };
   let initial = 0;
   try {
-    initial = statSync(path).size;
+    initial = fs.statSync(path).size;
   } catch {
     initial = 0;
   }
+  const old = `${path}.1`;
   let rotatePending = false;
   const target: Target = {
     writeAsync(chunk, done) {
       const append = (): void => {
-        appendFile(path, chunk, { mode: 0o600 }, (error) => done(error === null || error === undefined));
+        fs.appendFile(path, chunk, { mode: 0o600 }, (error) => done(error === null || error === undefined));
       };
       if (!rotatePending) return append();
       rotatePending = false;
-      rename(path, `${path}.1`, () => append());
+      const attempt = (n: number): void => {
+        fs.rename(path, old, (error) => {
+          if (error === null || error === undefined || codeOf(error) === 'ENOENT') return append();
+          if (!RETRIABLE.has(codeOf(error) ?? '')) return append();
+          if (n + 1 < ROTATE_RENAME_TRIES) {
+            setTimeout(() => attempt(n + 1), backoffMs(n));
+            return;
+          }
+          // Replace: drop the old `.1`, then one more rename.
+          fs.unlink(old, () => {
+            fs.rename(path, old, (last) => {
+              if (last !== null && last !== undefined && codeOf(last) !== 'ENOENT') rotatePending = true;
+              append();
+            });
+          });
+        });
+      };
+      attempt(0);
     },
     writeSync(chunk) {
       try {
         if (rotatePending) {
           rotatePending = false;
-          try {
-            renameSync(path, `${path}.1`);
-          } catch {
-            // nothing to rotate
+          let rotated = false;
+          for (let n = 0; n < ROTATE_RENAME_TRIES && !rotated; n += 1) {
+            try {
+              fs.renameSync(path, old);
+              rotated = true;
+            } catch (error) {
+              const code = codeOf(error);
+              if (code === 'ENOENT' || !RETRIABLE.has(code ?? '')) {
+                rotated = true; // nothing to rotate, or not a failure a retry can mend
+              } else if (n + 1 < ROTATE_RENAME_TRIES) sleepSync(backoffMs(n));
+            }
+          }
+          if (!rotated) {
+            try {
+              fs.unlinkSync(old);
+            } catch {
+              // no old file to replace
+            }
+            try {
+              fs.renameSync(path, old);
+            } catch (error) {
+              if (codeOf(error) !== 'ENOENT') rotatePending = true;
+            }
           }
         }
-        appendFileSync(path, chunk, { mode: 0o600 });
+        fs.appendFileSync(path, chunk, { mode: 0o600 });
         return true;
       } catch {
         return false;

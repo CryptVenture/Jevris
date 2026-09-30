@@ -129,6 +129,7 @@ declare module 'node:fs' {
   /** P7: asynchronous appends for the log and trace writers. */
   export function appendFile(path: string, data: string, options: { readonly mode?: number }, callback: (error: Error | null) => void): void;
   export function rename(from: string, to: string, callback: (error: Error | null) => void): void;
+  export function unlink(path: string, callback: (error: Error | null) => void): void;
   export function write(fd: number, data: string, callback: (error: Error | null, written?: number) => void): void;
   export function writeFileSync(path: string, data: string | Uint8Array, options?: { readonly mode?: number; readonly flag?: string }): void;
   export function existsSync(path: string): boolean;
