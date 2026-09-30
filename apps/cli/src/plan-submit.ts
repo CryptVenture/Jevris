@@ -107,7 +107,14 @@ function render(result: PlanSubmitResult & { readonly budgetId?: string }): stri
     const lines = [`The plan was not submitted (${result.reasonCode}). Nothing was created.`];
     for (const issue of result.issues) lines.push(`issue: ${issue.taskId} ${issue.code}${issue.detail === null ? '' : ` (${issue.detail})`}`);
     if (result.reasonCode === 'BUDGET_CONFLICT') lines.push('The budget id exists with other settings. Use a new --budget id, or the budget\'s current limit (see jevris budget status) and the same owner; a --reserve-micro-usd or --budget-policy you name must match the recorded one.');
-    if (result.reasonCode === 'PLAN_INVALID') lines.push('Check the plan with jevris plan --graph <file> first.');
+    if (result.reasonCode === 'PLAN_INVALID') {
+      // An INVALID_TASK issue names a scheduling field ("<field>: <rule>"); plan --graph checks only the task graph, so it would not show that problem.
+      lines.push(
+        result.issues.some((issue) => issue.code === 'INVALID_TASK')
+          ? 'Fix the task field named above in the plan file. jevris plan --graph <file> checks only the task graph (ids, dependencies, scopes), not fields such as expectedOutputs.'
+          : 'Check the plan with jevris plan --graph <file> first.',
+      );
+    }
     if (result.reasonCode === 'CHANNEL_REFUSED' || result.reasonCode === 'AUTHORIZATION_REFUSED') {
       lines.push(
         `A new root budget needs a person: answer at an interactive terminal without --yes, or run jevris authorize budget.increase --scope ${result.budgetId ?? '<budget-id>'} in a terminal and pass --authorization <id>${result.reasonCode === 'AUTHORIZATION_REFUSED' ? ' (this one is missing, used, expired, for another budget or for another person)' : ''}. A plan under an existing budget needs neither.`,

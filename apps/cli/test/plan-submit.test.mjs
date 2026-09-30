@@ -111,6 +111,15 @@ test('plan --submit refuses bad flags before asking, and shows refusals with exi
   assert.match(conflict.text, /Use a new --budget id/);
   assert.match(conflict.text, /current limit/, 'JEV-0034: the hint says the limit is the current one');
 
+  const invalid = (issues) => fakePorts({ ok: true, result: { ...SUBMITTED, accepted: false, reasonCode: 'PLAN_INVALID', planId: null, rootBudgetId: null, taskIds: [], waves: [], issues } }).ports;
+  const badField = await plan(box, [...base(box), '--yes'], { ports: invalid([{ taskId: 'a', code: 'INVALID_TASK', detail: 'expectedOutputs: must be a list of non-empty strings' }]) });
+  assert.equal(badField.code, 1);
+  assert.match(badField.text, /issue: a INVALID_TASK \(expectedOutputs: /);
+  assert.match(badField.text, /Fix the task field named above/, 'JEV-0006: a field problem is not sent to plan --graph, which would not show it');
+  assert.doesNotMatch(badField.text, /Check the plan with jevris plan --graph/);
+  const badGraph = await plan(box, [...base(box), '--yes'], { ports: invalid([{ taskId: 'a', code: 'DEPENDENCY_CYCLE', detail: null }]) });
+  assert.match(badGraph.text, /Check the plan with jevris plan --graph <file> first/, 'a graph problem still points at plan --graph');
+
   const stopped = await plan(box, [...base(box), '--yes', '--json'], { ports: fakePorts({ ok: false, reason: 'refused', reasonCode: 'KILL_SWITCH', message: 'stopped' }).ports });
   assert.equal(stopped.code, 1);
   assert.equal(stopped.json.reasonCode, 'KILL_SWITCH');
