@@ -19,6 +19,12 @@ import { isPlain } from '../util.js';
 import { readManagedPolicy } from './managed-policy.js';
 
 export const CONFIG_FILE = 'jevris.config.json';
+
+/** `verification.backgroundAtStop` (owner decision 2026-09-30): off unless a person turns it on. */
+export const BACKGROUND_AT_STOP_KEY = 'verification.backgroundAtStop';
+export const BACKGROUND_AT_STOP_VALUES = ['off', 'on'] as const;
+export type BackgroundAtStopSetting = (typeof BACKGROUND_AT_STOP_VALUES)[number];
+export const BACKGROUND_AT_STOP_DEFAULT: BackgroundAtStopSetting = 'off';
 export const WORKSPACE_CONFIG = join('.jevris', 'config.json'); // path-hygiene: allow workspace-relative config location
 const MAX_BYTES = 262_144;
 
@@ -45,6 +51,8 @@ export const DEFAULT_CONFIG: JevrisConfig = Object.freeze({
   orchestration: { enabled: true, maxConcurrentWorkers: 2, maxWorkerDepth: 1, maxRepairAttempts: 2, maxStopContinuationsPerCondition: 1 },
   compaction: { nativeAutoDeferral: false, preserveMandatoryFacts: true, rawTranscriptEditing: false },
   packs: ['jevris.observability', 'jevris.memory', 'jevris.skill-advice'],
+  // Owner decision 2026-09-30: a Stop queues missing approved checks in the background only when a person turns this on.
+  verification: { backgroundAtStop: BACKGROUND_AT_STOP_DEFAULT },
 }) as JevrisConfig;
 
 const MODE_RANK: { readonly [mode: string]: number } = { off: 0, observe: 1, advise: 2, 'bounded-auto': 3 };
@@ -111,7 +119,11 @@ function setKey<T>(config: T, key: string, value: unknown): T {
   const copy = JSON.parse(JSON.stringify(config)) as { [k: string]: unknown };
   const parts = key.split('.');
   let target = copy;
-  for (const part of parts.slice(0, -1)) target = target[part] as { [k: string]: unknown };
+  for (const part of parts.slice(0, -1)) {
+    // An optional group the file leaves out is created, so a key inside it can be set.
+    if (!isPlain(target[part])) target[part] = {};
+    target = target[part] as { [k: string]: unknown };
+  }
   target[parts[parts.length - 1] as string] = value;
   return copy as T;
 }
@@ -122,6 +134,8 @@ const WORKSPACE_NARROWABLE: { readonly [key: string]: 'min' | 'off' | 'mode' | '
   'routing.managedWorkers': 'mode',
   // An on/off switch: a workspace may only turn it off.
   'routing.modelListing': 'switch',
+  // A workspace may only turn background verification at Stop off: a repository file is not consent to run checks.
+  [BACKGROUND_AT_STOP_KEY]: 'switch',
   'orchestration.enabled': 'off',
   'orchestration.maxConcurrentWorkers': 'min',
   'orchestration.maxWorkerDepth': 'min',
@@ -145,7 +159,15 @@ export function jevBudgetOf(config: JevrisConfig): number {
 
 /** Fills the optional keys a valid file may leave out with their defaults, so every layer sees a value. */
 function withOptionalDefaults(config: JevrisConfig): JevrisConfig {
-  return config.decisions.monthlyBudgetMicroUsd === undefined ? setKey(config, JEV_BUDGET_KEY, JEV_BUDGET_DEFAULT_MICRO_USD) : config;
+  let next = config;
+  if (next.decisions.monthlyBudgetMicroUsd === undefined) next = setKey(next, JEV_BUDGET_KEY, JEV_BUDGET_DEFAULT_MICRO_USD);
+  if (next.verification?.backgroundAtStop === undefined) next = setKey(next, BACKGROUND_AT_STOP_KEY, BACKGROUND_AT_STOP_DEFAULT);
+  return next;
+}
+
+/** Whether background verification at Stop is on in a configuration (absent or anything else: off). */
+export function backgroundAtStopOf(config: JevrisConfig): BackgroundAtStopSetting {
+  return config.verification?.backgroundAtStop === 'on' ? 'on' : 'off';
 }
 
 /** Lowers the Jev decision budget to an administrator's ceiling, noting the layer. */
@@ -412,6 +434,7 @@ function payloadOf(
       managedWorkers: eff.config.routing.managedWorkers,
       orchestrationEnabled: eff.config.orchestration.enabled,
       monthlyBudgetMicroUsd: jevBudgetOf(eff.config),
+      backgroundVerifyAtStop: backgroundAtStopOf(eff.config),
     },
     changed: changed.slice(0, 32).map((c) => ({ key: c.key.slice(0, 128), from: c.from.slice(0, 128), to: c.to.slice(0, 128) })),
     nativePermissionsChanged: false as const,
@@ -467,6 +490,8 @@ export const SETTABLE_KEYS: { readonly [key: string]: Parser } = {
   'routing.managedWorkers': oneOf('off', 'observe', 'advise', 'bounded-auto'),
   // F's harness model listing (owner decision 3f090fa): model ids only, no model call.
   'routing.modelListing': oneOf(...MODEL_LISTING_VALUES),
+  // Owner decision 2026-09-30: a main-session Stop queues the missing approved checks. Raising to `on` needs a person at a terminal.
+  [BACKGROUND_AT_STOP_KEY]: oneOf(...BACKGROUND_AT_STOP_VALUES),
   // OD-8: `advice-only` turns the per-turn main-session switch off. `owned-sdk-approved` is an
   // administrator's value (ADMIN_VALUES), never set here.
   'routing.mainSession': oneOf('advice-only', 'plugin-bounded-auto'),
@@ -508,6 +533,7 @@ const AUTHORITY_RANK: { readonly [key: string]: { readonly [value: string]: numb
   mode: MODE_RANK,
   'routing.managedWorkers': MODE_RANK,
   'routing.mainSession': { 'advice-only': 0, 'plugin-bounded-auto': 1, 'owned-sdk-approved': 2 },
+  [BACKGROUND_AT_STOP_KEY]: { off: 0, on: 1 },
 };
 
 /** Money keys: a higher value lets Jevris spend more, so raising one needs a person too (owner decision 2026-09-29). */

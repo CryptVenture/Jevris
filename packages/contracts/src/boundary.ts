@@ -99,7 +99,16 @@ export const JevrisConfigSchema = S.object({
     rawTranscriptEditing: S.literal(false),
   }),
   packs: EntryList,
-});
+  },
+  {
+    /**
+     * Verification settings (owner decision 2026-09-30). `backgroundAtStop` is `off` when absent:
+     * `on` lets a main-session Stop queue the approved checks that are missing or stale in the
+     * background. It never blocks the Stop.
+     */
+    verification: S.object({}, { backgroundAtStop: S.enumOf(['off', 'on']) }),
+  },
+);
 export type JevrisConfig = S.Static<typeof JevrisConfigSchema>;
 
 export const JevrisConfigContract = defineContract<JevrisConfig>({

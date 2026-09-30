@@ -121,7 +121,7 @@ jevris configure set <key> <value> --dry-run   # show the change without writing
 `configure set` accepts only the keys marked "you" in the table. It prints a key-by-key
 difference and writes the file owner-only. It never edits native harness settings.
 
-The file must hold every key except `routing.modelListing` and `decisions.monthlyBudgetMicroUsd`: one with another key missing does not match the contract and cannot be
+The file must hold every key except `routing.modelListing`, `decisions.monthlyBudgetMicroUsd` and `verification.backgroundAtStop`: one with another key missing does not match the contract and cannot be
 used (see [Your file cannot be used](#your-file-cannot-be-used)). `configure set` always writes
 the whole file, so the easiest way to start one is to set any key with it.
 
@@ -146,6 +146,7 @@ the whole file, so the easiest way to start one is to set any key with it.
 | `routing.mainSession` | `plugin-bounded-auto` | you (a raise needs you at a terminal); `owned-sdk-approved` needs an administrator | `advice-only`, `plugin-bounded-auto`, `owned-sdk-approved` | no | yes (`advice-only` below `bounded-auto`) |
 | `routing.managedWorkers` | `bounded-auto` | you (a raise needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `off`, `observe`, `advise`, `bounded-auto` | yes | yes (`mode`) |
 | `routing.modelListing` | `on` | you | `on`, `off` | yes (switch off) | no |
+| `verification.backgroundAtStop` | `off` | you (turning it on needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `off`, `on` | yes (switch off) | yes (`mode`: it does nothing below `bounded-auto`) |
 | `routing.respectHumanPins` | `true` | nobody | always `true` | no | no |
 | `routing.calibrationArtifact` | `null` | the release process | artifact id or `null` | no | no |
 | `orchestration.enabled` | `true` | you | `true`, `false` | yes (switch off) | no |
@@ -266,8 +267,8 @@ effort per task slice, has its own commands (`jevris route learning`). Both are 
 
 ## Raising what Jevris may do
 
-A `jevris configure set` that raises `mode`, `routing.managedWorkers`, `routing.mainSession` or
-`decisions.monthlyBudgetMicroUsd` above its current effective value (your file under the
+A `jevris configure set` that raises `mode`, `routing.managedWorkers`, `routing.mainSession`,
+`decisions.monthlyBudgetMicroUsd` or `verification.backgroundAtStop` (`off` to `on`) above its current effective value (your file under the
 administrator ceilings) needs a person at an interactive terminal who answers `y`. So does a
 `jevris configure workspace-budget` that raises this workspace's cap or removes it. `configure set` shows the change and asks. It never takes `--yes`, and it refuses
 `--json`, a pipe, a script, a hook, a model's shell and a test run (`JEVRIS_TEST=1`) before it
@@ -284,6 +285,20 @@ line whose code is `CHANNEL_REFUSED`.
 MCP never changes settings at all. Lowering, setting the value a key already has, and a dry run
 need no one. The one-time upgrade of the mode (see [Modes](#modes)) and install's defaults are not raises made
 through `configure set`, so they do not ask.
+
+## Background verification at Stop
+
+`verification.backgroundAtStop` is off by default. When you turn it on, a Stop of your main
+session that finds approved checks missing or stale queues those checks to run in the background,
+so the next Stop or session finds fresh receipts. It never blocks the Stop and never waits for a
+run. It queues only checks in the current approval record, only when Jevris is on in
+`bounded-auto` and the kill switch is clear, and never for a subagent's Stop. Receipts are
+ordinary receipts written by the runner. See [verification.md](verification.md#background-verification-at-stop).
+
+A repository is not consent: the workspace `.jevris/config.json` can only turn it off, so a
+repository cannot start runs on your machine. Turn it on with
+`jevris configure set verification.backgroundAtStop on`; that needs you at a terminal, like any
+change that widens what Jevris does. `jevris status` shows its state.
 
 ## Your file cannot be used
 

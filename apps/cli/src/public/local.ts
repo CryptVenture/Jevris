@@ -28,7 +28,7 @@ import {
   type VerifyPayload,
 } from '@jevris/contracts';
 import { DecisionBudget, UNKNOWN_BUDGET_STATUS, budgetStatusView, harnessModelRef } from '@jevris/core';
-import { ADMIN_KEYS, ADMIN_VALUES, DEFAULT_CONFIG, SETTABLE_KEYS, jevBudgetOf, machineJevBudget, workspaceJevBudget, clearModeMigrationNotice, invalidUserFileMessage, raiseRefusal, raisesAuthority, layerIssues, mainSessionView, migrateModeDefault, modeMigrationNotice, readEffectiveConfig } from '@jevris/orchestrator';
+import { ADMIN_KEYS, ADMIN_VALUES, DEFAULT_CONFIG, SETTABLE_KEYS, backgroundAtStopOf, jevBudgetOf, machineJevBudget, workspaceJevBudget, clearModeMigrationNotice, invalidUserFileMessage, raiseRefusal, raisesAuthority, layerIssues, mainSessionView, migrateModeDefault, modeMigrationNotice, readEffectiveConfig } from '@jevris/orchestrator';
 import { ensurePrivateDir, runSync, writePrivateFile } from '@jevris/platform';
 import { resolveHostSourceEgress, type HostEgressDecision } from '../host-policy.js';
 import { readKillSwitchStopped } from '../kill-switch.js';
@@ -137,6 +137,7 @@ export async function localStatus(ctx: SurfaceContext, degradedReason: string): 
     unknownSlices: [],
     store: storeState(ctx),
     mainSessions,
+    backgroundVerifyAtStop: backgroundAtStopOf(config),
     modeSource,
     settingsIssues: layerIssues(issues).slice(0, 16).map((issue) => ({ path: issue.path.slice(0, 256), code: issue.code.slice(0, 64) })),
     ...modeNoticeOf(ctx),
@@ -538,6 +539,7 @@ export function effectiveView(config: JevrisConfig, egress: HostEgressDecision, 
     managedWorkers: config.routing.managedWorkers,
     orchestrationEnabled: config.orchestration.enabled,
     monthlyBudgetMicroUsd: jevBudgetOf(config),
+    backgroundVerifyAtStop: backgroundAtStopOf(config),
   };
 }
 
@@ -565,7 +567,7 @@ export async function withHostSourceEgress(ctx: SurfaceContext, payload: Configu
 
 function getKey(config: JevrisConfig, key: string): string {
   let value: unknown = config;
-  for (const part of key.split('.')) value = (value as Record<string, unknown>)[part];
+  for (const part of key.split('.')) value = value === undefined || value === null ? undefined : (value as Record<string, unknown>)[part];
   // An optional key the file leaves out (decisions.monthlyBudgetMicroUsd) has its default.
   if (value === undefined && config !== DEFAULT_CONFIG) return getKey(DEFAULT_CONFIG, key);
   return String(value);
@@ -575,7 +577,11 @@ function setKey(config: JevrisConfig, key: string, value: unknown): JevrisConfig
   const copy = JSON.parse(JSON.stringify(config)) as Record<string, unknown>;
   const parts = key.split('.');
   let target = copy;
-  for (const part of parts.slice(0, -1)) target = target[part] as Record<string, unknown>;
+  for (const part of parts.slice(0, -1)) {
+    // An optional group the file leaves out (verification) is created so a key inside it can be set.
+    if (typeof target[part] !== 'object' || target[part] === null) target[part] = {};
+    target = target[part] as Record<string, unknown>;
+  }
   const leaf = parts[parts.length - 1] as string;
   target[leaf] = value;
   return copy as unknown as JevrisConfig;

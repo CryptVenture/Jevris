@@ -192,6 +192,11 @@ export interface VerifyRequest {
   readonly git?: GitPort;
   readonly env?: { readonly [key: string]: string | undefined };
   readonly store?: import('@jevris/store').OpenStoreResult;
+  /**
+   * A run the sidecar queued itself at a Stop (`verification.backgroundAtStop`) is not what a
+   * Stop reminder or a restore asked for, so it is not counted as a check that followed one.
+   */
+  readonly origin?: 'stop-background';
 }
 
 export interface VerifyOutcome {
@@ -205,8 +210,9 @@ export async function runVerification(ws: WorkspaceServices, request: VerifyRequ
   const support = verificationSupport(ws);
   const unknown = request.checkIds.filter((id) => !manifests.some((m) => m.id === id));
   // A check run after a Stop reminder is what the reminder asked for (P6); it is never evidence.
-  if (manifests.length > 0 && unknown.length === 0) await noteReminderCheckStarted(ws.hook, ws.workspaceId, request.taskId, Date.now()).catch(() => undefined);
-  if (manifests.length > 0 && unknown.length === 0) await noteRestoreCheckStarted(ws, Date.now()).catch(() => undefined);
+  const attributable = manifests.length > 0 && unknown.length === 0 && request.origin !== 'stop-background';
+  if (attributable) await noteReminderCheckStarted(ws.hook, ws.workspaceId, request.taskId, Date.now()).catch(() => undefined);
+  if (attributable) await noteRestoreCheckStarted(ws, Date.now()).catch(() => undefined);
   const ran =
     manifests.length === 0 || unknown.length > 0
       ? []

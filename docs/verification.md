@@ -210,6 +210,35 @@ words as the stop report ("Still running in the background: test (running); ..."
 only for the other missing checks. When every missing check is on its way, the reason says that
 stopping again ends the turn labelled unverified.
 
+### Background verification at Stop
+
+Off by default. With `verification.backgroundAtStop` set to `on` (see
+[settings.md](settings.md#background-verification-at-stop)), a Stop of the main session that finds
+approved checks missing or stale queues them in the background, and the Stop answers as it always
+does. This extends the Stop behaviour of the specification, which only requests missing evidence,
+as an opt-in actuation; the specification is unchanged.
+
+- **Which checks.** Only checks in the current approval record whose receipt is missing or stale
+  under the freshness rules of section 4. Nothing is queued when nothing is missing.
+- **How they run.** Through the same runner and scheduler as `jevris verify`: a run for the
+  workspace that is already going is joined or queued behind, never run beside. Only the runner
+  marks a check passed; the receipts are ordinary receipts.
+- **Debounce.** A check already running or queued is not queued again. A check whose background
+  run left a failing receipt at the current input revision is not queued again; a change to its
+  inputs makes the receipt stale and it may queue once more.
+- **The Stop answer.** Same shape, never delayed. The single reminder and continuation rules above
+  still apply. The report says the checks were queued in the same words as any running check
+  ("Still running in the background: ...").
+- **When it does nothing.** The setting is off, the Stop is a subagent's, the session is an owned
+  worker's task, there is no approval record, Jevris is off or below `bounded-auto`, or the kill
+  switch is set.
+- **Status.** `jevris status` shows `background verify at stop`. A queued run is not counted as a
+  reminder that led to a check; a later verified Stop counts as a reminder that led to
+  verification.
+- **Harnesses.** Wherever a Stop is observed: Claude Code, Codex and Antigravity, and Kilo and
+  OpenCode through their idle event (`session.idle` is a Stop there). Kilo and OpenCode have no
+  stop gate, so they queue the runs but cannot be asked to continue.
+
 ## 6. CI results
 
 You can import results from CI instead of running checks locally:

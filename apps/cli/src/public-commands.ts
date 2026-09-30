@@ -371,7 +371,8 @@ Options:
                       (rules-only). A first cap and a lower one need nothing; a higher cap
                       or none needs a person at an interactive terminal who answers y.
   --yes               Never confirms a raise. Raising mode, routing.managedWorkers,
-                      routing.mainSession or decisions.monthlyBudgetMicroUsd above its
+                      routing.mainSession, verification.backgroundAtStop or
+                      decisions.monthlyBudgetMicroUsd above its
                       effective value needs a person at an interactive terminal who answers
                       y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). Lowering and
                       the same value need nothing.

@@ -54,6 +54,7 @@ The settings are one JSON document, `jevris.config.json`, with administrator cei
 | `privacy` | `jevris.config.json` `privacy.*` | egress: only `host.json`, `organization.json` or a managed policy approves it; retention: the `retention` maximums of all three |
 | `routing` | `jevris.config.json` `routing.*`; `calibrationArtifact` comes from `calibration-release.json` | `routing.respectHumanPins` is always `true` |
 | `orchestration` | `jevris.config.json` `orchestration.*` | a repository's `.jevris/config.json` may only lower it |
+| `verification` | `jevris.config.json` `verification.backgroundAtStop` (`off` by default) | a repository's `.jevris/config.json` may only turn it off; it does nothing below `bounded-auto` mode |
 | `compaction` | `jevris.config.json` `compaction.*` | fixed in this release |
 | `packs` | `packs/` in the data folder | `host.json` `packPrivileges` |
 

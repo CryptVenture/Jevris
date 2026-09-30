@@ -231,6 +231,20 @@
       },
       "maxItems": 256,
       "uniqueItems": true
+    },
+    "verification": {
+      "type": "object",
+      "properties": {
+        "backgroundAtStop": {
+          "type": "string",
+          "enum": [
+            "off",
+            "on"
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
     }
   },
   "required": [

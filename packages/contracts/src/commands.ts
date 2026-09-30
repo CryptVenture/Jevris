@@ -335,6 +335,11 @@ export const StatusPayloadSchema = S.object(
      */
     mainSessions: S.nullable(S.array(MainSessionStatusSchema, { maxItems: 5 })),
     /**
+     * Owner decision 2026-09-30: the effective `verification.backgroundAtStop` (off unless a person
+     * turned it on): whether a main-session Stop queues the missing approved checks. Absent when unknown.
+     */
+    backgroundVerifyAtStop: S.enumOf(['off', 'on'] as const),
+    /**
      * Access limits R79 (design 11): the machine's access pauses in force (B's view of core's
      * record), shown in every workspace. Absent or null when the sidecar cannot read it.
      */
@@ -797,6 +802,8 @@ export const ConfigurePayloadSchema = S.object({
       sourceEgressPreference: S.nullable(S.enumOf(SOURCE_EGRESS_VALUES)),
       /** The effective machine-wide monthly Jev decision budget, integer micro-USD; 0 means rules-only. */
       monthlyBudgetMicroUsd: Count,
+      /** verification.backgroundAtStop (owner decision 2026-09-30): whether a main-session Stop queues missing approved checks. */
+      backgroundVerifyAtStop: S.enumOf(['off', 'on'] as const),
     },
   ),
   changed: S.array(S.object({ key: S.string({ maxLength: 128 }), from: S.string({ maxLength: 128 }), to: S.string({ maxLength: 128 }) }), {
