@@ -101,7 +101,7 @@ When the tool may not start the sidecar (`JEVRIS_SIDECAR_AUTOSTART=0`), or it st
 
 | `sidecar.reasonCode` | Meaning |
 | --- | --- |
-| `NOT_RUNNING` | No sidecar is running. Run `jevris sidecar start`, or unset `JEVRIS_SIDECAR_AUTOSTART`. |
+| `NOT_RUNNING` | No sidecar is running. With `JEVRIS_SIDECAR_AUTOSTART=0` the message says autostart is off and nothing will start it, and names the fixes: run `jevris sidecar start`, or unset `JEVRIS_SIDECAR_AUTOSTART`. With autostart allowed it says to run `jevris sidecar start`, or retry, because the sidecar starts on demand. |
 | `KEY_UNREADABLE` | A sidecar is running, but this client cannot read its key file. |
 | `FOREIGN_LOCALITY` | The running sidecar belongs to another execution environment, so it is not used. |
 | `CONNECT_FAILED`, `ECONNREFUSED`, `ENOENT`, `EAGAIN` | The endpoint is listed but the connection failed, for example after a crash. |

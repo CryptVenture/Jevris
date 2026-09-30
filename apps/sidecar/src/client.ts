@@ -60,7 +60,16 @@ function isForeign(files: RuntimeFiles, endpoint: SidecarEndpointFile | undefine
 
 const DEFAULT_TIMEOUT: { readonly [K in SidecarClientKind]: number } = { hook: 900, mcp: 5000, cli: 5000 };
 const SPAWN_LOCK_STALE_MS = 10_000;
-const NOT_RUNNING = 'The Jevris sidecar is not running. Run `jevris sidecar start`, or retry: it starts on demand.';
+/**
+ * The "not running" answer. Where a start is allowed it says the sidecar starts on demand; with
+ * JEVRIS_SIDECAR_AUTOSTART=0 nothing starts it, so it names the two fixes instead and never
+ * promises a start. Text only: the reason codes are chosen by the callers.
+ */
+function notRunningMessage(): string {
+  return process.env['JEVRIS_SIDECAR_AUTOSTART'] === '0'
+    ? 'The Jevris sidecar is not running, and autostart is off (JEVRIS_SIDECAR_AUTOSTART=0), so nothing will start it. Run `jevris sidecar start`, or unset JEVRIS_SIDECAR_AUTOSTART.'
+    : 'The Jevris sidecar is not running. Run `jevris sidecar start`, or retry: it starts on demand.';
+}
 
 function fail(
   reason: 'unavailable' | 'refused' | 'timeout' | 'rejected',
@@ -178,11 +187,11 @@ export async function sidecarRequest(input: SidecarRequestInput): Promise<Sideca
   const deadlineAt = Date.now() + timeoutMs;
   const files = runtimeFiles(input.home !== undefined ? { home: input.home } : {});
   const endpoint = readEndpoint(files);
-  if (endpoint === undefined) return fail('unavailable', NOT_RUNNING, 'NOT_RUNNING');
+  if (endpoint === undefined) return fail('unavailable', notRunningMessage(), 'NOT_RUNNING');
   // A sidecar in another execution environment is not this process's worker (IPC-19).
   if (isForeign(files, endpoint)) return fail('unavailable', FOREIGN_LOCALITY_MESSAGE, 'FOREIGN_LOCALITY');
   const key = readClientKey(files, kind);
-  if (key === undefined) return fail('unavailable', NOT_RUNNING, 'KEY_UNREADABLE');
+  if (key === undefined) return fail('unavailable', notRunningMessage(), 'KEY_UNREADABLE');
   if (input.signal?.aborted === true) return fail('timeout', 'The request was cancelled before it was sent.', 'ABORTED');
   let body: string;
   try {
@@ -194,7 +203,7 @@ export async function sidecarRequest(input: SidecarRequestInput): Promise<Sideca
 
   const opened = await openWithRetry(endpoint, deadlineAt);
   if (opened === 'timeout') return fail('timeout', 'The sidecar did not accept the connection in time.', 'CONNECT_TIMEOUT');
-  if (typeof opened === 'string') return fail('unavailable', NOT_RUNNING, opened === 'error' ? 'CONNECT_FAILED' : opened);
+  if (typeof opened === 'string') return fail('unavailable', notRunningMessage(), opened === 'error' ? 'CONNECT_FAILED' : opened);
   const exchange: Exchange = { socket: opened, reader: new LineReader(opened, { idleMs: remaining(deadlineAt), frameMs: remaining(deadlineAt) }) };
   const onAbort = (): void => {
     exchange.socket.destroy();
@@ -224,7 +233,7 @@ async function converse(
   if (first.kind === 'timeout') return fail('timeout', 'The sidecar did not answer the handshake in time.', 'HANDSHAKE_TIMEOUT');
   if (first.kind !== 'line') {
     if (input.signal?.aborted === true) return fail('timeout', 'The request was cancelled.', 'ABORTED');
-    return fail('unavailable', NOT_RUNNING, 'CLOSED');
+    return fail('unavailable', notRunningMessage(), 'CLOSED');
   }
   const challenge = parseLine(first.text);
   if (challenge === undefined) return fail('refused', 'The sidecar answered with a malformed handshake.', 'SERVER_UNPROVEN');
@@ -257,7 +266,7 @@ async function converse(
   if (reply.kind === 'timeout') return fail('timeout', 'The sidecar did not answer in time; this call ran rules-only.', 'TIMEOUT');
   if (reply.kind !== 'line') {
     if (input.signal?.aborted === true) return fail('timeout', 'The request was cancelled.', 'ABORTED');
-    return fail('unavailable', NOT_RUNNING, 'CLOSED');
+    return fail('unavailable', notRunningMessage(), 'CLOSED');
   }
   const res = parseLine(reply.text);
   if (res === undefined) return fail('refused', 'The sidecar answered with a malformed frame.', 'MALFORMED_RESPONSE');
