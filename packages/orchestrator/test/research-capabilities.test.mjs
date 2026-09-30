@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { signRecord } from '@jevris/contracts';
 import { syntheticRoutingExamples } from '@jevris/core';
-import { adviseCapability, allocateCompute, approveManifests, manifestHash, openWorkspace, parseManifest, runVerification, safetyRegressions, submitPlan } from '../dist/index.js';
+import { adviseCapability, allocateCompute, approveManifests, manifestHash, nodeGit, openWorkspace, parseManifest, runVerification, safetyRegressions, submitPlan } from '../dist/index.js';
 import { closeTestStore, testStore } from './store-fixture.mjs';
 import { tempDir } from './temp-dirs.mjs';
 
@@ -365,6 +365,44 @@ test('C68 evaluates candidates in parallel isolated worktrees, removes them, and
     assert.equal(git(f.repo, 'worktree', 'list').trim().split('\n').length, 1, 'every speculative worktree was removed');
     assert.equal(git(f.repo, 'branch', '--list', 'jevris/*').trim(), '');
     assert.equal(ok(await f.advise('C68', { candidates: [{ id: 'only', patch: edit }] })).reasonCode, 'CANDIDATES_REQUIRED');
+  } finally {
+    f.done();
+  }
+});
+
+/** Real git, except that `fails(args, cwd, nth)` can make a call answer not ok, as a Windows read denied for a moment does. */
+function flakyGit(fails) {
+  const real = nodeGit();
+  const seen = new Map();
+  return {
+    async run(args, cwd) {
+      const key = `${cwd}\0${args[0]}`;
+      const nth = (seen.get(key) ?? 0) + 1;
+      seen.set(key, nth);
+      if (fails(args, cwd, nth)) return { ok: false, stdout: '', stderr: 'error: open("src/a.txt"): Permission denied' };
+      return real.run(args, cwd);
+    },
+  };
+}
+
+test('C68 does not rule out a sound candidate on a git read that fails once (intermittent Windows CI failure), and never treats an unreadable scope as viable', async () => {
+  const f = await fixture({ 'src/a.txt': 'hello\n' });
+  try {
+    const edit = 'diff --git a/src/a.txt b/src/a.txt\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1 +1 @@\n-hello\n+hello world\n';
+    const stale = 'diff --git a/src/a.txt b/src/a.txt\n--- a/src/a.txt\n+++ b/src/a.txt\n@@ -1 +1 @@\n-goodbye\n+hello world\n';
+    const outside = 'diff --git a/docs/new.md b/docs/new.md\nnew file mode 100644\n--- /dev/null\n+++ b/docs/new.md\n@@ -0,0 +1 @@\n+note\n';
+    const input = { allowedPaths: ['src'], candidates: [{ id: 'edit', patch: edit }, { id: 'stale', patch: stale }, { id: 'outside', patch: outside }] };
+    const labels = (a) => Object.fromEntries(a.ranked.map((r) => [r.id, r.label.split(': ')[1]]));
+    // Every worktree's first apply and first status answer not ok; the second answers are real.
+    const once = ok(await f.advise('C68', input, { git: flakyGit((args, _cwd, nth) => (args[0] === 'apply' || args[0] === 'status') && nth === 1) }));
+    assert.equal(once.recommendation, 'edit');
+    assert.deepEqual(labels(once), { edit: 'applies-in-scope', stale: 'does-not-apply', outside: 'writes-outside-scope' });
+    assert.equal(git(f.repo, 'worktree', 'list').trim().split('\n').length, 1, 'every speculative worktree was removed');
+    assert.equal(git(f.repo, 'branch', '--list', 'jevris/*').trim(), '');
+    // A scope git can never report is unknown: not a violation, and never a viable candidate.
+    const never = ok(await f.advise('C68', input, { git: flakyGit((args) => args[0] === 'status') }));
+    assert.equal(never.recommendation, 'none');
+    assert.deepEqual(labels(never), { edit: 'scope-unknown', stale: 'does-not-apply', outside: 'scope-unknown' });
   } finally {
     f.done();
   }

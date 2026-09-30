@@ -683,6 +683,9 @@ async function writeProposalBranch(cx: CapabilityContext, proposalId: string, te
 
 const EXTERNAL_EFFECT = /\b(curl|wget|npm\s+(install|publish)|pip\s+install|git\s+push|docker\s+(push|run)|kubectl|terraform|aws|gcloud|az|ssh|scp)\b/i;
 
+/** How often a candidate that does not come out clean is evaluated afresh before that verdict stands. */
+const C68_ATTEMPTS = 3;
+const C68_RETRY_PAUSE_MS = 40;
 const C68: CapabilityDefinition = {
   id: 'C68',
   title: 'Safe speculative evaluation',
@@ -697,7 +700,7 @@ const C68: CapabilityDefinition = {
     const external = candidates.filter((c) => c.commands.some((cmd) => EXTERNAL_EFFECT.test(cmd)) || EXTERNAL_EFFECT.test(c.patch.split('\n').filter((l) => l.startsWith('+')).join('\n')));
     const results = await Promise.all(
       candidates.map(async (c) => {
-        const created = await createWorktree(cx.ws, { taskId: `spec-${c.id}`, allowedPaths: scopes.length > 0 ? scopes : ['**'] });
+        const created = await createWorktree(cx.ws, { taskId: `spec-${c.id}`, allowedPaths: scopes.length > 0 ? scopes : ['**'] }, { git: cx.git });
         if (!created.ok) return { id: c.id, applies: false, reason: created.reasonCode, changed: 0, violations: 0, removed: false };
         const wt = created.worktree;
         const dir = join(cx.ws.dataDir, 'tmp', `spec-${randomBytes(6).toString('hex')}`);
@@ -705,19 +708,31 @@ const C68: CapabilityDefinition = {
           mkdirSync(dir, { recursive: true, mode: 0o700 });
           const patchFile = join(dir, 'candidate.patch');
           writeFileSync(patchFile, c.patch.endsWith('\n') ? c.patch : `${c.patch}\n`, { mode: 0o600 });
-          const applied = (await cx.git.run(['apply', '--whitespace=nowarn', '--', patchFile], wt.path)).ok;
-          const scope = await enforceAllowedPaths(wt);
-          // Restore the tree so the owned worktree can be removed cleanly.
-          await cx.git.run(['checkout', '--', '.'], wt.path);
-          await cx.git.run(['clean', '-fdq'], wt.path);
-          const removed = await removeWorktree(cx.ws, wt.id, true);
-          return { id: c.id, applies: applied, reason: applied ? (scope.ok ? 'applies-in-scope' : 'writes-outside-scope') : 'does-not-apply', changed: scope.changed.length, violations: scope.violations.length, removed: removed.removed };
+          // A verdict other than "applies in scope" is confirmed on a restored tree before it is
+          // believed. On a just-written tree git can fail for a moment (Windows briefly denies a
+          // read of a freshly written file, and git then reads the file as modified or fails the
+          // apply), so one bad read must not rule a sound candidate out. A candidate that really
+          // does not apply, or really writes outside scope, gives the same verdict every time.
+          let applied = false;
+          let scope: Awaited<ReturnType<typeof enforceAllowedPaths>> = { ok: false, changed: [], violations: [], unknown: true };
+          for (let attempt = 0; attempt < C68_ATTEMPTS; attempt += 1) {
+            if (attempt > 0) await new Promise<void>((resolve) => setTimeout(resolve, C68_RETRY_PAUSE_MS * attempt));
+            applied = (await cx.git.run(['apply', '--whitespace=nowarn', '--', patchFile], wt.path)).ok;
+            scope = await enforceAllowedPaths(wt, { git: cx.git });
+            // Restore the tree so the owned worktree can be removed cleanly, and so a retry starts clean.
+            await cx.git.run(['checkout', '--', '.'], wt.path);
+            await cx.git.run(['clean', '-fdq'], wt.path);
+            if (applied && scope.ok) break;
+          }
+          const removed = await removeWorktree(cx.ws, wt.id, true, { git: cx.git });
+          const reason = !applied ? 'does-not-apply' : scope.unknown ? 'scope-unknown' : scope.ok ? 'applies-in-scope' : 'writes-outside-scope';
+          return { id: c.id, applies: applied, reason, changed: scope.changed.length, violations: scope.violations.length, removed: removed.removed };
         } finally {
           rmSync(dir, { recursive: true, force: true });
         }
       }),
     );
-    const viable = results.filter((r) => r.applies && r.violations === 0 && !external.some((e) => e.id === r.id)).sort((a, b) => a.changed - b.changed || (a.id < b.id ? -1 : 1));
+    const viable = results.filter((r) => r.reason === 'applies-in-scope' && !external.some((e) => e.id === r.id)).sort((a, b) => a.changed - b.changed || (a.id < b.id ? -1 : 1));
     const options: { [key: string]: string } = { none: 'No candidate is safe to continue with.' };
     for (const r of viable) options[r.id] = `applies cleanly in scope, ${String(r.changed)} files changed`;
     const got = await consultChoice(cx.engine, {
