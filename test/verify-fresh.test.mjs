@@ -19,6 +19,8 @@ const git = (cwd, ...args) => {
 };
 
 /** A small repository in a folder whose path has spaces, with one commit and working-tree edits. */
+/** A step line without its run time, which depends on the machine. */
+const noSeconds = (line) => String(line).replace(/ \(\d+s\)$/, '');
 function repoWithSpaces(t) {
   const base = realpathSync(mkdtempSync(join(tmpdir(), 'jevris verify fresh ')));
   t.after(() => rmSync(base, { recursive: true, force: true }));
@@ -136,8 +138,8 @@ test('verify:fresh clones HEAD from a path with spaces, applies the overlay, run
   assert.equal(report.ok, true, lines.join('\n'));
   assert.deepEqual(seen, ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'docs', 'pack', 'future']);
   assert.equal(report.head, head);
-  assert.ok(lines.includes('verify:fresh: lint: ok 110 tests, 110 pass, 0 fail, 0 skipped (0s)'), lines.join('\n'));
-  assert.ok(lines.includes('verify:fresh: test: ok 2181 tests, 2180 pass, 0 fail, 1 skipped (0s)'), lines.join('\n'));
+  assert.ok(lines.map(noSeconds).includes('verify:fresh: lint: ok 110 tests, 110 pass, 0 fail, 0 skipped'), lines.join('\n'));
+  assert.ok(lines.map(noSeconds).includes('verify:fresh: test: ok 2181 tests, 2180 pass, 0 fail, 1 skipped'), lines.join('\n'));
   assert.ok(lines.some((line) => line.startsWith('verify:fresh: pack: ok tarball ok: @webventures/jevris@1.2.0, 119 files')), lines.join('\n'));
   assert.equal(lines.at(-1), `verify:fresh: PASS at ${head} with 3 overlay path(s): 2 copied, 1 removed`);
   assert.equal(existsSync(report.clone), false, 'the clone was removed');
@@ -162,7 +164,7 @@ test('verify:fresh stops after a failed build, keeps the logs, and fails; a fail
   const failTest = await verifyFresh({ mainRoot: main, options: { overlay: [], futureDays: null, dir: base, keep: true }, run: async (step) => (step.id === 'test' ? { code: 1, output: SUMMARY(10, 9, 1, 0) } : { code: 0, output: '' }), write: () => undefined });
   assert.equal(failTest.ok, false);
   assert.deepEqual(failTest.steps.map((s) => s.id), ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'docs', 'pack']);
-  assert.equal(describeStep(failTest.steps[5]), 'test: FAILED (exit 1) 10 tests, 9 pass, 1 fail, 0 skipped (0s)');
+  assert.equal(noSeconds(describeStep(failTest.steps[5])), 'test: FAILED (exit 1) 10 tests, 9 pass, 1 fail, 0 skipped');
   assert.equal(existsSync(failTest.clone), true, '--keep keeps the clone');
 });
 
@@ -240,7 +242,7 @@ test('verify:fresh fails the clean step too for a generated file committed out o
   const ok = await verifyFresh({ mainRoot: main, options: { overlay: [GENERATED, 'src dir/a file.txt', 'new file.txt', 'gone.txt'], futureDays: null, dir: base, keep: false }, run: fakeBuildAndClean(okSeen), write: (line) => okLines.push(line) });
   assert.equal(ok.ok, true, okLines.join('\n'));
   assert.deepEqual(okSeen, ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'docs', 'pack']);
-  assert.ok(okLines.includes('verify:fresh: clean: ok (0s)'), okLines.join('\n'));
+  assert.ok(okLines.map(noSeconds).includes('verify:fresh: clean: ok'), okLines.join('\n'));
 });
 
 test('verify:fresh commits the overlay in the clone as a baseline, so a clean check sees only what the build changed', (t) => {

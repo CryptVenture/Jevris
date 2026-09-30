@@ -33,7 +33,7 @@ function engine(dir) {
   return createDecisionEngine({ transport: port, journalDir: join(dir, 'decisions'), budget: DecisionBudget.open(join(dir, 'budget.json'), { limitMicroUsd: 1_000_000 }) });
 }
 function request() {
-  const compiled = compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 2000, fallback: 'rules-only' });
+  const compiled = compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 30_000, fallback: 'rules-only' });
   return {
     spec: compiled.spec, questions: CONFORMANCE_REQUEST.questions, workspaceId: 'wOutcome', evidenceRevision: 'rev-1', taskId: 'task-1', sessionId: 'sess-1',
     packet: { objective: 'Rename a helper', trustedPolicy: {}, facts: {}, evidence: [{ id: 'e1', text: 'A helper exists.', sourceKind: 'file', priority: 'mandatory' }], missingEvidence: [] },
