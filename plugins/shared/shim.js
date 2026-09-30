@@ -146,6 +146,38 @@ function keyNames(value) {
         .sort()
         .slice(0, 32);
 }
+const COSMETIC_INPUT_KEYS = new Set(['description', 'timeout', 'run_in_background', 'dangerouslyDisableSandbox', 'tool_use_id']);
+const IDENTITY_TEXT_CAP = 65_536;
+const IDENTITY_DEPTH = 6;
+/** Sorted-key JSON of a tool input with cosmetic keys left out and shell whitespace collapsed. */
+function canonicalInput(value, depth = 0) {
+    if (typeof value === 'string')
+        return JSON.stringify(value.replace(/\s+/g, ' ').trim());
+    if (value === null || typeof value !== 'object')
+        return JSON.stringify(value ?? null);
+    if (depth >= IDENTITY_DEPTH)
+        return '"~"';
+    if (Array.isArray(value))
+        return `[${value.slice(0, 256).map((item) => canonicalInput(item, depth + 1)).join(',')}]`;
+    const parts = [];
+    for (const key of Object.keys(value).sort().slice(0, 64)) {
+        if (depth === 0 && COSMETIC_INPUT_KEYS.has(key))
+            continue;
+        parts.push(`${JSON.stringify(key)}:${canonicalInput(own(value, key), depth + 1)}`);
+    }
+    return `{${parts.join(',')}}`;
+}
+/** The payload field of a failure identity; nothing for a call without one. */
+function failureIdentityPayload(identity) {
+    return identity === null ? {} : { toolInputDigest: identity.digest };
+}
+/** Identity of a failed tool call from its input, or null when there is no object input to identify. */
+function failureIdentity(toolName, toolInput) {
+    if (!isPlainObject(toolInput))
+        return null;
+    const text = canonicalInput(toolInput);
+    return { digest: sha256Hex(`${toolName ?? ''}\n${text.length}\n${text.slice(0, IDENTITY_TEXT_CAP)}`).slice(0, 16) };
+}
 /** Drops null entries and trims the summary until it fits the cap. */
 function boundedPayload(entries) {
     const out = {};
@@ -662,6 +694,9 @@ function commandHookParts(harness, name, spec, native, context = {}) {
         toolInputKeys: keyNames(toolInput),
         toolInputBytes: sizeOf(toolInput),
         toolResponseBytes: sizeOf(own(native, 'tool_response')),
+        // A failed call's identity (never its input): a one-way digest, so the same failing call is one
+        // approach and different calls with the same argument keys are not.
+        ...failureIdentityPayload(spec.kind === 'tool.failed' ? failureIdentity(field(own(native, 'tool_name'), 128), toolInput) : null),
         promptBytes: sizeOf(own(native, 'prompt')),
         lastAssistantMessageBytes: sizeOf(own(native, 'last_assistant_message')),
         stopHookActive: flag(own(native, 'stop_hook_active')),

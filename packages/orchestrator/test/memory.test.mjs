@@ -52,7 +52,9 @@ import {
   latestCapsule,
   restoreState,
   recordFact,
+  recordRejectedApproach,
   recordSignals,
+  rejectedApproaches,
   rehydrate,
   retrieveProjectMemory,
   runVerification,
@@ -301,6 +303,24 @@ test('capsule: a receipt made stale by an edit is an open check at checkpoint ti
     const after = (await assembleCapsule(f.ws, { taskId: null })).capsule;
     assert.ok(after.items.some((i) => i.kind === 'open-check' && i.text.includes('unit') && i.text.includes('stale receipt')));
     assert.ok(after.items.some((i) => i.kind === 'next-action' && i.text.includes('unit')));
+  } finally {
+    f.done();
+  }
+});
+
+test('capsule: check lines say why a check is open and how it failed, in words, and mark a failure that is stale', async () => {
+  const f = fixture();
+  try {
+    const m = parseManifest({ id: 'unit', argv: [process.execPath, '-e', 'process.exit(1)'], resultFormat: 'exit-code' }).manifest;
+    await approveManifests(f.ws, [m], { unit: manifestHash(m) }, 'test');
+    await runVerification(f.ws, { taskId: null, checkIds: [] });
+    const current = (await assembleCapsule(f.ws, { taskId: null })).capsule;
+    assert.deepEqual(current.items.filter((i) => i.kind === 'unresolved').map((i) => i.text), ['Check unit failed (exit code 1).'], 'a current failure reads as words, not the code exit:1');
+    writeFileSync(join(f.repo, 'a.txt'), 'edited after the check\n');
+    const stale = (await assembleCapsule(f.ws, { taskId: null })).capsule;
+    assert.deepEqual(stale.items.filter((i) => i.kind === 'unresolved').map((i) => i.text), ['Check unit failed (exit code 1) before the latest changes and has not been re-run.'], 'a stale failure is not passed off as a fresh one');
+    const open = stale.items.find((i) => i.kind === 'open-check' && i.text.includes('unit'));
+    assert.match(open.text, /stale receipt: files it covers changed since it ran; its last outcome was failed/);
   } finally {
     f.done();
   }
@@ -976,6 +996,99 @@ test('subscriber: repeated tool failures are recorded and explained once', async
     assert.equal(third.hookOutcome.kind, 'explain');
     assert.match(third.hookOutcome.text, /same failure/);
     assert.equal((await fail()).hookOutcome.kind, 'observe');
+  } finally {
+    f.done();
+  }
+});
+
+// The session capsule's rejected-approach lines (owner report, 2026-09-30): a failed hook event
+// carries argument key names and sizes, which are the same for every Bash call, so unrelated failures
+// were counted as one repeated approach and printed as `Approach that ends in "error: Bash(command,
+// description) in=196 out=0" failed 3 times.` A failure now carries a one-way digest of its input
+// (never the command text, which the privacy rules keep out of the event); only the same digest is
+// the same approach.
+const bashFailure = (f, command, extra = {}) =>
+  handleHookEvent(
+    event(f, 'tool.failed', {
+      toolName: 'Bash',
+      payload: { toolInputKeys: ['command', 'description'], toolInputBytes: 196, toolResponseBytes: 0, toolInputDigest: createHash('sha256').update(command).digest('hex').slice(0, 16), ...extra },
+    }),
+  );
+
+test('subscriber: three different failing Bash commands with the same argument keys are not one repeated approach', async () => {
+  const f = fixture();
+  try {
+    for (const command of ['npm test', 'git push origin main', 'cargo build']) {
+      assert.equal((await bashFailure(f, command)).hookOutcome.kind, 'observe', command);
+    }
+    assert.deepEqual(rejectedApproaches(f.ws, null), [], 'nothing repeated, so nothing rejected');
+    const capsule = await writeCapsule(f.ws, { taskId: null });
+    assert.deepEqual(capsule.items.filter((i) => i.kind === 'rejected-approach'), []);
+  } finally {
+    f.done();
+  }
+});
+
+test('subscriber: the same command failing three times is one rejected approach, named by tool and digest, never by command text', async () => {
+  const f = fixture();
+  try {
+    assert.equal((await bashFailure(f, 'npm test')).hookOutcome.kind, 'observe');
+    assert.equal((await bashFailure(f, 'git status')).hookOutcome.kind, 'observe', 'another command in between');
+    assert.equal((await bashFailure(f, 'npm test')).hookOutcome.kind, 'observe');
+    assert.equal((await bashFailure(f, 'npm test')).hookOutcome.kind, 'explain', 'the third identical failure');
+    const rows = rejectedApproaches(f.ws, null);
+    assert.equal(rows.length, 1);
+    const handle = createHash('sha256').update('npm test').digest('hex').slice(0, 8);
+    assert.match(rows[0].text, new RegExp(`"Bash call ${handle} \\(same input each time\\)" failed 3 times`));
+    assert.doesNotMatch(rows[0].text, /npm/, 'the command text is not kept');
+    const capsule = await writeCapsule(f.ws, { taskId: null });
+    const lines = capsule.items.filter((i) => i.kind === 'rejected-approach').map((i) => i.text);
+    assert.equal(lines.length, 1);
+    assert.doesNotMatch(lines[0], /\bin=\d|\bout=\d|\(command|npm/, 'no argument keys, byte counts or command text');
+  } finally {
+    f.done();
+  }
+});
+
+test('subscriber: a failure with no identity (names and sizes only) still counts but keeps no rejected-approach line', async () => {
+  const f = fixture();
+  try {
+    const shapeOnly = () => handleHookEvent(event(f, 'tool.failed', { toolName: 'Bash', payload: { toolInputKeys: ['command', 'description'], toolInputBytes: 196, toolResponseBytes: 0 } }));
+    await shapeOnly();
+    await shapeOnly();
+    assert.equal((await shapeOnly()).hookOutcome.kind, 'explain', 'the loop advice is unchanged');
+    assert.deepEqual(rejectedApproaches(f.ws, null), []);
+    const capsule = await writeCapsule(f.ws, { taskId: null });
+    assert.deepEqual(capsule.items.filter((i) => i.kind === 'rejected-approach'), []);
+  } finally {
+    f.done();
+  }
+});
+
+test('subscriber: a malformed digest is no identity, so nothing is printed', async () => {
+  const f = fixture();
+  try {
+    const call = (digest) => handleHookEvent(event(f, 'tool.failed', { toolName: 'Bash', payload: { toolInputKeys: ['command'], toolInputBytes: 9, toolResponseBytes: 0, toolInputDigest: digest } }));
+    for (let i = 0; i < 3; i += 1) await call('rm -rf /home/someone');
+    assert.deepEqual(rejectedApproaches(f.ws, null), [], 'a digest that is not 16 hex characters is not trusted as an identity');
+  } finally {
+    f.done();
+  }
+});
+
+test('capsule: a rejected-approach row written before failures carried an identity is not carried', async () => {
+  const f = fixture();
+  try {
+    const noise = 'Approach that ends in "error: Bash(command,description) in=196 out=0" failed 3 times.';
+    await recordRejectedApproach(f.ws, { taskId: null, text: noise, evidence: [], source: 'worker' });
+    await recordRejectedApproach(f.ws, { taskId: null, text: 'Approach that ends in "Bash call 3f9a1c22 (same input each time)" failed 3 times.', evidence: [], source: 'worker' });
+    const texts = rejectedApproaches(f.ws, null).map((r) => r.text);
+    assert.deepEqual(texts, ['Approach that ends in "Bash call 3f9a1c22 (same input each time)" failed 3 times.']);
+    const capsule = await writeCapsule(f.ws, { taskId: null });
+    assert.deepEqual(capsule.items.filter((i) => i.kind === 'rejected-approach').map((i) => i.text), texts);
+    const { isShapeOnlyLabel } = await import('../dist/index.js');
+    for (const label of ['error: Bash(command,description,timeout) in=345 out=0', 'error: Bash(command) in=297 out=0', 'Bash(command) in=20']) assert.equal(isShapeOnlyLabel(label), true, label);
+    for (const label of ['Bash call 3f9a1c22 (same input each time)', 'Error: expected 3 to equal 4', 'error: TS2345 in f(x) is bad']) assert.equal(isShapeOnlyLabel(label), false, label);
   } finally {
     f.done();
   }

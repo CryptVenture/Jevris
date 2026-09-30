@@ -93,18 +93,43 @@ export interface ToolObservation {
   readonly failed: boolean;
   readonly output: string;
   readonly diffHash: string | null;
+  /**
+   * What makes this call the same approach as another: a one-way key (a digest of its input) and a
+   * label that names the tool and a short form of the key, never the input. With a key, two failures
+   * match only when their keys match; without one they match by output shape.
+   */
+  readonly identity?: { readonly key: string; readonly label: string };
+}
+
+/**
+ * A label that names only a tool's argument keys and byte counts (`error: Bash(command) in=20
+ * out=300`), the shape the hook fell back to before it carried a call's identity. Every failing
+ * call with the same keys wears it, so it says nothing about which approach failed.
+ */
+export function isShapeOnlyLabel(label: string): boolean {
+  return /^(?:error: )?[\w.:-]+\([^)]*\) in=\d+(?: out=\d+)?$/.test(label.trim());
+}
+
+/** True for a ledger text made of a shape-only label (`Approach that ends in "error: Bash(command) in=1 out=2" failed 3 times.`). */
+export function isShapeOnlyApproachText(text: string): boolean {
+  const quoted = /^(?:Approach|Oscillating change) that ends in "(.*)" failed \d+ times/.exec(text.trim())?.[1];
+  return quoted !== undefined && isShapeOnlyLabel(quoted);
 }
 
 /** Signals from one tool observation. Output text is hashed and labelled, never stored. */
 export function signalsFrom(workspaceId: string, obs: ToolObservation): readonly LoopSignal[] {
   const out: LoopSignal[] = [];
   const base = { workspaceId, taskId: obs.taskId, atMs: obs.atMs };
-  if (obs.command !== null) out.push({ ...base, kind: 'command', hash: sha256(obs.command.trim()).slice(0, 24), family: null, environment: false, label: safeText(obs.command, 120) });
+  const idKey = obs.identity?.key;
+  if (obs.command !== null) out.push({ ...base, kind: 'command', hash: sha256((idKey ?? obs.command).trim()).slice(0, 24), family: null, environment: false, label: safeText(obs.identity?.label ?? obs.command, 120) });
   if (obs.diffHash !== null) out.push({ ...base, kind: 'diff', hash: obs.diffHash.slice(0, 24), family: null, environment: false, label: `diff ${obs.diffHash.slice(0, 8)}` });
   if (obs.failed) {
     const fam = errorFamily(obs.output);
     const firstError = obs.output.split(/\r?\n/).find((l) => /error|fail|not ok|✖|exception/i.test(l)) ?? obs.output.slice(0, 200);
-    out.push({ ...base, kind: 'diagnostic', hash: diagnosticFingerprint(obs.output.slice(0, 8000)), family: fam.family, environment: fam.environment, label: safeText(firstError, 200) });
+    // With an identity the failure is the call itself: the output of a hook failure carries no error
+    // text, and normalising its sizes would fold every call with the same keys into one failure.
+    const hash = idKey === undefined ? diagnosticFingerprint(obs.output.slice(0, 8000)) : sha256(`failure\n${idKey}`).slice(0, 24);
+    out.push({ ...base, kind: 'diagnostic', hash, family: fam.family, environment: fam.environment, label: safeText(obs.identity?.label ?? firstError, 200) });
     for (const id of failingTestIds(obs.output)) out.push({ ...base, kind: 'test-failure', hash: sha256(id).slice(0, 24), family: 'test', environment: false, label: safeText(id, 200) });
   } else {
     out.push({ ...base, kind: 'evidence', hash: sha256(`${obs.command ?? ''}\n${obs.output.slice(0, 4000)}`).slice(0, 24), family: null, environment: false, label: 'new evidence' });
@@ -134,6 +159,8 @@ export function rejectedApproaches(ws: WorkspaceServices, taskId: string | null)
   return ws.state
     .list<RejectedApproach>('rejected-approaches')
     .filter((r) => r.workspaceId === ws.workspaceId && (taskId === null || r.taskId === taskId || r.taskId === null))
+    // A row written before failures carried an identity names only argument keys and byte counts.
+    .filter((r) => !isShapeOnlyApproachText(r.text))
     .sort((a, b) => a.atMs - b.atMs);
 }
 
@@ -335,7 +362,11 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
   }
 
   if ((classification === 'repeated-failure' || classification === 'patch-oscillation') && input.record !== false) {
-    const top = [...diagnostics].reverse().find((d) => diagnostics.filter((x) => x.hash === d.hash).length === maxRepeat) ?? diagnostics[diagnostics.length - 1];
+    // Only a failure with a label that names the approach is kept: a shape-only label would print as
+    // noise, and it is the same for every call with those keys.
+    const named = diagnostics.filter((d) => !isShapeOnlyLabel(d.label));
+    const namedRepeat = maxRepeatOf(named.map((d) => d.hash));
+    const top = namedRepeat < (classification === 'patch-oscillation' ? 1 : 2) ? undefined : [...named].reverse().find((d) => named.filter((x) => x.hash === d.hash).length === namedRepeat);
     if (top !== undefined) {
       const key = recordKey(ws.workspaceId, input.taskId ?? '-', top.hash);
       const lastDiff = diffs[diffs.length - 1];
@@ -344,7 +375,7 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
           workspaceId: ws.workspaceId,
           taskId: input.taskId,
           fingerprint: top.hash,
-          text: safeText(`${classification === 'patch-oscillation' ? 'Oscillating change' : 'Approach'} that ends in "${top.label}" failed ${String(maxRepeat)} times${lastDiff === undefined ? '' : ` (last diff ${lastDiff.slice(0, 8)})`}.`, 500),
+          text: safeText(`${classification === 'patch-oscillation' ? 'Oscillating change' : 'Approach'} that ends in "${top.label}" failed ${String(namedRepeat)} times${lastDiff === undefined ? '' : ` (last diff ${lastDiff.slice(0, 8)})`}.`, 500),
           evidence: diagnostics.filter((d) => d.hash === top.hash).map((d) => `sig:${d.hash}`).slice(0, 8),
           atMs: nowMs,
         } satisfies RejectedApproach),

@@ -35,12 +35,14 @@ import { rehydrate } from '../memory/rehydrate.js';
 import { noteRestoreFailure, noteRestoreReask, noteRestoreVerified, recordRestore, restoreInBackground } from '../memory/restore-outcomes.js';
 import { learnSubagentOutcomes, noteSubagentModel, noteSubagentParentVerified, noteSubagentStart, noteSubagentStop, subagentInBackground, type SubagentVerdict } from '../orchestration/subagent-runs.js';
 import { CONTEXT_FEATURE, isCertified } from './certification.js';
+import { orientationFor, startsFreshSession } from './orientation.js';
 import { approvedScopeFor, linkPlannedSession } from '../orchestration/approved-scope.js';
 import { getTask } from '../orchestration/tasks.js';
 import { taskWorkspace } from '../orchestration/workers.js';
 import { approvedManifests, verificationStatus } from '../verify/service.js';
 import { decideStop } from '../verify/completion.js';
 import { pendingChecks, verificationRunKey } from '../verify/runs.js';
+import { queueMissingChecksAtStop } from './stop-autoverify.js';
 import { readEffectiveConfig } from '../settings/config.js';
 import { isId, isPlain, own, recordKey, sha256 } from '../util.js';
 import type { GitPort } from '../verify/revision.js';
@@ -189,20 +191,36 @@ function num(v: unknown): number {
   return typeof v === 'number' && Number.isFinite(v) ? v : 0;
 }
 
+/**
+ * The identity a failed call carries (a one-way digest of its input, from the adapter), or null for
+ * an event from a launcher that sends only names and sizes. The event holds no command text, so the
+ * label can say only which tool and which input: two failures with the same digest are the same call.
+ */
+function failureIdentityOf(env: Envelope): { readonly key: string; readonly label: string } | null {
+  const digest = env.payload['toolInputDigest'];
+  if (typeof digest !== 'string' || !/^[0-9a-f]{16}$/.test(digest)) return null;
+  const name = env.toolName ?? '';
+  const tool = /^[A-Za-z0-9_.:-]{1,64}$/.test(name) ? name : 'tool';
+  return { key: `${tool}\n${digest}`, label: `${tool} call ${digest.slice(0, 8)} (same input each time)` };
+}
+
 async function onTool(ctx: SidecarOpContext, ws: WorkspaceServices, env: Envelope, nowMs: number): Promise<HookOutcomeResult> {
   const failed = env.kind === 'tool.failed';
   const keys = Array.isArray(env.payload['toolInputKeys']) ? (env.payload['toolInputKeys'] as unknown[]).filter((k) => typeof k === 'string').join(',') : '';
-  // The normalized event carries sizes and names only, never output: the fingerprint is the
-  // tool, its input shape and sizes, which repeat when the same call fails the same way.
+  // The normalized event carries sizes and names only, never output. A failed call also carries a
+  // one-way digest of its input: two failures are the same approach only when the digests match.
+  // Without a digest (an older launcher) the tool, its input shape and sizes are all there is, and
+  // those repeat for unrelated calls, so no rejected approach is kept from them.
   const shape = `${env.toolName ?? 'tool'}(${keys}) in=${String(num(env.payload['toolInputBytes']))} out=${String(num(env.payload['toolResponseBytes']))}`;
-  const signals = signalsFrom(ws.workspaceId, { taskId: null, atMs: nowMs, command: `${env.toolName ?? 'tool'}(${keys}) in=${String(num(env.payload['toolInputBytes']))}`, failed, output: failed ? `error: ${shape}` : shape, diffHash: null });
+  const identity = failed ? failureIdentityOf(env) : null;
+  const signals = signalsFrom(ws.workspaceId, { taskId: null, atMs: nowMs, command: `${env.toolName ?? 'tool'}(${keys}) in=${String(num(env.payload['toolInputBytes']))}`, failed, output: failed ? `error: ${shape}` : shape, diffHash: null, ...(identity === null ? {} : { identity }) });
   await recordSignals(ws, signals);
   if (!failed) return observe('SIGNAL_RECORDED');
   // P9: a failure after a restore, and whether its family was seen before it (hashes only; in the background).
   restoreInBackground(noteRestoreFailure(ws, env.sessionId, signals.find((s) => s.kind === 'diagnostic')?.hash ?? null));
   const assessment = await assessLoop(ws, { taskId: null, nowMs });
   if (!['repeated-failure', 'environment-failure', 'patch-oscillation'].includes(assessment.classification)) return observe('SIGNAL_RECORDED');
-  const key = recordKey(ws.workspaceId, assessment.classification, sha256(shape).slice(0, 16));
+  const key = recordKey(ws.workspaceId, assessment.classification, sha256(identity?.key ?? shape).slice(0, 16));
   // Marked shown only when this answer is used; a missed slice explains it at the next failure.
   const wanted = answerWanted(ctx);
   const first = await ws.hook.transact((tx) => {
@@ -282,7 +300,11 @@ export async function drainSessionModels(): Promise<void> {
 }
 
 async function onSessionStart(ctx: SidecarOpContext, ws: WorkspaceServices, env: Envelope, nowMs: number): Promise<HookOutcomeResult> {
-  if (env.trigger !== 'compact' && env.trigger !== 'resume') return observe('NOT_A_RESUME');
+  if (startsFreshSession(env.trigger)) {
+    // A fresh session gets the one orientation line; a compaction or resume gets the capsule below.
+    const line = await orientationFor(ctx, env, nowMs);
+    return line.kind === 'context' ? { hookOutcome: { kind: 'context', text: line.text }, certified: true, reasonCode: 'ORIENTATION' } : observe(line.reasonCode);
+  }
   if (env.sessionId === null) return observe('NO_SESSION');
   const capsule = latestCapsule(ws, null);
   if (capsule === undefined) return observe('NO_CAPSULE');
@@ -357,13 +379,18 @@ async function onStop(ctx: SidecarOpContext, ws: WorkspaceServices, env: Envelop
   const forwarded = isPlain(ctx.body) ? own(ctx.body, 'harnessVersion') : undefined;
   const certification = isCertified({ home: ctx.home, harness: env.harness as Parameters<typeof isCertified>[0]['harness'], featureId: CONTEXT_FEATURE, nowMs, ...(typeof forwarded === 'string' ? { harnessVersion: forwarded } : {}) });
   const ids = approvedManifests(ws).map((m) => m.id);
-  const pending = new Map([...pendingChecks(ws.workspaceId, ids), ...(task === undefined ? [] : pendingChecks(verificationRunKey(ws.workspaceId, task.node.id), ids))]);
+  const pendingNow = (): Map<string, PendingCheckState> => new Map([...pendingChecks(ws.workspaceId, ids), ...(task === undefined ? [] : pendingChecks(verificationRunKey(ws.workspaceId, task.node.id), ids))]);
+  let pending = pendingNow();
   const completion = await verificationStatus(target, {
     taskId: task?.node.id ?? null,
     checkIds: [],
     ...(task === undefined ? {} : { acceptanceCheckIds: task.node.acceptanceCheckIds, requirementIds: task.node.requirementIds }),
     ...(ws.store === undefined ? {} : { store: ws.store }),
   });
+  // `verification.backgroundAtStop` (off by default): a main-session Stop queues the missing approved
+  // checks in the background and goes on; the answer below then says they are running.
+  const queued = await queueMissingChecksAtStop({ ctx, ws, agentId: env.agentId, taskScoped: task !== undefined, completion, ...(gitPort === undefined ? {} : { git: gitPort }) });
+  if (queued.queued.length > 0) pending = pendingNow();
   // Everything asynchronous comes before decideStop: its transaction spends the one reminder
   // only while the sidecar still wants this answer, and nothing waits after it (US14, US23).
   const cert = await certification;

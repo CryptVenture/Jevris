@@ -121,6 +121,40 @@ for (const { name, core } of cores) {
     assert.notEqual(core.buildEvent({ ...parts, sessionId: 's1' }).event.dedupKey, built.event.dedupKey);
   });
 
+  test(`${name}: a failed call carries a one-way input digest, never its input or any part of it`, () => {
+    const spec = { kind: 'tool.failed', blocking: false, responseRequired: false };
+    const fail = (tool_input, tool_name = 'Bash') => core.commandHookParts('claude-code', 'PostToolUseFailure', spec, { session_id: 's1', tool_name, tool_input, error: 'boom' });
+    const payloadOf = (input, tool) => {
+      const result = fail(input, tool);
+      assert.equal(result.ok, true);
+      return result.event.payload;
+    };
+    const a = payloadOf({ command: 'npm test', description: 'run the tests', timeout: 120000 });
+    const b = payloadOf({ command: 'npm   test', description: 'run them again' });
+    const c = payloadOf({ command: 'git push origin main', description: 'run the tests' });
+    assert.match(a.toolInputDigest, /^[0-9a-f]{16}$/);
+    assert.equal(a.toolInputDigest, b.toolInputDigest, 'a description, a timeout and spacing do not make another approach');
+    assert.notEqual(a.toolInputDigest, c.toolInputDigest, 'a different command is a different approach even with the same keys');
+    assert.equal(payloadOf({ command: 'npm test' }, 'Other').toolInputDigest === a.toolInputDigest, false, 'the tool is part of the identity');
+
+    // Nothing readable of the input reaches the event: no program name, no argument, no secret, no file name.
+    for (const [input, tool] of [
+      [{ command: 'cd /repo && FOO=hunter2 npm run build --silent' }, 'Bash'],
+      [{ command: 'curl -H "Authorization: Bearer sk-secret" https://example.com/x' }, 'Bash'],
+      [{ file_path: '/work/src/capsule.ts', old_string: 'secret text', new_string: 'x' }, 'Edit'],
+    ]) {
+      const payload = payloadOf(input, tool);
+      assert.deepEqual(Object.keys(payload).filter((k) => /command|head|target|path|name/i.test(k) && k !== 'toolName'), [], `${tool}: only names, sizes and the digest`);
+      const text = JSON.stringify(payload);
+      for (const needle of ['hunter2', 'secret', 'npm', 'curl', 'capsule', 'example.com']) assert.equal(text.includes(needle), false, `${tool} leaks ${needle}`);
+    }
+
+    // Only a failed call carries an identity.
+    const finished = core.commandHookParts('claude-code', 'PostToolUse', { kind: 'tool.finished', blocking: false, responseRequired: false }, { session_id: 's1', tool_name: 'Bash', tool_input: { command: 'npm test' }, tool_response: {} });
+    assert.equal(finished.event.payload.toolInputDigest, undefined);
+    assert.equal(fail('not an object').event.payload.toolInputDigest, undefined);
+  });
+
   test(`${name}: context text is trimmed, bounded and only for context or explain`, () => {
     assert.equal(core.contextText({ kind: 'observe' }), null);
     assert.equal(core.contextText({ kind: 'route', model: 'claude-haiku-4-5' }), null);

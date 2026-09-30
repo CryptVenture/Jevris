@@ -218,10 +218,13 @@ export async function gatherItems(ws: WorkspaceServices, taskId: string | null, 
     const row = latest.get(m.id);
     const passing = row !== undefined && row.validity === 'current' && row.receipt.outcome === 'passed';
     if (!passing && m.mandatory) {
-      const why = row === undefined ? 'no receipt' : row.validity !== 'current' ? 'stale receipt' : `last outcome ${row.receipt.outcome}`;
+      const stale = row !== undefined && row.validity !== 'current';
+      const why = row === undefined ? 'no receipt' : stale ? `stale receipt: ${staleWhy(row.invalidatedReason)}; its last outcome was ${row.receipt.outcome}` : `last outcome ${row.receipt.outcome}`;
       items.push(item('open-check', `check-${m.id}`, `Check ${m.id} is open (${why}).`, { mandatory: true, source: 'receipt', refs: row === undefined ? [] : [row.receipt.id] }));
+      // A failure stays unresolved until a check passes on the current code. A stale receipt says so:
+      // it failed before the latest changes and has not been re-run, so it is not a fresh result.
       if (row !== undefined && row.receipt.outcome === 'failed') {
-        items.push(item('unresolved', `fail-${m.id}`, `Check ${m.id} failed: ${row.receipt.outcomeReason}.`, { mandatory: true, source: 'receipt', refs: [row.receipt.id, ...(row.receipt.rawOutputHandle === null ? [] : [row.receipt.rawOutputHandle])] }));
+        items.push(item('unresolved', `fail-${m.id}`, `Check ${m.id} failed (${failureWhy(row.receipt.outcomeReason)})${stale ? ' before the latest changes and has not been re-run' : ''}.`, { mandatory: true, source: 'receipt', refs: [row.receipt.id, ...(row.receipt.rawOutputHandle === null ? [] : [row.receipt.rawOutputHandle])] }));
       }
     }
     if (row?.receipt.rawOutputHandle !== null && row?.receipt.rawOutputHandle !== undefined) {
@@ -235,6 +238,32 @@ export async function gatherItems(ws: WorkspaceServices, taskId: string | null, 
   const blocked = tasks.filter((t) => t.node.state === 'blocked').map((t) => t.node.id);
   if (blocked.length > 0) items.push(item('next-action', 'next-reconcile', `Reconcile blocked tasks before rescheduling: ${blocked.slice(0, 10).join(', ')}.`));
   return { items, declared, snapshot };
+}
+
+/** Why a receipt went stale, in words (the invalidation reason code). */
+function staleWhy(reason: string | null): string {
+  switch (reason) {
+    case 'inputs-changed':
+      return 'files it covers changed since it ran';
+    case 'branch-changed':
+      return 'the branch changed since it ran';
+    case 'lockfile-changed':
+      return 'the lockfile changed since it ran';
+    case 'other-revision':
+      return 'it was recorded for another revision';
+    default:
+      return 'the code changed since it ran';
+  }
+}
+
+/** A receipt's outcome reason code, in words (`exit:1` is "exit code 1"). */
+function failureWhy(reason: string): string {
+  const exit = /^exit:(-?\d+)$/.exec(reason);
+  if (exit !== null) return `exit code ${exit[1] ?? ''}`;
+  if (reason === 'timeout') return 'timed out';
+  if (reason === 'structured-failures') return 'its results list failing tests';
+  const signal = /^signal:(\w+)$/.exec(reason);
+  return signal === null ? `reason ${reason}` : `killed by ${signal[1] ?? 'a signal'}`;
 }
 
 const DEFAULT_BUDGET = 3_000;
