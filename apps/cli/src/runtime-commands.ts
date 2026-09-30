@@ -310,7 +310,7 @@ async function defaultBuildPorts(): Promise<SidecarBuildPorts> {
  * - A supervised one retires itself the same way, so its service manager starts it again.
  * - Otherwise, and for a sidecar from before build ids (it cannot retire itself), it is stopped
  *   now with the graceful shutdown frame (in-flight requests drain first), and the installed
- *   build is started at once on the same endpoint, so the first hooks after the install are
+ *   build is started at once (on the same socket path; a Windows pipe gets a new name), so the first hooks after the install are
  *   answered and do not run rules-only.
  * - A sidecar that was not running is not started (autostart on the next hook is unchanged), and
  *   neither is one when JEVRIS_SIDECAR_AUTOSTART=0 is set. A supervised sidecar is never started

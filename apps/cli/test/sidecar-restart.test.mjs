@@ -65,7 +65,7 @@ function realPortsRunningOld(installedId) {
   };
 }
 
-test('a running sidecar is replaced by a new process on the same endpoint, and answers at once (pair: none before means none after)', async () => {
+test('a running sidecar is replaced by a new process (on the same socket path off Windows), and answers at once (pair: none before means none after)', async () => {
   const home = tempHome();
   try {
     await withEntry(async () => {
@@ -80,7 +80,9 @@ test('a running sidecar is replaced by a new process on the same endpoint, and a
       assert.equal(after.running, true, `${String(line)}: a sidecar answers after the install`);
       assert.notEqual(after.endpoint.pid, before.endpoint.pid, 'a new process');
       assert.equal(alive(before.endpoint.pid), false, 'the old one exited');
-      assert.equal(after.endpoint.endpoint, before.endpoint.endpoint, 'the same endpoint');
+      // A Unix socket keeps its path. A Windows pipe name carries a random part chosen at every start.
+      if (process.platform === 'win32') assert.notEqual(after.endpoint.endpoint, before.endpoint.endpoint, 'a new pipe name');
+      else assert.equal(after.endpoint.endpoint, before.endpoint.endpoint, 'the same endpoint');
       const ping = await sidecar.sidecarRequest({ home, op: 'ping', scope: 'hook' });
       assert.equal(ping.ok, true, 'the first hook after the install is answered');
       assert.match(line, /^sidecar build: restarted the sidecar/, `build ${String(built.result.build)}`);
