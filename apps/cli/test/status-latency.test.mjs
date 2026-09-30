@@ -40,6 +40,7 @@ test('latencySummary totals hook misses, late answers, slow subscribers and brea
     targetMs: 900,
     hookDeadlineMisses: 4,
     hookSidecarMisses: 3,
+    hookSidecarStarting: 0,
     lateSidecarAnswers: 2,
     slowSubscribers: [
       { name: 'restore', count: 4, maxMs: 1400 },
@@ -164,4 +165,43 @@ test('status shows which model registry routing reads, and a refused override (B
   assert.match(renderHuman(result({ source: 'refused', snapshotId: null, reasonCode: 'MODEL_REGISTRY_NOT_JSON' })), /^model registry: override refused \(MODEL_REGISTRY_NOT_JSON\), routing unavailable;/m);
   // An older sidecar leaves it out: no line, no error.
   assert.doesNotMatch(renderHuman(result(null)), /^model registry/m);
+});
+
+test('client-side timeouts count as deadline misses and connection failures as sidecar misses', () => {
+  const summary = latencySummary({
+    days: 7,
+    sinceMs: 0,
+    targetMs: 900,
+    counters: [
+      row('hook', 'claude', 'TIMEOUT', 1, 1502),
+      row('hook', 'claude', 'HANDSHAKE_TIMEOUT', 2),
+      row('hook', 'claude', 'CONNECT_TIMEOUT', 3),
+      row('hook', 'claude', 'BUSY', 4),
+      row('hook', 'claude', 'ECONNREFUSED', 5),
+      row('hook', 'claude', 'CLOSED', 6),
+      row('hook', 'claude', 'CONNECT_FAILED', 7),
+      row('hook', 'claude', 'ENOENT', 100),
+      row('hook', 'claude', 'STOP_CONTINUATION', 100),
+    ],
+  });
+  assert.equal(summary?.hookDeadlineMisses, 6);
+  assert.equal(summary?.hookSidecarMisses, 22);
+  assert.equal(summary?.hookSidecarStarting, 0);
+});
+
+test('status tells the misses of a sidecar that was starting from the ones it was not', () => {
+  // The owner's real week: 27 hooks found no sidecar running and started one.
+  const only = latencySummary({ days: 7, sinceMs: 0, targetMs: 900, counters: [row('hook', 'claude', 'SIDECAR_STARTING', 27, 13), row('sidecar-op', 'event', 'LATE_ANSWER', 1, 4757)] });
+  assert.equal(only?.hookSidecarMisses, 27);
+  assert.equal(only?.hookSidecarStarting, 27);
+  assert.deepEqual(latencyLines(only), [
+    'latency (last 7 days, target 900 ms): 0 hook deadline misses, 27 hooks the sidecar did not answer (all while it was starting, which is expected after an idle exit or a reinstall), 1 late sidecar answer',
+  ]);
+  const mixed = latencySummary({ days: 7, sinceMs: 0, targetMs: 900, counters: [row('hook', 'claude', 'SIDECAR_STARTING', 24), row('hook', 'claude', 'SIDECAR_TIMEOUT', 3), row('hook', 'claude', 'SIDECAR_AUTOSTART_OFF', 8)] });
+  assert.equal(mixed?.hookSidecarMisses, 27);
+  assert.equal(mixed?.hookSidecarStarting, 24);
+  assert.deepEqual(latencyLines(mixed), [
+    'latency (last 7 days, target 900 ms): 0 hook deadline misses, 27 hooks the sidecar did not answer (24 while it was starting, which is expected after an idle exit or a reinstall; 3 for other reasons), 0 late sidecar answers',
+  ]);
+  assert.equal(c.surfacePayloadContract('status').validate(statusWith(mixed)).ok, true);
 });

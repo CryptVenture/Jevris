@@ -125,10 +125,12 @@ export const StatusLatencySchema = S.object({
   days: S.integer({ minimum: 1, maximum: 90 }),
   /** The semantic hot-path target the counts are read against (900 ms). */
   targetMs: Count,
-  /** Hook deliveries that answered "no decision" because the deadline passed (DEADLINE, HOOK_DEADLINE, HOOK_WATCHDOG). */
+  /** Hook deliveries that answered "no decision" because the deadline passed (DEADLINE, HOOK_DEADLINE, HOOK_WATCHDOG) or the wait for the sidecar ran out (TIMEOUT, HANDSHAKE_TIMEOUT, CONNECT_TIMEOUT). */
   hookDeadlineMisses: Count,
-  /** Hook deliveries the sidecar could not answer (SIDECAR_*, not counting autostart turned off). */
+  /** Hook deliveries the sidecar could not answer (SIDECAR_*, BUSY, ECONNREFUSED, CLOSED, CONNECT_*; not autostart turned off). */
   hookSidecarMisses: Count,
+  /** Of those, the hooks that found no sidecar running and started one (SIDECAR_STARTING): expected after an idle exit or a reinstall. */
+  hookSidecarStarting: Count,
   /** Sidecar answers that arrived after the asking client's own deadline (LATE_ANSWER). */
   lateSidecarAnswers: Count,
   /** Subscribers that missed their slice of a hook's deadline, most misses first. */
