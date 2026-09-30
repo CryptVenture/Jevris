@@ -17,6 +17,7 @@
  */
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { liveHarnessAllowed } from './live-harness.js';
 
 export interface AntigravityApp {
   readonly product: 'app' | 'ide';
@@ -43,6 +44,17 @@ function plistString(xml: string, key: string): string | null {
   return match?.[1]?.trim() ?? null;
 }
 
+/**
+ * The machine-wide folder the app and IDE bundles are looked for in. A test run (JEVRIS_TEST, a
+ * node test context or JEVRIS_NO_LIVE_HARNESS) never reads it, so the result does not depend on
+ * which Antigravity happens to be installed here; only the injected folders and the (temporary)
+ * home's Applications are read. JEVRIS_LIVE_HARNESS=1 lifts that for a live smoke. This is the
+ * only place the CLI names /Applications (lint/isolation.lint.mjs).
+ */
+export function systemApplicationDirs(env: { readonly [key: string]: string | undefined } = process.env): readonly string[] {
+  return liveHarnessAllowed(env) ? ['/Applications'] : [];
+}
+
 /** The Antigravity app and IDE bundles (macOS only; elsewhere both are null). */
 export function antigravityProducts(
   input: {
@@ -54,9 +66,8 @@ export function antigravityProducts(
 ): AntigravityProducts {
   const platform = input.platform ?? process.platform;
   if (platform !== 'darwin' && input.applicationDirs === undefined) return { app: null, ide: null };
-  // Tests stay hermetic: under JEVRIS_TEST only the (temporary) home's Applications is read.
-  const system = (input.env ?? process.env)['JEVRIS_TEST'] === '1' ? [] : ['/Applications'];
-  const dirs = input.applicationDirs ?? [...system, ...(input.home === undefined ? [] : [join(input.home, 'Applications')])];
+  // Tests stay hermetic: in a test run only the (temporary) home's Applications is read.
+  const dirs = input.applicationDirs ?? [...systemApplicationDirs(input.env ?? process.env), ...(input.home === undefined ? [] : [join(input.home, 'Applications')])];
   const find = (spec: (typeof BUNDLES)[number]): AntigravityApp | null => {
     for (const dir of dirs) {
       const path = join(dir, spec.bundle);

@@ -33,7 +33,7 @@
 import { workerEnv, type AuthMode } from './harness-auth.js';
 import { lstat, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { claudeManagedSettingsPaths } from './managed-policy.js';
+import { claudeManagedSettingsPaths, systemManagedSettingsReadable } from './managed-policy.js';
 import type { AccessLimitFinding, AccessSignalWire } from '@jevris/contracts';
 import { claudeAccessSignal, claudeStreamAccess, noteClaudeAccess, portAccess } from './access-signal.js';
 export { claudeAccessSignal, claudeStreamAccess, claudeTranscriptAccess, noteClaudeAccess, type ClaudeStreamAccess } from './access-signal.js';
@@ -201,7 +201,9 @@ export function claudeSettingsFiles(cwd: string, env: { readonly [key: string]: 
  */
 export async function claudeEndpointRedirected(cwd: string, env: { readonly [key: string]: string | undefined }, platform: string = process.platform): Promise<boolean> {
   if (Object.keys(env).some((name) => REDIRECT_VAR.test(name) && (env[name] ?? '') !== '')) return true;
+  const managed = systemManagedSettingsReadable() ? [] : claudeManagedSettingsPaths(platform, env);
   for (const file of claudeSettingsFiles(cwd, env, platform)) {
+    if (managed.includes(file)) continue; // a test run does not read the machine's managed policy
     const info = await lstat(file).catch(() => null);
     if (info === null) continue;
     if (!info.isFile() || info.size > SETTINGS_CAP) return true;

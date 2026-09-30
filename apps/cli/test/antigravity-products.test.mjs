@@ -8,7 +8,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
-const { antigravityProducts, antigravityProductsLine, antigravityCertifyHint } = await import('../dist/antigravity-products.js');
+const { antigravityProducts, antigravityProductsLine, antigravityCertifyHint, systemApplicationDirs } = await import('../dist/antigravity-products.js');
+const { managedHookPolicies, systemManagedSettingsReadable } = await import('../dist/managed-policy.js');
 const { harnessExecutableEnv } = await import('../dist/global-harness.js');
 const { resolveExecutable } = await import('../../../packages/platform/dist/index.js');
 
@@ -58,4 +59,25 @@ test('agy is found in its documented install folder after PATH: ~/.local/bin, or
   assert.equal(harnessExecutableEnv('agy', child, 'linux', { HOME: '/home/u' }).PATH, '/usr/bin:/home/u/.local/bin');
   assert.equal(harnessExecutableEnv('agy', { Path: 'C:\\T' }, 'win32', { LOCALAPPDATA: 'C:\\Users\\u\\AppData\\Local' }).Path, 'C:\\T;C:\\Users\\u\\AppData\\Local\\agy\\bin');
   assert.equal(harnessExecutableEnv('codex', env, 'darwin'), env, 'only agy');
+});
+
+test('a test run never reads the machine-wide application folder or managed settings, however it was started', async (t) => {
+  // Started directly (`node --test <file>`) there is no JEVRIS_TEST, only NODE_TEST_CONTEXT; the
+  // Antigravity app installed on the machine running the suite must not show up in a result.
+  assert.deepEqual(systemApplicationDirs({}), ['/Applications'], 'a real run reads it');
+  for (const env of [{ JEVRIS_TEST: '1' }, { NODE_TEST_CONTEXT: 'child-v8' }, { JEVRIS_NO_LIVE_HARNESS: '1' }]) {
+    assert.deepEqual(systemApplicationDirs(env), [], JSON.stringify(env));
+    assert.equal(systemManagedSettingsReadable(env), false, JSON.stringify(env));
+  }
+  assert.deepEqual(systemApplicationDirs({ NODE_TEST_CONTEXT: 'child-v8', JEVRIS_LIVE_HARNESS: '1' }), ['/Applications'], 'a live smoke may');
+  const home = mkdtempSync(join(tmpdir(), 'jevris-agy-home-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  assert.deepEqual(antigravityProducts({ platform: 'darwin', home, env: { NODE_TEST_CONTEXT: 'child-v8' } }), { app: null, ide: null }, 'only the temporary home is read');
+  bundle(join(home, 'Applications'), 'Antigravity.app', 'com.google.antigravity', '9.9.9', false);
+  assert.equal(antigravityProducts({ platform: 'darwin', home, env: { NODE_TEST_CONTEXT: 'child-v8' } }).app?.version, '9.9.9', 'the home still counts');
+  // This process is itself a test run: the default read finds no managed policy, even if the machine has one.
+  let read = 0;
+  assert.deepEqual(await managedHookPolicies({ platform: process.platform }), []);
+  assert.deepEqual(await managedHookPolicies({ platform: 'darwin', readText: async () => (read += 1, '{"disableAllHooks":true}') }), [{ harness: 'claude', path: '/Library/Application Support/ClaudeCode/managed-settings.json', key: 'disableAllHooks' }], 'an injected reader still works');
+  assert.equal(read, 1);
 });

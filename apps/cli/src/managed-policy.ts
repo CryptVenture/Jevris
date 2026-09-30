@@ -9,6 +9,7 @@
  * managed policy was found.
  */
 import { readFile } from 'node:fs/promises';
+import { liveHarnessAllowed } from './live-harness.js';
 
 export interface ManagedHookPolicy {
   readonly harness: 'claude';
@@ -45,10 +46,19 @@ async function readBounded(path: string): Promise<string | null> {
   }
 }
 
+/**
+ * Whether the machine's own managed-settings files may be read. A test run never reads them, so a
+ * result does not depend on the administrator policy of the machine running the suite; a test
+ * injects `readText` (or `policies`) instead. JEVRIS_LIVE_HARNESS=1 lifts this for a live smoke.
+ */
+export function systemManagedSettingsReadable(env: { readonly [key: string]: string | undefined } = process.env): boolean {
+  return liveHarnessAllowed(env);
+}
+
 /** Every managed setting found that stops the Jevris hooks. Empty when hooks may run. */
 export async function managedHookPolicies(options: ManagedPolicyOptions = {}): Promise<readonly ManagedHookPolicy[]> {
   const platform = options.platform ?? process.platform;
-  const read = options.readText ?? readBounded;
+  const read = options.readText ?? (systemManagedSettingsReadable() ? readBounded : async () => null);
   const found: ManagedHookPolicy[] = [];
   for (const path of claudeManagedSettingsPaths(platform, options.env ?? process.env)) {
     const text = await read(path);
