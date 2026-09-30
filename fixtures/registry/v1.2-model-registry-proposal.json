@@ -1,5 +1,5 @@
 {
-  "$comment": "Proposal only (v1.2 model research, 2026-09-26; refreshed 2026-09-27; Claude Sonnet 5.5 added 2026-09-29). `registry` is a ModelRegistry (packages/contracts/schemas/model-registry.schema.json) and validates with ModelRegistryContract. `sources` maps every sourceId and tariff.sourceId to a URL and fetch date; `entryNotes` (keyed provider/modelId) carries asOf and the facts the schema has no field for. Health is unknown, accountEligibility is empty and every entry is unevaluated: nothing here is eligible for automated routing until an account check and a calibration release record it.",
+  "$comment": "Proposal only (v1.2 model research, 2026-09-26; refreshed 2026-09-27; Claude Sonnet 5.5 added 2026-09-29; OpenAI refreshed 2026-09-30: GPT-6.1 Sol added). `registry` is a ModelRegistry (packages/contracts/schemas/model-registry.schema.json) and validates with ModelRegistryContract. `sources` maps every sourceId and tariff.sourceId to a URL and fetch date; `entryNotes` (keyed provider/modelId) carries asOf and the facts the schema has no field for. Health is unknown, accountEligibility is empty and every entry is unevaluated: nothing here is eligible for automated routing until an account check and a calibration release record it.",
   "registry": {
     "schemaVersion": "1.0",
     "snapshotId": "research-proposal-2026-09-29",
@@ -631,6 +631,73 @@
       },
       {
         "provider": "openai",
+        "modelId": "gpt-6.1-sol",
+        "family": "gpt-6.1",
+        "displayName": "GPT-6.1 Sol",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "reasoning-effort",
+          "fast-mode",
+          "explicit-cache"
+        ],
+        "contextTokens": 1050000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us",
+          "eu"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "openai-2026-09-30",
+          "currency": "USD",
+          "effectiveAt": "2026-09-29T00:00:00Z",
+          "inputPerMillion": 2,
+          "outputPerMillion": 10,
+          "cacheReadPerMillion": 0.1,
+          "cacheWritePerMillion": 2.5,
+          "sourceId": "OAI-PRICING"
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "OAI-PRICING",
+          "OAI-MODELS",
+          "OAI-CACHE",
+          "OAI-REASONING",
+          "OAI-M-gpt-6.1-sol",
+          "OAI-CHANGELOG",
+          "CODEX-CHANGELOG",
+          "CODEX-MODELS",
+          "OAI-DEPRECATIONS"
+        ],
+        "maxInputTokens": 922000,
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-09-29T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "OAI-CHANGELOG"
+        }
+      },
+      {
+        "provider": "openai",
         "modelId": "gpt-6-luna",
         "family": "gpt-6",
         "displayName": "GPT-6 Luna",
@@ -683,7 +750,15 @@
           "OAI-M-gpt-6-luna",
           "OAI-CHANGELOG",
           "CODEX-CHANGELOG"
-        ]
+        ],
+        "lifecycle": {
+          "status": "active",
+          "releasedOn": "2026-09-22T00:00:00Z",
+          "retirementNotBefore": null,
+          "retiresOn": null,
+          "replacementModelId": null,
+          "sourceId": "OAI-CHANGELOG"
+        }
       },
       {
         "provider": "openai",
@@ -2209,13 +2284,13 @@
       "url": "https://developers.openai.com/api/docs/pricing",
       "title": "OpenAI API pricing",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-30"
     },
     "OAI-MODELS": {
       "url": "https://developers.openai.com/api/docs/models",
       "title": "OpenAI models",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-26"
+      "fetchedOn": "2026-09-30"
     },
     "OAI-DEPREC": {
       "url": "https://developers.openai.com/api/docs/deprecations",
@@ -2257,7 +2332,7 @@
       "url": "https://learn.chatgpt.com/docs/models",
       "title": "Codex models (redirect from developers.openai.com/codex/models)",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-30"
     },
     "CODEX-CONFIG": {
       "url": "https://learn.chatgpt.com/docs/config-file/config-reference",
@@ -2641,19 +2716,25 @@
       "url": "https://developers.openai.com/api/docs/models/gpt-6-astra",
       "title": "OpenAI model page gpt-6-astra",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-30"
     },
     "OAI-M-gpt-6-sol": {
       "url": "https://developers.openai.com/api/docs/models/gpt-6-sol",
       "title": "OpenAI model page gpt-6-sol",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-30"
+    },
+    "OAI-M-gpt-6.1-sol": {
+      "url": "https://developers.openai.com/api/docs/models/gpt-6.1-sol",
+      "title": "OpenAI model page gpt-6.1-sol",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-30"
     },
     "OAI-M-gpt-6-luna": {
       "url": "https://developers.openai.com/api/docs/models/gpt-6-luna",
       "title": "OpenAI model page gpt-6-luna",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-30"
     },
     "OAI-M-gpt-5.6-sol": {
       "url": "https://developers.openai.com/api/docs/models/gpt-5.6-sol",
@@ -2941,13 +3022,13 @@
       "url": "https://developers.openai.com/api/docs/changelog",
       "title": "OpenAI API changelog (release dates, 2026-09-25 image-encoding fix)",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-30"
     },
     "CODEX-CHANGELOG": {
       "url": "https://learn.chatgpt.com/docs/changelog",
       "title": "Codex changelog (CLI 0.156.1 and 0.157.0)",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-27"
+      "fetchedOn": "2026-09-30"
     },
     "AZ-RETIRE": {
       "url": "https://learn.microsoft.com/en-us/azure/foundry/openai/concepts/model-retirement-schedule",
@@ -3008,6 +3089,12 @@
       "title": "Claude Code changelog (2.1.284 adds Claude Sonnet 5.5)",
       "kind": "vendor-docs",
       "fetchedOn": "2026-09-29"
+    },
+    "OAI-DEPRECATIONS": {
+      "url": "https://developers.openai.com/api/docs/deprecations",
+      "title": "OpenAI deprecations (no entry for any GPT-5.6, GPT-6 or GPT-6.1 model)",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-09-30"
     }
   },
   "entryNotes": {
@@ -3380,7 +3467,37 @@
         "sourceId": "IND-AA-MODELS"
       },
       "imageEncodingFix": "2026-09-25: OpenAI fixed an image-encoding bug that degraded image understanding and recommends re-running evaluations (OAI-CHANGELOG, fetched 2026-09-27)",
-      "codex": "Added in Codex CLI 0.156.1 (2026-09-23); 0.157.0 (2026-09-25) adds Amazon Bedrock support. Codex recommends it on Plus, Pro, Business, Enterprise and Edu, starting at Medium effort (CODEX-MODELS, CODEX-CHANGELOG, 2026-09-27)."
+      "codex": "Added in Codex CLI 0.156.1 (2026-09-23); 0.157.0 (2026-09-25) adds Amazon Bedrock support. Codex recommends it on Plus, Pro, Business, Enterprise and Edu, starting at Medium effort (CODEX-MODELS, CODEX-CHANGELOG, 2026-09-27).",
+      "supersededBy": "gpt-6.1-sol: the gpt-6-sol model page says \"See GPT-6.1 Sol for the newer Sol model\". Status stays current; no deprecation or retirement date is published (OAI-M-gpt-6-sol, OAI-DEPRECATIONS, 2026-09-30)."
+    },
+    "openai/gpt-6.1-sol": {
+      "asOf": "2026-09-30",
+      "released": "2026-09-29 (OpenAI API changelog and Codex changelog, fetched 2026-09-30)",
+      "knowledgeCutoff": "2026-04-30 (OAI-MODELS)",
+      "maxInputTokens": 922000,
+      "defaultEffort": "medium",
+      "effortNote": "low, medium, high, xhigh, max; none and minimal are not supported (OAI-M-gpt-6.1-sol)",
+      "longContext": {
+        "aboveInputTokens": 272000,
+        "inputPerMillion": 4,
+        "cachedPerMillion": 0.2,
+        "outputPerMillion": 15,
+        "cacheWritePerMillion": 5
+      },
+      "batchFlex": "50% of standard (OAI-PRICING)",
+      "fast": "2x standard, US regions only; unavailable with EU data residency (OAI-PRICING, OAI-M-gpt-6.1-sol)",
+      "residency": "US and EU data residency (OAI-M-gpt-6.1-sol)",
+      "rateLimitsTier1": "500 requests/minute, 500,000 tokens/minute",
+      "status": "current; no deprecation or retirement (OAI-DEPRECATIONS lists none)",
+      "harnesses": {
+        "codex": "native",
+        "opencode": "unconfirmed",
+        "kilo": "unconfirmed",
+        "claude-code": "gateway only",
+        "antigravity": "not listed"
+      },
+      "codex": "Added to Codex CLI and the desktop app on 2026-09-29 and the default from CLI 0.159.1 (CODEX-CHANGELOG); Codex models page lists it as the primary recommendation (CODEX-MODELS, 2026-09-30). Codex start effort: \"use the default available to your account\", so the registry row carries the API default medium as unconfirmed for Codex.",
+      "unconfirmed": "Benchmarks and latency: no independent figure was fetched for this model on 2026-09-30."
     },
     "openai/gpt-6-luna": {
       "asOf": "2026-09-27",

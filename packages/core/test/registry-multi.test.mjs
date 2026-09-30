@@ -1,4 +1,4 @@
-// The bundled snapshot multi-2026-09-29 (owner decision DOMAINS 7be3c43, SPEC §8.1 amended): the
+// The bundled snapshot multi-2026-09-30 (owner decision DOMAINS 7be3c43, SPEC §8.1 amended): the
 // admitted providers' entries, the harness map with each harness's own spelling, the consent and
 // preview gates, and the per-harness baselines (OD-3). Deterministic: data only, a fixed clock.
 import test from 'node:test';
@@ -12,12 +12,12 @@ const NOW = Date.parse('2026-09-28T00:00:00Z');
 
 test('7be3c43: the snapshot holds the admitted providers, each entry sourced, unevaluated and priced in both forms', () => {
   assert.equal(validateModelRegistry(R).ok, true);
-  assert.equal(R.snapshotId, 'multi-2026-09-29');
+  assert.equal(R.snapshotId, 'multi-2026-09-30');
   const byProvider = {};
   for (const e of R.entries) (byProvider[e.provider] ??= []).push(e.modelId);
   assert.deepEqual(byProvider, {
     anthropic: ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001'],
-    openai: ['gpt-6-astra', 'gpt-6-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
+    openai: ['gpt-6-astra', 'gpt-6-sol', 'gpt-6.1-sol', 'gpt-6-luna', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna'],
     google: ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.1-pro-preview'],
     xai: ['grok-4.7', 'grok-4.6'],
     zai: ['glm-5.3'],
@@ -129,4 +129,17 @@ test('R2, R6, R13: each harness spells a model its own way, and the spelling map
   assert.equal(harnessEffortToken(R, 'codex', 'gpt-6-sol', 'xhigh'), 'xhigh');
   assert.equal(harnessEffortToken(R, 'claude', 'claude-haiku-4-5-20251001', 'low'), null, 'Haiku 4.5 takes no effort');
   assert.equal(harnessEffortToken(R, 'antigravity', 'gpt-6-sol', 'low'), null);
+});
+
+test('GPT-6.1 Sol (OpenAI pages, 2026-09-30): priced as GPT-6 Sol with half its cached rate, Codex baseline stays GPT-6 Sol until the owner moves it', () => {
+  const sol = registryModel(R, 'gpt-6.1-sol');
+  assert.equal(sol.lifecycle.releasedOn, '2026-09-29T00:00:00Z');
+  assert.deepEqual([sol.tariff.inputPerMillion, sol.tariff.outputPerMillion, sol.tariff.cacheReadPerMillion, sol.tariff.cacheWritePerMillion], [2, 10, 0.1, 2.5]);
+  assert.deepEqual(sol.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
+  assert.equal(sol.maxInputTokens, 922000);
+  assert.equal(harnessModelId(R, 'codex', 'gpt-6.1-sol'), 'gpt-6.1-sol');
+  assert.equal(R.harnessDefaults.find((row) => row.harness === 'codex').baselineModelId, 'gpt-6-sol');
+  // The GPT-5.6 family carries the same long-context tier as the pricing page lists for it.
+  for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) assert.equal(registryModel(R, id).tariff.tiers[0].aboveInputTokens, 272000, id);
+  assert.equal(registryModel(R, 'gpt-6-luna').lifecycle.releasedOn, '2026-09-22T00:00:00Z');
 });

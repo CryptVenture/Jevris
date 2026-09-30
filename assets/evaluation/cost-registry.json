@@ -1,6 +1,6 @@
 {
   "schemaVersion": "cost-registry-1",
-  "fetchedOn": "2026-09-29",
+  "fetchedOn": "2026-09-30",
   "measuredSpeedRatio": null,
   "measuredCostRatio": null,
   "qualityGate": "not-passed",
@@ -758,6 +758,17 @@
       "unit": "USD per million tokens",
       "provider": "anthropic",
       "apiModelId": "claude-sonnet-5-5"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-6.1-sol",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-30",
+      "input": 2,
+      "output": 10,
+      "unit": "USD per million tokens",
+      "provider": "openai",
+      "apiModelId": "gpt-6.1-sol"
     }
   ]
 }

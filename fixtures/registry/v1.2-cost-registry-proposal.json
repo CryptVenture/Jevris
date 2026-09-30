@@ -1,6 +1,6 @@
 {
   "schemaVersion": "cost-registry-1",
-  "fetchedOn": "2026-09-29",
+  "fetchedOn": "2026-09-30",
   "measuredSpeedRatio": null,
   "measuredCostRatio": null,
   "qualityGate": "not-passed",
@@ -195,7 +195,7 @@
       "vendor": "OpenAI",
       "modelId": "gpt-6-astra",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "fetchedOn": "2026-09-26",
+      "fetchedOn": "2026-09-30",
       "input": 10,
       "output": 50,
       "unit": "USD per million tokens"
@@ -204,7 +204,16 @@
       "vendor": "OpenAI",
       "modelId": "gpt-6-sol",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "fetchedOn": "2026-09-26",
+      "fetchedOn": "2026-09-30",
+      "input": 2,
+      "output": 10,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "OpenAI",
+      "modelId": "gpt-6.1-sol",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "fetchedOn": "2026-09-30",
       "input": 2,
       "output": 10,
       "unit": "USD per million tokens"
@@ -213,7 +222,7 @@
       "vendor": "OpenAI",
       "modelId": "gpt-6-luna",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "fetchedOn": "2026-09-26",
+      "fetchedOn": "2026-09-30",
       "input": 0.1,
       "output": 0.5,
       "unit": "USD per million tokens"
@@ -222,7 +231,7 @@
       "vendor": "OpenAI",
       "modelId": "gpt-5.6-sol",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "fetchedOn": "2026-09-26",
+      "fetchedOn": "2026-09-30",
       "input": 4,
       "output": 20,
       "unit": "USD per million tokens"
@@ -231,7 +240,7 @@
       "vendor": "OpenAI",
       "modelId": "gpt-5.6-terra",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "fetchedOn": "2026-09-26",
+      "fetchedOn": "2026-09-30",
       "input": 2,
       "output": 12,
       "unit": "USD per million tokens"
@@ -240,7 +249,7 @@
       "vendor": "OpenAI",
       "modelId": "gpt-5.6-luna",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "fetchedOn": "2026-09-26",
+      "fetchedOn": "2026-09-30",
       "input": 0.2,
       "output": 1.2,
       "unit": "USD per million tokens"
@@ -1104,7 +1113,7 @@
       "batchAndFlex": "50% of standard",
       "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "asOf": "2026-09-26",
+      "asOf": "2026-09-30",
       "longContextAbove272k": {
         "input": 20,
         "cached": 2,
@@ -1123,7 +1132,7 @@
       "batchAndFlex": "50% of standard",
       "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "asOf": "2026-09-26",
+      "asOf": "2026-09-30",
       "longContextAbove272k": {
         "input": 4,
         "cached": 0.4,
@@ -1136,13 +1145,32 @@
         "output": 20
       }
     },
+    "OpenAI/gpt-6.1-sol": {
+      "cacheReadPerMillion": 0.1,
+      "cacheWritePerMillion": 2.5,
+      "batchAndFlex": "50% of standard",
+      "regionalProcessingUplift": "+10% for regional and FedRAMP endpoints (OAI-PRICING, 2026-09-30)",
+      "sourceUrl": "https://developers.openai.com/api/docs/pricing",
+      "asOf": "2026-09-30",
+      "longContextAbove272k": {
+        "input": 4,
+        "cached": 0.2,
+        "output": 15,
+        "cacheWrite": 5
+      },
+      "fast": {
+        "input": 4,
+        "cached": 0.2,
+        "output": 20
+      }
+    },
     "OpenAI/gpt-6-luna": {
       "cacheReadPerMillion": 0.01,
       "cacheWritePerMillion": 0.125,
       "batchAndFlex": "50% of standard",
       "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "asOf": "2026-09-26",
+      "asOf": "2026-09-30",
       "longContextAbove272k": {
         "input": 0.2,
         "cached": 0.02,
@@ -1160,7 +1188,7 @@
       "batchAndFlex": "50% of standard",
       "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "asOf": "2026-09-27",
+      "asOf": "2026-09-30",
       "longContextAbove272k": {
         "input": 8,
         "cached": 0.8,
@@ -1185,7 +1213,7 @@
       "batchAndFlex": "50% of standard",
       "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "asOf": "2026-09-27",
+      "asOf": "2026-09-30",
       "longContextAbove272k": {
         "input": 4,
         "cached": 0.4,
@@ -1209,7 +1237,7 @@
       "batchAndFlex": "50% of standard",
       "regionalProcessingUplift": "+10% for models released on or after 2026-03-05",
       "sourceUrl": "https://developers.openai.com/api/docs/pricing",
-      "asOf": "2026-09-27",
+      "asOf": "2026-09-30",
       "longContextAbove272k": {
         "input": 0.4,
         "cached": 0.04,

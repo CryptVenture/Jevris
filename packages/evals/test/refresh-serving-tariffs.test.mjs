@@ -61,7 +61,7 @@ test('R38: a models.dev cost becomes a host tariff, free-tier or unknown', () =>
     assert.deepEqual([got.tariffBasis, got.tariff, got.reason], [basis, null, reason], JSON.stringify(cost));
   }
   // Every host tariff passes the contract's integer and float agreement.
-  const registry = { ...R, fetchedOn: '2026-09-28T00:00:00Z', servings: [{ host: 'openrouter', provider: 'moonshot', modelId: 'kimi-k3', hostModelId: 'moonshotai/kimi-k3', tariff: host.tariff, tariffBasis: 'host', sourceIds: ['MODELSDEV-64c46645'] }] };
+  const registry = { ...R, fetchedOn: '2026-09-30T00:00:00Z', servings: [{ host: 'openrouter', provider: 'moonshot', modelId: 'kimi-k3', hostModelId: 'moonshotai/kimi-k3', tariff: host.tariff, tariffBasis: 'host', sourceIds: ['MODELSDEV-64c46645'] }] };
   assert.equal(core.validateModelRegistry(registry).ok, true, JSON.stringify(core.validateModelRegistry(registry).issues));
 });
 
@@ -135,7 +135,7 @@ test('R38: servings are built from local files; unlinked files are skipped and k
   // Without the gateway list, no kilo price is taken.
   assert.deepEqual(build(null).servings.filter((s) => s.host === 'kilo').map((s) => [s.tariffBasis, s.tariff]), [['unknown', null], ['unknown', null]]);
   // The registry with these servings is valid (the contract and the R37 checks).
-  const registry = { ...R, fetchedOn: '2026-09-28T00:00:00Z', servings: built.servings, harnessHosts: [] };
+  const registry = { ...R, fetchedOn: '2026-09-30T00:00:00Z', servings: built.servings, harnessHosts: [] };
   const checked = core.validateModelRegistry(registry);
   assert.equal(checked.ok, true, JSON.stringify(checked.issues));
   // The generated module names its inputs and carries the rows as data.

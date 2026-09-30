@@ -4,7 +4,7 @@
  * A registry entry is an exact provider API id with a versioned full tariff (input, output,
  * cache read, 5-minute and 1-hour cache write), context and output limits, supported effort
  * levels and default, lifecycle dates, data-retention eligibility, regions, health and
- * per-account eligibility. The bundled snapshot `multi-2026-09-29` carries the §8.1 documentation
+ * per-account eligibility. The bundled snapshot `multi-2026-09-30` carries the §8.1 documentation
  * baseline (Anthropic models on the Claude API) and the providers the owner admitted on 2026-09-27
  * (DOMAINS 7be3c43: OpenAI, Google, xAI, Z.ai, and Moonshot and DeepSeek behind consent;
  * registry-multi.ts), the serving hosts that reach them with each host's tariff (serving hosts R38;
@@ -48,7 +48,7 @@ const FETCHED_ON = '2026-09-29T00:00:00Z';
  * The snapshot date: the Anthropic facts are from 2026-09-29 (Claude Sonnet 5.5 added), the other
  * providers' from 2026-09-27 and the serving-host tariffs from 2026-09-28.
  */
-const SNAPSHOT_ON = '2026-09-29T00:00:00Z';
+const SNAPSHOT_ON = '2026-09-30T00:00:00Z';
 const MILLION = 1_000_000;
 const PER_MESSAGE_EFFORT_BETA = 'mid-conversation-output-config-2026-07-01';
 /** Where per-message effort works: the Anthropic-operated platforms, not Bedrock or Google Cloud. */
@@ -147,7 +147,7 @@ function claude(facts: ClaudeFacts): RoutingModel {
 /** The §8.1 documentation baseline. Roles are hypotheses, not rankings; the router decides on evidence. */
 export const BUNDLED_MODEL_REGISTRY: ModelRegistry = Object.freeze({
   schemaVersion: '1.0',
-  snapshotId: 'multi-2026-09-29',
+  snapshotId: 'multi-2026-09-30',
   fetchedOn: SNAPSHOT_ON,
   baselineModelId: 'claude-opus-5-5',
   entries: [

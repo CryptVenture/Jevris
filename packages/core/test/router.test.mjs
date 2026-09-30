@@ -79,7 +79,7 @@ const q = (modelId, lower, point, upper, sliceId = 'bounded-edit') => ({ modelId
 
 test('RTE-01: the bundled registry is sourced, exact and eligible for nothing until an account check', () => {
   assert.equal(validateModelRegistry(BUNDLED_MODEL_REGISTRY).ok, true);
-  assert.equal(BUNDLED_MODEL_REGISTRY.snapshotId, 'multi-2026-09-29');
+  assert.equal(BUNDLED_MODEL_REGISTRY.snapshotId, 'multi-2026-09-30');
   assert.equal(BUNDLED_MODEL_REGISTRY.baselineModelId, 'claude-opus-5-5', 'Opus 5.5 is the Claude Code default and the baseline');
   const anthropic = BUNDLED_MODEL_REGISTRY.entries.filter((e) => e.provider === 'anthropic');
   assert.deepEqual(anthropic.map((e) => e.modelId), ['claude-opus-5-5', 'claude-fable-5-1', 'claude-sonnet-5-5', 'claude-opus-5', 'claude-sonnet-5', 'claude-haiku-4-5-20251001']);
@@ -193,7 +193,7 @@ test('RTE-01: lifecycle, ZDR, price tiers, scheduled prices and provider-aware l
   assert.deepEqual([core.lifecycleStatus(retiredHaiku, at('2026-11-26')).retired, core.lifecycleStatus(retiredHaiku, at('2026-11-26')).stale], [true, false]);
   // shippedModelReferences names the baseline and every published prior's model and effort.
   const refs = core.shippedModelReferences();
-  assert.deepEqual(refs[0], { modelId: 'claude-opus-5-5', where: 'baseline', effort: null, detail: 'model registry multi-2026-09-29 baselineModelId' });
+  assert.deepEqual(refs[0], { modelId: 'claude-opus-5-5', where: 'baseline', effort: null, detail: 'model registry multi-2026-09-30 baselineModelId' });
   assert.deepEqual(refs.filter((r) => r.where === 'priors').length, core.BUNDLED_PUBLIC_PRIORS.length);
   for (const r of refs) assert.ok(registryModel(BUNDLED_MODEL_REGISTRY, r.modelId) !== null, `${r.modelId} is in the bundled registry`);
 
