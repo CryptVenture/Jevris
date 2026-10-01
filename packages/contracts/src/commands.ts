@@ -811,6 +811,23 @@ export const VerifyPayloadSchema = S.object(
     needsEnvironment: Ids(512),
     /** The last unverified stop report for this work; absent or null when there is none. */
     stopReport: S.nullable(StopReportSchema),
+    /**
+     * Owner decision 2026-10-01 (Jev as an active decision aid): the order this run took the approved
+     * checks in, when it ranked them and the order says something (a change is known, or a check
+     * failed last time). Advice about sequence only: every approved check still runs, and receipts
+     * alone decide done. `source` says whether the rules or Jev ordered them; `ids` is the order the
+     * checks ran in; `text` is the one plain sentence that says so; `decisionId` is the recorded
+     * `check-relevance` decision (null when none was recorded).
+     */
+    checkOrder: S.object({
+      source: S.enumOf(['rules', 'jev'] as const),
+      reasonCode: Code,
+      ids: Ids(512),
+      text: ShortText,
+      decisionId: S.nullable(Id),
+      asked: Count,
+      used: Count,
+    }),
   },
 );
 export type VerifyPayload = S.Static<typeof VerifyPayloadSchema>;

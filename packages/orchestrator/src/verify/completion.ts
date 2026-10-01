@@ -274,6 +274,13 @@ export interface StopInput {
    * report says `remind` without a scheduled continuation. Default: always used.
    */
   readonly answerWanted?: () => boolean;
+  /**
+   * One plain sentence that says the missing checks are named in a relevance order, who ordered
+   * them and why the first is first (check ranking, owner decision 2026-10-01). Appended to the
+   * reminder or the unverified report. It is advice about order: it changes neither the condition
+   * a reminder is spent for nor which checks are missing.
+   */
+  readonly orderNote?: string;
 }
 
 export interface StopReport {
@@ -436,14 +443,15 @@ export async function decideStop(input: StopInput): Promise<StopReport> {
     }
     const missing = input.completion.missingEvidence.join(', ') || 'none';
     const uncovered = input.completion.uncoveredRequirements.join(', ') || 'none';
+    const orderText = input.orderNote === undefined || input.orderNote === '' ? '' : ` ${input.orderNote}`;
     report = {
       ...base,
       outcome: decision.continuationScheduled ? 'remind' : 'unverified',
       continuationScheduled: decision.continuationScheduled,
       remindersFired: decision.continuationScheduled ? fired + 1 : fired,
       text: decision.continuationScheduled
-        ? `Missing verification evidence: ${missing}. Uncovered requirements: ${uncovered}. Run the declared checks (jevris verify) before finishing.${waitingText}`
-        : `Unverified: the work ends without current passing receipts for ${missing}. Uncovered requirements: ${uncovered}. It is labelled unverified.${waitingText}`,
+        ? `Missing verification evidence: ${missing}. Uncovered requirements: ${uncovered}. Run the declared checks (jevris verify) before finishing.${waitingText}${orderText}`
+        : `Unverified: the work ends without current passing receipts for ${missing}. Uncovered requirements: ${uncovered}. It is labelled unverified.${waitingText}${orderText}`,
     };
     if (!decision.continuationScheduled) tx.put('stop-reports', recordKey(input.workspaceId, input.taskId ?? '-'), report);
   });

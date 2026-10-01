@@ -106,9 +106,11 @@ function checkKindOf(id: string): CheckKind {
   return 'other';
 }
 
-type Role = 'source' | 'test' | 'docs' | 'config' | 'ci' | 'other';
+export type PathRole = 'source' | 'test' | 'docs' | 'config' | 'ci' | 'other';
+type Role = PathRole;
 
-function extensionOf(path: string): string {
+/** The extension of a path over the fixed vocabulary (`other` for anything else, `none` for no extension). */
+export function extensionOf(path: string): string {
   const base = path.replace(/\\/g, '/').split('/').pop() ?? '';
   const dot = base.lastIndexOf('.');
   if (dot <= 0 || dot === base.length - 1) return 'none';
@@ -116,7 +118,8 @@ function extensionOf(path: string): string {
   return CODE_EXTENSIONS.has(ext) || DOC_EXTENSIONS.has(ext) || CONFIG_EXTENSIONS.has(ext) ? ext : 'other';
 }
 
-function roleOf(path: string, protectedOf: readonly string[]): Role {
+/** The role of a workspace-relative path (source, test, docs, config, ci, other); `protectedOf` is its protected classes. */
+export function roleOf(path: string, protectedOf: readonly string[]): PathRole {
   const normal = path.replace(/\\/g, '/');
   const segments = normal.split('/').map((s) => s.toLowerCase());
   const base = segments[segments.length - 1] ?? '';

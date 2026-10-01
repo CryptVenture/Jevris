@@ -811,6 +811,34 @@ test('verify names checks that need another environment, and that is never verif
   assert.equal(old.code, 1);
 });
 
+test('verify shows the order the checks ran in as advice with its source, and says nothing when there is no order (check ranking)', async (t) => {
+  const box = sandbox(t);
+  const decisionId = 'd-6a2e92a1-c41f-44bf-97f9-c3175f3633ec';
+  const text = 'Order is advice (rules): unit first, most relevant to this change: source edits. No check is skipped or waived.';
+  const checks = [
+    { checkId: 'unit', mandatory: true, outcome: 'passed', receiptId: 'r-1', fresh: true, reasonCode: null, environment: null },
+    { checkId: 'lint', mandatory: true, outcome: 'passed', receiptId: 'r-2', fresh: true, reasonCode: null, environment: null },
+  ];
+  const ranked = { ran: true, readiness: 'verified', checks, missing: [], checkOrder: { source: 'rules', reasonCode: 'CHECK_RELEVANCE_RULES_SURE', ids: ['unit', 'lint'], text, decisionId, asked: 0, used: 0 } };
+  const { ports } = fakePorts({ answers: { verify: ranked } });
+  const json = await runJson('verify', [], box, ports);
+  assert.equal(json.value.mode, 'full', 'the answer is valid under the verify contract');
+  assert.equal(json.value.result.checkOrder.source, 'rules');
+  assert.deepEqual(json.value.result.checkOrder.ids, ['unit', 'lint']);
+  const plain = await run('verify', [], box, ports);
+  assert.match(plain.text, /^check order: unit, lint$/m);
+  assert.match(plain.text, new RegExp(`^${text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'm'));
+  assert.match(plain.text, new RegExp(`^decision: ${decisionId} \\(jevris explain ${decisionId}\\)$`, 'm'));
+  const usual = { ran: true, readiness: 'verified', checks, missing: [] };
+  const none = await run('verify', [], box, fakePorts({ answers: { verify: usual } }).ports);
+  assert.ok(!/check order/.test(none.text), 'no order, no line');
+  // Jev's order says so: the source is shown as Jev's.
+  const jev = { ...ranked, checkOrder: { ...ranked.checkOrder, source: 'jev', reasonCode: 'CHECK_RELEVANCE_JEV', text: 'Order is advice (Jev): lint first, Jev rated it most relevant to this change (source edits). No check is skipped or waived.', asked: 2, used: 2, decisionId: null } };
+  const viaJev = await run('verify', [], box, fakePorts({ answers: { verify: jev } }).ports);
+  assert.match(viaJev.text, /^Order is advice \(Jev\): lint first/m);
+  assert.ok(!/^decision:/m.test(viaJev.text), 'no decision id when none was recorded');
+});
+
 test('evidence get passes the selection it came from (P10, D): --selection and the MCP selectionId reach evidence.get; a malformed id is refused; none is left out', async (t) => {
   const box = sandbox(t);
   const { runEvidenceCommand } = await import('../dist/public-commands.js');

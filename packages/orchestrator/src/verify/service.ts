@@ -9,6 +9,7 @@
  */
 import { readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
+import { applyCheckOrder } from '@jevris/core';
 import type { WorkspaceServices } from '../workspace.js';
 import { parseManifestFile, type CheckManifest } from './manifest.js';
 import { noteRestoreCheckStarted } from '../memory/restore-outcomes.js';
@@ -197,6 +198,12 @@ export interface VerifyRequest {
    * Stop reminder or a restore asked for, so it is not counted as a check that followed one.
    */
   readonly origin?: 'stop-background';
+  /**
+   * The order to run the checks in (check ranking, owner decision 2026-10-01): the most relevant
+   * first. It only orders. Every check that would have run still runs, none is dropped, skipped or
+   * waived, and ids it does not name run after the named ones in the usual order.
+   */
+  readonly order?: readonly string[];
 }
 
 export interface VerifyOutcome {
@@ -217,7 +224,7 @@ export async function runVerification(ws: WorkspaceServices, request: VerifyRequ
     manifests.length === 0 || unknown.length > 0
       ? []
       : await runChecks(
-          manifests,
+          applyCheckOrder(manifests, (m) => m.id, request.order),
           {
             workspaceRoot: ws.workspaceRoot,
             workspaceId: ws.workspaceId,

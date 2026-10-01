@@ -17,6 +17,7 @@
  * - A crash leaves a journal entry that `recover()` settles at the next start.
  */
 import { sliceAssistLines } from './slice-explain.js';
+import { checkRelevanceLines } from './check-relevance-explain.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { ManagedRouteRequest } from './route-evaluate.js';
@@ -1034,6 +1035,8 @@ export function explainDecision(record: DecisionRecord): string {
   if (record.policyVersion !== undefined) lines.push(`Policy version ${record.policyVersion}.`);
   const slice = sliceAssistLines(record);
   if (slice !== null) lines.push(...slice);
+  const ranking = checkRelevanceLines(record);
+  if (ranking !== null) lines.push(...ranking);
   lines.push(`Evidence revision ${record.evidenceRevision}. Task outcome: ${record.actualTaskOutcome.replace(/-/g, ' ')}.`);
   lines.push('This record is not a success probability and does not mark the task verified.');
   return lines.join('\n');

@@ -41,6 +41,7 @@ import { getTask } from '../orchestration/tasks.js';
 import { taskWorkspace } from '../orchestration/workers.js';
 import { approvedManifests, verificationStatus } from '../verify/service.js';
 import { decideStop } from '../verify/completion.js';
+import { orderIsInformed, orderMissingEvidence, rankForStop } from '../verify/relevance.js';
 import { pendingChecks, verificationRunKey } from '../verify/runs.js';
 import { queueMissingChecksAtStop } from './stop-autoverify.js';
 import { readEffectiveConfig } from '../settings/config.js';
@@ -389,7 +390,14 @@ async function onStop(ctx: SidecarOpContext, ws: WorkspaceServices, env: Envelop
   });
   // `verification.backgroundAtStop` (off by default): a main-session Stop queues the missing approved
   // checks in the background and goes on; the answer below then says they are running.
-  const queued = await queueMissingChecksAtStop({ ctx, ws, agentId: env.agentId, taskScoped: task !== undefined, completion, ...(gitPort === undefined ? {} : { git: gitPort }) });
+  // Check ranking (owner decision 2026-10-01): with two or more checks missing, they are named, and
+  // any background run starts them, most relevant first. Advice about order only: every check is
+  // still named and still needed, and the reminder is spent for the same condition (`conditionKey`
+  // is read before this, from the checks as they are).
+  const ranking = await rankForStop(ctx, ws, { completion, root: target.workspaceRoot, taskId: task?.node.id ?? null, sessionId: env.sessionId, ...(gitPort === undefined ? {} : { git: gitPort }) });
+  if (ranking !== null) ctx.trace({ event: 'orchestrator.checks-ranked', reasonCode: ranking.reasonCode, checks: ranking.order.length, source: ranking.source, ...(ranking.decisionId === null ? {} : { decisionId: ranking.decisionId }) });
+  const ordered = ranking === null ? completion : { ...completion, missingEvidence: orderMissingEvidence(completion.missingEvidence, ranking.order) };
+  const queued = await queueMissingChecksAtStop({ ctx, ws, agentId: env.agentId, taskScoped: task !== undefined, completion, ...(ranking === null ? {} : { order: ranking.order }), ...(gitPort === undefined ? {} : { git: gitPort }) });
   if (queued.queued.length > 0) pending = pendingNow();
   // Everything asynchronous comes before decideStop: its transaction spends the one reminder
   // only while the sidecar still wants this answer, and nothing waits after it (US14, US23).
@@ -397,7 +405,8 @@ async function onStop(ctx: SidecarOpContext, ws: WorkspaceServices, env: Envelop
   const report = await decideStop({
     workspaceId: ws.workspaceId,
     taskId: task?.node.id ?? null,
-    completion,
+    completion: ordered,
+    ...(ranking === null || !orderIsInformed(ranking) ? {} : { orderNote: ranking.text }),
     stopHookActive: env.payload['stopHookActive'] === true,
     // Stop reminders and reports are hook-path records (P2): no directory lock on the Stop answer.
     state: ws.hook,

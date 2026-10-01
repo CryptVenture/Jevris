@@ -9,6 +9,7 @@
  * the same independence and freshness rules.
  */
 import { modeAllows, type SidecarOpContext } from '@jevris/contracts';
+import { applyCheckOrder } from '@jevris/core';
 import type { GitPort } from '../verify/revision.js';
 import type { CompletionReport } from '../verify/completion.js';
 import { scheduleVerification, verificationRunKey, pendingChecks } from '../verify/runs.js';
@@ -61,6 +62,8 @@ export interface StopQueueInput {
   readonly taskScoped: boolean;
   readonly completion: CompletionReport;
   readonly git?: GitPort;
+  /** The check ranking's order (most relevant first): the queued checks run in it. Order only: the same checks run. */
+  readonly order?: readonly string[];
 }
 
 /**
@@ -91,7 +94,11 @@ export async function queueMissingChecksAtStop(input: StopQueueInput): Promise<S
   const waiting = pendingChecks(ws.workspaceId, missing);
   const open = missing.filter((id) => !waiting.has(id));
   if (open.length === 0) return none('ALREADY_PENDING');
-  const fresh = open.filter((id) => launchedAt.get(launchKey(ws.workspaceId, id)) !== completion.revision);
+  const fresh = applyCheckOrder(
+    open.filter((id) => launchedAt.get(launchKey(ws.workspaceId, id)) !== completion.revision),
+    (id) => id,
+    input.order,
+  );
   if (fresh.length === 0) return none('ALREADY_TRIED');
   for (const id of fresh) {
     if (launchedAt.size >= LAUNCHED_MAX) launchedAt.delete(launchedAt.keys().next().value as string);
@@ -101,7 +108,7 @@ export async function queueMissingChecksAtStop(input: StopQueueInput): Promise<S
   const run = scheduleVerification(
     verificationRunKey(ws.workspaceId, null),
     fresh,
-    (ids) => runVerification(ws, { taskId: null, checkIds: ids, origin: 'stop-background', ...(store === undefined ? {} : { store }), ...(input.git === undefined ? {} : { git: input.git }) }),
+    (ids) => runVerification(ws, { taskId: null, checkIds: ids, origin: 'stop-background', ...(input.order === undefined ? {} : { order: input.order }), ...(store === undefined ? {} : { store }), ...(input.git === undefined ? {} : { git: input.git }) }),
     () => ctx.trace({ event: 'orchestrator.verify-started', reasonCode: 'STOP_BACKGROUND' }),
   );
   // The run outlives this Stop; nothing here waits for it.

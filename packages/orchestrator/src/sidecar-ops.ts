@@ -19,9 +19,11 @@ import {
   type SidecarEventSubscriber,
   type SurfaceOperation,
 } from '@jevris/contracts';
+import type { CheckRanking } from '@jevris/core';
 import type { OpenStoreResult } from '@jevris/store';
 import { openWorkspace, type WorkspaceServices } from './workspace.js';
 import { approvedManifests, runVerification, stopReportFor, verificationStatus } from './verify/service.js';
+import { orderIsInformed, rankForRun } from './verify/relevance.js';
 import { refreshFreshness, type CompletionReport } from './verify/completion.js';
 import { outputRecordOf } from './memory/distill.js';
 import { recordEvidenceRead } from './memory/evidence-usage.js';
@@ -198,8 +200,33 @@ export function failureOf(receipt: RunnerReceipt): { failure?: { failedTests: { 
  * the verify payload contract names it, so the answer never becomes PAYLOAD_INVALID over it.
  */
 export function verifyAnswer(payload: ReturnType<typeof verifyPayload>): unknown {
-  if (surfacePayloadContract('verify').validate(payload).ok) return payload;
-  return { ...payload, checks: payload.checks.map(({ failure: _failure, ...check }) => check) };
+  const contract = surfacePayloadContract('verify');
+  if (contract.validate(payload).ok) return payload;
+  // The check order is kept only once the contract names it too; each addition is dropped on its own, newest first.
+  const { checkOrder: _checkOrder, ...withoutOrder } = payload;
+  if (contract.validate(withoutOrder).ok) return withoutOrder;
+  return { ...withoutOrder, checks: withoutOrder.checks.map(({ failure: _failure, ...check }) => check) };
+}
+
+/** The check ranking as the verify answer carries it: the order the approved checks ran in, its source and the advice line. */
+export function checkOrderView(ranking: CheckRanking): {
+  source: 'rules' | 'jev';
+  reasonCode: string;
+  ids: string[];
+  text: string;
+  decisionId: string | null;
+  asked: number;
+  used: number;
+} {
+  return {
+    source: ranking.source,
+    reasonCode: ranking.reasonCode.slice(0, 64),
+    ids: ranking.order.filter((id) => CONTRACT_ID.test(id)).slice(0, 512),
+    text: ranking.text.slice(0, 300),
+    decisionId: ranking.decisionId !== null && CONTRACT_ID.test(ranking.decisionId) ? ranking.decisionId : null,
+    asked: Math.min(ranking.askedCount, 12),
+    used: Math.min(ranking.usedCount, 12),
+  };
 }
 
 export function verifyPayload(
@@ -208,6 +235,7 @@ export function verifyPayload(
   ran: boolean,
   stop: ReturnType<typeof stopReportView> = null,
   pending: ReadonlyMap<string, PendingCheckReason> = new Map(),
+  ranking: CheckRanking | null = null,
 ) {
   const approved = approvedManifests(ws);
   const hardwareOf = new Map(approved.map((m) => [m.id, m.hardware]));
@@ -250,6 +278,7 @@ export function verifyPayload(
     missing,
     ...(needs.size === 0 ? {} : { needsEnvironment: [...needs.keys()].slice(0, 512) }),
     ...(stop === null ? {} : { stopReport: stop }),
+    ...(ranking === null || ranking.order.length < 2 || !orderIsInformed(ranking) ? {} : { checkOrder: checkOrderView(ranking) }),
   };
 }
 
@@ -328,6 +357,8 @@ async function handleVerify(ctx: SidecarOpContext): Promise<Outcome> {
   // Set when the run has finished, even after its answer window closed (A's bug 2).
   let runDone = false;
   let pending = new Map<string, PendingCheckReason>();
+  // The ranking this request's own run used (null when it joined a run already under way, or there was nothing to order).
+  let ranking: CheckRanking | null = null;
   const approved = approvedManifests(ws);
   const runKey = verificationRunKey(ws.workspaceId, completing ? taskId : null);
   if (approved.length > 0) {
@@ -339,12 +370,16 @@ async function handleVerify(ctx: SidecarOpContext): Promise<Outcome> {
     // A verified owned task lets its dependents start (W04): the next wave is leased.
     const work = completing && taskId !== null
       ? () => completeTask(ws, taskId, { nowMs: engineNow(ctx.engine) }).then(async (done) => (done.verified ? (await continueOwnedWork(ctx, ws), done) : (await handOffFirstTry(ctx, ws, taskId).catch(() => null), done)))
-      : (ids: readonly string[]) =>
-          runVerification(ws, { ...request, checkIds: ids }).then((outcome) => {
-            // P2: a verification run follows new work, so a reverted integrated task is looked for (off the answer path).
-            detectIntegrationRevertsInBackground(ws, { nowMs: engineNow(ctx.engine) });
-            return outcome;
-          });
+      : async (ids: readonly string[]) => {
+          // Check ranking (owner decision 2026-10-01): the approved checks run most relevant first, by
+          // the rules or by Jev's advice. It only orders; the same checks run, and receipts decide done.
+          ranking = await rankForRun(ctx, ws, { ids, taskId, sessionId: null, ...(store === undefined ? {} : { store }) }).catch(() => null);
+          if (ranking !== null) ctx.trace({ event: 'orchestrator.checks-ranked', reasonCode: ranking.reasonCode, checks: ranking.order.length, source: ranking.source, ...(ranking.decisionId === null ? {} : { decisionId: ranking.decisionId }) });
+          const outcome = await runVerification(ws, { ...request, checkIds: ids, ...(ranking === null ? {} : { order: ranking.order }) });
+          // P2: a verification run follows new work, so a reverted integrated task is looked for (off the answer path).
+          detectIntegrationRevertsInBackground(ws, { nowMs: engineNow(ctx.engine) });
+          return outcome;
+        };
     const run = scheduleVerification(key, completing ? [] : checkIds, work, trace);
     void run.then(
       () => {
@@ -383,9 +418,9 @@ async function handleVerify(ctx: SidecarOpContext): Promise<Outcome> {
     void status.catch(() => undefined);
     const waiting = pendingChecks(runKey, approved.map((m) => m.id));
     ctx.trace({ event: 'orchestrator.verify-status-late', reasonCode: 'STATUS_LATE' });
-    return respond(ctx, 'verify', verifyAnswer(verifyPayload(target, pendingOnlyReport(target, taskId), lateAnswerRan(ran, runDone), null, waiting)));
+    return respond(ctx, 'verify', verifyAnswer(verifyPayload(target, pendingOnlyReport(target, taskId), lateAnswerRan(ran, runDone), null, waiting, ranking)));
   }
-  return respond(ctx, 'verify', verifyAnswer(verifyPayload(target, report, ran, stopReportView(ws, taskId, report), pending)));
+  return respond(ctx, 'verify', verifyAnswer(verifyPayload(target, report, ran, stopReportView(ws, taskId, report), pending, ranking)));
 }
 
 async function handleVerifyStatus(ctx: SidecarOpContext): Promise<Outcome> {
