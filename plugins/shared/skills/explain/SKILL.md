@@ -9,7 +9,7 @@ invocation: model
 
 Purpose: make one decision understandable and auditable.
 
-Required evidence: the decision id. When the user has none, call `jevris_status` and pick the decision they mean from its recent decisions.
+Required evidence: the decision id. When the user has none, call `jevris_status` and pick the decision they mean from its recent ones.
 
 Steps:
 1. Call `jevris_explain_decision` with `decisionId`.

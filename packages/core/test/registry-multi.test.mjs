@@ -38,7 +38,7 @@ test('7be3c43: the snapshot holds the admitted providers, each entry sourced, un
   assert.deepEqual(R.entries.filter((e) => e.lifecycle?.status === 'preview').map((e) => e.modelId), ['gemini-3.1-pro-preview']);
   assert.deepEqual(R.harnessDefaults, [
     { harness: 'claude', baselineModelId: 'claude-opus-5-5' },
-    { harness: 'codex', baselineModelId: 'gpt-6-sol' },
+    { harness: 'codex', baselineModelId: 'gpt-6.1-sol' },
     { harness: 'antigravity', baselineModelId: 'gemini-3.8-flash' },
   ]);
 });
@@ -131,14 +131,19 @@ test('R2, R6, R13: each harness spells a model its own way, and the spelling map
   assert.equal(harnessEffortToken(R, 'antigravity', 'gpt-6-sol', 'low'), null);
 });
 
-test('GPT-6.1 Sol (OpenAI pages, 2026-09-30): priced as GPT-6 Sol with half its cached rate, Codex baseline stays GPT-6 Sol until the owner moves it', () => {
+test('GPT-6.1 Sol (OpenAI pages, 2026-09-30): priced as GPT-6 Sol with half its cached rate, and it is the Codex baseline with everything a baseline needs from the registry', () => {
   const sol = registryModel(R, 'gpt-6.1-sol');
   assert.equal(sol.lifecycle.releasedOn, '2026-09-29T00:00:00Z');
   assert.deepEqual([sol.tariff.inputPerMillion, sol.tariff.outputPerMillion, sol.tariff.cacheReadPerMillion, sol.tariff.cacheWritePerMillion], [2, 10, 0.1, 2.5]);
   assert.deepEqual(sol.effortLevels, ['low', 'medium', 'high', 'xhigh', 'max']);
   assert.equal(sol.maxInputTokens, 922000);
   assert.equal(harnessModelId(R, 'codex', 'gpt-6.1-sol'), 'gpt-6.1-sol');
-  assert.equal(R.harnessDefaults.find((row) => row.harness === 'codex').baselineModelId, 'gpt-6-sol');
+  assert.equal(R.harnessDefaults.find((row) => row.harness === 'codex').baselineModelId, 'gpt-6.1-sol');
+  // As a baseline it needs a price, a context window, an effort default and a Codex id; its quality is not claimed.
+  assert.deepEqual([sol.contextTokens, sol.maxOutputTokens, sol.defaultEffort, sol.lifecycle.status], [1050000, 128000, 'medium', 'active']);
+  assert.deepEqual(sol.harnessModels, [{ harness: 'codex', id: 'gpt-6.1-sol', effortVia: 'config', defaultEffort: 'medium' }]);
+  assert.deepEqual([sol.evaluationVersion, sol.evaluationSliceIds, sol.health], ['unevaluated', [], 'unknown'], 'no evidence of quality is invented for the new baseline');
+  assert.equal(registryModel(R, 'gpt-6-sol').lifecycle.status, 'active', 'GPT-6 Sol stays a current model; only the baseline moved');
   // The GPT-5.6 family carries the same long-context tier as the pricing page lists for it.
   for (const id of ['gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna']) assert.equal(registryModel(R, id).tariff.tiers[0].aboveInputTokens, 272000, id);
   assert.equal(registryModel(R, 'gpt-6-luna').lifecycle.releasedOn, '2026-09-22T00:00:00Z');

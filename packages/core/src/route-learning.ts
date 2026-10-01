@@ -542,7 +542,7 @@ export const LEARNING_KEY_SEPARATOR = '::';
 
 /**
  * R17 (owner decision OD-3): the key a slice learns under. Each route baseline learns apart, so a
- * slice routed from Claude Code (Opus 5.5), Codex (GPT-6 Sol) and Antigravity (Gemini 3.8 Flash),
+ * slice routed from Claude Code (Opus 5.5), Codex (GPT-6.1 Sol) and Antigravity (Gemini 3.8 Flash),
  * or for tasks with different approved models, never demotes on BASELINE_CHANGED: every arm is
  * compared with its own route's default. The registry's own baseline keeps the bare slice id, so
  * existing learning state stays where it is; any other baseline is `<slice>::<baseline model>`.

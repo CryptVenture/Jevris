@@ -15,8 +15,8 @@ Required evidence: the current objective in one or two sentences, and the constr
 
 Steps:
 1. Call `jevris_checkpoint` with `objective` and `constraints` (and `taskId` when there is one).
-2. Report the capsule id and how many constraints and files it holds.
-3. For a handoff, call `jevris_handoff_export`; give the other session the returned `capsule` object. In the receiving session call `jevris_handoff_import` with it.
+2. Report how many constraints and files the capsule holds.
+3. For a handoff, call `jevris_handoff_export` and give the other session the returned `capsule`; there, call `jevris_handoff_import` with it.
 
 Output contract: the capsule id, then one line per saved constraint. For an import, say whether it was accepted and why, and that it grants no authority.
 

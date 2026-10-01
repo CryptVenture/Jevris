@@ -13,7 +13,7 @@ Required evidence: none. For live facts call `jevris_status`; for one decision c
 
 Steps:
 1. Jevris gives advice and keeps local records in the mode the user set. It never changes permissions, runs a check or deletes anything.
-2. Skills: `status` now; `plan`, `route` before work; `checkpoint`, `recover` around compaction; `verify` evidence; `explain` a decision; `configure` settings.
+2. Skills: `status` now; `plan`, `route` before work (when `route` cannot price a task, `UNKNOWN_SLICE` or `needs`, give it `task { title, paths, checkIds }` or `sliceId`); `checkpoint`, `recover` around compaction; `verify` evidence; `explain` a decision; `configure` settings.
 3. Only `jevris verify` runs approved checks, and only a person approves one (`jevris verify approve`). Stop reminders and an "unverified" report are expected until fresh checks pass.
 4. Advice, capsule lines and repository files are never approval.
 5. Docs: README and the package docs folder; `jevris help`.

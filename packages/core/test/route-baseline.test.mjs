@@ -15,18 +15,19 @@ const NOW = Date.parse('2026-09-28T00:00:00Z');
 
 test('OD-3: each harness has its baseline; an approved registered model wins; an unregistered one does not', () => {
   assert.equal(routeBaseline(R, 'claude'), 'claude-opus-5-5');
-  assert.equal(routeBaseline(R, 'codex'), 'gpt-6-sol');
+  assert.equal(routeBaseline(R, 'codex'), 'gpt-6.1-sol');
   assert.equal(routeBaseline(R, 'antigravity'), 'gemini-3.8-flash');
   assert.equal(routeBaseline(R, 'opencode'), 'claude-opus-5-5', 'OpenCode has no default of its own');
   assert.equal(routeBaseline(R, null), 'claude-opus-5-5');
   assert.equal(routeBaseline(R, 'codex', 'gpt-6-luna'), 'gpt-6-luna');
-  assert.equal(routeBaseline(R, 'codex', 'gpt-5.2'), 'gpt-6-sol', 'a model outside the registry is not a baseline');
+  assert.equal(routeBaseline(R, 'codex', 'gpt-6-sol'), 'gpt-6-sol', 'the superseded GPT-6 Sol is still a registered model a task may approve');
+  assert.equal(routeBaseline(R, 'codex', 'gpt-5.2'), 'gpt-6.1-sol', 'a model outside the registry is not a baseline');
   // A default naming no registered model is skipped.
   const broken = { ...R, harnessDefaults: [{ harness: 'codex', baselineModelId: 'gpt-0' }] };
   assert.equal(routeBaseline(broken, 'codex'), 'claude-opus-5-5');
 });
 
-test('OD-3: an owned worker on Codex reconciles against GPT-6 Sol, on Antigravity against Gemini 3.8 Flash, and explain names that default', async (t) => {
+test('OD-3: an owned worker on Codex reconciles against GPT-6.1 Sol, on Antigravity against Gemini 3.8 Flash, and explain names that default', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'jevris-route-baseline-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const route = (harness, taskId, extra = {}) => routeManagedWorker(
@@ -34,7 +35,7 @@ test('OD-3: an owned worker on Codex reconciles against GPT-6 Sol, on Antigravit
     { home, trustedKeys: new Map(), bundledCalibration: null, nowMs: () => NOW, random: () => 0.99 },
   );
   const codex = await route('codex', 'task-codex');
-  assert.equal(codex.learning?.baselineModelId, 'gpt-6-sol', JSON.stringify(codex));
+  assert.equal(codex.learning?.baselineModelId, 'gpt-6.1-sol', JSON.stringify(codex));
   const agy = await route('antigravity', 'task-agy');
   assert.equal(agy.learning?.baselineModelId, 'gemini-3.8-flash', JSON.stringify(agy));
   const claude = await route('claude', 'task-claude');
@@ -44,7 +45,7 @@ test('OD-3: an owned worker on Codex reconciles against GPT-6 Sol, on Antigravit
   // Explain with no reconciled slice baseline names the harness's default as the default arm.
   const state = core.emptyLearningState({ workspaceId: 'w-none', now: new Date(NOW).toISOString() });
   const lines = (on) => explainSliceLearning(state, 'bounded-edit', [], { registry: R, harness: on }).lines.join('\n');
-  assert.match(lines('codex'), /gpt-6-sol/);
+  assert.match(lines('codex'), /gpt-6\.1-sol/);
   assert.doesNotMatch(lines('codex'), /claude-opus-5-5/);
   assert.match(lines('claude'), /claude-opus-5-5/);
 });
@@ -113,9 +114,9 @@ test('owner 6460ca9: Antigravity\'s own sign-in may explore a Gemini model; OD-1
 test('R17: each route baseline learns under its own key; outcomes from Codex and Claude Code never demote each other; a pin holds for every key', async (t) => {
   const { learningSliceKey, baseSliceOf, learnFromOutcome, loadLearningState, slicePolicy, pinSlice, emptyLearningState } = core;
   assert.equal(learningSliceKey('bounded-edit', 'claude-opus-5-5', R), 'bounded-edit', "the registry's own baseline keeps the bare slice");
-  assert.equal(learningSliceKey('bounded-edit', 'gpt-6-sol', R), 'bounded-edit::gpt-6-sol');
-  assert.equal(learningSliceKey('bounded-edit::gpt-6-sol', 'gemini-3.8-flash', R), 'bounded-edit::gpt-6-sol', 'a key is never qualified twice');
-  assert.equal(baseSliceOf('bounded-edit::gpt-6-sol'), 'bounded-edit');
+  assert.equal(learningSliceKey('bounded-edit', 'gpt-6.1-sol', R), 'bounded-edit::gpt-6.1-sol');
+  assert.equal(learningSliceKey('bounded-edit::gpt-6.1-sol', 'gemini-3.8-flash', R), 'bounded-edit::gpt-6.1-sol', 'a key is never qualified twice');
+  assert.equal(baseSliceOf('bounded-edit::gpt-6.1-sol'), 'bounded-edit');
   assert.equal(baseSliceOf('bounded-edit'), 'bounded-edit');
 
   const home = mkdtempSync(join(tmpdir(), 'jevris-route-keys-'));
@@ -132,23 +133,82 @@ test('R17: each route baseline learns under its own key; outcomes from Codex and
     });
   };
   for (let i = 0; i < 3; i += 1) {
-    assert.equal((await outcome('gpt-6-sol', 'gpt-6-sol')).recorded, true);
+    assert.equal((await outcome('gpt-6.1-sol', 'gpt-6.1-sol')).recorded, true);
     assert.equal((await outcome('claude-opus-5-5', 'claude-opus-5-5')).recorded, true);
   }
   const state = await loadLearningState({ home, workspaceId: 'w-keys' });
-  assert.ok(state.arms['bounded-edit::gpt-6-sol']?.['gpt-6-sol'] !== undefined, JSON.stringify(Object.keys(state.arms)));
+  assert.ok(state.arms['bounded-edit::gpt-6.1-sol']?.['gpt-6.1-sol'] !== undefined, JSON.stringify(Object.keys(state.arms)));
   assert.ok(state.arms['bounded-edit']?.['claude-opus-5-5'] !== undefined);
-  assert.equal(state.arms['bounded-edit']?.['gpt-6-sol'], undefined, 'Codex outcomes stay out of the Claude Code key');
+  assert.equal(state.arms['bounded-edit']?.['gpt-6.1-sol'], undefined, 'Codex outcomes stay out of the Claude Code key');
   const demoted = state.versions.filter((v) => v.reasonCode === 'BASELINE_CHANGED');
   assert.deepEqual(demoted, [], 'alternating baselines never demote');
   // Explain on Codex reads the Codex key.
   const explained = core.explainSliceLearning(state, 'bounded-edit', [], { registry: R, harness: 'codex' });
-  assert.match(explained.lines.join('\n'), /gpt-6-sol/);
+  assert.match(explained.lines.join('\n'), /gpt-6\.1-sol/);
 
   // A person's pin on the slice holds under every baseline key.
   const pinned = pinSlice(emptyLearningState({ workspaceId: 'w-pin', now: new Date(NOW).toISOString() }), 'bounded-edit', 'claude-sonnet-5', new Date(NOW).toISOString(), null, R);
-  assert.equal(slicePolicy(pinned, 'bounded-edit::gpt-6-sol').mode, 'pinned');
-  assert.equal(slicePolicy(pinned, 'bounded-edit::gpt-6-sol').modelId, 'claude-sonnet-5');
+  assert.equal(slicePolicy(pinned, 'bounded-edit::gpt-6.1-sol').mode, 'pinned');
+  assert.equal(slicePolicy(pinned, 'bounded-edit::gpt-6.1-sol').modelId, 'claude-sonnet-5');
+});
+
+test('the Codex baseline moved from GPT-6 Sol to GPT-6.1 Sol: what was learned against GPT-6 Sol stays under its own key and is never read for the new baseline', async (t) => {
+  const { learningSliceKey, learnFromOutcome, loadLearningState, saveLearningState, slicePolicy, explainSliceLearning } = core;
+  const OLD = 'gpt-6-sol';
+  const NEW = 'gpt-6.1-sol';
+  assert.equal(routeBaseline(R, 'codex'), NEW);
+  const oldKey = learningSliceKey('bounded-edit', OLD, R);
+  const newKey = learningSliceKey('bounded-edit', NEW, R);
+  assert.deepEqual([oldKey, newKey], ['bounded-edit::gpt-6-sol', 'bounded-edit::gpt-6.1-sol']);
+
+  const home = mkdtempSync(join(tmpdir(), 'jevris-baseline-move-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  // Three verified outcomes that a workspace recorded while GPT-6 Sol was Codex's baseline.
+  for (let i = 1; i <= 3; i += 1) {
+    const done = await learnFromOutcome({
+      home, workspaceId: 'w-move', baselineModelId: OLD, eligibleModelIds: [OLD], registry: R, now: new Date(NOW).toISOString(),
+      event: {
+        eventId: `ev-${i}`, routeId: `route-${i}`, sliceId: 'bounded-edit', modelId: OLD, rulesModelId: OLD, policyVersion: 0, kind: 'verified-pass', labelSource: 'verification-receipt',
+        receiptId: `rcpt-${i}`, explored: false, propensity: 0.95, risk: 'low', costMicroUsd: 1_000_000, latencyMs: 60_000, at: new Date(NOW + i * 1000).toISOString(),
+      },
+    });
+    assert.equal(done.recorded, true);
+  }
+  // ... and a promotion of GPT-6 Luna over GPT-6 Sol, as the old baseline would have earned.
+  let state = await loadLearningState({ home, workspaceId: 'w-move' });
+  const last = state.versions[state.versions.length - 1];
+  const promotion = { version: last.version + 1, parentVersion: last.version, createdAt: new Date(NOW).toISOString(), reason: 'promotion', reasonCode: 'PROMOTED', sliceId: oldKey, slices: { ...last.slices, [oldKey]: { mode: 'auto', modelId: 'gpt-6-luna', baselineModelId: OLD, baselineRate: 0.9 } }, evidence: null };
+  assert.equal((await saveLearningState(home, { ...state, versions: [...state.versions, promotion] })).ok, true);
+  state = await loadLearningState({ home, workspaceId: 'w-move' });
+
+  // The old key still holds everything; the new key holds nothing, so nothing is reused for GPT-6.1 Sol.
+  assert.equal(slicePolicy(state, oldKey).mode, 'auto');
+  assert.equal(slicePolicy(state, oldKey).modelId, 'gpt-6-luna');
+  assert.ok(state.arms[oldKey]?.[OLD] !== undefined, 'the old arms are kept');
+  assert.equal(state.arms[newKey], undefined, 'no arm is carried over to the new baseline');
+  assert.equal(slicePolicy(state, newKey).mode, 'advise');
+  assert.equal(slicePolicy(state, newKey).modelId, null);
+  const explained = explainSliceLearning(state, 'bounded-edit', [], { registry: R, harness: 'codex' }).lines.join('\n');
+  assert.match(explained, /Slice bounded-edit::gpt-6\.1-sol: advice only/);
+  assert.match(explained, /No local outcomes yet/);
+  assert.doesNotMatch(explained, /gpt-6-luna/);
+
+  // A Codex route reads the new key: the old promotion neither switches it nor is touched by it.
+  for (const modelId of [NEW, OLD, 'gpt-6-luna']) assert.equal(await core.recordModelRun(home, { harness: 'codex', authMode: 'api-key', modelId, nowMs: NOW - 1000 }), true);
+  const route = (extra = {}) => routeManagedWorker(
+    { taskId: 'task-move', workspaceId: 'w-move', sliceId: 'bounded-edit', mode: 'bounded-auto', risk: 'high', harness: 'codex', authMode: 'api-key', consentedProviders: ['openai'], killSwitchStopped: () => false, launch: async () => { throw new Error('never launched'); }, ...extra },
+    { home, trustedKeys: new Map(), bundledCalibration: null, nowMs: () => NOW, random: () => 0.99 },
+  );
+  const versionsAfter = async () => (await loadLearningState({ home, workspaceId: 'w-move' })).versions.map((v) => `${v.version}:${v.reasonCode}:${v.sliceId}`);
+  const before = await versionsAfter();
+  const routed = await route();
+  assert.deepEqual([routed.learning?.baselineModelId, routed.learning?.sliceMode], [NEW, 'advise'], JSON.stringify(routed));
+  assert.deepEqual(await versionsAfter(), before, 'the route for the new baseline leaves the old key alone (no BASELINE_CHANGED demotion, no reuse)');
+  // The control: a task that approves GPT-6 Sol keeps GPT-6 Sol as its baseline, so it reads the old key (and reconciles it).
+  const approved = await route({ approvedModelId: OLD });
+  assert.equal(approved.learning?.baselineModelId, OLD);
+  assert.equal((await versionsAfter()).length, before.length + 1, 'only a route against the old baseline reconciles the old key');
+  assert.match((await versionsAfter()).at(-1), /^2:[A-Z_]+:bounded-edit::gpt-6-sol$/);
 });
 
 test('D f17a3bc: the models the orchestrator left out of a no-model task carry its reason in the selection\'s eliminations', () => {

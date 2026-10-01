@@ -81,6 +81,7 @@ If the bundled snapshot changed, also run:
 Report these to the release owner. Do not act on them yourself:
 
 - **A retirement or deprecation of a model in the router's candidate set, or in a signed calibration baseline when the release ships one** (1.2 ships none). The router refuses retired models by date, but the owner must re-sign a baseline release if its baseline or candidates change.
+- **A new current model from the vendor of a harness's baseline** (for example the model a harness now defaults to). Moving that harness's baseline (`harnessDefaults`) is the owner's decision. Say so, and say that it starts the harness's route learning afresh: each baseline learns under its own key (`<slice>::<baseline model>`), so arms, promotions and first-try history earned against the old baseline stay under the old key and are never credited to the new one ([routing.md](routing.md#route-learning)).
 - **A price change on a candidate or baseline model.** This alters routing economics and day-1 decisions.
 - **A new model that could plausibly be a cheaper candidate for a low-risk slice.** State the evidence, and say whether published data is enough or whether a seed run would be needed. Also say whether the seed's size would grow; the owner approves that.
 - **Changed subscription or terms rules for any harness.** This affects authentication support.

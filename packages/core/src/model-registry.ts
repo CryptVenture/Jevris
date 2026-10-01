@@ -202,10 +202,12 @@ export const BUNDLED_MODEL_REGISTRY: ModelRegistry = Object.freeze({
   ],
   // OD-3: a route's baseline is the task's approved model when registered, else its harness's
   // default here. Opus 5.5 stays the Claude Code default (baselineModelId). OpenCode and Kilo run
-  // several providers and have no default of their own: they fall back to baselineModelId.
+  // several providers and have no default of their own: they fall back to baselineModelId. Codex's
+  // default is GPT-6.1 Sol (it was GPT-6 Sol): each baseline learns under its own key
+  // (learningSliceKey), so the change starts Codex's learning arms and first-try history afresh.
   harnessDefaults: [
     { harness: 'claude', baselineModelId: 'claude-opus-5-5' },
-    { harness: 'codex', baselineModelId: 'gpt-6-sol' },
+    { harness: 'codex', baselineModelId: 'gpt-6.1-sol' },
     { harness: 'antigravity', baselineModelId: 'gemini-3.8-flash' },
   ],
   // Serving hosts (R36, R38; design 3.2 and 3.3): which harness reaches which pinned host, through

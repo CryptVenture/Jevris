@@ -45,8 +45,9 @@ const INVOCATION = {
  * SKL-03 token budget, measured with a deterministic estimator (ceil(chars / 4)) on the
  * Claude tree, which carries the longest frontmatter. Measured at 2026-09-25: largest skill
  * 368, all skills 2462, model-invocable listing 300. With the guide (2026-09-30): all skills 2780,
- * listing 340; the limits did not move. The real `claude plugin details` check is
- * the opt-in live smoke.
+ * listing 340; the limits did not move. With the `task` input named in plan and guide (2026-10-01,
+ * other wording tightened to make room): largest skill 360, all skills 2797, listing 340; the limits
+ * still did not move. The real `claude plugin details` check is the opt-in live smoke.
  */
 const BUDGET = { perSkill: 420, total: 2800, listing: 360, description: 250 };
 const tokens = (text) => Math.ceil(text.length / 4);
@@ -148,6 +149,25 @@ test('the skills stay under the recorded token budget (SKL-03)', async () => {
   }
   assert.equal(total <= BUDGET.total, true, `all skills are ${total} tokens`);
   assert.equal(listing <= BUDGET.listing, true, `the model-invocable listing is ${listing} tokens`);
+});
+
+test('plan and guide tell an agent how to give route a task it cannot price: `task { title, paths, checkIds }` or `sliceId`, the inputs jevris_plan_route takes', () => {
+  const route = TOOLS.find((tool) => tool.name === 'jevris_plan_route');
+  const properties = route.inputSchema.properties;
+  assert.deepEqual(Object.keys(properties.task.properties).sort(), ['checkIds', 'paths', 'title']);
+  assert.equal(properties.sliceId !== undefined, true);
+  for (const name of ['plan', 'guide']) {
+    const body = file('claude', name, 'SKILL.md');
+    assert.equal(body.includes('`route`'), true, `${name} names the route skill`);
+    assert.equal(body.includes('`UNKNOWN_SLICE`'), true, `${name} names the reason route gives when it cannot price a task`);
+    assert.equal(body.includes('`needs`'), true, `${name} names the needs list`);
+    assert.equal(body.includes('`task { title, paths, checkIds }`'), true, `${name} names the task input`);
+    assert.equal(body.includes('`sliceId`'), true, `${name} names the sliceId input`);
+  }
+  // route's own skill and reference keep the full explanation, and the reference says what each reason means.
+  const reference = file('claude', 'route', 'reference.md');
+  assert.match(reference, /`UNKNOWN_SLICE`: no `sliceId` and no `task` was given/);
+  assert.equal(file('claude', 'route', 'SKILL.md').includes('`task`'), true);
 });
 
 test('ranking the skill directories stays executed false', async (t) => {

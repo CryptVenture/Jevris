@@ -54,12 +54,25 @@ test('ladder: Claude Code starts on Sonnet 5.5 and hands off to Opus 5.5 (from t
   assert.ok(!c.ladder.some((r) => r.modelId === 'claude-sonnet-5' && r.status !== 'legacy'), 'a legacy model is not an active rung');
 });
 
-test('ladder: Codex starts on GPT-6 Luna (same family) and Antigravity has no first try (no cheaper rung, preview above)', () => {
-  const codex = firstTryCandidate({ eligible: eligible(), baselineModelId: routeBaseline(REGISTRY, 'codex', null), volume: VOLUME, overhead: OVERHEAD });
+test('ladder: Codex starts on GPT-6 Luna and hands off to its baseline GPT-6.1 Sol; Antigravity has no first try (no cheaper rung, preview above)', () => {
+  const baseline = routeBaseline(REGISTRY, 'codex', null);
+  assert.equal(baseline, 'gpt-6.1-sol', "Codex's baseline is the registry's harnessDefaults row");
+  const codex = firstTryCandidate({ eligible: eligible(), baselineModelId: baseline, volume: VOLUME, overhead: OVERHEAD });
   assert.equal(codex.modelId, 'gpt-6-luna');
-  assert.equal(codex.chosenBy, 'family');
-  assert.equal(codex.stepUpModelIds[0], 'gpt-6-sol');
+  assert.equal(codex.baselineModelId, 'gpt-6.1-sol');
+  assert.equal(codex.chosenBy, 'newest', 'GPT-6.1 Sol is its own family, so no cheaper rung shares it: the newest cheaper release stands');
+  assert.equal(codex.stepUpModelIds[0], 'gpt-6.1-sol');
+  assert.ok(!codex.stepUpModelIds.includes('gpt-6-sol'), 'GPT-6 Sol costs the same per attempt as the baseline, so it is no step up');
   assert.ok(!codex.stepUpModelIds.includes('gpt-5.6-luna'), 'only rungs dearer than the baseline are fallbacks');
+  // Derived from the registry, nothing hand-listed: the step-ups are the baseline's vendor's active rungs that cost more per attempt.
+  const baselineCost = codex.ladder.find((r) => r.modelId === baseline).attemptMicroUsd;
+  const dearer = codex.ladder.filter((r) => r.provider === 'openai' && r.status === 'active' && r.attemptMicroUsd > baselineCost).map((r) => r.modelId);
+  assert.deepEqual([...codex.stepUpModelIds], [baseline, ...dearer]);
+  // The same rule on the old baseline gives the old answer, so the ladder follows harnessDefaults and nothing else.
+  const old = firstTryCandidate({ eligible: eligible(), baselineModelId: 'gpt-6-sol', volume: VOLUME, overhead: OVERHEAD });
+  assert.deepEqual([old.modelId, old.baselineModelId, old.stepUpModelIds[0], old.chosenBy], ['gpt-6-luna', 'gpt-6-sol', 'gpt-6-sol', 'family']);
+  const moved = { ...REGISTRY, harnessDefaults: REGISTRY.harnessDefaults.map((row) => (row.harness === 'codex' ? { ...row, baselineModelId: 'gpt-6-sol' } : row)) };
+  assert.equal(routeBaseline(moved, 'codex', null), 'gpt-6-sol');
   const agy = firstTryCandidate({ eligible: eligible(), baselineModelId: routeBaseline(REGISTRY, 'antigravity', null), volume: VOLUME, overhead: OVERHEAD });
   assert.deepEqual(agy, { none: true, reasonCode: 'NO_CHEAPER_RUNG' });
 });

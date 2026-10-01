@@ -147,12 +147,12 @@ test('R20: each harness applies a subagent route its own way; Antigravity explai
   assert.equal(SUBAGENT_ROUTE_ACTUATORS.antigravity, null);
   assert.deepEqual([SUBAGENT_ROUTE_ACTUATORS.claude.carries, SUBAGENT_ROUTE_ACTUATORS.codex.carries, SUBAGENT_ROUTE_ACTUATORS.codex.authority], ['alias', 'harness-model-id', 'updated-input-with-allow']);
   // Codex: the slice learns under Codex's baseline (R17), and the route names Codex's own id.
-  const codexKey = learningSliceKey(SLICE, 'gpt-6-sol', BUNDLED_MODEL_REGISTRY);
+  const codexKey = learningSliceKey(SLICE, 'gpt-6.1-sol', BUNDLED_MODEL_REGISTRY);
   assert.notEqual(codexKey, SLICE);
-  const codex = adviseSubagentRoute(input({ harness: 'codex', sessionModel: 'gpt-6-sol', learning: learning({ [codexKey]: { mode: 'auto', modelId: 'gpt-6-luna', baselineModelId: 'gpt-6-sol', baselineRate: 0.9 } }) }));
+  const codex = adviseSubagentRoute(input({ harness: 'codex', sessionModel: 'gpt-6.1-sol', learning: learning({ [codexKey]: { mode: 'auto', modelId: 'gpt-6-luna', baselineModelId: 'gpt-6.1-sol', baselineRate: 0.9 } }) }));
   assert.deepEqual([codex.outcome, codex.harness, codex.modelId, codex.harnessModel, codex.alias, codex.actuator.tool], ['propose', 'codex', 'gpt-6-luna', 'gpt-6-luna', null, 'spawn_agent']);
   // A route learned on Claude Code's subagents (the bare key) is never proposed on Codex.
-  assert.equal(reason({ harness: 'codex', sessionModel: 'gpt-6-sol' }), 'NO_EVIDENCE');
+  assert.equal(reason({ harness: 'codex', sessionModel: 'gpt-6.1-sol' }), 'NO_EVIDENCE');
   // OpenCode and Kilo: the same learned route, spelled provider/model; the session spelling counts as the same model.
   for (const harness of ['opencode', 'kilocode']) {
     const advice = adviseSubagentRoute(input({ harness, sessionModel: 'anthropic/claude-opus-5-5' }));
@@ -162,7 +162,7 @@ test('R20: each harness applies a subagent route its own way; Antigravity explai
   }
   // A learned effort rides as the route's variant where the actuator carries one (E b250627): Kilo's
   // variant. Codex states it only (43cb54c); OpenCode's child-session route and Claude Code's alias carry none.
-  const codexHigh = adviseSubagentRoute(input({ harness: 'codex', sessionModel: 'gpt-6-sol', learning: learning({ [codexKey]: { mode: 'auto', modelId: 'gpt-6-luna', effort: 'xhigh', baselineModelId: 'gpt-6-sol', baselineRate: 0.9 } }) }));
+  const codexHigh = adviseSubagentRoute(input({ harness: 'codex', sessionModel: 'gpt-6.1-sol', learning: learning({ [codexKey]: { mode: 'auto', modelId: 'gpt-6-luna', effort: 'xhigh', baselineModelId: 'gpt-6.1-sol', baselineRate: 0.9 } }) }));
   assert.deepEqual([codexHigh.outcome, codexHigh.harnessModel, codexHigh.variant], ['propose', 'gpt-6-luna', null]);
   assert.equal(codex.variant, null);
   const sonnetLow = active('claude-sonnet-5', { effort: 'low' });

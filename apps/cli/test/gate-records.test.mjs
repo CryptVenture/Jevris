@@ -987,7 +987,7 @@ test('quality.model-retirement warns on an upcoming date, a passed "not sooner t
   const fact = (modelId, extra) => ({ modelId, displayName: modelId, status: 'active', notBefore: null, retiresOn: null, referenced: false, ...extra });
 
   // The bundled registry names the baselines (each harness's default, OD-3) and the public priors' models.
-  assert.deepEqual(facts.filter((m) => m.referenced).map((m) => m.modelId).sort(), ['claude-fable-5-1', 'claude-opus-5', 'claude-opus-5-5', 'claude-sonnet-5', 'gemini-3.8-flash', 'gpt-6-sol']);
+  assert.deepEqual(facts.filter((m) => m.referenced).map((m) => m.modelId).sort(), ['claude-fable-5-1', 'claude-opus-5', 'claude-opus-5-5', 'claude-sonnet-5', 'gemini-3.8-flash', 'gpt-6.1-sol']);
 
   // Within 30 days: pinned 2026-09-27, Haiku 4.5's "not sooner than" 2026-10-15 is 18 days away.
   const now = at('2026-09-27T00:00:00Z');

@@ -16,7 +16,7 @@ Required evidence: none.
 Steps:
 1. Call `jevris_configure` with no arguments.
 2. Report each effective setting with its source.
-3. If the user wants to change a setting, give the exact terminal command, `jevris configure set <key> <value>`, for the user to run. Do not run it for them.
+3. If the user wants a change, give the exact terminal command, `jevris configure set <key> <value>`, for the user to run. Do not run it.
 
 Output contract: one line per setting, `key: value (source)`. Say that native harness permissions were not changed.
 

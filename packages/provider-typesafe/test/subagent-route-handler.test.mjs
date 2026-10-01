@@ -155,15 +155,15 @@ test('R20: Codex gets a route in its own id, and OpenCode its provider/model, on
   const dir = await home(t);
   // A Codex-baseline promotion for the slice (R17 key), next to the Claude Code one.
   const slice = core.subagentSliceId('Explore');
-  const key = core.learningSliceKey(slice, 'gpt-6-sol', core.BUNDLED_MODEL_REGISTRY);
+  const key = core.learningSliceKey(slice, 'gpt-6.1-sol', core.BUNDLED_MODEL_REGISTRY);
   const state = await core.loadLearningState({ home: dir, workspaceId: 'w-sub' });
   const last = state.versions[state.versions.length - 1];
-  const next = { ...last, version: last.version + 1, parentVersion: last.version, sliceId: key, slices: { ...last.slices, [key]: { mode: 'auto', modelId: 'gpt-6-luna', baselineModelId: 'gpt-6-sol', baselineRate: 0.9 } } };
+  const next = { ...last, version: last.version + 1, parentVersion: last.version, sliceId: key, slices: { ...last.slices, [key]: { mode: 'auto', modelId: 'gpt-6-luna', baselineModelId: 'gpt-6.1-sol', baselineRate: 0.9 } } };
   assert.equal((await core.saveLearningState(dir, { ...state, versions: [...state.versions, next] })).ok, true);
   // Owner 3f090fa: the routed models have run on these harnesses (local evidence).
   assert.equal(await core.recordModelRun(dir, { harness: 'codex', authMode: 'unknown', modelId: 'gpt-6-luna', nowMs: NOW }), true);
   assert.equal(await core.recordModelRun(dir, { harness: 'opencode', authMode: 'unknown', modelId: HAIKU, nowMs: NOW }), true);
-  const codexEvent = () => ({ ...agentEvent({ subagentType: 'Explore', toolName: 'spawn_agent' }, { harness: 'codex', model: 'gpt-6-sol' }), toolName: 'spawn_agent' });
+  const codexEvent = () => ({ ...agentEvent({ subagentType: 'Explore', toolName: 'spawn_agent' }, { harness: 'codex', model: 'gpt-6.1-sol' }), toolName: 'spawn_agent' });
   const codexCertified = recordsCertificationSource(async () => [record(['hooks.route'], 'codex')]);
   const routed = await subscriber(codexCertified).handle(ctx(dir, codexEvent()));
   assert.deepEqual(routed.hookOutcome, { kind: 'route', model: 'gpt-6-luna' });
