@@ -71,7 +71,7 @@ export const TOOLS: readonly ToolSpec[] = [
     op: 'route',
     title: 'Model route advice',
     description:
-      'Advice on the main-session model and on managed workers. It never switches a model and never overrides a pinned one; the user decides.',
+      'Advice on the main-session model and on managed workers. It never switches a model and never overrides a pinned one; the user decides. Pass sliceId or task { paths, checkIds, title } (Jev classifies the slice, advice only), and session.warmPrefixTokens to price a switch; otherwise the model is kept and `needs` says what to add.',
     inputSchema: input({
       currentModel: harnessModel('The model the session uses now, if known, as the harness names it (provider/model and a [1m] suffix are accepted).'),
       modelPin: harnessModel('A model the user pinned, as the harness names it. It is always kept.'),

@@ -210,3 +210,19 @@ test('explain shows the classification: what was asked, what answered, the rules
   const plain = core.explainDecision(await engine.lookup(out.slice.decisionId));
   assert.match(plain, /Jev answered issue-fix with confidence 85 percent/);
 });
+
+test('a route with too little says what to supply: sliceId or task, and the warm prefix; a pin or a reasoned answer says nothing', async (t) => {
+  const { home, engine } = await setup(t, JEV_FIX);
+  const bare = await route(home, { currentModel: 'claude-opus-5' }, engine);
+  assert.equal(bare.main.reasonCode, 'UNKNOWN_SLICE');
+  assert.equal(bare.needs.length, 2);
+  assert.match(bare.needs[0], /sliceId .*task \{ paths, checkIds, title \}/);
+  assert.match(bare.needs[1], /session\.warmPrefixTokens/);
+  assert.match(bare.main.text, /\(UNKNOWN_SLICE\)\..*To get a reasoned answer, pass: sliceId/);
+  const withSession = await route(home, { currentModel: 'claude-opus-5', session: { warmPrefixTokens: 1000 } }, engine);
+  assert.equal(withSession.needs.length, 1, 'the warm prefix was given, so only the slice is missing');
+  const pinned = await route(home, { currentModel: 'claude-opus-5', modelPin: 'claude-opus-5' }, engine);
+  assert.equal(pinned.needs, undefined);
+  const classified = await route(home, { currentModel: 'claude-opus-5', task: SOURCE_TASK, session: { warmPrefixTokens: 1000 } }, engine);
+  assert.equal(classified.needs, undefined, 'a classified task with a priced session needs nothing more');
+});

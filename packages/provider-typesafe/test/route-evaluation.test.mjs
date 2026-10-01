@@ -143,6 +143,10 @@ test('RTE-03, RTE-05, C09, C10, US03, US10: a released calibration with model qu
   assert.match(unpriced.worker.text, /release cal-route-test/);
   // The session did not report its warm prefix: the switch cannot be priced, so the model stays.
   assert.deepEqual([unpriced.main.outcome, unpriced.main.reasonCode, unpriced.main.recommendedModel], ['keep', 'TRANSITION_COST_UNKNOWN', null]);
+  // Owner decision 2026-10-01: the reason names what to supply, in the text and as `needs`.
+  assert.match(unpriced.main.text, /pass session\.warmPrefixTokens/);
+  assert.deepEqual(unpriced.needs?.length, 1);
+  assert.match(unpriced.needs[0], /^session\.warmPrefixTokens/);
   // At a boundary with a cold start the saving clears the minimum benefit: a recommendation, never applied.
   const cold = await route(dir, { ...base, session: { warmPrefixTokens: 0, atBoundary: true } }, null, 'w-route-cold');
   assert.deepEqual([cold.main.outcome, cold.main.recommendedModel, cold.main.reasonCode, cold.main.costBasis], ['recommend', 'claude-sonnet-5', 'LOWEST_UTILITY_WITHIN_FLOOR', 'api-list-price']);

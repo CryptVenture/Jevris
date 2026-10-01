@@ -588,6 +588,11 @@ export const RoutePayloadSchema = S.object({
   applied: S.literal(false),
 }, {
   /**
+   * Owner decision 2026-10-01: what the caller can supply to get a reasoned answer, present when
+   * the answer is a keep because the request gave too little (no slice, no warm prefix).
+   */
+  needs: S.array(text(300), { maxItems: 4 }),
+  /**
    * Owner decision 2026-10-01: present when the request named no slice but described its task, so
    * the slice was classified (Jev from structured features, else rules). Advice only; never a
    * learned arm. `sliceId` null means none was used and the baseline stays.

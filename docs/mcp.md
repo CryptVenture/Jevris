@@ -261,7 +261,7 @@ Advice on the main-session model and on managed workers. It never switches a mod
   - `contextTokens`;
   - `session`: `warmPrefixTokens` (required inside `session`: the cached prefix a switch would move), `cacheWarm`, `atBoundary`, `unitsSinceLastSwitch`, `switchesThisTask` and `authMode` (`api-key`, `subscription` or `unknown`, which labels the switch cost as list price or as an API-equivalent estimate).
 - **Harness:** the server sends the harness it was installed for, so the advice names only models that harness can run with the session's sign-in (`session.authMode`). A CLI call with no `--harness` is not scoped.
-- **Result:** `{ main, worker, applied: false }`.
+- **Result:** `{ main, worker, applied: false }`, plus `slice` when Jevris classified the task and `needs` when the answer is a keep because the request gave too little. `needs` lists what to pass: a `sliceId` or a `task`, and `session.warmPrefixTokens` to price a switch.
   - `main.currentModel` is the registry id of the model you named (for example `claude-opus-5-5` for `anthropic/claude-opus-5-5[1m]`), or the bare id when the registry does not hold it.
   - `main.harness` names the harness the advice was scoped to, when there was one.
   - `main.pinState` is `pinned` or `unpinned`.

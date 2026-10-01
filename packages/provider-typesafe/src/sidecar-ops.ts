@@ -546,6 +546,24 @@ async function classifyRouteSlice(ctx: SidecarOpContext, hints: SliceTaskHints):
   }
 }
 
+/**
+ * What the caller can supply to turn a keep-because-unknown route into a reasoned one: the reason a
+ * request that gave too little names, as short text for the answer (`needs`) and a sentence for the
+ * advice. Owner decision 2026-10-01: a reason code alone sent a caller away empty-handed.
+ */
+function routeNeeds(reasonCode: string, input: RouteRequest): { readonly needs: string[]; readonly hint: string } {
+  const needs: string[] = [];
+  if (reasonCode === 'UNKNOWN_SLICE') needs.push('sliceId (for example bounded-edit), or task { paths, checkIds, title } so Jevris classifies the slice');
+  if ((reasonCode === 'UNKNOWN_SLICE' || reasonCode === 'TRANSITION_COST_UNKNOWN') && input.switchContext === null) needs.push('session.warmPrefixTokens (jevris route --warm-prefix), to price a switch');
+  if (needs.length === 0) return { needs, hint: '' };
+  return { needs, hint: ` To get a reasoned answer, pass: ${needs.join('; and ')}.` };
+}
+
+function needsField(main: RoutePayload['main'], input: RouteRequest): { readonly needs?: string[] } {
+  const needs = main.pinState === 'pinned' ? [] : routeNeeds(main.reasonCode, input).needs;
+  return needs.length === 0 ? {} : { needs: needs.map((n) => n.slice(0, 300)) };
+}
+
 /** The route payload's `slice` part: how the task's slice was classified; absent when none was. */
 function sliceField(c: SliceClassification | null): { readonly slice?: NonNullable<RoutePayload['slice']> } {
   if (c === null) return {};
@@ -674,7 +692,7 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
       recommendedModel: advice.recommendedModelId,
       reasonCode: pinned ? 'PIN_RESPECTED' : noSelection ? (mainEvaluation.reasonCode as string) : advice.reasonCode,
       costBasis: advice.costBasis,
-      text: noSelection ? advice.text.replace('(NO_ROUTE_DECISION)', `(${mainEvaluation.reasonCode as string})`) : advice.text,
+      text: ((noSelection ? advice.text.replace('(NO_ROUTE_DECISION)', `(${mainEvaluation.reasonCode as string})`) : advice.text) + (pinned ? '' : routeNeeds(noSelection ? (mainEvaluation.reasonCode as string) : advice.reasonCode, input).hint)).slice(0, 1000),
       adviceKey: advice.adviceKey,
       // The session's auth mode, echoed so the cost-basis line matches the text's label.
       ...(input.switchContext?.authMode === undefined ? {} : { authMode: input.switchContext.authMode }),
@@ -717,7 +735,7 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
     const id = deliveryId ?? `advice-${(main.adviceKey as string).replace(/^sha256:/, '').slice(0, 32)}-${nowMs.toString(36)}`;
     openAdvice(ctx, { decisionId: id, adviceKind: 'main-route', sessionId: input.sessionId, slice: input.sliceId, advisedModel: main.recommendedModel as string, currentModel: input.currentModel, atMs: nowMs });
   }
-  return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified) });
+  return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified), ...needsField(main, input) });
 }
 
 async function handleExplain(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {

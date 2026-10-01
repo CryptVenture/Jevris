@@ -34,7 +34,7 @@ export const INSTRUCTIONS_MAX_BYTES = 1500;
 export const INSTRUCTIONS = [
   'Jevris gives advice and keeps local records for this workspace, in the mode the user set. It never switches a model, changes permissions, marks a check passed or deletes anything.',
   'Where things stand: status (jevris_status); one decision by id: explain (jevris_explain_decision).',
-  'Before work: plan (jevris_plan) checks a task graph; route (jevris_plan_route) advises a model and never switches one.',
+  'Before work: plan (jevris_plan) checks a task graph; route (jevris_plan_route) advises a model and never switches one; give it a sliceId or task { paths, checkIds, title }, else it keeps the model.',
   'During work: checkpoint (jevris_checkpoint) saves state before a long step; recover (jevris_recover) advises after repeated failures.',
   'Before saying done: verify (jevris_verify) reads runner receipts. Only a receipt proves a check passed, never your own test output.',
   'A Stop reminder or an "unverified" end report is expected until the approved checks have passing receipts. Running the approved checks with the `jevris verify` command clears it; the verify skill and tool only read the result.',

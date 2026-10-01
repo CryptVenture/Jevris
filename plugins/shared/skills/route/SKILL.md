@@ -9,12 +9,13 @@ invocation: model
 
 Purpose: give model advice the user can act on. Jevris never switches the model itself.
 
-Required evidence: the current model if known, and any model or effort the user pinned. See reference.md for the meaning of each outcome; read it only when an outcome is unclear.
+Required evidence: the current model if known, and any pin. reference.md explains outcomes and inputs; read it only when unclear.
 
 Steps:
-1. Call `jevris_plan_route` with `currentModel`, and `modelPin` or `effortPin` when the user pinned one. Add `taskId` when the advice is for one task.
-2. Report `main.outcome` and `main.text`. When `main.pinState` is `pinned`, say the pin is kept.
-3. Report worker advice only when it is present.
+1. Call `jevris_plan_route` with `currentModel`, any `modelPin` or `effortPin` the user set, and `taskId` for one task.
+2. Pass `sliceId` or `task`, and `session.warmPrefixTokens` (reference.md); `needs` lists what is missing.
+3. Report `main.outcome` and `main.text`. When `main.pinState` is `pinned`, say the pin is kept.
+4. Report worker advice only when it is present.
 
 Output contract: one sentence of advice, one sentence of reason (`main.reasonCode` in plain words), and the cost basis when given. Never state that a model was changed: `applied` is always false.
 

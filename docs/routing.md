@@ -26,7 +26,7 @@ The baseline model on Claude Code is Opus 5.5 (`claude-opus-5-5`): 1M tokens of 
 
 ### When the route has no slice
 
-Routing is keyed by the task's slice (`bounded-edit`, `issue-fix`, `test-fix`, `refactor`, `feature`, `docs`, `review`, `research`, `debug`, `migration`, `terminal`). A route request with no slice cannot be priced, so it keeps the model (`UNKNOWN_SLICE`). Describe the task and Jevris classifies the slice for you:
+Routing is keyed by the task's slice (`bounded-edit`, `issue-fix`, `test-fix`, `refactor`, `feature`, `docs`, `review`, `research`, `debug`, `migration`, `terminal`). A route request with no slice cannot be priced, so it keeps the model (`UNKNOWN_SLICE`). The advice then says what to pass, and the answer's `needs` lists it: a `sliceId` or a `task`, and `session.warmPrefixTokens` (`--warm-prefix`) to price a switch (without it a switch keeps the model with `TRANSITION_COST_UNKNOWN`). Describe the task and Jevris classifies the slice for you:
 
 ```sh
 jevris route --model claude-opus-5-5 --path src/parser.ts --path test/parser.test.ts --check test --title "fix the parser crash"

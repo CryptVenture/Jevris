@@ -356,7 +356,7 @@ export async function evaluateRoute(input: RouteEvaluationInput): Promise<RouteE
         reasonCode: 'TRANSITION_COST_UNKNOWN',
         transitionCostMicroUsd: 0,
         netBenefitMicroUsd: Math.round(selection.saving.lower),
-        explanation: 'The warm-prefix size of this session was not reported, so the cost of moving it to another model cannot be priced; keep the current model until a boundary reports it.',
+        explanation: 'The warm-prefix size of this session was not reported, so the cost of moving it to another model cannot be priced; keep the current model. To price a switch, pass session.warmPrefixTokens (the cached prompt prefix, in tokens; jevris route --warm-prefix) with the request.',
       };
     } else {
       switchDecision = switchGuard({
