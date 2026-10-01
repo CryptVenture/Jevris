@@ -1,6 +1,6 @@
 // Sidecar protocol v1 (IPC-01..IPC-20): the agreed client, the daemon and the op registry.
-export { ensureSidecar, probeSidecar, sidecarChildEnv, sidecarCommand, sidecarRequest, sidecarWaitMs, spawnSidecar, stopSidecarProcess, SIDECAR_TEST_WAIT_MAX_MS } from './client.js';
-export type { SidecarProbe, SpawnSidecarOptions, StopResult } from './client.js';
+export { ensureSidecar, probeSidecar, serviceInstalledFor, sidecarChildEnv, sidecarCommand, sidecarRequest, sidecarWaitMs, spawnSidecar, stopSidecarProcess, SERVICE_START_GRACE_MS, SIDECAR_TEST_WAIT_MAX_MS } from './client.js';
+export type { EnsureSidecarDeps, SidecarProbe, SpawnSidecarOptions, StopResult } from './client.js';
 export { BUILD_CHECK_MS, DEFAULT_IDLE_MS, STALE_BUILD_EXIT_CODE, hardenPipeAcl, pipeAclOwnerOnly, pipeAclScript, runSidecarMain, startDaemon, sweepStaleFallbackSockets } from './daemon.js';
 export type { DaemonOptions, DaemonStartResult, SidecarDaemon } from './daemon.js';
 export { BUILTIN_OP_NAMES, DuplicateOpError, loadOps } from './ops.js';
@@ -23,6 +23,6 @@ export type { ExecutionLocality, LocalityInput } from './locality.js';
 export { sidecarMain, parseMainArgs } from './main.js';
 export { openTelemetry, readDiagnostic, readStatusLine, statusLineText, DIAGNOSTIC_MAX_MS, STATUSLINE_FILE, TRACE_DIR } from './telemetry.js';
 export type { DiagnosticState, RequestCounters, StatusLineBody, Telemetry, TraceInput } from './telemetry.js';
-export { installService, planService, serviceReady, serviceStatus, startService, uninstallService, LAUNCH_AGENT_LABEL, SCHEDULED_TASK_NAME, SYSTEMD_UNIT_NAME } from './service-units.js';
+export { askServiceToStart, installService, planService, serviceInputForHome, serviceReady, serviceStartCommand, serviceStatus, serviceUnitState, startService, uninstallService, LAUNCH_AGENT_LABEL, SCHEDULED_TASK_NAME, SYSTEMD_UNIT_NAME } from './service-units.js';
 export { createSecuritySubscriber, proposedEffectOf, suspicionText, triageText, untrustedSpansOf, UNTRUSTED_SPANS_MAX, UNTRUSTED_SPAN_CHARS_MAX, UNTRUSTED_TOTAL_CHARS_MAX } from './security-subscriber.js';
-export type { Exec as ServiceExec, ServiceInput, ServicePlan, ServicePlatform, ServiceResult } from './service-units.js';
+export type { Exec as ServiceExec, ServiceAskOutcome, ServiceAskResult, ServiceInput, ServiceInputOptions, ServicePlan, ServicePlatform, ServiceResult, ServiceRun, ServiceRunResult } from './service-units.js';

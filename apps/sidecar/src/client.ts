@@ -12,6 +12,7 @@ import type {
   SidecarRequestResult,
 } from '@jevris/contracts';
 import { detectLocality } from './locality.js';
+import { askServiceToStart, defaultServiceRun, serviceInputForHome, serviceUnitState, type ServiceInput, type ServicePlatform, type ServiceRun } from './service-units.js';
 // P8: the hook launcher appends its deadline misses through this client entry (E's bin.ts).
 export { HOOK_LATENCY_FILE, HOOK_LATENCY_FILE_MAX_BYTES, appendHookLatency, hookLatencyFile, hookLatencyLine, parseHookLatencyLine } from './hook-latency.js';
 export type { HookLatencyEntry } from './hook-latency.js';
@@ -338,18 +339,27 @@ export function sidecarCommand(): readonly string[] | undefined {
   }
 }
 
-/** Takes the spawn lock with an exclusive create; a lock older than the stale window is replaced. */
-function takeSpawnLock(files: RuntimeFiles): boolean {
+/** How the caller that took the spawn lock meant to start the sidecar. */
+type StartVia = 'service' | 'spawn';
+
+/**
+ * Takes the spawn lock with an exclusive create; a lock older than the stale window is replaced.
+ * The lock records how the start was made. A replaced lock that was a service start tells the new
+ * holder that the service did not bring a sidecar up in the window (`previousVia`).
+ */
+function takeSpawnLock(files: RuntimeFiles, via: StartVia): { readonly previousVia: StartVia | undefined } | false {
+  let previousVia: StartVia | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
       const fd = openSync(files.spawnLock, 'wx', 0o600);
-      writeSync(fd, JSON.stringify({ pid: process.pid, atMs: Date.now() }));
+      writeSync(fd, JSON.stringify({ pid: process.pid, atMs: Date.now(), via }));
       closeSync(fd);
-      return true;
+      return { previousVia };
     } catch (error) {
       if (errorCode(error) === 'ENOENT') return false;
       if (errorCode(error) !== 'EEXIST') return false;
       if (!spawnLockStale(files)) return false;
+      previousVia = spawnLockVia(files);
       try {
         unlinkSync(files.spawnLock);
       } catch {
@@ -360,14 +370,27 @@ function takeSpawnLock(files: RuntimeFiles): boolean {
   return false;
 }
 
+function spawnLockVia(files: RuntimeFiles): StartVia | undefined {
+  try {
+    const parsed = JSON.parse(readSharedFileSync(files.spawnLock, 'utf8')) as { readonly via?: unknown };
+    return parsed.via === 'service' || parsed.via === 'spawn' ? parsed.via : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 function spawnLockStale(files: RuntimeFiles): boolean {
   try {
     const text = readSharedFileSync(files.spawnLock, 'utf8');
-    const parsed = JSON.parse(text) as { readonly pid?: unknown; readonly atMs?: unknown };
+    const parsed = JSON.parse(text) as { readonly pid?: unknown; readonly atMs?: unknown; readonly via?: unknown };
+    const atMs = typeof parsed.atMs === 'number' ? parsed.atMs : 0;
+    // A service start belongs to the service manager, not to the caller that asked: that caller
+    // (a hook) is gone within milliseconds while the manager's sidecar is still starting. Only age
+    // ends it.
+    if (parsed.via === 'service') return Date.now() - atMs > SPAWN_LOCK_STALE_MS;
     // A spawner that died (an update or a crash killed it) holds nothing: take the lock now
     // rather than leave every caller rules-only for the stale window.
     if (typeof parsed.pid === 'number' && parsed.pid !== process.pid && !pidAlive(parsed.pid)) return true;
-    const atMs = typeof parsed.atMs === 'number' ? parsed.atMs : 0;
     return Date.now() - atMs > SPAWN_LOCK_STALE_MS;
   } catch {
     try {
@@ -483,12 +506,89 @@ export function sidecarWaitMs(requested: number, env: { readonly [key: string]: 
 }
 
 /**
+ * How long a caller that must not wait (a hook, `waitMs: 0`) gives the service manager to answer
+ * before it leaves the request to finish on its own. A manager answers a start in tens of
+ * milliseconds; this is far inside a hook's 900 ms budget, and the hook's own deadline still wins.
+ */
+export const SERVICE_START_GRACE_MS = 400;
+/** The most a caller that waits gives the service manager to answer a start. */
+const SERVICE_START_MAX_WAIT_MS = 10_000;
+
+/** Seams for tests: the service manager and the on-demand spawn. Production passes none. */
+export interface EnsureSidecarDeps {
+  /**
+   * `false` never asks a service manager (the caller already did, or has no use for one). Otherwise
+   * the seams below replace the real platform, account home and manager commands. Under a test run
+   * (JEVRIS_TEST=1) the real manager is never called unless a test supplies `run`.
+   */
+  readonly service?:
+    | false
+    | {
+        readonly platform?: ServicePlatform;
+        readonly osHome?: string;
+        readonly run?: ServiceRun;
+      };
+  /** Starts the detached on-demand sidecar (default spawnSidecar). */
+  readonly spawn?: (options: SpawnSidecarOptions) => boolean;
+}
+
+/** The unit input when a service is installed for this home, read from the unit file alone; else undefined. */
+function installedServiceFor(home: string | undefined, deps: EnsureSidecarDeps): ServiceInput | undefined {
+  if (deps.service === false) return undefined;
+  const platform = deps.service?.platform ?? process.platform;
+  if (platform !== 'darwin' && platform !== 'linux' && platform !== 'win32') return undefined;
+  try {
+    const input = serviceInputForHome({
+      ...(home !== undefined ? { home } : {}),
+      command: sidecarCommand(),
+      platform,
+      ...(deps.service?.osHome !== undefined ? { osHome: deps.service.osHome } : {}),
+    });
+    return serviceUnitState(input) === 'installed' ? input : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Whether a service is installed for this home (the unit file serves it). A read of one small file:
+ * no service manager is called.
+ */
+export function serviceInstalledFor(home?: string): boolean {
+  return installedServiceFor(home, {}) !== undefined;
+}
+
+/** The runner for the real manager; under a test run no manager is called unless a test injects one. */
+function serviceRunFor(deps: EnsureSidecarDeps): ServiceRun {
+  const injected = deps.service === false ? undefined : deps.service?.run;
+  if (injected !== undefined) return injected;
+  if (process.env['JEVRIS_TEST'] === '1') return () => ({ status: 1 });
+  return defaultServiceRun(sidecarChildEnv());
+}
+
+/** A sidecar the service runs that is alive, though it did not answer: starting another would put two side by side. */
+function liveServiceSidecar(files: RuntimeFiles): number | undefined {
+  const endpoint = readEndpoint(files);
+  return endpoint !== undefined && endpoint.supervised && pidAlive(endpoint.pid) ? endpoint.pid : undefined;
+}
+
+/**
  * Starts the sidecar on demand (IPC-13). With `waitMs: 0` it never blocks: a hook starts the
  * sidecar and runs rules-only on that invocation. The CLI and MCP wait up to about 1.5 s.
  * Many parallel callers produce one sidecar: an exclusive spawn lock picks one spawner, and
  * the daemon's own lock makes any second daemon exit.
+ *
+ * When `jevris service install` set up a service for this home, the start goes through the
+ * service manager (launchctl kickstart, systemctl --user start, schtasks /Run), so the sidecar that
+ * comes up is the supervised one and no second, unsupervised sidecar is spawned beside it. The
+ * manager is given a short grace to answer (about 0.4 s for a caller that does not wait; never past
+ * `waitMs` for one that does) and is then left to finish on its own, so a hook stays inside its
+ * deadline. If the manager refuses or cannot be run, the on-demand spawn below is used, unless a
+ * sidecar the service runs is still alive: then nothing is spawned and the reason is reported.
+ * A service start that left no sidecar within the lock window is not repeated: the next call spawns.
+ * With no service installed nothing changes. JEVRIS_SIDECAR_AUTOSTART=0 is the callers' to honour.
  */
-export async function ensureSidecar(input: EnsureSidecarInput = {}): Promise<EnsureSidecarResult> {
+export async function ensureSidecar(input: EnsureSidecarInput = {}, deps: EnsureSidecarDeps = {}): Promise<EnsureSidecarResult> {
   const home = input.home;
   const waitMs = sidecarWaitMs(input.waitMs ?? 0);
   const probe = await probeSidecar(home);
@@ -498,15 +598,42 @@ export async function ensureSidecar(input: EnsureSidecarInput = {}): Promise<Ens
   if (!ensureRuntimeDir(files)) {
     return { ok: false, reason: 'refused', message: 'The Jevris runtime directory could not be created. Run `jevris doctor`.' };
   }
+  const beganAt = Date.now();
+  const service = installedServiceFor(home, deps);
   let spawned = false;
-  if (takeSpawnLock(files)) {
-    spawned = spawnSidecar(home !== undefined ? { home } : {});
-    if (!spawned) {
-      releaseSpawnLock(files);
-      return { ok: false, reason: 'unavailable', message: 'The Jevris sidecar could not be started. Run `jevris sidecar start` to see why.' };
+  const lock = takeSpawnLock(files, service === undefined ? 'spawn' : 'service');
+  if (lock !== false) {
+    let viaService = false;
+    // The previous service start left no sidecar within the lock window: this call spawns instead.
+    if (service !== undefined && lock.previousVia !== 'service') {
+      const asked = await askServiceToStart(service, serviceRunFor(deps), waitMs === 0 ? SERVICE_START_GRACE_MS : Math.min(waitMs, SERVICE_START_MAX_WAIT_MS));
+      if (asked.outcome === 'started' || asked.outcome === 'pending') {
+        viaService = true;
+        spawned = true;
+      } else {
+        const alive = liveServiceSidecar(files);
+        if (alive !== undefined) {
+          releaseSpawnLock(files);
+          const code = asked.outcome === 'refused' ? 'SERVICE_START_REFUSED' : 'SERVICE_UNREACHABLE';
+          return {
+            ok: false,
+            reason: 'unavailable',
+            reasonCode: code,
+            message: `${asked.manager} ${asked.outcome === 'refused' ? 'refused to start' : 'could not be reached to start'} the Jevris sidecar service (${code}), and the sidecar the service runs (pid ${String(alive)}) is alive but did not answer, so no second sidecar was started. Run \`jevris service status\`, then \`jevris sidecar restart\`.`,
+          };
+        }
+        // Safe: no service-run sidecar is alive, so the on-demand spawn below starts the only one.
+      }
+    }
+    if (!viaService) {
+      spawned = (deps.spawn ?? spawnSidecar)(home !== undefined ? { home } : {});
+      if (!spawned) {
+        releaseSpawnLock(files);
+        return { ok: false, reason: 'unavailable', message: 'The Jevris sidecar could not be started. Run `jevris sidecar start` to see why.' };
+      }
     }
   }
-  const until = Date.now() + waitMs;
+  const until = beganAt + waitMs;
   while (Date.now() < until) {
     await sleep(Math.min(25, Math.max(1, until - Date.now())));
     const next = await probeSidecar(home, 100);

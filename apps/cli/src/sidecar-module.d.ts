@@ -3,7 +3,10 @@
 declare module '@jevris/sidecar' {
   import type { EnsureSidecarResult, SidecarEndpointFile, SidecarRequestInput, SidecarRequestResult } from '@jevris/contracts';
 
-  export function ensureSidecar(input: { readonly home?: string; readonly waitMs?: number }): Promise<EnsureSidecarResult>;
+  /** Starts the sidecar on demand; through the service manager when a service is installed for this home. `service: false` skips the manager. */
+  export function ensureSidecar(input: { readonly home?: string; readonly waitMs?: number }, deps?: { readonly service?: false }): Promise<EnsureSidecarResult>;
+  /** Whether a service is installed for this home, from the unit file alone (no manager is called). */
+  export function serviceInstalledFor(home?: string): boolean;
   export function sidecarRequest(input: SidecarRequestInput): Promise<SidecarRequestResult>;
   /** The autostart wait: the requested one, or JEVRIS_SIDECAR_WAIT_MS (at most 60 s) under a test run. */
   export function sidecarWaitMs(requested: number, env?: { readonly [key: string]: string | undefined }): number;
@@ -70,4 +73,11 @@ declare module '@jevris/sidecar' {
   export function serviceStatus(input: ServiceInput, exec?: ServiceExec): ServiceResult;
   export function serviceReady(input: ServiceInput, exec?: ServiceExec): ServiceResult;
   export function startService(input: ServiceInput, exec?: ServiceExec): ServiceResult;
+  export function serviceInputForHome(options?: {
+    readonly home?: string;
+    readonly command?: readonly string[] | undefined;
+    readonly env?: { readonly [key: string]: string | undefined };
+    readonly platform?: 'darwin' | 'linux' | 'win32';
+    readonly osHome?: string;
+  }): ServiceInput;
 }

@@ -141,10 +141,35 @@ test('restart of a supervised sidecar with no service installed for this home re
   });
 });
 
-test('restart of an unsupervised sidecar is unchanged: stop, then start it on demand, no service manager call', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+test('restart of an on-demand sidecar with a service installed hands it over: stop, then the service manager starts the supervised one, no on-demand spawn', { skip: managedHostSkip() || !SUPPORTED }, async () => {
   await withScene(async ({ home }) => {
     const s = scene({ supervised: false });
     await install(home, s);
+    const result = await run(['sidecar', 'restart', '--home', home, '--wait-ms', '60000'], s.hooks);
+    assert.equal(result.code, 0, result.text);
+    assert.match(result.text, /sidecar: running \(restarted by /);
+    assert.ok(!s.events.includes('ensure'), `no second, unsupervised sidecar is spawned: ${s.events.join(' | ')}`);
+    const stopAt = s.events.indexOf('stop');
+    const startAt = s.events.findIndex((event) => event.startsWith('exec ') && isStart(event.slice(5).split(' ')));
+    assert.ok(stopAt >= 0 && startAt > stopAt, `the clean stop comes first, then the manager start: ${s.events.join(' | ')}`);
+  });
+});
+
+test('restart of an on-demand sidecar with a service whose manager does not answer falls back to an on-demand start', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  await withScene(async ({ home }) => {
+    const s = scene({ supervised: false });
+    await install(home, s);
+    const down = scene({ supervised: false, managerUp: false });
+    const result = await run(['sidecar', 'restart', '--home', home], down.hooks);
+    assert.equal(result.code, 0, result.text);
+    assert.match(result.text, /sidecar: running \(started\)/);
+    assert.deepEqual(down.events.filter((event) => !event.startsWith('exec ')), ['stop', 'ensure']);
+  });
+});
+
+test('restart of an unsupervised sidecar with no service installed is unchanged: stop, then start it on demand, no service manager start', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  await withScene(async ({ home }) => {
+    const s = scene({ supervised: false });
     const result = await run(['sidecar', 'restart', '--home', home], s.hooks);
     assert.equal(result.code, 0, result.text);
     assert.match(result.text, /sidecar: running \(started\)/);
@@ -152,7 +177,7 @@ test('restart of an unsupervised sidecar is unchanged: stop, then start it on de
       s.events.filter((event) => !event.startsWith('exec ')),
       ['stop', 'ensure'],
     );
-    assert.ok(!s.events.some((event) => event.startsWith('exec ')), `no service manager call: ${s.events.join(' | ')}`);
+    assert.ok(!s.events.some((event) => event.startsWith('exec ') && isStart(event.slice(5).split(' '))), `no service manager start: ${s.events.join(' | ')}`);
   });
 });
 
@@ -216,13 +241,51 @@ test('service install stops a running sidecar cleanly first, so the manager star
   });
 });
 
-test('service install leaves a sidecar started on demand (unsupervised) running', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+test('service install asks a running on-demand sidecar to finish and exit first, so the service starts the one sidecar, and says so in one line', { skip: managedHostSkip() || !SUPPORTED }, async () => {
   await withScene(async ({ home }) => {
     const s = scene({ supervised: false });
     const result = await run(['service', 'install', '--home', home], s.hooks);
     assert.equal(result.code, 0, result.text);
-    assert.ok(!s.events.includes('stop'), s.events.join(' | '));
+    assert.match(result.text, /^sidecar: stopped the on-demand sidecar \(pid 4242\) so the service can start its own$/m);
+    const stopAt = s.events.indexOf('stop');
+    const firstExec = s.events.findIndex((event) => event.startsWith('exec '));
+    assert.ok(stopAt === 0 && firstExec > stopAt, `the clean stop comes before any manager call: ${s.events.join(' | ')}`);
+    assert.ok(!s.events.includes('ensure'), 'nothing is spawned on demand');
+    const json = await run(['service', 'install', '--home', home, '--json'], scene({ supervised: false }).hooks);
+    assert.equal(json.code, 0, json.text);
+    assert.match(JSON.parse(json.text).sidecar, /^sidecar: stopped the on-demand sidecar \(pid 4242\)/, 'the json carries the same line');
+  });
+});
+
+test('service install leaves an on-demand sidecar that will not stop alone, installs the unit, and says so (no kill)', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  await withScene(async ({ home }) => {
+    const s = scene({ supervised: false });
+    const asked = [];
+    s.hooks.sidecar.stopSidecarProcess = async (_home, timeoutMs) => {
+      s.events.push('stop');
+      asked.push(timeoutMs);
+      return { stopped: false, method: 'failed', pid: 4242 };
+    };
+    const result = await run(['service', 'install', '--home', home], s.hooks);
+    assert.equal(result.code, 0, result.text);
+    assert.match(result.text, /^sidecar: the on-demand sidecar \(pid 4242\) did not stop within 15 s and was left running \(nothing was killed\); it is not under the service yet\. Run `jevris sidecar restart` to hand it over\.$/m);
+    assert.match(result.text, /service: installed/);
+    assert.deepEqual(asked, [15_000], 'a generous bound, asked once');
+    assert.equal(s.state.running, true, 'the sidecar is left running');
+    assert.ok(!s.events.includes('ensure'));
+  });
+});
+
+test('service install leaves an on-demand sidecar that is finishing a verification run alone, and installs the unit', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  await withScene(async ({ home }) => {
+    const s = scene({ supervised: false });
+    s.hooks.sidecar.sidecarRequest = async () => ({ ok: true, result: { verificationRuns: 2 } });
+    const result = await run(['service', 'install', '--home', home], s.hooks);
+    assert.equal(result.code, 0, result.text);
+    assert.match(result.text, /^sidecar: the on-demand sidecar \(pid 4242\) is finishing 2 verification runs and was left running; it is not under the service yet\./m);
+    assert.ok(!s.events.includes('stop'), `a run is never cut off: ${s.events.join(' | ')}`);
     assert.equal(s.state.running, true);
+    assert.match(result.text, /service: installed/);
   });
 });
 

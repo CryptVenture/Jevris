@@ -41,7 +41,7 @@ export interface StopRunningChecks {
 
 export type EnsureResult =
   | { readonly ok: true; readonly endpoint: string; readonly started: boolean }
-  | { readonly ok: false; readonly reason: string; readonly message: string };
+  | { readonly ok: false; readonly reason: string; readonly reasonCode?: string; readonly message: string };
 
 export type RequestResult =
   | { readonly ok: true; readonly result: unknown }
@@ -704,7 +704,9 @@ async function runDelivery(
         reason: 'timeout',
         message: 'deadline',
       } as EnsureResult);
-      if (!ensured.ok) return observe(event, `SIDECAR_${ensured.reason.toUpperCase()}`);
+      // A start the service manager refused, or that would have put a second sidecar beside the
+      // service's, names its reason code; the others name the reason.
+      if (!ensured.ok) return observe(event, `SIDECAR_${(ensured.reasonCode ?? ensured.reason).toUpperCase()}`);
     }
     return observe(event, answer.reasonCode ?? `SIDECAR_${answer.reason.toUpperCase()}`);
   }

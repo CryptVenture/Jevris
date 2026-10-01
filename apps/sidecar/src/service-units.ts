@@ -1,6 +1,7 @@
+import { spawn } from 'node:child_process';
 import { existsSync, mkdirSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, posix, win32 } from 'node:path';
-import { isAbsoluteFor, runSync } from '@jevris/platform';
+import { isAbsoluteFor, jevrisPaths, resolveHome, runSync } from '@jevris/platform';
 
 /**
  * Per-user service units for the sidecar (IPC-20, SSOT §5.1, R13): `jevris service
@@ -11,7 +12,8 @@ import { isAbsoluteFor, runSync } from '@jevris/platform';
  *   Windows  a per-user Scheduled Task, \Jevris\Sidecar, started at logon (schtasks)
  *
  * Each runs `sidecar run --supervised` (no idle exit) and restarts it when it crashes, but not
- * when it stops cleanly: `jevris sidecar stop` is respected until the next login or install.
+ * when it stops cleanly: a clean `jevris sidecar stop` is respected until `jevris sidecar start`
+ * (which asks the service manager), the next login or an install.
  * The unit text is generated here and golden-tested; every command runs without a shell.
  */
 
@@ -36,6 +38,44 @@ export interface ServiceInput {
   /** Windows DOMAIN\\user, for the task's logon trigger and principal. */
   readonly windowsUser?: string;
   readonly env?: { readonly [key: string]: string | undefined };
+}
+
+export interface ServiceInputOptions {
+  /** An explicit Jevris home (--home or the hook's JEVRIS_HOME); else the environment's, else the account's. */
+  readonly home?: string;
+  /** The sidecar entry command (sidecarCommand()); undefined when this install has none. */
+  readonly command?: readonly string[] | undefined;
+  readonly env?: { readonly [key: string]: string | undefined };
+  /** The platform whose unit to plan (tests); the paths are still resolved for this host. */
+  readonly platform?: ServicePlatform;
+  /** The account's home, where per-user units live (tests); default the OS home. */
+  readonly osHome?: string;
+}
+
+/**
+ * The unit input for this Node, this Jevris and a home (IPC-20). The unit runs this Node with the
+ * sidecar entry, `--supervised`, and `--home` when the home is not the account's own. The CLI
+ * (`jevris service`, `jevris sidecar`) and the client's on-demand start build the same input, so
+ * they agree on which unit serves which home.
+ */
+export function serviceInputForHome(options: ServiceInputOptions = {}): ServiceInput {
+  const env = options.env ?? process.env;
+  const explicit = options.home !== undefined ? { home: options.home } : {};
+  const resolved = resolveHome({ ...explicit, env });
+  const osHome = options.osHome ?? resolveHome({ env: {} }).home;
+  // The account's own home is the default one: its unit carries no --home, whichever way it was named.
+  const defaultHome = resolved.source === 'os' || resolved.home === osHome;
+  const getuid = Reflect.get(process, 'getuid') as (() => number) | undefined;
+  const user = env['USERNAME'];
+  return {
+    platform: options.platform ?? (process.platform as ServicePlatform),
+    osHome,
+    stateDir: (defaultHome ? jevrisPaths({ env: { ...env, JEVRIS_HOME: undefined }, osHome }) : jevrisPaths({ ...explicit, env })).state,
+    argv: [process.execPath, ...(options.command ?? []), '--supervised', ...(!defaultHome ? ['--home', resolved.home] : [])],
+    ...(typeof getuid === 'function' ? { uid: getuid() } : {}),
+    ...(typeof user === 'string' ? { windowsUser: typeof env['USERDOMAIN'] === 'string' ? `${env['USERDOMAIN']}\\${user}` : user } : {}),
+    env,
+  };
 }
 
 export interface ServicePlan {
@@ -421,6 +461,15 @@ export function serviceReady(input: ServiceInput, exec: Exec = defaultExec(input
   return asked('show', out) ? result(true, 'installed', 'systemd answers.') : result(false, 'unknown', 'No systemd user session answered.');
 }
 
+/** The command that asks the service manager to start the unit (no forced kill, no restart of a running unit). */
+export function serviceStartCommand(input: ServiceInput): { readonly file: string; readonly args: readonly string[] } {
+  if (input.platform === 'darwin') {
+    return { file: tool('darwin', 'launchctl', input.env), args: ['kickstart', `gui/${String(input.uid ?? 0)}/${LAUNCH_AGENT_LABEL}`] }; // path-hygiene: allow launchd service target, not a file path
+  }
+  if (input.platform === 'linux') return { file: tool('linux', 'systemctl', input.env), args: ['--user', 'start', SYSTEMD_UNIT_NAME] };
+  return { file: tool('win32', 'schtasks', input.env), args: ['/Run', '/TN', SCHEDULED_TASK_NAME] };
+}
+
 /**
  * Starts the installed unit through its own service manager, without a forced kill: launchctl
  * kickstart (no -k), systemctl --user start, schtasks /Run. A running unit is left running. The
@@ -431,22 +480,96 @@ export function startService(input: ServiceInput, exec: Exec = defaultExec(input
   const ready = serviceReady(input, exec);
   if (!ready.ok) return ready;
   const steps = [...ready.steps];
-  let file: string;
-  let args: readonly string[];
-  if (input.platform === 'darwin') {
-    file = tool('darwin', 'launchctl', input.env);
-    args = ['kickstart', `gui/${String(input.uid ?? 0)}/${LAUNCH_AGENT_LABEL}`]; // path-hygiene: allow launchd service target, not a file path
-  } else if (input.platform === 'linux') {
-    file = tool('linux', 'systemctl', input.env);
-    args = ['--user', 'start', SYSTEMD_UNIT_NAME];
-  } else {
-    file = tool('win32', 'schtasks', input.env);
-    args = ['/Run', '/TN', SCHEDULED_TASK_NAME];
-  }
+  const { file, args } = serviceStartCommand(input);
   const out = exec(file, args);
   const ok = out.status === 0;
   steps.push({ step: 'start', ok, ...(ok ? {} : { detail: firstLine(out.stderr || out.stdout) || `exit ${String(out.status)}` }) });
   return { ...ready, ok, state: ok ? 'running' : 'failed', steps, message: ok ? `${ready.manager} was asked to start the Jevris sidecar.` : `${ready.manager} refused to start the Jevris sidecar. See the steps.` };
+}
+
+/**
+ * Whether this home's unit is installed, from the unit file alone (no process is run): 'installed'
+ * when the file is there and serves this home, 'other-home' when the one per-account unit serves
+ * another home, else 'not-installed'. It is the cheap check a hook can afford; `serviceReady` is
+ * the one that asks the manager. On Windows the file is the task definition install registered
+ * (kept in the home's state directory), so a task another home's install replaced is not seen.
+ */
+export function serviceUnitState(input: ServiceInput): 'installed' | 'other-home' | 'not-installed' {
+  const installed = readUnit(planService(input));
+  if (installed === undefined) return 'not-installed';
+  return unitServesHome(installed, input) ? 'installed' : 'other-home';
+}
+
+/** What running one service manager command gave. `timedOut` means it had not ended when the wait did. */
+export interface ServiceRunResult {
+  readonly status: number | null;
+  readonly timedOut?: boolean;
+  /** An error code when the command could not be run at all (for example ENOENT). */
+  readonly error?: string;
+}
+
+/** Runs one service manager command (tests inject a stand-in that records what it was given). */
+export type ServiceRun = (file: string, args: readonly string[]) => Promise<ServiceRunResult> | ServiceRunResult;
+
+/**
+ * The default runner: starts the command detached, with no output, and reports how it ended. It
+ * is unreferenced, so a caller that stops waiting (a hook out of time) leaves it running and exits.
+ */
+export function defaultServiceRun(env: ServiceInput['env']): ServiceRun {
+  return (file, args) =>
+    new Promise<ServiceRunResult>((resolve) => {
+      try {
+        const child = spawn(file, [...args], { detached: true, stdio: 'ignore', windowsHide: true, shell: false, ...(env !== undefined ? { env: env as NodeJS.ProcessEnv } : {}) });
+        child.on('error', (error) => {
+          const code = typeof error === 'object' && error !== null ? Reflect.get(error, 'code') : undefined;
+          resolve({ status: null, error: typeof code === 'string' ? code : 'EUNKNOWN' });
+        });
+        child.on('exit', (status) => {
+          resolve({ status });
+        });
+        child.unref();
+      } catch (error) {
+        const code = typeof error === 'object' && error !== null ? Reflect.get(error, 'code') : undefined;
+        resolve({ status: null, error: typeof code === 'string' ? code : 'EUNKNOWN' });
+      }
+    });
+}
+
+export type ServiceAskOutcome = 'started' | 'pending' | 'refused' | 'unreachable';
+
+export interface ServiceAskResult {
+  readonly outcome: ServiceAskOutcome;
+  readonly manager: string;
+  readonly detail?: string;
+}
+
+/**
+ * Asks the service manager to start the unit and waits at most `graceMs` for its answer. 'started'
+ * is the manager's success, 'refused' its failure, 'unreachable' a command that could not run, and
+ * 'pending' no answer in time: the command is left to finish on its own, so a caller on a deadline
+ * (a hook) is never held past it. Nothing is stopped or killed.
+ */
+export async function askServiceToStart(input: ServiceInput, run: ServiceRun, graceMs: number): Promise<ServiceAskResult> {
+  const manager = planService(input).manager;
+  const { file, args } = serviceStartCommand(input);
+  let timer: NodeJS.Timeout | undefined;
+  const late = new Promise<ServiceRunResult>((resolve) => {
+    timer = setTimeout(() => {
+      resolve({ status: null, timedOut: true });
+    }, Math.max(1, graceMs));
+  });
+  let out: ServiceRunResult;
+  try {
+    out = await Promise.race([Promise.resolve().then(() => run(file, args)), late]);
+  } catch {
+    out = { status: null, error: 'EUNKNOWN' };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+  if (out.timedOut === true) return { outcome: 'pending', manager };
+  if (out.error !== undefined) return { outcome: 'unreachable', manager, detail: out.error };
+  if (out.status === 0) return { outcome: 'started', manager };
+  return { outcome: 'refused', manager, detail: `exit ${String(out.status)}` };
 }
 
 /** Reads back the unit file this module wrote (for status output and tests). */

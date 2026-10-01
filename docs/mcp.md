@@ -93,7 +93,7 @@ When the tool tried to start the sidecar and could not:
 
 | `sidecar.reasonCode` | Meaning |
 | --- | --- |
-| `SIDECAR_UNAVAILABLE` | The sidecar could not be started. |
+| `SIDECAR_UNAVAILABLE` | The sidecar could not be started. When a service is installed and its manager refused or could not be reached while the service's own sidecar is still alive but not answering, the message names `SERVICE_START_REFUSED` or `SERVICE_UNREACHABLE`, and no second sidecar is started beside it: run `jevris service status`, then `jevris sidecar restart`. |
 | `SIDECAR_STARTING` | The sidecar is still starting. Retry in a moment. |
 | `SIDECAR_REFUSED` | The sidecar refused to start or to be used, for example because of its scope. |
 
@@ -441,6 +441,7 @@ Run the harness with `JEVRIS_HOOK_DEBUG=1` and read the reason at the end of eac
 | `TIMEOUT`, `HANDSHAKE_TIMEOUT`, `BUSY`, `ECONNREFUSED`, `CLOSED` or a `CONNECT_` code | The connection to the sidecar failed or was too slow. |
 | `SIDECAR_STARTING` | The sidecar is starting. Later events will be forwarded. |
 | `SIDECAR_UNAVAILABLE` | No sidecar could be reached or started. Check `jevris status`. |
+| `SIDECAR_SERVICE_START_REFUSED` or `SIDECAR_SERVICE_UNREACHABLE` | A service is installed for this home, and its manager (launchd, systemd or Task Scheduler) refused to start the sidecar or could not be reached, while the sidecar the service runs is alive but not answering. The hook started nothing beside it and answered rules-only. Run `jevris service status`, then `jevris sidecar restart`. When the sidecar is simply not running, a refusing or unreachable manager makes the hook start the sidecar on demand instead, and you see `SIDECAR_STARTING`. |
 | `SIDECAR_AUTOSTART_OFF` | `JEVRIS_SIDECAR_AUTOSTART=0` is set and no sidecar is running, so none was started. Run `jevris sidecar start`, or unset the variable. |
 | `SIDECAR_REFUSED`, or a code such as `SCOPE_DENIED` or `DELIVERY_BODY_MISMATCH` | The sidecar refused the event. `DELIVERY_BODY_MISMATCH`: a second event reused an earlier event's delivery key but carried a different body, so the earlier answer was not shown for it. |
 | `DUPLICATE_DELIVERY` | The same event was already recorded. |

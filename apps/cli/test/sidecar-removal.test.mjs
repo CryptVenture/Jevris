@@ -63,6 +63,16 @@ test('doctor sees the sidecar facts, and removal stops it and its service first 
     assert.equal(await runRuntimeCommand(['service', 'install', '--home', home, '--json'], (t) => (installOut += t), { serviceExec }), 0, installOut);
     const unitPath = JSON.parse(installOut).unitPath;
     assert.ok(unitPath.startsWith(home), 'the unit is under the temp OS home');
+    // Install hands the sidecar that runs on demand over to the service: it was stopped (the faked
+    // manager starts nothing), and the install line says so.
+    assert.match(JSON.parse(installOut).sidecar, /^sidecar: stopped the on-demand sidecar \(pid \d+\) so the service can start its own$/);
+    assert.equal((await sidecarDoctorView(home)).state, 'idle');
+    // Removal must stop a sidecar that runs beside an installed unit, so start one on demand again
+    // (the real manager is never asked: the test run keeps it from being called).
+    const { ensureSidecar } = await import('@jevris/sidecar');
+    const again = await ensureSidecar({ home, waitMs: 10_000 }, { service: false });
+    assert.equal(again.ok, true, JSON.stringify(again));
+    assert.equal((await sidecarDoctorView(home)).state, 'running');
     if (process.platform === 'win32') taskXml = readFileSync(unitPath).subarray(2).toString('utf16le');
     calls.length = 0;
     const removed = await stopSidecarForRemoval(home, { removeService: true, serviceExec });

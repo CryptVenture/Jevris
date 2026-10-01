@@ -106,7 +106,13 @@ export interface EnsureSidecarInput {
 
 export type EnsureSidecarResult =
   | { readonly ok: true; readonly endpoint: string; readonly started: boolean }
-  | { readonly ok: false; readonly reason: 'starting' | 'unavailable' | 'refused'; readonly message: string };
+  | {
+      readonly ok: false;
+      readonly reason: 'starting' | 'unavailable' | 'refused';
+      /** Why nothing was started or why it is not up yet, when the client knows (for example SERVICE_START_REFUSED). */
+      readonly reasonCode?: string;
+      readonly message: string;
+    };
 
 export interface SidecarRequestInput {
   readonly home?: string;

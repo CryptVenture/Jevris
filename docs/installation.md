@@ -57,6 +57,8 @@ After a successful install, Jevris certifies each harness it installed, exactly 
 
 If a sidecar is already running an older build, install moves it onto the new one. With no verification run under way it stops the sidecar gracefully and starts the installed build at once (on the same socket path; a Windows pipe gets a new name at every start), so the first hooks after the install are answered. A sidecar that was not running is not started, a supervised one is restarted by its service, and `JEVRIS_SIDECAR_AUTOSTART=0` starts nothing. A `sidecar build:` line says which; if the start fails, install still succeeds and the line names the reason code.
 
+When a service is installed for the home (`jevris service install`), install leaves exactly one sidecar, the supervised one. A sidecar that runs on demand, whatever its build, is asked to finish its in-flight work and exit (the same graceful stop as `jevris sidecar stop`, never a kill, with up to 15 seconds to do it), and the service manager then starts the installed build: the line reads `sidecar build: moved the sidecar (pid N), which ran on demand, under the service: ...`. A sidecar that is finishing a verification run, or that does not stop in time, is left running, and the line says so and names `jevris sidecar restart`. With `JEVRIS_SIDECAR_AUTOSTART=0` a sidecar on the installed build is left as it is.
+
 Jevris also reads which sign-in each harness uses for owned workers, the way doctor does. It reads the mode only, never a key or token:
 
 - Claude Code: from `claude auth status --json`.

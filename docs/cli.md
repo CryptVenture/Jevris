@@ -1098,11 +1098,13 @@ Examples:
 
 ```text
 Usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose [--home <dir>] [--json] [--wait-ms <n>]
-Manages the local Jevris service. Hooks, MCP tools and commands start it on demand.
+Manages the local Jevris service. Hooks, MCP tools and commands start it on demand (through the service
+manager when a service is installed, so there is one sidecar, never two).
   status      pid, version, uptime, endpoint, store and kill-switch state (exit 1 when not running)
-  start       start it now, or report that it is already running
-  stop        ask it to finish in-flight work and exit
-  restart     stop, then start
+  start       start it now (through the service when one is installed), or report it is running
+  stop        ask it to finish in-flight work and exit (a service does not restart a clean stop)
+  restart     stop, then start; with a service installed the service starts it again
+              (this also hands a sidecar started on demand over to the service)
   statusline  one line from the local cache, for a status line command (no sidecar call)
   metrics     decisions, abstentions, fallbacks, latency, tokens and cost [--hours <n>, default 24]
   diagnose    on [--minutes <1..60>] | off | status: temporary extra trace detail, never content
@@ -1115,7 +1117,9 @@ Usage: jevris service install|uninstall|status [--home <dir>] [--json]
 Runs the sidecar as a per-user service: a LaunchAgent on macOS, a systemd user unit on Linux,
 a Scheduled Task at logon on Windows. The service restarts the sidecar if it crashes; a clean
 `jevris sidecar stop` is respected. Without a service the sidecar still starts on demand.
-  install    write the unit and start it
+  install    write the unit and start it; a running sidecar (under the service or on demand) is
+             asked to finish and exit first, so the service starts its own, unless it is finishing
+             a verification run or will not stop (then it is left, and the line says so)
   uninstall  stop it and remove the unit
   status     whether it is installed and running
 ```
