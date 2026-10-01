@@ -278,7 +278,7 @@ effort per task slice, has its own commands (`jevris route learning`). Both are 
 
 ## Jev assist
 
-`jev.assist` (default `classify`) lets Jevris ask Jev a bounded classification question where the answer is a label and a rules answer exists: today, the task slice of a `jevris route` request that names none (planned in the same release; see [routing.md](routing.md)). Jev answers from structured features (counts, categories, codes), never source text, so the question widens nothing that may leave the machine; the answer is advice, labelled as Jev's, and never an approval, a signed prior or a switch.
+`jev.assist` (default `classify`) lets Jevris ask Jev a bounded classification question where the answer is a label and a rules answer exists: today, the task slice of a `jevris route` request that names none (see [routing.md](routing.md#when-the-route-has-no-slice)). Jev answers from structured features (counts, categories, codes), never source text, so the question widens nothing that may leave the machine; the answer is advice, labelled as Jev's, and never an approval, a signed prior or a switch.
 
 - `classify`: the question is asked. Rules answer first when they are sure; Jev is asked when they are not, inside the hot-path deadline, from the decision cache when the same features were asked before.
 - `off`: every such decision is rules-only. Nothing is sent and nothing is spent.

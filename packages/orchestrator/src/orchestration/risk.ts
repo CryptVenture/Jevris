@@ -23,12 +23,15 @@
  */
 import { lstatSync, readdirSync, type Stats } from 'node:fs';
 import { join } from 'node:path';
-import type { RouteRisk } from '@jevris/core';
+import { protectedClasses, type RouteRisk } from '@jevris/core';
 import { isAbsoluteOnAnyPlatform } from '@jevris/platform';
 
 
 /** Locked: the most files a low-risk task's write scopes may cover. */
 export const LOW_RISK_MAX_FILES = 5;
+
+// The protected path classes are one locked list, shared with the slice classifier (packages/core protected-paths).
+export { protectedClasses };
 
 /** Locked: directory entries read while counting a directory scope's files. */
 const WALK_ENTRY_CAP = 512;
@@ -67,32 +70,7 @@ const HIGH_REASONS: ReadonlySet<RiskReason> = new Set([
   'PLAN_DECLARED_HIGH',
 ]);
 
-type Protected = Extract<RiskReason, `PROTECTED_${string}`>;
-
-/** Locked: protected path classes, matched case-insensitively on each path segment. */
-const SEGMENT_RULES: readonly (readonly [Protected, RegExp])[] = [
-  ['PROTECTED_GIT', /^\.git$/],
-  ['PROTECTED_CI', /^(\.github|\.circleci|\.buildkite|\.gitlab|\.woodpecker|\.drone)$|^(\.gitlab-ci|\.travis|azure-pipelines|bitbucket-pipelines|\.drone|appveyor|cloudbuild|buildspec)\.ya?ml$|^jenkinsfile$/],
-  ['PROTECTED_DEPLOY', /^(deploy|deploys|deployment|deployments|infra|infrastructure|terraform|k8s|kubernetes|helm|charts|ansible|pulumi|\.aws)$|^dockerfile(\..*)?$|\.dockerfile$|^(docker-)?compose(\.[a-z0-9-]+)?\.ya?ml$|^procfile$|^(fly|netlify|wrangler)\.toml$|^(vercel|app)\.json$|^(serverless|app|skaffold)\.ya?ml$|\.(tf|tfvars|hcl)$/],
-  ['PROTECTED_MIGRATIONS', /^(migrations?|migrate|alembic|flyway|liquibase)$|migration/],
-  ['PROTECTED_LOCKFILE', /^(package-lock\.json|npm-shrinkwrap\.json|yarn\.lock|pnpm-lock\.ya?ml|bun\.lockb?|cargo\.lock|poetry\.lock|pipfile\.lock|gemfile\.lock|composer\.lock|go\.sum|uv\.lock|flake\.lock|packages\.lock\.json|mix\.lock|pubspec\.lock|podfile\.lock|gradle\.lockfile)$|\.lock$/],
-  ['PROTECTED_SECRETS', /^\.env(\..*)?$|^\.(npmrc|netrc|pypirc|pgpass|htpasswd)$|\.(pem|key|p12|pfx|jks|keystore|crt|cer|gpg|asc)$|^id_(rsa|dsa|ecdsa|ed25519)|(^|[._-])(secrets?|credentials?|creds|keychain|vault|private[._-]?keys?)([._-]|$)/],
-  ['PROTECTED_AUTH', /(^|[._-])(auth|authn|authz|oauth2?|oidc|saml|sso|login|logins|passwords?|passwd|permissions?|rbac|acl|iam|sessions?)([._-]|$)/],
-];
-
 const GLOB = /[*?[\]{}]/;
-
-/** The protected classes a workspace-relative path touches (ids only). */
-export function protectedClasses(path: string): readonly Protected[] {
-  const segments = path
-    .replace(/\\/g, '/')
-    .split('/')
-    .filter((s) => s !== '' && s !== '.')
-    .map((s) => s.toLowerCase());
-  const out: Protected[] = [];
-  for (const [reason, rule] of SEGMENT_RULES) if (segments.some((s) => rule.test(s)) && !out.includes(reason)) out.push(reason);
-  return out;
-}
 
 /** What the filesystem says about a workspace path (a test seam; lstat, never following links). */
 export interface ScopeProbe {

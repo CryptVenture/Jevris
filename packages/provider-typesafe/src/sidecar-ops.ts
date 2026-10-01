@@ -16,6 +16,7 @@ import {
   AUTH_MODES,
   DecisionRecordContract,
   HARNESS_IDS,
+  modeAllows,
   surfacePayloadContract,
   type DecisionRecord,
   type ExplainPayload,
@@ -92,12 +93,15 @@ import {
   WORKSPACE_REVISIONS,
   HARNESS_MODEL_ID,
   harnessModelRef,
+  classifyTaskSlice,
+  type SliceClassification,
+  type SliceTaskHints,
 } from '@jevris/core';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { providerOverrideDiagnostic } from './provider-override.js';
 import { bundledCalibrationPath, trustedCalibrationKeys } from './calibration-trust.js';
-import { ROUTE_KEYS, routeFactsOf } from './route-request.js';
+import { ROUTE_KEYS, routeFactsOf, taskHintsOf } from './route-request.js';
 import { consentReaderOf, engineOf } from './engine-of.js';
 import { turnMainSessionOf, turnServingOf, turnSessionLinkOf } from './route-turn-op.js';
 import { DEFAULT_TRIGGER_HANDLERS } from './trigger-handlers.js';
@@ -329,6 +333,8 @@ interface RouteRequest {
   readonly effortPin: string | null;
   readonly taskId: string | null;
   readonly sliceId: string | null;
+  /** What the caller knows of the task, for the slice classifier when no sliceId is given. */
+  readonly task?: SliceTaskHints | null;
   /** The harness session the request came from, when the caller supplies one. */
   readonly sessionId: string | null;
   /** The remaining work, tokens; the routing policy's default task size when absent. */
@@ -364,9 +370,11 @@ function routeRequest(body: unknown): RouteRequest | null {
   if (currentModel === undefined || modelPin === undefined || effortPin === undefined || taskId === undefined || sliceId === undefined || sessionId === undefined) return null;
   const facts = routeFactsOf(body);
   if (facts === undefined) return null;
+  const task = taskHintsOf(body['task']);
+  if (task === undefined) return null;
   // The sign-in scope: the top-level field, else the session's; `unknown` scopes nothing.
   const auth = rawAuth ?? facts.switchContext?.authMode ?? null;
-  return { currentModel, modelPin, effortPin, taskId, sliceId, sessionId, harness, authMode: auth === 'unknown' ? null : auth, ...facts };
+  return { currentModel, modelPin, effortPin, taskId, sliceId, sessionId, harness, authMode: auth === 'unknown' ? null : auth, task, ...facts };
 }
 
 /** A provider id RoutePayload.main.consentedProviders can carry (E 7dc96df). */
@@ -514,13 +522,64 @@ async function mainServing(ctx: SidecarOpContext, input: RouteRequest, registry:
   }
 }
 
+/** Jev's wait for a slice classification inside a route request: the rest of the 900 ms budget, less the route's own work. */
+const SLICE_DEADLINE_MS = 700;
+
+async function classifyRouteSlice(ctx: SidecarOpContext, hints: SliceTaskHints): Promise<SliceClassification> {
+  const mode = ctx.mode ?? 'observe';
+  const jev = ctx.jevAssist !== 'off' && modeAllows(mode, 'record');
+  const intent: IntentContext = { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: SLICE_DEADLINE_MS };
+  const engine = engineOf(ctx);
+  const run = classifyTaskSlice(engine, hints, intent, { assist: jev ? 'classify' : 'off', record: modeAllows(mode, 'record') });
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<'late'>((resolve) => {
+    timer = setTimeout(() => resolve('late'), SLICE_DEADLINE_MS + 50);
+  });
+  try {
+    const first = await Promise.race([run.catch(() => 'failed' as const), late]);
+    if (first !== 'late' && first !== 'failed') return first;
+    // Abandoned at the deadline (or failed): the rules answer, no model, no record.
+    const rules = await classifyTaskSlice(null, hints, intent, { assist: 'off', record: false });
+    return { ...rules, reasonCode: first === 'late' ? 'SLICE_DEADLINE' : 'SLICE_ERROR' };
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/** The route payload's `slice` part: how the task's slice was classified; absent when none was. */
+function sliceField(c: SliceClassification | null): { readonly slice?: NonNullable<RoutePayload['slice']> } {
+  if (c === null) return {};
+  const used = c.sliceId === null ? 'No slice was classified, so the route keeps the approved baseline.' : `Slice ${c.sliceId} (${c.source === 'jev' ? 'classified by Jev' : 'classified by rules'}; advice only).`;
+  return {
+    slice: {
+      sliceId: c.sliceId,
+      source: c.source,
+      risk: c.risk,
+      confidencePercent: c.confidence === null ? null : Math.round(c.confidence * 100),
+      reasonCode: c.reasonCode,
+      decisionId: c.decisionId,
+      asked: c.asked,
+      cacheHit: c.cacheHit,
+      latencyMs: c.latencyMs,
+      text: `${used} Risk ${c.risk}; reason ${c.reasonCode}.`.slice(0, 300),
+    },
+  };
+}
+
+
 async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
   const request = routeRequest(ctx.body);
-  if (request === null) return fail('INVALID_REQUEST', 'send { currentModel, modelPin, effortPin, taskId, sliceId, sessionId } (strings or null; a model may be provider/model), optional harness, authMode, remaining { inputTokens, outputTokens }, contextTokens and session { warmPrefixTokens, cacheWarm, atBoundary, unitsSinceLastSwitch, switchesThisTask, cacheTtl, authMode }');
+  if (request === null) return fail('INVALID_REQUEST', 'send { currentModel, modelPin, effortPin, taskId, sliceId, task { title, paths, checkIds }, sessionId } (strings or null; a model may be provider/model), optional harness, authMode, remaining { inputTokens, outputTokens }, contextTokens and session { warmPrefixTokens, cacheWarm, atBoundary, unitsSinceLastSwitch, switchesThisTask, cacheTtl, authMode }');
+  // Owner decision 2026-10-01: a request that names no slice but describes its task has the slice
+  // classified (Jev from structured features, rules as the fallback), in parallel with the registry load.
+  const classifying = request.sliceId === null && request.task !== undefined && request.task !== null ? classifyRouteSlice(ctx, request.task) : null;
   const loadedRegistry = await loadModelRegistryChecked({ home: ctx.home });
   const registry = loadedRegistry.registry;
   const refusal = loadedRegistry.registry === null ? loadedRegistry.reasonCode : null;
-  const { input, unregistered } = resolveRouteModels(request, registry);
+  const classified = classifying === null ? null : await classifying;
+  const resolved = resolveRouteModels(request, registry);
+  const input: RouteRequest = classified?.sliceId != null ? { ...resolved.input, sliceId: classified.sliceId } : resolved.input;
+  const unregistered = resolved.unregistered;
   const pinned = input.modelPin !== null;
   let main: RoutePayload['main'];
   let workerEvaluation: RouteEvaluation | null = null;
@@ -563,7 +622,7 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
       // R55: a pinned gateway or host spelling still shows the host it goes through.
       const serving = await mainServing(ctx, input, registry, null);
       if (serving !== null) main = { ...main, serving };
-      return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false });
+      return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified) });
     }
     const mainEvaluation = pinned ? null : await evaluateRoute(evaluationInput(ctx, input, registry, trustedKeys, 'main', nowMs));
     workerEvaluation = await evaluateRoute(evaluationInput(ctx, input, registry, trustedKeys, 'worker', nowMs));
@@ -605,7 +664,7 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
         text: `Jevris does not repeat its advice to switch to ${advice.recommendedModelId} in this session: it was not followed twice. Keep the current model or switch yourself.`,
         adviceKey: null,
       };
-      return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false });
+      return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified) });
     }
     main = {
       currentModel: input.currentModel,
@@ -658,7 +717,7 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
     const id = deliveryId ?? `advice-${(main.adviceKey as string).replace(/^sha256:/, '').slice(0, 32)}-${nowMs.toString(36)}`;
     openAdvice(ctx, { decisionId: id, adviceKind: 'main-route', sessionId: input.sessionId, slice: input.sliceId, advisedModel: main.recommendedModel as string, currentModel: input.currentModel, atMs: nowMs });
   }
-  return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false });
+  return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified) });
 }
 
 async function handleExplain(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {

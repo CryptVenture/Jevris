@@ -5,6 +5,12 @@
  */
 import { ADVISE_CAPABILITIES, AUTH_MODES, DELIVERY_REPORTS, HARNESS_IDS, HARNESS_MODEL_ID_PATTERN, type AuthMode, type HarnessId, type SurfaceOperation } from '@jevris/contracts';
 
+export interface RouteTask {
+  readonly title: string | null;
+  readonly paths: readonly string[];
+  readonly checkIds: readonly string[];
+}
+
 export interface OpInputs {
   readonly status: Record<string, never>;
   /** sliceId asks for that slice's route learning in the trace; absent, the op gets decisionId alone. */
@@ -21,6 +27,11 @@ export interface OpInputs {
     readonly taskId: string | null;
     /** The task slice, so a released calibration for it can apply to worker advice. */
     readonly sliceId: string | null;
+    /**
+     * What the caller knows of the task (title, paths it will touch, check ids), so the slice can be
+     * classified when no sliceId is given. Reduced to structured features before anything is sent.
+     */
+    readonly task?: RouteTask;
     /** The work left in the task, so the saving of a switch can be priced. */
     readonly remaining: RouteRemaining | null;
     /** The context the task needs, in tokens. */
@@ -163,6 +174,20 @@ function textItem(key: string, max: number) {
     }
     return value;
   };
+}
+
+function taskField(value: unknown): { readonly task?: RouteTask } {
+  const task = routeTaskOf(value);
+  return task === null ? {} : { task };
+}
+
+function routeTaskOf(value: unknown): RouteTask | null {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'object' || Array.isArray(value)) refuse('"task" must be an object with optional title, paths and checkIds.');
+  const raw = value as Raw;
+  for (const key of Object.keys(raw)) if (!['title', 'paths', 'checkIds'].includes(key)) refuse(`Unknown "task" field "${key.slice(0, 40)}". Allowed: title, paths, checkIds.`);
+  const task = { title: text(raw, 'title', 2000, false), paths: list(raw, 'paths', 64, textItem('paths', 512)), checkIds: list(raw, 'checkIds', 64, idItem('checkIds')) };
+  return task.title === null && task.paths.length === 0 && task.checkIds.length === 0 ? null : task;
 }
 
 const MAX_TOKENS = 100_000_000;
@@ -354,7 +379,7 @@ const PARSERS: { readonly [K in SurfaceOperation]: (raw: Raw) => OpInputs[K] } =
     return sliceId === null ? { decisionId } : { decisionId, sliceId };
   },
   route(raw) {
-    onlyKeys(raw, ['currentModel', 'modelPin', 'effortPin', 'taskId', 'sliceId', 'remaining', 'contextTokens', 'session', 'harness', 'authMode']);
+    onlyKeys(raw, ['currentModel', 'modelPin', 'effortPin', 'taskId', 'sliceId', 'task', 'remaining', 'contextTokens', 'session', 'harness', 'authMode']);
     const harness = raw['harness'] ?? null;
     if (harness !== null && !(HARNESS_IDS as readonly unknown[]).includes(harness)) refuse(`"harness" must be one of ${HARNESS_IDS.join(', ')}.`);
     const authMode = raw['authMode'] ?? null;
@@ -367,6 +392,7 @@ const PARSERS: { readonly [K in SurfaceOperation]: (raw: Raw) => OpInputs[K] } =
       effortPin: pattern(raw, 'effortPin', ID, 'an effort id', false),
       taskId: pattern(raw, 'taskId', ID, 'a task id', false),
       sliceId: pattern(raw, 'sliceId', ID, 'a slice id', false),
+      ...taskField(raw['task']),
       remaining: remainingOf(raw['remaining']),
       contextTokens: raw['contextTokens'] === undefined || raw['contextTokens'] === null ? null : count(raw['contextTokens'], '"contextTokens"', MAX_TOKENS),
       session: sessionOf(raw['session']),

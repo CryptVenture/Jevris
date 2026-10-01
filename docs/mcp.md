@@ -256,6 +256,7 @@ Advice on the main-session model and on managed workers. It never switches a mod
   - `effortPin`;
   - `taskId`;
   - `sliceId`: the task's slice, so a released calibration for it can apply to worker advice;
+  - `task`: `{ title, paths, checkIds }`, what you know of the task. With no `sliceId`, Jevris classifies the slice from it (Jev from structured features, rules as the fallback; see [routing.md](routing.md#when-the-route-has-no-slice)) and the result carries a `slice` part saying how. Path names are never sent to Jev;
   - `remaining`: `{ inputTokens, outputTokens }` the rest of the task needs;
   - `contextTokens`;
   - `session`: `warmPrefixTokens` (required inside `session`: the cached prefix a switch would move), `cacheWarm`, `atBoundary`, `unitsSinceLastSwitch`, `switchesThisTask` and `authMode` (`api-key`, `subscription` or `unknown`, which labels the switch cost as list price or as an API-equivalent estimate).

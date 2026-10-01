@@ -78,5 +78,8 @@ export { EGRESS_REFUSED_STATUS, SECRET_RULES, SENSITIVE_PATH_RULES, egressFreeTe
 export * from './learned-router.js';
 export * from './policy-lab.js';
 export * from './route-learning.js';
+export * from './slice-classifier.js';
+export { protectedClasses, type ProtectedClass } from './protected-paths.js';
+export { sliceAssistLines } from './slice-explain.js';
 export * from './first-try.js';
 export * from './serving-view.js';

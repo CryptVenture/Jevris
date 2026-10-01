@@ -2,7 +2,7 @@
  * Parsing for the route inputs the `route` op and the model-switch hook share: the remaining
  * work, the context the task needs and the running session's switch facts.
  */
-import { DEFAULT_SWITCH_POLICY, taskVolume, type SwitchContext, type TokenVolume } from '@jevris/core';
+import { DEFAULT_SWITCH_POLICY, taskVolume, type SliceTaskHints, type SwitchContext, type TokenVolume } from '@jevris/core';
 
 function plain(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
@@ -12,7 +12,9 @@ function onlyKeys(body: Record<string, unknown>, allowed: readonly string[]): bo
   return Object.keys(body).every((key) => allowed.includes(key));
 }
 
-export const ROUTE_KEYS = ['currentModel', 'modelPin', 'effortPin', 'taskId', 'sliceId', 'sessionId', 'remaining', 'contextTokens', 'session', 'harness', 'authMode'];
+export const ROUTE_KEYS = ['currentModel', 'modelPin', 'effortPin', 'taskId', 'sliceId', 'sessionId', 'remaining', 'contextTokens', 'session', 'harness', 'authMode', 'task'];
+const TASK_KEYS = ['title', 'paths', 'checkIds'];
+const TASK_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 const SESSION_KEYS = ['warmPrefixTokens', 'cacheWarm', 'atBoundary', 'unitsSinceLastSwitch', 'switchesThisTask', 'cacheTtl', 'authMode'];
 
 export function count(value: unknown, max: number): number | undefined {
@@ -63,4 +65,31 @@ export function routeFactsOf(body: Record<string, unknown>): RouteFacts | undefi
   const switchContext = switchContextOf(body['session']);
   if (switchContext === undefined) return undefined;
   return { remaining, contextTokens, switchContext };
+}
+
+function stringList(value: unknown, maxItems: number, accept: (item: string) => boolean): string[] | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || value.length > maxItems) return undefined;
+  const out: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string' || !accept(item)) return undefined;
+    out.push(item);
+  }
+  return out;
+}
+
+/**
+ * `task: { title?, paths?, checkIds? }`: what the caller knows about the task, for the slice
+ * classifier when no `sliceId` is given. Bounds only; undefined when malformed, null when absent.
+ * The classifier reduces it to features before anything leaves the machine.
+ */
+export function taskHintsOf(value: unknown): SliceTaskHints | null | undefined {
+  if (value === undefined || value === null) return null;
+  if (!plain(value) || !onlyKeys(value, TASK_KEYS)) return undefined;
+  const rawTitle = value['title'];
+  if (rawTitle !== undefined && rawTitle !== null && (typeof rawTitle !== 'string' || rawTitle.length > 2000)) return undefined;
+  const paths = stringList(value['paths'], 64, (p) => p.length > 0 && p.length <= 512 && !p.includes('\0'));
+  const checkIds = stringList(value['checkIds'], 64, (c) => TASK_ID.test(c));
+  if (paths === undefined || checkIds === undefined) return undefined;
+  return { title: typeof rawTitle === 'string' ? rawTitle : null, paths, checkIds };
 }

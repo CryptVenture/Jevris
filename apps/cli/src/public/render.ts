@@ -342,6 +342,17 @@ const hostWords = (host: string): string => {
   return kind === undefined ? host : `${host} (${kind})`;
 };
 
+/** The route's slice classification: the slice and who chose it, the risk, the reason and the decision to explain. */
+function sliceLines(s: NonNullable<SurfacePayloads['route']['slice']>): string[] {
+  const who = s.source === 'jev' ? 'classified by Jev, advice only' : s.source === 'rules' ? 'classified by rules, advice only' : 'none used, the approved baseline stays';
+  const how = s.asked ? `${s.cacheHit === true ? 'cache hit' : 'asked Jev'}${s.latencyMs === null ? '' : `, ${s.latencyMs} ms`}${s.confidencePercent === null ? '' : `, confidence ${s.confidencePercent} percent`}` : 'Jev not asked';
+  return [
+    line('task slice', `${s.sliceId ?? 'none'} (${who})`),
+    line('slice risk', `${s.risk}; ${s.reasonCode} (${how})`),
+    ...(s.decisionId === null ? [] : [line('slice decision', `${s.decisionId} (jevris explain ${s.decisionId})`)]),
+  ];
+}
+
 /**
  * Serving hosts R55 (design 8): which host the session's model and the route's target go through,
  * whether the route kept the host, each party's consent and what the price rests on. Ids, codes
@@ -491,6 +502,7 @@ function body(result: SurfaceResult): string[] {
         line('recommended model', p.main.recommendedModel),
         line('reason', routeReasonLabel(p.main.reasonCode)),
         line('cost basis', costBasisText(p.main.costBasis, p.main.authMode)),
+        ...(p.slice === undefined ? [] : sliceLines(p.slice)),
         ...(p.main.serving === undefined || p.main.serving === null ? [] : servingLines(p.main.serving)),
         ...(p.main.consentedProviders === undefined ? [] : [line('providers considered', `${p.main.consentedProviders.length === 0 ? 'none' : p.main.consentedProviders.join(', ')} (others need consent: jevris consent provider)`)]),
         p.main.text,

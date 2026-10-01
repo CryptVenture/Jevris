@@ -586,6 +586,24 @@ export const RoutePayloadSchema = S.object({
   }),
   /** Advice never switches a model (C10). */
   applied: S.literal(false),
+}, {
+  /**
+   * Owner decision 2026-10-01: present when the request named no slice but described its task, so
+   * the slice was classified (Jev from structured features, else rules). Advice only; never a
+   * learned arm. `sliceId` null means none was used and the baseline stays.
+   */
+  slice: S.object({
+    sliceId: S.nullable(S.string({ minLength: 1, maxLength: 64, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$' })),
+    source: S.enumOf(['rules', 'jev', 'none'] as const),
+    risk: S.enumOf(['low', 'medium', 'high', 'unknown'] as const),
+    confidencePercent: S.nullable(S.integer({ minimum: 0, maximum: 100 })),
+    reasonCode: Code,
+    decisionId: S.nullable(Id),
+    asked: S.boolean(),
+    cacheHit: S.nullable(S.boolean()),
+    latencyMs: S.nullable(Count),
+    text: ShortText,
+  }),
 });
 export type RoutePayload = S.Static<typeof RoutePayloadSchema>;
 

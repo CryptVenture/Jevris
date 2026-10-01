@@ -78,6 +78,11 @@ export const TOOLS: readonly ToolSpec[] = [
       effortPin: id('An effort level the user pinned.'),
       taskId: id('The task this advice is for, if any.'),
       sliceId: id('The task slice (such as bounded-edit), so a released calibration for it can apply to worker advice.'),
+      task: input({
+        title: text(2000, 'What the task is, in a sentence. Reduced to a verb class locally; sent only when source egress is approved.'),
+        paths: { type: 'array', maxItems: 64, items: { type: 'string', minLength: 1, maxLength: 512 }, description: 'Files the task will touch. Only counts and categories are used; names are never sent to Jev.' },
+        checkIds: { type: 'array', maxItems: 64, items: { type: 'string', pattern: '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$', maxLength: 128 }, description: 'Acceptance check ids.' },
+      }),
       remaining: input(
         { inputTokens: tokens('Input tokens the rest of the task needs.'), outputTokens: tokens('Output tokens the rest of the task needs.') },
         ['inputTokens', 'outputTokens'],

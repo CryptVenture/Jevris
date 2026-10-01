@@ -157,6 +157,7 @@ Examples:
 
 ```text
 Usage: jevris route [--model <current-model>] [--pin <pinned-model>] [--effort-pin <effort>] [--task <id>] [--slice <id>]
+                    [--title <text>] [--path <file>]... [--check <id>]...
                     [--harness <id>] [--auth-mode <mode>]
                     [--remaining-input <tokens> --remaining-output <tokens>] [--context-tokens <tokens>]
                     [--warm-prefix <tokens> [--cold-cache] [--mid-step]] [--json]
@@ -177,6 +178,12 @@ Options:
   --task <id>         The task the advice is for
   --slice <id>        The task's slice (such as bounded-edit), so a released calibration for
                       it can apply to managed-worker advice (default: unknown, no worker advice)
+  --title <text>      With no --slice: what the task is, so Jevris can classify its slice. The
+                      words are reduced to a verb class here; the text itself leaves the machine
+                      only when source egress is approved
+  --path <file>       With no --slice: a file the task will touch (repeat it). Only counts and
+                      categories are used; a path name is never sent to Jev
+  --check <id>        With no --slice: an acceptance check id (repeat it)
   --remaining-input <n>   Input tokens the rest of the task needs; give it with
   --remaining-output <n>  output tokens (default: the routing policy's task size)
   --context-tokens <n>    Context the task needs, in tokens
@@ -217,6 +224,7 @@ Examples:
   jevris route --model claude-opus-5-5
   jevris route --model claude-opus-5-5 --pin claude-opus-5-5 --effort-pin high --json
   jevris route --task fix-parser --slice bounded-edit
+  jevris route --task fix-parser --path src/parser.ts --path test/parser.test.ts --check test
   jevris route --model anthropic/claude-opus-5-5 --harness opencode --auth-mode subscription
   jevris route --model claude-opus-5-5 --slice bounded-edit --remaining-input 100000 --remaining-output 10000 --warm-prefix 150000
 

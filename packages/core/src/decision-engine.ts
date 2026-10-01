@@ -16,6 +16,7 @@
  * - Nothing reaches `applied` without an adapter receipt whose status is `applied`.
  * - A crash leaves a journal entry that `recover()` settles at the next start.
  */
+import { sliceAssistLines } from './slice-explain.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { ManagedRouteRequest } from './route-evaluate.js';
@@ -243,6 +244,8 @@ export interface AdviceRecordInput {
   readonly reasonCodes: readonly string[];
   /** The calibration release the advice rests on (route advice); the record names it. */
   readonly calibration?: { readonly id: string; readonly version: string } | null;
+  /** How long the advice took to compute, in ms (default 0). */
+  readonly durationMs?: number;
 }
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -490,7 +493,7 @@ class Engine implements DecisionEngine {
       proposedAction: action.value,
       billingBasis: 'no-provider-call',
       providerCalls: 0,
-      durationMs: 0,
+      durationMs: typeof input.durationMs === 'number' && Number.isFinite(input.durationMs) && input.durationMs >= 0 ? Math.round(input.durationMs) : 0,
       calibration: input.calibration !== undefined && input.calibration !== null && ID.test(input.calibration.id) && ID.test(input.calibration.version) ? { id: input.calibration.id, version: input.calibration.version } : null,
     });
     const planned = await this.journal.transition(validated.entry, 'planned', { record });
@@ -1029,6 +1032,8 @@ export function explainDecision(record: DecisionRecord): string {
     lines.push(`Blocked before sending: ${where.join('; ')}${record.egressFindings.length > 4 ? `; and ${record.egressFindings.length - 4} more` : ''}. The matched text is not stored.`);
   }
   if (record.policyVersion !== undefined) lines.push(`Policy version ${record.policyVersion}.`);
+  const slice = sliceAssistLines(record);
+  if (slice !== null) lines.push(...slice);
   lines.push(`Evidence revision ${record.evidenceRevision}. Task outcome: ${record.actualTaskOutcome.replace(/-/g, ' ')}.`);
   lines.push('This record is not a success probability and does not mark the task verified.');
   return lines.join('\n');
