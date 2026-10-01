@@ -5,7 +5,7 @@ import type {
   SidecarOpOutcome,
 } from '@jevris/contracts';
 import { HARNESS_IDS, type HarnessId } from '@jevris/contracts';
-import { harnessVersionOf } from '@jevris/orchestrator';
+import { firstTryOf, harnessVersionOf, readEffectiveConfig, withFirstTryExplain } from '@jevris/orchestrator';
 
 /**
  * The op registry. Built-in ops (domain B) plus `sidecarOps` exported by the op packages
@@ -156,12 +156,32 @@ export function withHarnessVersions(provider: unknown, versionOf: HarnessVersion
   return { sidecarOps: Reflect.get(provider, 'sidecarOps'), sidecarEventSubscribers: subscribers };
 }
 
+/**
+ * The decision package's `explain` op with the slice's Sonnet-first view added to the trace when the
+ * request names a slice: the ledger is the orchestrator's, so the composition lives here, where both
+ * packages are known. The setting is the effective `routing.firstTry` for the request's workspace.
+ */
+export function withFirstTryTrace(provider: unknown): unknown {
+  if (provider === null || typeof provider !== 'object') return provider;
+  const ops = Reflect.get(provider, 'sidecarOps');
+  if (!Array.isArray(ops)) return provider;
+  const setting = (ctx: SidecarOpContext): 'auto' | 'baseline' => {
+    try {
+      return firstTryOf(readEffectiveConfig({ home: ctx.home, workspaceRoot: ctx.workspace.root }).config);
+    } catch {
+      return 'auto';
+    }
+  };
+  const wrapped = ops.map((op: unknown) => (isDefinition(op) && op.op === 'explain' ? withFirstTryExplain(op, setting) : op));
+  return { sidecarOps: wrapped, sidecarEventSubscribers: Reflect.get(provider, 'sidecarEventSubscribers') };
+}
+
 /** Literal imports, one per op package, so a bundler keeps each (PKG-07). */
 export async function packageSources(): Promise<readonly OpSource[]> {
   const versionOf = harnessVersionSource();
   const found = await Promise.all([
     tryImport('@jevris/core', () => import('@jevris/core')),
-    tryImport('@jevris/provider-typesafe', async () => withHarnessVersions(await import('@jevris/provider-typesafe'), versionOf)),
+    tryImport('@jevris/provider-typesafe', async () => withFirstTryTrace(withHarnessVersions(await import('@jevris/provider-typesafe'), versionOf))),
     tryImport('@jevris/orchestrator', () => import('@jevris/orchestrator')),
     tryImport('@jevris/evals', () => import('@jevris/evals')),
     tryImport('@jevris/languages', () => import('@jevris/languages')),

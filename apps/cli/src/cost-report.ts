@@ -12,8 +12,12 @@
  */
 import { COMMAND_EXIT_CODES, FEEDBACK_REASONS, jevBudgetText } from '@jevris/contracts';
 import { decisionOutcomeLines, estimatorCalibrationLines, feedbackLines, type DecisionOutcomeReport, type EstimatorCalibration, type FeedbackKindReport, type FeedbackReport } from '@jevris/core';
+import { localFirstTryCost } from './first-try-local.js';
+import { firstTryCostLines } from './first-try-lines.js';
 import { checkLearningReport, learningReportLines, type LearningReportView } from './learning-report.js';
+import { effectiveSettings } from './public/local.js';
 import { defaultPorts } from './public/ports.js';
+import { firstTryOf, type FirstTryCostView } from '@jevris/orchestrator';
 import { contextFor, parse, type VerifyAdminOptions } from './verify-admin.js';
 import { homeRefusal } from './public/home-guard.js';
 
@@ -95,6 +99,13 @@ export interface CostReport {
   readonly feedback: FeedbackReport | null;
   /** D's learning.report (2794ac4), counts only; null when the sidecar sends none or it does not match. */
   readonly learning: LearningReportView | null;
+  /**
+   * Sonnet-first routing (owner decision 2026-09-30, visibility): tasks started, handed up and
+   * completed on the first try, and the spend against the baseline estimate, read from this
+   * workspace's first-try ledger. Integer micro-USD, null where the data to compute a figure does
+   * not exist; null itself when the ledger cannot be read.
+   */
+  readonly firstTry: FirstTryCostView | null;
 }
 
 const count = (value: unknown): value is number => typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -266,7 +277,7 @@ export function checkCostReport(raw: unknown): CostReport | null {
   const counterfactual = measure(billing['counterfactualHypothetical'], 'hypothetical');
   if (actual === null || apiEquivalentEstimate === null || counterfactual === null) return null;
   const diagnostics = Array.isArray(r['diagnostics']) ? r['diagnostics'].map(line).filter((x): x is string => x !== null).slice(0, 8) : [];
-  return { providerConfigured: r['providerConfigured'], budget, decisions, measures: { actual, apiEquivalentEstimate, counterfactual }, note: line(r['note']), diagnostics, estimator: checkEstimator(r['estimator']), outcomes: checkOutcomes(r['outcomes']), feedback: checkFeedback(r['feedback']), learning: null };
+  return { providerConfigured: r['providerConfigured'], budget, decisions, measures: { actual, apiEquivalentEstimate, counterfactual }, note: line(r['note']), diagnostics, estimator: checkEstimator(r['estimator']), outcomes: checkOutcomes(r['outcomes']), feedback: checkFeedback(r['feedback']), learning: null, firstTry: null };
 }
 
 function usd(microUsd: number): string {
@@ -312,6 +323,7 @@ export function renderCostReport(report: CostReport): string {
   // Feedback on advice, in C's own words, from the checked counts; never a policy change.
   if (report.feedback !== null) lines.push(...feedbackLines(report.feedback));
   if (report.learning !== null) lines.push(...learningReportLines(report.learning));
+  if (report.firstTry !== null) lines.push(...firstTryCostLines(report.firstTry));
   if (report.note !== null) lines.push(report.note);
   for (const diagnostic of report.diagnostics) lines.push(`diagnostic: ${diagnostic}`);
   return `${lines.join('\n')}\n`;
@@ -350,6 +362,8 @@ export async function runCostReportCommand(argv: readonly string[], write: Write
   if (report === null) return unavailable('SIDECAR_INVALID_RESULT');
   // D's learning.report: an older sidecar without the op, or any refusal, leaves the section out.
   const learned = await ctx.ports.sidecar.request({ home: ctx.home, op: 'learning.report', workspace: ctx.workspaceRoot ?? ctx.workspaceId, body: {}, scope: 'cli', timeoutMs: ctx.requestTimeoutMs, budget: 'background' });
-  const full: CostReport = { ...report, learning: learned.ok ? checkLearningReport(learned.result) : null };
+  // Sonnet-first routing: the local first-try ledger, read with the same functions the sidecar's status uses.
+  const firstTry = await localFirstTryCost(ctx, firstTryOf(effectiveSettings(ctx).config));
+  const full: CostReport = { ...report, learning: learned.ok ? checkLearningReport(learned.result) : null, firstTry };
   return out({ report: full, reasonCode: null }, renderCostReport(full), COMMAND_EXIT_CODES.ok);
 }

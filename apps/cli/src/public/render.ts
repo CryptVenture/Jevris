@@ -4,6 +4,7 @@
  */
 import { accessUsageLines, untimedClearTextFor } from '@jevris/core';
 import { jevBudgetText, servingHostOf, type ModeSource, type RouteServing, type SurfaceOperation, type SurfacePayloads, type SurfaceResult } from '@jevris/contracts';
+import { firstTrySliceLines, firstTryStatusLine } from '../first-try-lines.js';
 import { reminderLine } from '../learning-report.js';
 import { latencyLines } from './latency.js';
 
@@ -464,6 +465,7 @@ function body(result: SurfaceResult): string[] {
       if (p.mainSessions !== undefined && p.mainSessions !== null) lines.push(...mainSessionsLines(p.mainSessions));
       if (p.backgroundVerifyAtStop !== undefined) lines.push(line('background verify at stop', p.backgroundVerifyAtStop === 'on' ? 'on (a main-session Stop queues the missing approved checks)' : 'off'));
       if (p.firstTryRouting !== undefined) lines.push(line('first-try routing', p.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model and is handed once to a stronger one if its check fails; estimates only)' : 'baseline (the baseline model runs first)'));
+      if (p.firstTry !== undefined) lines.push(firstTryStatusLine(p.firstTry));
       if (p.jevAssist !== undefined) lines.push(line('jev assist', p.jevAssist === 'classify' ? 'classify (Jev classifies a route request\'s task slice from structured features; advice only, rules are the fallback)' : 'off (every such decision is rules-only)'));
       if (p.accessLimits !== undefined && p.accessLimits !== null) lines.push(...accessLimitsStatusLines(p.accessLimits));
       if (p.jevCircuit !== undefined && p.jevCircuit !== null) lines.push(jevCircuitLine(p.jevCircuit));
@@ -486,6 +488,7 @@ function body(result: SurfaceResult): string[] {
         ...(p.trace.mainSession === undefined || p.trace.mainSession === null ? [] : [mainSessionExplainLine(p.trace.mainSession)]),
         ...(p.trace.serving === undefined || p.trace.serving === null ? [] : servingLines(p.trace.serving)),
         ...(p.trace.learning === undefined ? [] : [line('route learning', `${p.trace.learning.sliceId}: ${LEARNING_MODE[p.trace.learning.mode]}, policy v${String(p.trace.learning.version)}`), ...p.trace.learning.lines]),
+        ...(p.trace.firstTry === undefined ? [] : firstTrySliceLines(p.trace.firstTry)),
         line('usage', p.trace.usage.known ? `${p.trace.usage.inputTokens} input, ${p.trace.usage.outputTokens} output tokens` : 'unknown'),
         line('uncertainty', p.trace.uncertainty),
         line('applied', p.trace.applied ? 'yes' : 'no'),

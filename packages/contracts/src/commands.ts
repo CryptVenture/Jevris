@@ -14,6 +14,7 @@ import { QUALITY_EFFORT_LEVELS } from './calibration.js';
 import { defineContract, type Contract } from './contract.js';
 import { MODES, MODE_SOURCES } from './domain.js';
 import { WorkerModelSchema } from './decision-record.js';
+import { FirstTrySliceViewSchema, FirstTryStatusSchema } from './first-try-view.js';
 import { ACCESS_SERVING_HOSTS, AccessLimitsStatusSchema, AccessUsageStatusSchema } from './access-limits.js';
 import { AUTH_MODES, HARNESS_MODEL_ID_PATTERN, Hash, HarnessIdSchema, Id, ModelId, NonNegativeInteger, PROVIDER_SECRET_PATTERNS, REASON_CODE_PATTERN, SECRET_PATTERNS, Timestamp, text, type AuthMode } from './primitives.js';
 import { MAIN_SESSION_MODES, TURN_HARNESSES } from './route-turn.js';
@@ -345,6 +346,12 @@ export const StatusPayloadSchema = S.object(
      */
     firstTryRouting: S.enumOf(['auto', 'baseline'] as const),
     /**
+     * Sonnet-first routing where people look: per harness the first-try and baseline models and how
+     * many of this workspace's slices start on the first try, start on the baseline or are still
+     * learning (counts and ids only; see first-try-view.ts). Absent when the sidecar cannot answer.
+     */
+    firstTry: FirstTryStatusSchema,
+    /**
      * Owner decision 2026-10-01 (Jev as an active decision aid): the effective `jev.assist`. `classify`
      * lets Jevris ask Jev bounded classification questions (a route request's task slice) from
      * structured features, with a rules fallback; `off` keeps those decisions rules-only. Absent when unknown.
@@ -436,6 +443,12 @@ export const ExplainPayloadSchema = S.object({
        * `source: 'unknown'` and `costPrecision: 'unknown'` when nothing observed it.
        */
       models: WorkerModelSchema,
+      /**
+       * Sonnet-first routing for the slice named with `--slice`: the verdict (first try, baseline
+       * first or still learning), the counts and the break-even numbers it used, and its reason
+       * code, per baseline and first-try model with a ledger row. Absent without a slice.
+       */
+      firstTry: FirstTrySliceViewSchema,
       /**
        * Owner decision 29423b6: for a main-session turn decision, the session's link to its task
        * as the sidecar read it when it decided (null: the session was not linked, so the turn got

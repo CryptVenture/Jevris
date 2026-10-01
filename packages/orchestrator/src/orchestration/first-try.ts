@@ -88,6 +88,11 @@ function stateKey(ws: Pick<WorkspaceServices, 'workspaceId'>, row: Pick<FirstTry
   return recordKey(ws.workspaceId, `${row.sliceId}|${row.baselineModelId}|${row.firstTryModelId}`.slice(0, 400));
 }
 
+/** Every first-try ledger row of this workspace (read only): the source of the status, explain and cost-report views. */
+export function firstTryRows(ws: WorkspaceServices): readonly FirstTryRow[] {
+  return ws.state.list<FirstTryRow>(COLLECTION).filter((r) => r.workspaceId === ws.workspaceId);
+}
+
 export function firstTryRow(ws: WorkspaceServices, taskId: string): FirstTryRow | undefined {
   const row = ws.state.get<FirstTryRow>(COLLECTION, recordKey(ws.workspaceId, taskId));
   return row !== undefined && row.workspaceId === ws.workspaceId ? row : undefined;

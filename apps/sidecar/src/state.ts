@@ -12,7 +12,7 @@ import type {
   SidecarWorkspace,
 } from '@jevris/contracts';
 import { createDeadline, isAbsoluteOnAnyPlatform, monotonicClock, type JevrisPaths } from '@jevris/platform';
-import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, firstTryOf, jevAssistOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified } from '@jevris/orchestrator';
+import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, firstTryOf, firstTryStatusView, firstTryWorkspaceOf, jevAssistOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified } from '@jevris/orchestrator';
 import { BUILTIN_OP_NAMES, bodyRecord, ok, refuse, type LoadedOps } from './ops.js';
 import { ANSWER_EVENT_KINDS, PROTOCOL, jevrisPackage, loadedRuntimeBuild } from './protocol.js';
 import { resolveRetention } from './retention-policy.js';
@@ -1138,6 +1138,15 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     return typeof sessions === 'number' ? { sessions, estimateMicroUsd: null, coverage: 'advisory-estimate' } : null;
   }
 
+  /** The Sonnet-first view for status (the registry's ladder and this workspace's slices); null when it cannot be read, which drops the field. */
+  async function firstTryViewOf(ctx: SidecarOpContext, setting: 'auto' | 'baseline'): Promise<unknown> {
+    try {
+      return await firstTryStatusView({ home: ctx.home, ws: firstTryWorkspaceOf(ctx), setting });
+    } catch {
+      return null;
+    }
+  }
+
   async function statusBody(ctx: SidecarOpContext): Promise<unknown> {
     const current = await health();
     const storeState = current.store.state;
@@ -1185,6 +1194,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       ['backgroundVerifyAtStop', settings === undefined ? 'off' : backgroundAtStopOf(settings.config)],
       // Owner decision 2026-09-30 (Sonnet-first routing): whether a low-risk owned task starts on a cheaper first-try model.
       ['firstTryRouting', settings === undefined ? 'auto' : firstTryOf(settings.config)],
+      // Sonnet-first routing where people look: per harness the first-try and baseline models and the slices on each.
+      ['firstTry', await firstTryViewOf(ctx, settings === undefined ? 'auto' : firstTryOf(settings.config))],
       // Owner decision 2026-10-01 (Jev as an active decision aid): whether Jev classifies a route request's task slice.
       ['jevAssist', settings === undefined ? 'classify' : jevAssistOf(settings.config)],
       ['queue', queueStatus()],

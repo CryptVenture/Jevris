@@ -25,8 +25,8 @@
  * uniform Beta(1, 1), and day 1 rests on the cost arithmetic and the bound on the loss, not on a
  * claim that the model is good.
  */
-import type { FirstTrySetting, RoutingModel } from '@jevris/contracts';
-import { generationCostMicroUsd, type TokenVolume } from './model-registry.js';
+import type { FirstTrySetting, HarnessId, ModelRegistry, RoutingModel } from '@jevris/contracts';
+import { generationCostMicroUsd, lifecycleCheck, routeBaseline, type TokenVolume } from './model-registry.js';
 import { betaCdf, harmProbability, type LearningSettings } from './route-learning.js';
 
 /**
@@ -327,6 +327,33 @@ export type FirstTryDecision =
   | { readonly route: 'baseline'; readonly reasonCode: FirstTrySkip; readonly candidate?: FirstTryCandidate; readonly verdict?: FirstTryVerdict };
 
 /**
+ * The locked exploration shares of the randomized assignment, never above the 10% cap: `cap` is the
+ * share of the arm that is not the slice's current one while the slice is on baseline-first (the
+ * first try is explored at it) and while the control has fewer than `flapFloor` finished tasks;
+ * `control` is the share of the control (baseline first) while the slice is on first-try.
+ */
+export function firstTryShares(settings: Pick<LearningSettings, 'explorationRate' | 'adviseExplorationRate' | 'flapFloor'>, history: Pick<FirstTryHistory, 'control'>): { readonly cap: number; readonly control: number } {
+  const cap = Math.min(0.1, Math.max(0, settings.adviseExplorationRate));
+  const established = Math.min(cap, Math.max(0, settings.explorationRate));
+  return { cap, control: history.control.tasks < settings.flapFloor ? cap : established };
+}
+
+/**
+ * What the route does with a slice now, from its verdict: `learning` while fewer than `flapFloor`
+ * first attempts have a label (the verdict's day-1 prior rule, `DAY_1_PRIOR`), else the verdict's
+ * mode, `first-try` or `baseline-first`.
+ */
+export function firstTryPhase(verdict: Pick<FirstTryVerdict, 'mode' | 'reasonCode'>): 'first-try' | 'baseline-first' | 'learning' {
+  if (verdict.reasonCode === 'DAY_1_PRIOR') return 'learning';
+  return verdict.mode === 'first-try' ? 'first-try' : 'baseline-first';
+}
+
+/** The share of the minority arm for the next task of a slice with this verdict, and which arm it is. */
+export function nextTaskShare(verdict: Pick<FirstTryVerdict, 'mode'>, shares: { readonly cap: number; readonly control: number }): { readonly arm: FirstTryArm; readonly share: number } {
+  return verdict.mode === 'first-try' ? { arm: 'control', share: shares.control } : { arm: 'first-try', share: shares.cap };
+}
+
+/**
  * One route's first-try assignment. Only a low-risk, automated route with learning on and a real
  * candidate is ever assigned; every other route runs the baseline exactly as before. The assignment
  * is randomized so the two arms can be compared: on first-try the control (baseline first) takes
@@ -356,12 +383,9 @@ export function decideFirstTry(input: {
   if (candidate.stepUpModelIds.length === 0) return { route: 'baseline', reasonCode: 'NO_STEP_UP_MODEL', candidate };
   const history = typeof input.history === 'function' ? input.history(candidate.modelId) : input.history;
   const verdict = firstTryVerdict({ history, candidate, settings: input.settings });
-  // The locked exploration shares, never above the 10% cap.
-  const cap = Math.min(0.1, Math.max(0, input.settings.adviseExplorationRate));
-  const established = Math.min(cap, Math.max(0, input.settings.explorationRate));
+  const { cap, control } = firstTryShares(input.settings, history);
   const draw = input.random();
   if (verdict.mode === 'first-try') {
-    const control = history.control.tasks < input.settings.flapFloor ? cap : established;
     return draw < control
       ? { route: 'control', arm: 'control', propensity: control, reasonCode: 'FIRST_TRY_CONTROL', candidate, verdict }
       : { route: 'first-try', arm: 'first-try', propensity: 1 - control, reasonCode: 'FIRST_TRY', candidate, verdict };
@@ -406,4 +430,42 @@ export function firstTryNote(decision: FirstTryDecision): FirstTryNote | null {
     overheadMicroUsd: decision.candidate.overheadMicroUsd,
     verdictReason: decision.verdict.reasonCode,
   };
+}
+
+// ------------------------------------------------------------------------------- per harness view
+
+/** What `jevris status` shows for one harness: its baseline and whether it has a first-try step. */
+export type HarnessFirstTry =
+  | { readonly harness: HarnessId; readonly baselineModelId: string; readonly on: true; readonly candidate: FirstTryCandidate }
+  | {
+      readonly harness: HarnessId;
+      readonly baselineModelId: string;
+      readonly on: false;
+      readonly reasonCode: FirstTryNone['reasonCode'];
+      /** True when a stronger model of the baseline's vendor exists but is a preview, which is never started automatically. */
+      readonly strongerIsPreview: boolean;
+    };
+
+/**
+ * The first-try step of a harness from the registry alone: the harness's baseline (`routeBaseline`,
+ * its registry default) and `firstTryCandidate` over the models of the vendors the harness reaches
+ * that the lifecycle gate leaves usable. It is the registry's ladder, not a decision: a route still
+ * passes every gate (consent, account evidence, residency, health, pauses) before it uses a rung.
+ */
+export function harnessFirstTry(input: {
+  readonly registry: Pick<ModelRegistry, 'entries' | 'harnessAccess' | 'harnessDefaults' | 'baselineModelId'>;
+  readonly harness: HarnessId;
+  readonly volume: TokenVolume;
+  readonly overhead: HandoffOverhead;
+  readonly nowMs: number;
+}): HarnessFirstTry {
+  const baselineModelId = routeBaseline(input.registry as ModelRegistry, input.harness);
+  const reached = new Set((input.registry.harnessAccess ?? []).filter((row) => row.harness === input.harness).map((row) => row.provider));
+  const eligible = input.registry.entries.filter((model) => reached.has(model.provider) && model.health !== 'unavailable' && lifecycleCheck(model, input.nowMs).usable);
+  const candidate = firstTryCandidate({ eligible, baselineModelId, volume: input.volume, overhead: input.overhead });
+  if (!('none' in candidate)) return { harness: input.harness, baselineModelId, on: true, candidate };
+  const ladder = ladderOf(eligible, input.volume);
+  const baseline = ladder.find((rung) => rung.modelId === baselineModelId);
+  const strongerIsPreview = baseline !== undefined && ladder.some((rung) => rung.provider === baseline.provider && rung.attemptMicroUsd > baseline.attemptMicroUsd && rung.status === 'preview');
+  return { harness: input.harness, baselineModelId, on: false, reasonCode: candidate.reasonCode, strongerIsPreview };
 }

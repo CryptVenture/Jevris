@@ -501,6 +501,30 @@ It applies only to an owned worker on a task that is low risk (an approved accep
 
 **What it knows.** The registry seeds prices only. It holds no quality data for Sonnet 5.5, and Jevris says `quality: unknown`; the Sonnet 5 terminal row is context and is never read across. A board prior counts only for the exact model, through the existing gates, capped at 30 outcomes. `jevris route learning status` shows, per slice, first-try and control tasks, hand-offs, cost per verified task (an estimate at list prices when a run had no billed dollars) and the current mode. The record is local: ids, models, outcomes, cost and time, never task or source text.
 
+### Seeing Sonnet-first routing
+
+Three outputs show it, in plain text and with `--json`. They read this workspace's first-try record and the routing policy, call no model and send nothing, and they print the verdict the router itself computes (the same functions, the same locked numbers). They change no decision. Money is integer micro-USD, with dollars in brackets for reading, and a figure whose data does not exist reads `unknown` or `not measured yet`, never zero.
+
+**`jevris status`** (and the `jevris_status` MCP tool) prints one line: the setting, and per harness the first-try model, the baseline, and how many slices start on the first try, start on the baseline, or are still learning (fewer than 5 first attempts labelled, so the day-1 prior stands):
+
+```text
+first-try slices: claude: claude-sonnet-5-5 first, claude-opus-5-5 baseline, 2 on the first try, 1 on the baseline, 1 still learning; codex: gpt-6-luna first, gpt-6.1-sol baseline, no slices yet; antigravity: off (no cheaper active model than gemini-3.8-flash, and its only stronger model is a preview, which is never started automatically)
+```
+
+With `routing.firstTry` set to `baseline` the line is `first-try slices: off (routing.firstTry is baseline, so the baseline model runs first)`. A slice whose baseline is not a harness default is counted under `other baselines`. In `--json` and the tool, `firstTry` carries `setting`, `unavailable` (a model-registry refusal code, or `null`), `harnesses[]` (`harness`, `state` of `on` or `off`, `reasonCode`, `baselineModelId`, `firstTryModelId`, `strongerIsPreview` and `slices` with `firstTry`, `baselineFirst` and `learning`) and `other` (the same three counts).
+
+**`jevris explain <decision-id> --slice <slice>`** adds a first-try block: for each baseline and first-try model pair the slice has run, the verdict (`first try`, `baseline first` or `learning`) and its reason code (`DAY_1_PRIOR`, `FIRST_TRY_WORTH_IT`, `ANTI_FLAP`, `FIRST_TRY_BELOW_BREAK_EVEN`, `NOT_CHEAPER_PER_VERIFIED`, `WORSE_THAN_BASELINE` or `BASELINE_FIRST_NOT_PROVEN`), then the numbers the verdict used:
+
+- the tasks: first-try tasks started, finished and verified, how many passed the check on the first attempt, failed it, or were handed up, and the control's started, finished and verified;
+- the control share: the share of started tasks that ran baseline first, and the probability that the next task goes to the control (or, on a baseline-first slice, to the first try as exploration);
+- the break-even p* = (cS + h) / (cO + h), with h, cS and cO and whether it was measured from attempt costs or estimated from list prices when the first task started;
+- the chance that the first-try success rate is below p*, and the chance that task success is worse than the control's by more than the 0.075 margin, beside the locked thresholds (demote above 0.40, return below 0.10 after 12 finished first-try tasks, 5 more finished tasks before any change);
+- the cost per verified task of each arm, labelled an estimate when a run had no billed dollars.
+
+Right after a demotion the live verdict reads `ANTI_FLAP` while the slice is held on the baseline, so a `last change` line names the reason the change was made (for example `FIRST_TRY_BELOW_BREAK_EVEN`) and how many first-try tasks had finished. A slice that has no first-try task says so in one line. A verified task is a passing check, not a quality score, so the block ends with `quality: unknown`. With `--json`, `trace.firstTry` carries `sliceId`, `setting` and `groups[]` with the same facts as numbers (`verdict`, `reasonCode`, `lastChange`, `started`, `firstTry`, `control`, `controlShare`, `breakEven`, `pBelowBreakEven`, `pWorseThanBaseline`, `costPerVerified` and `thresholds`); `jevris_explain_decision` takes the same slice as `sliceId`.
+
+**`jevris cost-report`** adds a first-try section: tasks started on the first try, handed up, and completed on the first try, then the spend on the finished first-try tasks (every attempt, the hand-off included) against the baseline estimate, which is the control's cost per verified task times the number of verified first-try tasks. The result is `saved against the baseline estimate`, `spent more than the baseline estimate`, or `unknown` when a slice has no control task with a known cost or an attempt's cost is unknown. Only slices with both figures are added up, and the section says how many. The control share is small and random (at most 10%), so the estimate is noisy on a small sample, and the section says so beside the numbers. With `--json` the section is `report.firstTry`; with no first-try task in the workspace it is one line.
+
 ### You stay in control
 
 ```sh
@@ -535,7 +559,7 @@ jevris route learning export-cases
 
 While a slice is advise-only, explain and `jevris route learning status` say what it is waiting for, for example `Waiting for 7 more local outcomes on claude-opus-5-5 at low effort before a switch to it.`, and `--json` carries `guard` (`minLocalPerArm`, and `waiting[]` with each arm's `armId`, `local` and `remaining`).
 
-The MCP tool `jevris_explain_decision` takes the same slice as `sliceId`.
+The MCP tool `jevris_explain_decision` takes the same slice as `sliceId`. The same call also carries the slice's Sonnet-first verdict, as `trace.firstTry` ([Seeing Sonnet-first routing](#seeing-sonnet-first-routing)).
 
 ### Where it is kept
 
