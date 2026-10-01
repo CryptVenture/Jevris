@@ -211,6 +211,12 @@ export interface SidecarOpContext {
    * advice or actuates. Absent only where no sidecar resolved it (a direct unit call).
    */
   readonly mode?: 'off' | 'observe' | 'advise' | 'bounded-auto';
+  /**
+   * The effective `jev.assist` for this workspace (owner decision 2026-10-01): `classify` lets an op
+   * ask Jev a bounded classification question (a route request's task slice); `off` keeps it
+   * rules-only. Absent where no sidecar resolved it (a direct unit call): treated as `classify`.
+   */
+  readonly jevAssist?: 'off' | 'classify';
   /** Content-free trace line (OBS-01). Keys and values are bounded; no source, no secret. */
   trace(event: SidecarTraceEvent): void;
 }

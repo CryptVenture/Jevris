@@ -252,6 +252,20 @@
       },
       "required": [],
       "additionalProperties": false
+    },
+    "jev": {
+      "type": "object",
+      "properties": {
+        "assist": {
+          "type": "string",
+          "enum": [
+            "off",
+            "classify"
+          ]
+        }
+      },
+      "required": [],
+      "additionalProperties": false
     }
   },
   "required": [

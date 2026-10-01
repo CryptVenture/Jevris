@@ -385,6 +385,8 @@ export type { JevRequest, JevrisConfig, PackManifest } from './boundary.js';
 export {
   FIRST_TRY_DEFAULT,
   FIRST_TRY_VALUES,
+  JEV_ASSIST_DEFAULT,
+  JEV_ASSIST_VALUES,
   JevRequestContract,
   JevrisConfigContract,
   JEV_BUDGET_DEFAULT_MICRO_USD,
@@ -395,6 +397,7 @@ export {
   PACK_DATA_SCOPES,
   PackManifestContract,
   type FirstTrySetting,
+  type JevAssistSetting,
   type ModelListingSetting,
 } from './boundary.js';
 

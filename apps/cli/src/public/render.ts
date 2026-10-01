@@ -453,6 +453,7 @@ function body(result: SurfaceResult): string[] {
       if (p.mainSessions !== undefined && p.mainSessions !== null) lines.push(...mainSessionsLines(p.mainSessions));
       if (p.backgroundVerifyAtStop !== undefined) lines.push(line('background verify at stop', p.backgroundVerifyAtStop === 'on' ? 'on (a main-session Stop queues the missing approved checks)' : 'off'));
       if (p.firstTryRouting !== undefined) lines.push(line('first-try routing', p.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model and is handed once to a stronger one if its check fails; estimates only)' : 'baseline (the baseline model runs first)'));
+      if (p.jevAssist !== undefined) lines.push(line('jev assist', p.jevAssist === 'classify' ? 'classify (Jev classifies a route request\'s task slice from structured features; advice only, rules are the fallback)' : 'off (every such decision is rules-only)'));
       if (p.accessLimits !== undefined && p.accessLimits !== null) lines.push(...accessLimitsStatusLines(p.accessLimits));
       if (p.jevCircuit !== undefined && p.jevCircuit !== null) lines.push(jevCircuitLine(p.jevCircuit));
       if (p.accessUsage !== undefined && p.accessUsage !== null) lines.push(...accessUsageStatusLines(p.accessUsage));
@@ -570,6 +571,7 @@ function body(result: SurfaceResult): string[] {
           : [line('jev monthly budget', `${p.effective.monthlyBudgetMicroUsd} micro-USD (${jevBudgetText(p.effective.monthlyBudgetMicroUsd)}), machine-wide${p.effective.monthlyBudgetMicroUsd === 0 ? '; 0 means no Jev calls, decisions run rules-only' : ''}`)]),
         ...(p.effective.backgroundVerifyAtStop === undefined ? [] : [line('background verify at stop', p.effective.backgroundVerifyAtStop === 'on' ? 'on (a main-session Stop queues the missing approved checks in the background)' : 'off')]),
         ...(p.effective.firstTryRouting === undefined ? [] : [line('first-try routing', p.effective.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model, then one hand-off to a stronger one)' : 'baseline')]),
+        ...(p.effective.jevAssist === undefined ? [] : [line('jev assist', p.effective.jevAssist === 'classify' ? 'classify (Jev classifies a route request\'s task slice from structured features; advice only)' : 'off (rules-only)')]),
         'native permissions changed: no',
       ];
       for (const issue of p.issues) lines.push(`issue: ${issue.path || '/'} ${issue.code}`);

@@ -147,6 +147,7 @@ the whole file, so the easiest way to start one is to set any key with it.
 | `routing.managedWorkers` | `bounded-auto` | you (a raise needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `off`, `observe`, `advise`, `bounded-auto` | yes | yes (`mode`) |
 | `routing.modelListing` | `on` | you | `on`, `off` | yes (switch off) | no |
 | `routing.firstTry` | `auto` | you (raising `baseline` to `auto` needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `auto`, `baseline` | yes (lower to `baseline`) | yes (`mode`: it does nothing below `bounded-auto`) |
+| `jev.assist` | `classify` | you (turning it back on from `off` needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `off`, `classify` | yes (switch off) | yes (`mode`, the Jev budget and the kill switch apply) |
 | `verification.backgroundAtStop` | `off` | you (turning it on needs you at a terminal; see [Raising what Jevris may do](#raising-what-jevris-may-do)) | `off`, `on` | yes (switch off) | yes (`mode`: it does nothing below `bounded-auto`) |
 | `routing.respectHumanPins` | `true` | nobody | always `true` | no | no |
 | `routing.calibrationArtifact` | `null` | the release process | artifact id or `null` | no | no |
@@ -275,10 +276,19 @@ in `workers.json`, not in these settings. Route learning, which picks a worker's
 effort per task slice, has its own commands (`jevris route learning`). Both are in
 [routing.md](routing.md).
 
+## Jev assist
+
+`jev.assist` (default `classify`) lets Jevris ask Jev a bounded classification question where the answer is a label and a rules answer exists: today, the task slice of a `jevris route` request that names none (planned in the same release; see [routing.md](routing.md)). Jev answers from structured features (counts, categories, codes), never source text, so the question widens nothing that may leave the machine; the answer is advice, labelled as Jev's, and never an approval, a signed prior or a switch.
+
+- `classify`: the question is asked. Rules answer first when they are sure; Jev is asked when they are not, inside the hot-path deadline, from the decision cache when the same features were asked before.
+- `off`: every such decision is rules-only. Nothing is sent and nothing is spent.
+
+It follows the rest of the controls: below `observe` mode, with the kill switch on, with the Jev circuit open, billing or access disabled, or with no budget left (`BUDGET_MACHINE_LIMIT`, `BUDGET_WORKSPACE_CAP`), the decision runs rules-only and says why. A repository's `.jevris/config.json` can only set it to `off`. `jevris status` and `jevris configure` show it.
+
 ## Raising what Jevris may do
 
 A `jevris configure set` that raises `mode`, `routing.managedWorkers`, `routing.mainSession`,
-`routing.firstTry` (`baseline` to `auto`), `decisions.monthlyBudgetMicroUsd` or `verification.backgroundAtStop` (`off` to `on`) above its current effective value (your file under the
+`routing.firstTry` (`baseline` to `auto`), `jev.assist` (`off` to `classify`), `decisions.monthlyBudgetMicroUsd` or `verification.backgroundAtStop` (`off` to `on`) above its current effective value (your file under the
 administrator ceilings) needs a person at an interactive terminal who answers `y`. So does a
 `jevris configure workspace-budget` that raises this workspace's cap or removes it. `configure set` shows the change and asks. It never takes `--yes`, and it refuses
 `--json`, a pipe, a script, a hook, a model's shell and a test run (`JEVRIS_TEST=1`) before it

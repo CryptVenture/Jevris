@@ -601,6 +601,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
         adviceAdherenceFor: (workspace) => state.adviceAdherenceFor(workspace),
         engine: state.engine,
         modeOf: (workspace) => state.modeOf(workspace),
+        jevAssistOf: (workspace) => state.jevAssistOf(workspace),
         trace: (entry: SidecarTraceEvent & { readonly ws: string; readonly op: string }) => {
           state.trace(entry);
         },

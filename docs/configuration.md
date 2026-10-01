@@ -55,6 +55,7 @@ The settings are one JSON document, `jevris.config.json`, with administrator cei
 | `routing` | `jevris.config.json` `routing.*`; `calibrationArtifact` comes from `calibration-release.json` | `routing.respectHumanPins` is always `true`; `routing.firstTry` (`auto` by default) may only be lowered to `baseline` by a repository's `.jevris/config.json` |
 | `orchestration` | `jevris.config.json` `orchestration.*` | a repository's `.jevris/config.json` may only lower it |
 | `verification` | `jevris.config.json` `verification.backgroundAtStop` (`off` by default) | a repository's `.jevris/config.json` may only turn it off; it does nothing below `bounded-auto` mode |
+| `jev` | `jevris.config.json` `jev.assist` (`classify` by default; `off` is rules-only) | a repository's `.jevris/config.json` may only turn it off; it follows `mode`, the kill switch and the Jev budget |
 | `compaction` | `jevris.config.json` `compaction.*` | fixed in this release |
 | `packs` | `packs/` in the data folder | `host.json` `packPrivileges` |
 

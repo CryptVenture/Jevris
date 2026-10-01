@@ -510,7 +510,7 @@ native harness permissions; source egress needs administrator approval.
 
 Settable keys (docs/settings.md gives each one's values):
   mode routing.managedWorkers routing.modelListing verification.backgroundAtStop
-  routing.firstTry routing.mainSession orchestration.enabled
+  routing.firstTry jev.assist routing.mainSession orchestration.enabled
   orchestration.maxConcurrentWorkers orchestration.maxWorkerDepth
   orchestration.maxRepairAttempts decisions.hotPathDeadlineMs decisions.backgroundDeadlineMs
   decisions.maxQuestions privacy.remoteTelemetry privacy.rawArtifactRetentionDays
@@ -534,7 +534,7 @@ Options:
                       or none needs a person at an interactive terminal who answers y.
   --yes               Never confirms a raise. Raising mode, routing.managedWorkers,
                       routing.mainSession, routing.firstTry (baseline to auto),
-                      verification.backgroundAtStop or
+                      verification.backgroundAtStop, jev.assist (off to classify) or
                       decisions.monthlyBudgetMicroUsd above its
                       effective value needs a person at an interactive terminal who answers
                       y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). Lowering and

@@ -30,6 +30,16 @@ export type FirstTrySetting = (typeof FIRST_TRY_VALUES)[number];
 export const FIRST_TRY_DEFAULT: FirstTrySetting = 'auto';
 
 /**
+ * `jev.assist` (owner decision 2026-10-01, Jev as an active decision aid): `classify` lets Jevris ask
+ * Jev bounded classification questions (today: the task slice of a route request) from structured
+ * features, with a rules fallback; `off` keeps every such decision rules-only. Absent means
+ * `classify`. A repository may only lower it; raising it needs a person at a terminal.
+ */
+export const JEV_ASSIST_VALUES = ['off', 'classify'] as const;
+export type JevAssistSetting = (typeof JEV_ASSIST_VALUES)[number];
+export const JEV_ASSIST_DEFAULT: JevAssistSetting = 'classify';
+
+/**
  * `decisions.monthlyBudgetMicroUsd` (owner decision 2026-09-29): the machine-wide monthly limit on
  * Jevris's own Jev decision calls, in integer micro-USD. Absent means the default, 5 USD. 0 means
  * no Jev calls (rules-only). The maximum is 1,000 USD, a bound on a typo, not a price estimate.
@@ -118,6 +128,8 @@ export const JevrisConfigSchema = S.object({
      * background. It never blocks the Stop.
      */
     verification: S.object({}, { backgroundAtStop: S.enumOf(['off', 'on']) }),
+    /** Jev assist (owner decision 2026-10-01). `assist` is `classify` when absent. */
+    jev: S.object({}, { assist: S.enumOf(JEV_ASSIST_VALUES) }),
   },
 );
 export type JevrisConfig = S.Static<typeof JevrisConfigSchema>;

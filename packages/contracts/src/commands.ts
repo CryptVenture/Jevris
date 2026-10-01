@@ -345,6 +345,12 @@ export const StatusPayloadSchema = S.object(
      */
     firstTryRouting: S.enumOf(['auto', 'baseline'] as const),
     /**
+     * Owner decision 2026-10-01 (Jev as an active decision aid): the effective `jev.assist`. `classify`
+     * lets Jevris ask Jev bounded classification questions (a route request's task slice) from
+     * structured features, with a rules fallback; `off` keeps those decisions rules-only. Absent when unknown.
+     */
+    jevAssist: S.enumOf(['off', 'classify'] as const),
+    /**
      * Access limits R79 (design 11): the machine's access pauses in force (B's view of core's
      * record), shown in every workspace. Absent or null when the sidecar cannot read it.
      */
@@ -811,6 +817,8 @@ export const ConfigurePayloadSchema = S.object({
       backgroundVerifyAtStop: S.enumOf(['off', 'on'] as const),
       /** routing.firstTry (owner decision 2026-09-30): `auto` starts a low-risk owned task on a cheaper first-try model. */
       firstTryRouting: S.enumOf(['auto', 'baseline'] as const),
+      /** jev.assist (owner decision 2026-10-01): `classify` lets Jev classify a route request's task slice from features; `off` is rules-only. */
+      jevAssist: S.enumOf(['off', 'classify'] as const),
     },
   ),
   changed: S.array(S.object({ key: S.string({ maxLength: 128 }), from: S.string({ maxLength: 128 }), to: S.string({ maxLength: 128 }) }), {
