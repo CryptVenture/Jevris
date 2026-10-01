@@ -4,6 +4,7 @@
  */
 import { accessUsageLines, untimedClearTextFor } from '@jevris/core';
 import { jevBudgetText, servingHostOf, type ModeSource, type RouteServing, type SurfaceOperation, type SurfacePayloads, type SurfaceResult } from '@jevris/contracts';
+import { backgroundVerifyAtStopText } from '../background-verify-line.js';
 import { firstTrySliceLines, firstTryStatusLine } from '../first-try-lines.js';
 import { reminderLine } from '../learning-report.js';
 import { latencyLines } from './latency.js';
@@ -463,7 +464,7 @@ function body(result: SurfaceResult): string[] {
       if (p.modelRegistry !== undefined && p.modelRegistry !== null) lines.push(modelRegistryLine(p.modelRegistry));
       if (p.sessionLinks !== undefined && p.sessionLinks !== null) lines.push(sessionLinksLine(p.sessionLinks));
       if (p.mainSessions !== undefined && p.mainSessions !== null) lines.push(...mainSessionsLines(p.mainSessions));
-      if (p.backgroundVerifyAtStop !== undefined) lines.push(line('background verify at stop', p.backgroundVerifyAtStop === 'on' ? 'on (a main-session Stop queues the missing approved checks)' : 'off'));
+      if (p.backgroundVerifyAtStop !== undefined) lines.push(line('background verify at stop', backgroundVerifyAtStopText(p.backgroundVerifyAtStop, p.jevrisMode, 'a main-session Stop queues the missing approved checks')));
       if (p.firstTryRouting !== undefined) lines.push(line('first-try routing', p.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model and is handed once to a stronger one if its check fails; estimates only)' : 'baseline (the baseline model runs first)'));
       if (p.firstTry !== undefined) lines.push(firstTryStatusLine(p.firstTry));
       if (p.jevAssist !== undefined) lines.push(line('jev assist', p.jevAssist === 'classify' ? 'classify (Jev classifies a route request\'s task slice and ranks which approved checks matter first, from structured features; advice only, rules are the fallback)' : 'off (every such decision is rules-only)'));
@@ -586,7 +587,7 @@ function body(result: SurfaceResult): string[] {
         ...(p.effective.monthlyBudgetMicroUsd === undefined
           ? []
           : [line('jev monthly budget', `${p.effective.monthlyBudgetMicroUsd} micro-USD (${jevBudgetText(p.effective.monthlyBudgetMicroUsd)}), machine-wide${p.effective.monthlyBudgetMicroUsd === 0 ? '; 0 means no Jev calls, decisions run rules-only' : ''}`)]),
-        ...(p.effective.backgroundVerifyAtStop === undefined ? [] : [line('background verify at stop', p.effective.backgroundVerifyAtStop === 'on' ? 'on (a main-session Stop queues the missing approved checks in the background)' : 'off')]),
+        ...(p.effective.backgroundVerifyAtStop === undefined ? [] : [line('background verify at stop', backgroundVerifyAtStopText(p.effective.backgroundVerifyAtStop, p.effective.mode, 'a main-session Stop queues the missing approved checks in the background'))]),
         ...(p.effective.firstTryRouting === undefined ? [] : [line('first-try routing', p.effective.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model, then one hand-off to a stronger one)' : 'baseline')]),
         ...(p.effective.jevAssist === undefined ? [] : [line('jev assist', p.effective.jevAssist === 'classify' ? 'classify (Jev classifies a route request\'s task slice from structured features; advice only)' : 'off (rules-only)')]),
         'native permissions changed: no',

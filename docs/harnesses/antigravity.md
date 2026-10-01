@@ -164,7 +164,8 @@ The hooks only observe:
   `{"decision":"continue"}`, and its reason names only the missing evidence ids. A second Stop
   in the same run proceeds (`executionNum` 2 or more), so the gate continues once only.
 - With `verification.backgroundAtStop` on (off by default), a Stop of the main agent that finds
-  approved checks missing or stale also queues them in the background, and answers as above. See
+  approved checks missing or stale also queues them in the background, and answers as above. Only in
+  `bounded-auto` mode: in `advise` mode a Stop never runs checks. See
   [verification.md](../verification.md#background-verification-at-stop).
 - Once `hooks.context` is certified, PreInvocation can add one ephemeral message. The other
   hooks cannot show text, so advice that comes due on them, such as a loop explanation after a

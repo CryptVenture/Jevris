@@ -194,7 +194,8 @@ dropped. This was read from the OpenCode source at v1.18.32 and Kilo at v7.8.1.
 `verification.backgroundAtStop` on (off by default) it queues the approved checks that are missing
 or stale in the background, like any other harness's Stop. A child session's idle is a subagent's
 Stop and never queues. There is no stop gate here, so nothing continues the agent; the receipts
-are there for the next Stop or session. See
+are there for the next Stop or session. Only in `bounded-auto` mode: in `advise` mode an idle never
+runs checks. See
 [verification.md](../verification.md#background-verification-at-stop).
 
 A subagent runs as a child session, and only its `session.created` names the parent

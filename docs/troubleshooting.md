@@ -153,7 +153,7 @@ Without a key Jevris keeps working rules-only, which is a supported mode.
 
 ## The sidecar does not start
 
-Commands start the local sidecar on demand, unless autostart is off (`JEVRIS_SIDECAR_AUTOSTART=0`); then start it with `jevris sidecar start`. If `jevris status` shows it `not-running`, `refused` or `timeout`:
+Commands start the local sidecar on demand, unless autostart is off (`JEVRIS_SIDECAR_AUTOSTART=0`); then start it with `jevris sidecar start`. When a service is installed for the home (`jevris service install`), an on-demand start goes through the service manager, so there is one sidecar, the supervised one, and never a second beside it. If `jevris status` shows it `not-running`, `refused` or `timeout`:
 
 ```sh
 jevris sidecar status
@@ -165,6 +165,8 @@ jevris sidecar restart
 - The store is refused as copied from another machine or user: see [The store is refused as copied](#the-store-is-refused-as-copied).
 - `sidecar build: ... runs an older build than the installed runtime` in `jevris doctor`: the sidecar started before a reinstall and still runs the old code. Run `jevris sidecar restart`. A sidecar retires itself once it is idle and its verification runs have ended, so the line also goes away on its own. Install itself restarts a running sidecar on the new build; the line after a reinstall means that restart did not happen (a verification run under way, autostart off with `JEVRIS_SIDECAR_AUTOSTART=0`, a supervised sidecar, or a start that failed; the `sidecar build:` line install printed says which and gives the fix).
 - The sidecar comes back after a crash but not after `jevris sidecar stop`: that is `jevris service install` at work. The service manager does not restart a clean exit, so `jevris sidecar start` (or the next login) starts it again, through the service. `jevris sidecar restart` on a sidecar the service runs stops it cleanly and asks the service manager to start it; it never starts an unsupervised sidecar next to the service. If the manager cannot be reached it refuses with `SERVICE_UNREACHABLE` and stops nothing: run `jevris service status`, then `jevris service install`. `jevris service install` also stops a sidecar the service already runs first, so the manager starts it on the new unit on every OS; a sidecar that was started on demand is left as it is. `jevris service status` shows the unit. `jevris service uninstall` removes it, and the sidecar then starts on demand again. On Linux without a systemd user session (many containers and CI runners), `jevris service install` says so and changes nothing.
+- `SERVICE_START_REFUSED` or `SERVICE_UNREACHABLE` (a hook shows `SIDECAR_SERVICE_START_REFUSED` or `SIDECAR_SERVICE_UNREACHABLE`): a service is installed, its manager refused to start the sidecar or could not be reached, and the sidecar the service runs is alive but not answering. Jevris starts nothing beside it, so hooks and commands run rules-only. Run `jevris service status`, then `jevris sidecar restart`. If the sidecar is not running at all, a refusing or unreachable manager is not an error: the sidecar is started on demand instead. A service start that leaves no sidecar for ten seconds is not repeated; the next call starts one on demand.
+- `sidecar build: ... runs on demand, not under the service` after an install: a service is installed but the sidecar that was running was started on demand, and install could not hand it over because it was finishing a verification run or did not stop within 15 seconds (nothing is killed). Run `jevris sidecar restart` once it is idle: the service manager then starts the sidecar.
 - In a container, `The sidecar (pid N) did not stop` although it was killed: the container has no init process to reap exited processes, so the sidecar stays a zombie and still looks alive. Start the container with an init, for example `docker run --init`.
 
 ### The store is refused as copied
@@ -209,6 +211,8 @@ jevris install --yes     # copies the runtime again and re-points every registra
 Then restart the harness. `jevris doctor` runs the installed hook and MCP server and shows which harness is affected.
 
 A hook that runs but seems to do nothing is usually working as designed: uncertified hooks observe only. Set `JEVRIS_HOOK_DEBUG=1` in the harness's environment to have the hook print its reason codes (never event content) to standard error.
+
+`verification.backgroundAtStop` is on but no check ran at Stop: the setting acts only in `bounded-auto` mode. In `advise` mode, and in `observe` and `off`, a Stop never runs or queues a check, because observing, advising and acting are separate and only `bounded-auto` acts. `jevris status` says so in one line (`background verify at stop: on, but mode advise never runs checks at Stop: only bounded-auto does`). Raise the mode at a terminal with `jevris configure set mode bounded-auto`, or run the approved checks yourself with `jevris verify`. With the mode right, a Stop still queues nothing when the kill switch is set, for a subagent's Stop, when no approval record exists, or when no approved check is missing or stale.
 
 Harnesses sometimes send the same hook event twice, for example after a slow answer. Jevris answers a repeat of an event it has already seen in one of three ways, and each is by design:
 
