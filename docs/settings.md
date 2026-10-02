@@ -271,6 +271,15 @@ model runs first and never what Jevris may do: permissions, scopes, the kill swi
 `routing.managedWorkers` are `bounded-auto`, route learning is on for the workspace, and the
 slice is not pinned. See [routing.md](routing.md#sonnet-first-routing).
 
+You can see what the setting does in three places, none of which changes a decision or sends
+anything. `jevris status` (and the `jevris_status` MCP tool) prints one `first-try slices:` line:
+per harness, the first-try model, the baseline, and how many slices start on the first try, start
+on the baseline or are still learning. It reads `off` when `routing.firstTry` is `baseline` or the
+harness has no cheaper step (Antigravity, whose only stronger model is a preview).
+`jevris explain <decision-id> --slice <slice>` gives the slice's verdict with its counts and
+numbers, and `jevris cost-report` has a first-try section. See
+[routing.md](routing.md#seeing-sonnet-first-routing).
+
 Which harness runs a worker, and whether it signs in with a subscription or an API key, is set
 in `workers.json`, not in these settings. Route learning, which picks a worker's model and
 effort per task slice, has its own commands (`jevris route learning`). Both are in
@@ -278,9 +287,9 @@ effort per task slice, has its own commands (`jevris route learning`). Both are 
 
 ## Jev assist
 
-`jev.assist` (default `classify`) lets Jevris ask Jev a bounded classification question where the answer is a label and a rules answer exists: today, the task slice of a `jevris route` request that names none (see [routing.md](routing.md#when-the-route-has-no-slice)). Jev answers from structured features (counts, categories, codes), never source text, so the question widens nothing that may leave the machine; the answer is advice, labelled as Jev's, and never an approval, a signed prior or a switch.
+`jev.assist` (default `classify`) lets Jevris ask Jev a bounded question where the answer is a label or a score and a rules answer exists. `classify` covers "Jev helps classify and rank advice", in two places today: the task slice of a `jevris route` request that names none (see [routing.md](routing.md#when-the-route-has-no-slice)), and which approved checks matter first for the change in front of the agent, which orders the Stop reminder and the run of `jevris verify` (see [verification.md](verification.md#which-check-first)). There is no level above `classify`, and Jev never decides: every answer is advice, and every approved check still runs. Jev answers from structured features (counts, categories, codes), never source text, so the question widens nothing that may leave the machine; the answer is advice, labelled as Jev's, and never an approval, a signed prior or a switch.
 
-- `classify`: the question is asked. Rules answer first when they are sure; Jev is asked when they are not, inside the hot-path deadline, from the decision cache when the same features were asked before.
+- `classify`: the question is asked. Rules answer first when they are sure; Jev is asked when they are not, inside the hot-path deadline, from the decision cache when the same features were asked before. A check ranking is one request with one 0 to 4 score per open check (at most 12), counts only at a confidence of 0.6 or more, and never holds a Stop or a verify up (rules order on a miss).
 - `off`: every such decision is rules-only. Nothing is sent and nothing is spent.
 
 It follows the rest of the controls: below `observe` mode, with the kill switch on, with the Jev circuit open, billing or access disabled, or with no budget left (`BUDGET_MACHINE_LIMIT`, `BUDGET_WORKSPACE_CAP`), the decision runs rules-only and says why. A repository's `.jevris/config.json` can only set it to `off`. `jevris status` and `jevris configure` show it.
@@ -312,7 +321,10 @@ through `configure set`, so they do not ask.
 session that finds approved checks missing or stale queues those checks to run in the background,
 so the next Stop or session finds fresh receipts. It never blocks the Stop and never waits for a
 run. It queues only checks in the current approval record, only when Jevris is on in
-`bounded-auto` and the kill switch is clear, and never for a subagent's Stop. Receipts are
+`bounded-auto` and the kill switch is clear, and never for a subagent's Stop. In `advise` mode (and
+in `observe` and `off`) it never runs or queues a check, whatever the setting says: observing,
+advising and acting are separate, and only `bounded-auto` acts. With the setting on and a lower
+mode, `jevris status` and `jevris configure` say so in one line. Receipts are
 ordinary receipts written by the runner. See [verification.md](verification.md#background-verification-at-stop).
 
 A repository is not consent: the workspace `.jevris/config.json` can only turn it off, so a

@@ -119,12 +119,15 @@ may do also depends on your `mode` (see [settings.md](../settings.md#modes)):
   (the mode, "advice only; permissions unchanged", and a pointer to `jevris_status`); a compaction
   or resume sends the capsule alone.
 - **Stop reminder.** With approved checks whose passing evidence is missing, a Stop is blocked
-  once for the same missing evidence, naming the checks (needs `hooks.context`). See
+  once for the same missing evidence, naming the checks, the most relevant to the change first
+  (needs `hooks.context`; the order is advice, see
+  [Which check first](../verification.md#which-check-first)). See
   [verification.md](../verification.md). Otherwise Stop and SubagentStop answer `{}`, as Codex
   requires, and the stop proceeds.
 - **Background verification at Stop.** With `verification.backgroundAtStop` on (off by default), a
   main-session Stop that finds approved checks missing or stale also queues them in the background,
-  and the Stop answers as before; a SubagentStop never queues. See
+  and the Stop answers as before; a SubagentStop never queues. Only in `bounded-auto` mode: in
+  `advise` mode a Stop never runs checks. See
   [verification.md](../verification.md#background-verification-at-stop).
 - **Subagent routing.** The one permission decision a Jevris hook in Codex makes is the `allow` of a
   routed `spawn_agent` call, and only where `hooks.route` is certified. See "Subagent routing"

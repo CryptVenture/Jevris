@@ -165,6 +165,69 @@ and nothing runs:
 Refused (UNKNOWN_CHECK): No approved check is named docs; jevris verify profile lists the checks. Nothing ran.
 ```
 
+### Which check first
+
+`jevris verify` runs the approved checks one after another. The order is a ranking of how much the
+change in front of you needs each check, so a failure that matters turns up early; the reminder at
+a Stop names the missing checks in the same order. The order is advice about sequence and nothing
+else:
+
+- Every approved check still runs and is still required. No ranking drops, skips, waives or
+  marks a check passed, and a check you did not name is still not run. Only receipts decide done.
+- A check whose last receipt failed is always first, and a check that already passes is last.
+- Between them the rules score each check by its kind (test, lint, type check, build, coverage,
+  docs, generated files, pack, other; read from the check's id, then its description) against the
+  shape of the change. A change that is all documentation puts the docs check first, a change to
+  config or CI puts lint and the build first, and a change to source puts the tests and the type
+  check first. With no change known (a clean tree, or git cannot say) the usual order stands.
+- The rules are sure when the change is all one role (all docs, all tests, all config and CI, or
+  all source). Jev is asked only when they are not, `jev.assist` is `classify` (see
+  [settings.md](settings.md#jev-assist)), the mode is `observe` or higher and the kill switch is
+  off. Jev helps classify and rank advice here: it never decides.
+
+The question to Jev is one request with one 0 to 4 score per open check, at most 12 (the rest keep
+the rules order). It carries features only: the number of changed files, a size bucket, counts per
+role (source, test, docs, config, CI, other), the top six extensions, protected-path class codes,
+and for each check its kind and last result (passing, failing, missing or stale). It carries no
+path name, no diff, no check output, no check name and no task or objective text. A repeat of the
+same features is answered from the decision cache. A score counts only at a confidence of 0.6 or
+more; a lower one, an error, an open Jev circuit, an exhausted Jev budget or a missed deadline
+keeps the rules order, with a reason code.
+
+Jev never holds a Stop or a verify up. The wait is at most 700 ms, and shorter when the request
+has little time left (under 150 ms, Jev is not asked); a call still going then is dropped, the
+rules order is used, and a late answer only fills the cache for the next ranking.
+
+The answer says the order is advice and where it came from. At a Stop it adds one sentence to the
+reminder:
+
+```text
+Order is advice (rules): unit-test first, most relevant to this change: source edits. No check is skipped or waived.
+```
+
+`jevris verify` prints `check order:` with the ids in the order they ran, the same sentence, and the
+decision id when one was recorded; `--json` carries it as `checkOrder` (`source` is `rules` or
+`jev`, `ids`, `reasonCode`, `text`, `asked`, `used`, `decisionId`). No line is added when the order
+is the usual one, that is, when no change is known and no check failed last time.
+
+Each ranking of two or more checks is recorded as one advisory decision with the spec id
+`check-relevance`: reason codes (`RANK_SOURCE_JEV`, `RANK_SHAPE_SOURCE`, `CHECK_RELEVANCE_JEV`,
+and the like), the names of the features used and the latency, never a path or a check name.
+`jevris explain <decision-id>` renders it. Like any decision it joins the task outcome when the
+work ends, and nothing is tuned live from it.
+
+| Reason code | The rules order was used because |
+|-------------|-----------------------------------|
+| `CHECK_RELEVANCE_RULES_SURE` | the change is all one role |
+| `CHECK_RELEVANCE_NO_CHANGE` | no change is known |
+| `CHECK_RELEVANCE_TOO_FEW` / `_ONE_CANDIDATE` | fewer than two checks were open |
+| `CHECK_RELEVANCE_ASSIST_OFF` / `_MODE_OFF` / `_KILL_SWITCH` | `jev.assist` is `off`, the mode is `off`, or the kill switch is set |
+| `CHECK_RELEVANCE_NO_PROVIDER` | no Jev is configured (rules-only) |
+| `CHECK_RELEVANCE_NO_TIME` / `_DEADLINE` | too little time was left, or Jev did not answer in time |
+| `CHECK_RELEVANCE_JEV_CIRCUIT_OPEN` / `_BUDGET` | the Jev circuit is open, or the Jev budget is spent (`BUDGET_*`) |
+| `CHECK_RELEVANCE_JEV_LOW_CONFIDENCE` / `_NO_ANSWER` | no Jev score reached a confidence of 0.6 |
+| `CHECK_RELEVANCE_ERROR` / `CHECK_RELEVANCE_JEV_*` | the call or the ranking failed |
+
 ## 4. Freshness
 
 A receipt is current only while its inputs are unchanged. When a file in the check's
@@ -196,6 +259,10 @@ and `not-run` are never treated as passed. When evidence is missing, Jevris name
 checks and asks for them. It does not keep the session running forever: you can always stop,
 and the work is then reported as unverified.
 
+When two or more checks are missing, the reminder names them in relevance order and adds one
+sentence on why the first is first (see [Which check first](#which-check-first)). The order is
+advice: it does not change which checks are missing, and a different order is not a new condition.
+
 At a stop, Jevris asks at most once for the same missing evidence: the same checks, missing in
 the same way. Other work landing in the checkout does not count as a new condition, and a stop
 while every missing check is still running is labelled unverified without asking. A stop that
@@ -220,6 +287,7 @@ as an opt-in actuation; the specification is unchanged.
 
 - **Which checks.** Only checks in the current approval record whose receipt is missing or stale
   under the freshness rules of section 4. Nothing is queued when nothing is missing.
+  They run in relevance order (see [Which check first](#which-check-first)); the same checks run.
 - **How they run.** Through the same runner and scheduler as `jevris verify`: a run for the
   workspace that is already going is joined or queued behind, never run beside. Only the runner
   marks a check passed; the receipts are ordinary receipts.
@@ -231,8 +299,11 @@ as an opt-in actuation; the specification is unchanged.
   ("Still running in the background: ...").
 - **When it does nothing.** The setting is off, the Stop is a subagent's, the session is an owned
   worker's task, there is no approval record, Jevris is off or below `bounded-auto`, or the kill
-  switch is set.
-- **Status.** `jevris status` shows `background verify at stop`. A queued run is not counted as a
+  switch is set. In `advise` mode a Stop never runs or queues a check: observe, advise and
+  actuate are separate, and only `bounded-auto` acts.
+- **Status.** `jevris status` shows `background verify at stop`; with the setting on and a mode
+  below `bounded-auto` the line says why nothing is queued (`on, but mode advise never runs
+  checks at Stop: only bounded-auto does`). A queued run is not counted as a
   reminder that led to a check; a later verified Stop counts as a reminder that led to
   verification.
 - **Harnesses.** Wherever a Stop is observed: Claude Code, Codex and Antigravity, and Kilo and

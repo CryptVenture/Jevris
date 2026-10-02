@@ -658,7 +658,8 @@ abstained. Your feedback on advice (jevris feedback) is shown per decision kind:
 rejected by reason, and the error rate with its interval; it never changes a policy. A Learning section adds what the orchestrator learned here, counts only: owned
 tasks' estimates against what they committed, restores and what followed them, the Stop
 reminders and what followed them, and how often evidence a selection ranked was read. A
-sidecar that cannot say leaves the section out.
+sidecar that cannot say leaves the section out. A First-try section shows Sonnet-first routing: tasks started, handed up and
+completed on the first try, and the spend against a baseline estimate.
 
 Options:
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
