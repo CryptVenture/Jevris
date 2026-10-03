@@ -5,11 +5,12 @@
  * wording checks and path hygiene. Behavioural tests under test/ do not read src/*.ts.
  * Lint needs no build and never starts a harness or opens a keychain.
  */
-import { spawnSync } from 'node:child_process';
-import { existsSync, readdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, readdirSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { isMain, workspaces } from './build.mjs';
+import { runTestFiles } from './test.mjs';
 
 const repoRoot = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 
@@ -30,15 +31,21 @@ function main() {
     console.error('no lint files found');
     return 1;
   }
-  const result = spawnSync(process.execPath, ['--test', ...files], {
-    cwd: repoRoot,
-    stdio: 'inherit',
-    shell: false,
-    windowsHide: true,
-    env: { ...process.env, JEVRIS_TEST: '1' },
-  });
-  if (result.error !== undefined) throw result.error;
-  return result.status ?? 1;
+  // One node --test over every lint file, or batches of them when that command line would be too
+  // long for Windows (scripts/argv-batches.mjs); the files and the environment are the same.
+  const runTemp = mkdtempSync(join(tmpdir(), 'jl-'));
+  try {
+    const budget = process.env.JEVRIS_TEST_ARGV_BUDGET;
+    return runTestFiles({
+      parallel: files,
+      spawnOptions: { cwd: repoRoot, stdio: 'inherit', shell: false, windowsHide: true, env: { ...process.env, JEVRIS_TEST: '1', JEVRIS_TEST_ARGV_BUDGET: undefined } },
+      runTemp,
+      processEnv: typeof budget === 'string' ? { JEVRIS_TEST_ARGV_BUDGET: budget } : {},
+      base: ['--test'],
+    }).code;
+  } finally {
+    rmSync(runTemp, { recursive: true, force: true, maxRetries: 3 });
+  }
 }
 
 if (isMain(import.meta.url)) process.exit(main());

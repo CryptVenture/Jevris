@@ -43,14 +43,21 @@
  *   The run fails when its own test processes created entries directly in the real temp dir
  *   and left them, as recorded by the preload; entries of other programs never count
  *   (JEVRIS_TEMP_GUARD=off disables that check).
+ * - The files go to one `node --test` when its command line fits a budget (scripts/argv-batches.mjs),
+ *   as they always did. Windows refuses a command line over 32,767 characters, so a list that does
+ *   not fit runs in batches one after another: the other files in as few batches as fit, then each
+ *   latency-bound file alone, with one summary and one events file for the run. A coverage run is
+ *   never split (branch coverage cannot be merged across processes): the full suite names its files
+ *   as a few glob patterns instead, which node expands itself (runTestFiles).
  */
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, lstatSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, rmSync, statSync } from 'node:fs';
 import { homedir, tmpdir } from 'node:os';
 import { writeFileSync, chmodSync } from 'node:fs';
-import { basename, delimiter, isAbsolute, join, relative, resolve, sep } from 'node:path';
+import { basename, delimiter, dirname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
+import { argvBudget, commandLength, planRuns } from './argv-batches.mjs';
 import { isMain, runNode, tscPath, workspaces } from './build.mjs';
 import { DEFAULT_FILE_SILENT_S } from './test-file-bound.mjs';
 import { describeWait } from './test-serial-gate.mjs';
@@ -184,17 +191,23 @@ export function serialGate(parallel, serial, runTemp, env) {
   return { JEVRIS_SERIAL_GATE: dir, NODE_OPTIONS: current.includes(flag) ? current : `${current} ${flag}`.trim() };
 }
 
-export function collectTestFiles(root = repoRoot) {
-  const files = [];
-  // test/qa (QA-03..05 property, fuzz and clock suites) and test/acceptance (RLS-02, RLS-03)
-  // are collected like the flat root test/ directory.
-  const testDirs = [
+/**
+ * The folders whose `*.test.mjs` files are the suite: every workspace's test folder, test/, and
+ * test/qa (QA-03..05 property, fuzz and clock suites) and test/acceptance (RLS-02, RLS-03), which
+ * are collected like the flat root test/ directory.
+ */
+function testDirectories(root) {
+  return [
     ...workspaces(root).map((workspace) => join(root, workspace, 'test')),
     join(root, 'test'),
     join(root, 'test', 'qa'),
     join(root, 'test', 'acceptance'),
   ];
-  for (const dir of testDirs) {
+}
+
+export function collectTestFiles(root = repoRoot) {
+  const files = [];
+  for (const dir of testDirectories(root)) {
     if (!existsSync(dir)) continue;
     for (const name of readdirSync(dir).sort()) {
       if (name.endsWith('.test.mjs')) files.push(join(dir, name));
@@ -203,6 +216,24 @@ export function collectTestFiles(root = repoRoot) {
   const reference = join(root, 'fixtures', 'ssot', 'reference', 'tests.mjs');
   if (existsSync(reference)) files.push(reference);
   return files;
+}
+
+/**
+ * The files of collectTestFiles(root) as glob patterns, relative to `root` with forward slashes:
+ * one `<folder>/*.test.mjs` per test folder that holds such a file, and the reference suite's file
+ * by name. node --test expands them itself (cwd is `root`), so the command line holds a couple of
+ * dozen short patterns however many files there are. A coverage run of the full suite uses them
+ * when the file names would not fit one command line, since it cannot be split.
+ */
+export function testPatterns(root = repoRoot) {
+  const patterns = [];
+  for (const dir of testDirectories(root)) {
+    if (!existsSync(dir) || !readdirSync(dir).some((name) => name.endsWith('.test.mjs'))) continue;
+    patterns.push(`${relative(root, dir).split(sep).join('/')}/*.test.mjs`);
+  }
+  const reference = join(root, 'fixtures', 'ssot', 'reference', 'tests.mjs');
+  if (existsSync(reference)) patterns.push(relative(root, reference).split(sep).join('/'));
+  return patterns;
 }
 
 export function realHomeFromEnv() {
@@ -630,8 +661,8 @@ export function testEnvironment(tempHome, realHome, stubDir, tempDir) {
  * node's test coverage over every workspace's built dist files and writes lcov there,
  * next to the usual spec output (QA-06).
  */
-export function coverageArgs(env) {
-  const lcov = env.JEVRIS_TEST_COVERAGE_LCOV;
+export function coverageArgs(env, destination = env.JEVRIS_TEST_COVERAGE_LCOV) {
+  const lcov = destination;
   if (typeof lcov !== 'string' || lcov.length === 0) return [];
   return [
     '--experimental-test-coverage',
@@ -651,11 +682,116 @@ export const EVENTS_REPORTER_URL = pathToFileURL(join(repoRoot, 'scripts', 'test
  * writes one JSON line per finished test there (its file, name and result), next to the usual
  * spec output, for the runtime-gate report.
  */
-export function eventArgs(env, coverage = coverageArgs(env)) {
-  const events = env.JEVRIS_TEST_EVENTS;
+export function eventArgs(env, coverage = coverageArgs(env), destination = env.JEVRIS_TEST_EVENTS) {
+  const events = destination;
   if (typeof events !== 'string' || events.length === 0) return [];
   const spec = coverage.includes('--test-reporter=spec') ? [] : ['--test-reporter=spec', '--test-reporter-destination=stdout'];
   return [...spec, `--test-reporter=${EVENTS_REPORTER_URL}`, `--test-reporter-destination=${events}`];
+}
+
+export const SUMMARY_REPORTER_URL = pathToFileURL(join(repoRoot, 'scripts', 'test-summary-reporter.mjs')).href;
+
+/**
+ * The reporters a batch of a split run adds: the spec report on stdout unless another reporter
+ * already brings it, and the summary reporter, which writes the batch's counts to `destination`.
+ */
+export function summaryArgs(reporting, destination) {
+  const spec = reporting.includes('--test-reporter=spec') ? [] : ['--test-reporter=spec', '--test-reporter-destination=stdout'];
+  return [...spec, `--test-reporter=${SUMMARY_REPORTER_URL}`, `--test-reporter-destination=${destination}`];
+}
+
+/**
+ * The flags of one batch of a split run: those of a one-process run, with this batch's own events
+ * destination (`<part>.events`, joined once every batch is done) and the summary reporter
+ * (`<part>.summary`). A split run has no coverage reporter: see runTestFiles.
+ */
+export function batchFlags(env, part, base = ['--test', ...testTimeoutArgs()]) {
+  const eventsOn = typeof env.JEVRIS_TEST_EVENTS === 'string' && env.JEVRIS_TEST_EVENTS.length > 0;
+  const events = eventsOn ? eventArgs(env, [], `${part}.events`) : [];
+  return [...base, ...events, ...summaryArgs(events, `${part}.summary`)];
+}
+
+function readText(path) {
+  try {
+    return readFileSync(path, 'utf8');
+  } catch {
+    return null;
+  }
+}
+
+/** The summary counts of the batches added up, in the lines node prints them (`ℹ tests N` ...). */
+export function combinedSummary(batches) {
+  const keys = ['tests', 'suites', 'pass', 'fail', 'cancelled', 'skipped', 'todo', 'duration_ms'];
+  const seen = batches.filter((counts) => counts !== null);
+  if (seen.length === 0) return [];
+  return keys.map((key) => {
+    const total = seen.reduce((sum, counts) => sum + (typeof counts[key] === 'number' ? counts[key] : 0), 0);
+    return `ℹ ${key} ${key === 'duration_ms' ? String(Math.round(total * 1000) / 1000) : String(total)}`;
+  });
+}
+
+/**
+ * Runs the test files and returns the exit code: one `node --test` over the parallel files and
+ * then the serial ones when its command line fits the budget (scripts/argv-batches.mjs), which
+ * is what a run has always been. When it does not (Windows refuses 32,767 characters):
+ * - a coverage run is never split, because branch coverage does not merge across processes (the
+ *   block numbers differ from one process to the next, so a merged lcov report read about 10
+ *   points low). With `patterns` (the full suite: testPatterns) it runs as one process that names
+ *   its files as those patterns; with a long list of named files it stops with exit code 2.
+ * - any other run is split: the parallel files in batches one after another, then each serial file
+ *   alone, in the same environment and with the same gate. Every batch runs even when an earlier
+ *   one failed, as one run runs every file; the exit code is the first non-zero one. The counts
+ *   of the batches are added up and printed as one summary, in the lines node prints them and
+ *   verify:fresh reads, and the batches' events are joined into the one events file.
+ * `spawn` and `log` are injectable so a test can check the command lines without running anything.
+ */
+export function runTestFiles({ parallel, serial = [], patterns, spawnOptions, runTemp, spawn = spawnSync, program = process.execPath, processEnv = process.env, budget = argvBudget(processEnv), base = ['--test', ...testTimeoutArgs()], log = console.log }) {
+  const coverage = coverageArgs(processEnv);
+  const oneRun = [...base, ...coverage, ...eventArgs(processEnv)];
+  const partsDir = join(runTemp, 'batches');
+  const flagsOf = (index) => batchFlags(processEnv, join(partsDir, String(index)), base);
+  const runs = planRuns({ parallel, serial, program, flags: oneRun, splitFlags: flagsOf(9999), budget });
+  const start = (flags, files) => {
+    const result = spawn(program, [...flags, ...files], spawnOptions);
+    if (result.error !== undefined) throw result.error;
+    return result.status ?? 1;
+  };
+  if (runs.length === 1) return { code: start(oneRun, runs[0]), runs: 1 };
+  const needed = commandLength(program, [...oneRun, ...parallel, ...serial]);
+  if (coverage.length > 0) {
+    if (patterns === undefined || commandLength(program, [...oneRun, ...patterns]) > budget) {
+      log(`test: ${parallel.length + serial.length} test files need a command line of ${needed} characters, over the budget of ${budget}, and a coverage run cannot be split into batches (branch coverage does not merge across processes). Name fewer files.`);
+      return { code: 2, runs: 0 };
+    }
+    log(`test: ${parallel.length + serial.length} test files need a command line of ${needed} characters, over the budget of ${budget} (Windows refuses 32,767), so this coverage run names them as ${patterns.length} glob patterns that node expands itself: the same files, one process`);
+    return { code: start(oneRun, patterns), runs: 1 };
+  }
+  const batches = runs.length - serial.length;
+  log(`test: ${parallel.length + serial.length} test files need a command line of ${needed} characters, over the budget of ${budget} (Windows refuses 32,767), so they run in ${batches} batch(es) one after another, then ${serial.length} latency-bound file(s) each alone`);
+  mkdirSync(partsDir, { recursive: true });
+  let code = 0;
+  const counts = [];
+  runs.forEach((files, index) => {
+    log(`test: batch ${index + 1} of ${runs.length}: ${files.length} file(s)`);
+    const status = start(flagsOf(index + 1), files);
+    if (code === 0) code = status;
+    const text = readText(join(partsDir, `${index + 1}.summary`));
+    let parsed = null;
+    try {
+      parsed = text === null ? null : JSON.parse(text.trim().split('\n').at(-1) ?? '');
+    } catch {
+      parsed = null;
+    }
+    if (parsed === null) log(`test: batch ${index + 1} wrote no summary`);
+    counts.push(parsed);
+  });
+  const events = processEnv.JEVRIS_TEST_EVENTS;
+  if (typeof events === 'string' && events.length > 0) {
+    mkdirSync(dirname(events), { recursive: true });
+    writeFileSync(events, runs.map((_, index) => readText(join(partsDir, `${index + 1}.events`)) ?? '').join(''));
+  }
+  for (const line of combinedSummary(counts)) log(line);
+  return { code, runs: runs.length };
 }
 
 async function main(argv) {
@@ -714,7 +850,7 @@ async function main(argv) {
     if (gate !== null) console.log(`test: ${serial.length} latency-bound file(s) each run alone (scripts/test-serial-gate.mjs)`);
     const bound = fileBound({ ...env, ...(gate ?? {}) });
     // A hung test fails after two minutes instead of stalling a CI cell for its job limit.
-    const result = spawnSync(process.execPath, ['--test', ...testTimeoutArgs(), ...coverageArgs(process.env), ...eventArgs(process.env), ...parallel, ...serial], {
+    const spawnOptions = {
       cwd: repoRoot,
       env: {
         ...env,
@@ -722,13 +858,15 @@ async function main(argv) {
         ...bound,
         ...(tempGuard ? { JEVRIS_REAL_TMPDIR: realTemp, JEVRIS_TEMP_LEDGER: ledger } : {}),
         ...(guard ? { JEVRIS_GUARD_REAL_HOME: realHome, JEVRIS_HOME_WRITE_LEDGER: homeLedger, JEVRIS_GUARD_REAL_ROOTS: JSON.stringify(realRoots) } : {}),
+        // This runner's own setting: a test that starts a runner of its own never inherits it.
+        JEVRIS_TEST_ARGV_BUDGET: undefined,
       },
       stdio: 'inherit',
       shell: false,
       windowsHide: true,
-    });
-    if (result.error !== undefined) throw result.error;
-    code = result.status ?? 1;
+    };
+    // A coverage run too long for one command line names the full suite as glob patterns (not for named files).
+    code = runTestFiles({ parallel, serial, spawnOptions, runTemp, ...(selected.length === 0 ? { patterns: testPatterns() } : {}) }).code;
     if (gate !== null) for (const line of [...slowestFiles(gate.JEVRIS_SERIAL_GATE), ...cappedWaits(gate.JEVRIS_SERIAL_GATE)]) console.error(line);
   } finally {
     if (keep) console.error(`test: kept this run's temp dir ${runTemp} (JEVRIS_KEEP_TEST_DIRS=1)`);
