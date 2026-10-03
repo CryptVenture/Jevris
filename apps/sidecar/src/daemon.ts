@@ -20,13 +20,14 @@ import { currentUser, ensurePrivateDir, jevrisPaths, writePrivateFile, type Exec
 import { pathLineWriter } from './line-writer.js';
 import { execStatus, sidecarManagedOptions } from './managed-exec.js';
 import { detectLocality } from './locality.js';
-import { loadOps, type LoadedOps } from './ops.js';
+import { bodyRecord, loadOps, refuse, type LoadedOps, type ShutdownDecision } from './ops.js';
 import {
   CLIENT_KINDS,
   ENDPOINT_SCHEMA,
   FOREIGN_LOCALITY_MESSAGE,
   LOCALITY_REFRESH_MS,
   PROTOCOL,
+  SHUTDOWN_BUSY_CODE,
   b64url,
   fallbackDirSafe,
   isNamedPipe,
@@ -63,6 +64,16 @@ export const BUILD_CHECK_MS = 30_000;
  * start it again, now on the installed build. An unsupervised one exits 0.
  */
 export const STALE_BUILD_EXIT_CODE = 75;
+/**
+ * The longest a graceful stop waits for a verification run that began after it was accepted (a
+ * request that was in flight while the daemon closed, or one that arrived in the instant between
+ * the decision and the close): 30 minutes, the length of a long test run. A stop that finds a run
+ * already under way is refused instead (reason code VERIFICATION_RUNNING), so this wait is only
+ * for that narrow window. A signal ends the wait at once.
+ */
+export const SHUTDOWN_RUN_WAIT_MS = 30 * 60 * 1000;
+const SHUTDOWN_RUN_POLL_MS = 100;
+const STOP_SIGNALS: ReadonlySet<string> = new Set(['SIGTERM', 'SIGINT', 'SIGHUP', 'SIGBREAK']);
 const LOG_ROTATE_BYTES = 5 * 1024 * 1024;
 
 export interface DaemonOptions {
@@ -75,6 +86,12 @@ export interface DaemonOptions {
    * can outlast the idle period (a 30-minute npm test), and an idle exit would cut it off.
    */
   readonly backgroundWork?: () => number;
+  /**
+   * How long a graceful stop (the `shutdown` frame, not a signal, not `force`) waits for a
+   * verification run that began while the daemon was closing (default SHUTDOWN_RUN_WAIT_MS; tests
+   * shorten it). Past it the daemon exits and the run is cut off.
+   */
+  readonly shutdownRunWaitMs?: number;
   /**
    * The build this sidecar loaded and the build installed on disk now (defaults:
    * loadedRuntimeBuild and runtimeBuild from protocol.ts; tests inject them), compared every
@@ -586,14 +603,61 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
   });
   let service: SidecarService;
   let newerClient = false;
+  // The verification runs under way (D's activeVerificationRuns, or a test's count). A counter that
+  // throws counts as none: it must not make the sidecar impossible to stop.
+  const backgroundWork = options.backgroundWork ?? activeVerificationRuns;
+  const runsUnderWay = (): number => {
+    try {
+      const n = backgroundWork();
+      return Number.isSafeInteger(n) && n > 0 ? n : 0;
+    } catch {
+      return 0;
+    }
+  };
+  // The `shutdown` frame (what `jevris sidecar stop` sends). The sidecar decides here, in the step
+  // that accepts the stop, so a run that began after any client-side read is still seen: while a
+  // verification run is under way it refuses and keeps running, unless the frame forces the stop.
+  const decideShutdown = (force: boolean): ShutdownDecision => {
+    const runs = force ? 0 : runsUnderWay();
+    if (runs > 0) {
+      log({ level: 'info', event: 'shutdown-refused', reasonCode: SHUTDOWN_BUSY_CODE, runs });
+      return { accepted: false, runs };
+    }
+    return { accepted: true };
+  };
+  // Whether any accepted frame was an order to stop whatever is running (it picks the stop's reason,
+  // and so whether the stop waits for a run that began while it closed). Once forced, forced.
+  let shutdownForced = false;
+  // The built-in ops, with the decision put in front of `shutdown`. The built-in handler answers and
+  // schedules the stop 20 ms later, after the answer is on its way, so the client reads it before
+  // the connection closes; it is only reached when the decision accepts, in the same synchronous step.
+  const guardedOps = (): ReadonlyMap<string, SidecarOpDefinition> => {
+    const base = state.ops(loaded, () => {
+      void daemon.stop(shutdownForced ? 'shutdown-forced' : 'shutdown');
+    });
+    const builtin = base.get('shutdown');
+    if (builtin === undefined) return base;
+    const guarded = new Map(base);
+    guarded.set('shutdown', {
+      ...builtin,
+      handle: (ctx) => {
+        const force = bodyRecord(ctx)['force'] === true;
+        const decision = decideShutdown(force);
+        if (!decision.accepted) {
+          return refuse(SHUTDOWN_BUSY_CODE, `The sidecar is finishing ${decision.runs === 1 ? 'a verification run' : `${String(decision.runs)} verification runs`} and was left running.`);
+        }
+        shutdownForced = shutdownForced || force;
+        return builtin.handle(ctx);
+      },
+    });
+    return guarded;
+  };
   try {
     service = await startService({
       home: paths.home,
       endpoint: endpointPath,
       version: jevrisPackage().version,
-      ops: state.ops(loaded, () => {
-        void daemon.stop('shutdown');
-      }),
+      ops: guardedOps(),
       workspaces: state.workspaces,
       hooks: {
         killSwitchStopped: () => state.killSwitchStopped(),
@@ -680,7 +744,6 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
   }
 
   const idleMs = idleFrom(options, env);
-  const backgroundWork = options.backgroundWork ?? activeVerificationRuns;
   let idleTimer: NodeJS.Timeout | undefined;
   if (idleMs > 0) {
     const period = Math.max(10, Math.min(Math.floor(idleMs / 4), 30_000));
@@ -752,6 +815,20 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
 
   log({ level: 'info', event: 'started', version: endpoint.version, supervised: endpoint.supervised, idleMs, fallbackSocket: !endpointPath.startsWith(files.dir) });
 
+  let runWaitEnded = false;
+  const endRunWait = (): void => {
+    runWaitEnded = true;
+  };
+  const waitForRuns = async (): Promise<void> => {
+    const bound = options.shutdownRunWaitMs ?? SHUTDOWN_RUN_WAIT_MS;
+    const begun = runsUnderWay();
+    if (begun === 0 || runWaitEnded) return;
+    log({ level: 'info', event: 'stop-waiting-for-runs', runs: begun, boundMs: bound });
+    const until = Date.now() + bound;
+    while (!runWaitEnded && runsUnderWay() > 0 && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, SHUTDOWN_RUN_POLL_MS));
+    log({ level: 'info', event: 'stop-wait-ended', runsLeft: runsUnderWay(), ended: runWaitEnded ? 'signal' : runsUnderWay() > 0 ? 'bound' : 'runs-ended' });
+  };
+
   const daemon: SidecarDaemon = {
     service,
     files,
@@ -762,7 +839,12 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
     },
     stopped,
     stop(reason: string): Promise<void> {
-      if (stopping !== undefined) return stopping;
+      if (stopping !== undefined) {
+        // A signal means stop now: it ends the wait for a verification run (a service manager, or
+        // `jevris sidecar stop --force`, that signals a sidecar which is waiting).
+        if (STOP_SIGNALS.has(reason)) endRunWait();
+        return stopping;
+      }
       stopping = (async () => {
         if (idleTimer !== undefined) clearInterval(idleTimer);
         if (buildTimer !== undefined) clearInterval(buildTimer);
@@ -770,6 +852,10 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
         clearInterval(localityTimer);
         log({ level: 'info', event: 'stopping', reason });
         await service.close(5000);
+        // A run that began after the stop was accepted is let finish, within a bound. Only a
+        // graceful `shutdown` waits: a signal, a forced stop, an idle or stale-build exit (which
+        // only happens with no run) and a version skew do not.
+        if (reason === 'shutdown') await waitForRuns();
         await state.close();
         removeIfOwned(files, service.bootId, endpointPath);
         releaseDaemonLock(files);

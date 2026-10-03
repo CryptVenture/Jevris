@@ -25,6 +25,11 @@ export const NONCE_PATTERN = /^[A-Za-z0-9_-]{22}$/;
 export const OP_PATTERN = /^[a-z][a-z0-9._-]{0,63}$/;
 /** A frame timestamp outside this window is refused (IPC-01). */
 export const SKEW_MS = 30_000;
+/**
+ * The reason code of a refused `shutdown` frame: the sidecar is finishing verification runs and
+ * keeps running. The frame's `{ force: true }` body is the explicit order that is not refused.
+ */
+export const SHUTDOWN_BUSY_CODE = 'VERIFICATION_RUNNING';
 /** One NDJSON line: the body text is capped at MAX_REQUEST_BYTES inside it. */
 export const MAX_BODY_BYTES = 131_072;
 export const MAX_LINE_BYTES = MAX_BODY_BYTES * 2 + 4096;

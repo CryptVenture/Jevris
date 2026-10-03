@@ -52,7 +52,7 @@ async function withScene(run) {
  */
 function scene(options = {}) {
   const events = [];
-  const state = { running: options.running ?? true, supervised: options.supervised ?? true, taskXml: '' };
+  const state = { running: options.running ?? true, supervised: options.supervised ?? true, taskXml: '', runs: options.runs ?? 0 };
   const managerUp = options.managerUp ?? true;
   const serviceExec = (file, args) => {
     events.push(`exec ${args.join(' ')}`);
@@ -64,6 +64,8 @@ function scene(options = {}) {
   };
   const ports = {
     probeSidecar: async () => ({ running: state.running, reachable: state.running, endpoint: state.running ? { pid: 4242, supervised: state.supervised } : undefined }),
+    // The health read the hand-over makes: a running sidecar answers with the verification runs it is finishing.
+    sidecarRequest: async () => ({ ok: true, result: { verificationRuns: state.runs ?? 0 } }),
     stopSidecarProcess: async () => {
       events.push('stop');
       const was = state.running;
@@ -257,7 +259,7 @@ test('service install asks a running on-demand sidecar to finish and exit first,
   });
 });
 
-test('service install leaves an on-demand sidecar that will not stop alone, installs the unit, and says so (no kill)', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+test('service install leaves an on-demand sidecar that has not exited when the wait ends alone, installs the unit, and says what was done (L1)', { skip: managedHostSkip() || !SUPPORTED }, async () => {
   await withScene(async ({ home }) => {
     const s = scene({ supervised: false });
     const asked = [];
@@ -268,7 +270,8 @@ test('service install leaves an on-demand sidecar that will not stop alone, inst
     };
     const result = await run(['service', 'install', '--home', home], s.hooks);
     assert.equal(result.code, 0, result.text);
-    assert.match(result.text, /^sidecar: the on-demand sidecar \(pid 4242\) did not stop within 15 s and was left running \(nothing was killed\); it is not under the service yet\. Run `jevris sidecar restart` to hand it over\.$/m);
+    assert.match(result.text, /^sidecar: the on-demand sidecar \(pid 4242\) had not exited when this command's wait ended \(up to 15 s after each step\), so it was left running; it is not under the service yet\. Run `jevris sidecar restart` to hand it over\.$/m);
+    assert.doesNotMatch(result.text, /nothing was killed/, 'the stop ends with a signal, so the words must not say nothing was ended');
     assert.match(result.text, /service: installed/);
     assert.deepEqual(asked, [15_000], 'a generous bound, asked once');
     assert.equal(s.state.running, true, 'the sidecar is left running');
@@ -315,5 +318,98 @@ test('service install does not change the service when the running sidecar will 
     assert.equal(result.code, 1, result.text);
     assert.match(result.text, /did not stop, so the service was not changed/);
     assert.deepEqual(s.events, ['stop']);
+  });
+});
+
+// ---------------------------------------------------------------- the hand-over never cuts off a verification run
+
+const BUSY = { stopped: false, method: 'failed', pid: 4242, busy: { reasonCode: 'VERIFICATION_RUNNING', message: 'The sidecar is finishing 2 verification runs and was left running.' } };
+
+test('service install leaves an on-demand sidecar alone when its health is unknown: refused, throwing and silent probes all mean do not stop (M1)', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  const probes = {
+    refused: async () => ({ ok: false, reason: 'rejected', reasonCode: 'BUSY', message: 'busy' }),
+    unavailable: async () => ({ ok: false, reason: 'unavailable', reasonCode: 'CLOSED', message: 'closed' }),
+    timeout: async () => ({ ok: false, reason: 'timeout', reasonCode: 'TIMEOUT', message: 'late' }),
+    throws: async () => {
+      throw new Error('socket');
+    },
+  };
+  for (const [name, probe] of Object.entries(probes)) {
+    await withScene(async ({ home }) => {
+      const s = scene({ supervised: false });
+      s.hooks.sidecar.sidecarRequest = probe;
+      const result = await run(['service', 'install', '--home', home], s.hooks);
+      assert.equal(result.code, 0, `${name}: ${result.text}`);
+      assert.match(result.text, /^sidecar: the on-demand sidecar \(pid 4242\) did not answer a health check, so it was left running in case it is finishing a verification run; it is not under the service yet\. Run `jevris sidecar restart` to hand it over\.$/m, name);
+      assert.ok(!s.events.includes('stop'), `${name}: an unknown run is never cut off: ${s.events.join(' | ')}`);
+      assert.equal(s.state.running, true, name);
+      assert.match(result.text, /service: installed/, name);
+    });
+  }
+});
+
+test('service install: a run that starts between the health read and the stop is refused by the sidecar, and the line says it was left running (M1 race)', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  await withScene(async ({ home }) => {
+    const s = scene({ supervised: false });
+    // The health read saw no run; the sidecar itself, which decides, then refuses the stop.
+    s.hooks.sidecar.stopSidecarProcess = async () => {
+      s.events.push('stop');
+      return BUSY;
+    };
+    const result = await run(['service', 'install', '--home', home], s.hooks);
+    assert.equal(result.code, 0, result.text);
+    assert.match(result.text, /^sidecar: the on-demand sidecar \(pid 4242\) is finishing verification runs and was left running; it is not under the service yet\. Once it stops, the next hook starts the service's sidecar, or run `jevris sidecar restart`\.$/m);
+    assert.doesNotMatch(result.text, /did not stop within|nothing was killed/);
+    assert.deepEqual(s.events.filter((event) => !event.startsWith('exec ')), ['stop'], 'asked once, never forced');
+    assert.equal(s.state.running, true);
+    assert.match(result.text, /service: installed/);
+  });
+});
+
+test('service install does not change the service when the supervised sidecar refuses to stop for a verification run (M1)', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  await withScene(async ({ home }) => {
+    const s = scene();
+    s.hooks.sidecar.stopSidecarProcess = async () => {
+      s.events.push('stop');
+      return BUSY;
+    };
+    const result = await run(['service', 'install', '--home', home], s.hooks);
+    assert.equal(result.code, 1, result.text);
+    assert.match(result.text, /^The sidecar \(pid 4242\) is finishing verification runs, so it was not stopped and the service was not changed\. Run `jevris service install` again once they end, or `jevris sidecar stop --force` to end them\.$/m);
+    assert.deepEqual(s.events, ['stop'], 'no manager call');
+  });
+});
+
+test('sidecar stop and restart refuse while a verification run is under way, say why, and start nothing; --force asks the sidecar to stop anyway (M1)', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  await withScene(async ({ home }) => {
+    for (const sub of ['stop', 'restart']) {
+      const s = scene({ supervised: false });
+      const asked = [];
+      s.hooks.sidecar.stopSidecarProcess = async (_home, _timeoutMs, options) => {
+        asked.push(options?.force === true ? 'force' : 'graceful');
+        s.events.push('stop');
+        return options?.force === true ? { stopped: true, method: 'shutdown-frame', pid: 4242 } : BUSY;
+      };
+      const refused = await run(['sidecar', sub, '--home', home], s.hooks);
+      assert.equal(refused.code, 1, `${sub}: ${refused.text}`);
+      assert.match(refused.text, new RegExp(`^sidecar ${sub}: refused \\(VERIFICATION_RUNNING\\)\\. The sidecar is finishing 2 verification runs and was left running\\. Run \`jevris sidecar ${sub}\` again once they end, or \`jevris sidecar ${sub} --force\` to end them now\\.$`, 'm'));
+      assert.deepEqual(asked, ['graceful'], sub);
+      assert.ok(!s.events.includes('ensure'), `${sub}: nothing is started over a running sidecar`);
+      const forced = await run(['sidecar', sub, '--force', '--home', home], s.hooks);
+      assert.equal(forced.code, 0, `${sub} --force: ${forced.text}`);
+      assert.deepEqual(asked, ['graceful', 'force'], sub);
+    }
+  });
+});
+
+test('--force belongs to sidecar stop and restart only; start, status and the other sidecar commands refuse it', { skip: managedHostSkip() || !SUPPORTED }, async () => {
+  await withScene(async ({ home }) => {
+    for (const sub of ['start', 'status']) {
+      const s = scene({ running: false });
+      const result = await run(['sidecar', sub, '--force', '--home', home], s.hooks);
+      assert.equal(result.code, 2, `${sub}: ${result.text}`);
+      assert.match(result.text, /--force/, sub);
+      assert.deepEqual(s.events, [], `${sub}: nothing ran`);
+    }
   });
 });

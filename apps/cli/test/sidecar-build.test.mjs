@@ -21,7 +21,7 @@ const OLD = '1111111111111111';
  * A stub sidecar: what it reports, and what install asked of it. With `service` a service is installed
  * for the home; a sidecar started then is the supervised one (pid 63999) unless `startsSupervised` is false.
  */
-function sidecar({ running = true, pid = 63410, supervised = false, build = OLD, runs = 0, healthy = true, stops = true, installed = NEW, starts = true, startsAs = NEW, service = false, startsSupervised = true } = {}) {
+function sidecar({ running = true, pid = 63410, supervised = false, build = OLD, runs = 0, healthy = true, stops = true, installed = NEW, starts = true, startsAs = NEW, service = false, startsSupervised = true, busyAtStop = false } = {}) {
   const calls = [];
   let started = false;
   return {
@@ -29,7 +29,7 @@ function sidecar({ running = true, pid = 63410, supervised = false, build = OLD,
     ports: {
       probe: async () => (calls.push('probe'), started ? { running: true, pid: 63999, supervised: service && startsSupervised } : { running, pid, supervised }),
       health: async () => (calls.push('health'), healthy ? { ok: true, result: { pid, version: '1.2.0', build: started ? startsAs : build, verificationRuns: runs } } : { ok: false }),
-      stop: async () => (calls.push('stop'), { stopped: stops }),
+      stop: async () => (calls.push('stop'), busyAtStop ? { stopped: false, busy: { reasonCode: 'VERIFICATION_RUNNING', message: 'The sidecar is finishing 1 verification run and was left running.' } } : { stopped: stops }),
       start: async () => (calls.push('start'), (started = starts), starts ? { ok: true } : { ok: false, reasonCode: 'SIDECAR_STARTING' }),
       installedBuild: (dir) => (calls.push(`build ${dir}`), installed === null ? null : { id: installed }),
       serviceInstalled: () => service,
@@ -83,7 +83,7 @@ test('nothing running, no bundle installed, or no answer: no stop, and at most o
   assert.equal(await refresh(silent), 'sidecar build: the sidecar (pid 63410) did not answer, so its build is unknown; if it misbehaves, run jevris sidecar restart');
   assert.equal(silent.calls.includes('stop'), false);
   const stuck = sidecar({ stops: false });
-  assert.equal(await refresh(stuck), 'sidecar build: the sidecar (pid 63410) runs an older build and did not stop within 15 s, so it was left running (nothing was killed); fix: jevris sidecar restart');
+  assert.equal(await refresh(stuck), "sidecar build: the sidecar (pid 63410) runs an older build and had not exited when the install's wait ended (up to 15 s after each step), so it was left running; fix: jevris sidecar restart");
   const throwing = { ports: { ...sidecar().ports, probe: async () => { throw new Error('boom'); } } };
   assert.equal(stuck.calls.includes('start'), false, 'a sidecar that did not stop is not started over');
   assert.match(await refresh(throwing), /could not be checked; if it misbehaves, run jevris sidecar restart$/);
@@ -211,10 +211,22 @@ test('an on-demand sidecar that is finishing a verification run is left alone, w
   assert.ok((await refresh(sidecar({ build: NEW, service: true, runs: 0 }))).startsWith('sidecar build: moved'), 'with none under way it is handed over');
 });
 
-test('an on-demand sidecar that will not stop is left alone: nothing is killed, nothing is started, and the line says so (pair)', async () => {
+test('an on-demand sidecar that has not exited when the wait ends is left alone: nothing is started, and the line says what was done (pair, L1)', async () => {
   const stuck = sidecar({ build: NEW, service: true, stops: false });
-  assert.equal(await refresh(stuck), 'sidecar build: the sidecar (pid 63410) runs on demand, not under the service and did not stop within 15 s, so it was left running (nothing was killed); fix: jevris sidecar restart');
+  assert.equal(await refresh(stuck), "sidecar build: the sidecar (pid 63410) runs on demand, not under the service and had not exited when the install's wait ended (up to 15 s after each step), so it was left running; fix: jevris sidecar restart");
   assert.deepEqual(stuck.calls.filter((call) => call === 'stop' || call === 'start'), ['stop']);
+});
+
+test('a run that begins after the health read is refused by the sidecar at the stop: the line says it was left running, and nothing is started (M1 race)', async () => {
+  // The health read saw no run (runs: 0); the sidecar, which decides, refuses the stop itself.
+  const older = sidecar({ busyAtStop: true });
+  assert.equal(await refresh(older), 'sidecar build: the sidecar (pid 63410) runs an older build and is finishing verification runs, so it refused to stop and was left running; it restarts on the installed build once they end');
+  assert.deepEqual(older.calls.filter((call) => call === 'stop' || call === 'start'), ['stop'], 'asked once, never started over it');
+  const legacy = sidecar({ build: null, busyAtStop: true });
+  assert.equal(await refresh(legacy), 'sidecar build: the sidecar (pid 63410) runs an older build and is finishing verification runs, so it refused to stop and was left running; run jevris sidecar restart once they end');
+  const demand = sidecar({ build: NEW, service: true, busyAtStop: true });
+  assert.equal(await refresh(demand), "sidecar build: the sidecar (pid 63410) runs on demand, not under the service, and is finishing verification runs, so it refused to stop and was left running. Once it stops, the next hook starts the service's sidecar, or run jevris sidecar restart");
+  assert.equal(demand.calls.includes('start'), false);
 });
 
 test('JEVRIS_SIDECAR_AUTOSTART=0 leaves a sidecar on the installed build alone, and still stops an older one without starting anything (pair)', async () => {

@@ -22,6 +22,7 @@ import {
   FOREIGN_LOCALITY_MESSAGE,
   LineReader,
   PROTOCOL,
+  SHUTDOWN_BUSY_CODE,
   isNamedPipe,
   jevrisPackage,
   macEquals,
@@ -646,10 +647,26 @@ export async function ensureSidecar(input: EnsureSidecarInput = {}, deps: Ensure
 
 export interface StopResult {
   readonly stopped: boolean;
+  /**
+   * How it ended: `shutdown-frame`, the sidecar was asked to stop and exited on its own;
+   * `signal`, the frame could not be delivered, so SIGTERM was sent and it then exited (a drain on
+   * macOS and Linux; on Windows a signal ends the process at once). `failed` is not stopped.
+   */
   readonly method: 'not-running' | 'shutdown-frame' | 'signal' | 'failed';
   readonly pid?: number;
   /** The running sidecar belongs to another execution environment; nothing was signalled. */
   readonly foreign?: true;
+  /**
+   * The sidecar itself refused to stop because it is finishing verification runs (reason code
+   * `VERIFICATION_RUNNING`), and nothing was signalled. `message` is the sidecar's own sentence.
+   * A stop with `force` is not refused.
+   */
+  readonly busy?: { readonly reasonCode: 'VERIFICATION_RUNNING'; readonly message: string };
+}
+
+export interface StopOptions {
+  /** End the sidecar although it is finishing verification runs (`jevris sidecar stop --force`). */
+  readonly force?: boolean;
 }
 
 async function waitForExit(pid: number, timeoutMs: number): Promise<boolean> {
@@ -672,10 +689,6 @@ function readPidfile(files: RuntimeFiles): number | undefined {
   }
 }
 
-/**
- * Stops the sidecar (IPC-16): an authenticated admin `shutdown` frame first, then SIGTERM
- * through the pidfile when the frame cannot be delivered.
- */
 /** The live pid in a small lock file (`{ pid, atMs }`), other than this process. */
 function liveLockPid(path: string): number | undefined {
   try {
@@ -721,7 +734,20 @@ async function awaitStartingSidecar(files: RuntimeFiles, timeoutMs: number): Pro
   return { endpoint: readEndpoint(files), lockPid: liveLockPid(files.lock) };
 }
 
-export async function stopSidecarProcess(home?: string, timeoutMs = 5000): Promise<StopResult> {
+/**
+ * Stops the sidecar (IPC-16). An authenticated admin `shutdown` frame asks it to finish in-flight
+ * requests and exit; the sidecar decides whether it may. While it is finishing verification runs
+ * it refuses (reason code `VERIFICATION_RUNNING`) and keeps running, and this returns `busy`
+ * without signalling it; `options.force` sends the frame as an order that is not refused.
+ *
+ * `timeoutMs` is how long this client waits after each step. It is not a limit on the sidecar. A
+ * frame the sidecar accepted is waited for twice over, never followed by a signal, because the
+ * sidecar is already closing (it may still be finishing a run that began while it closed, and a
+ * signal on Windows would end it at once); `force` is the exception. A frame that could not be
+ * delivered is followed by SIGTERM through the pidfile, and a wait.
+ */
+export async function stopSidecarProcess(home?: string, timeoutMs = 5000, options: StopOptions = {}): Promise<StopResult> {
+  const force = options.force === true;
   const files = runtimeFiles(home !== undefined ? { home } : {});
   let endpoint = readEndpoint(files);
   // Never signal a pid written in another pid namespace: here it names an unrelated process.
@@ -738,10 +764,18 @@ export async function stopSidecarProcess(home?: string, timeoutMs = 5000): Promi
     ...(home !== undefined ? { home } : {}),
     op: 'shutdown',
     scope: 'cli',
-    body: {},
+    body: force ? { force: true } : {},
     timeoutMs: Math.min(2000, timeoutMs),
   });
-  if (asked.ok && (await waitForExit(pid, timeoutMs))) return { stopped: true, method: 'shutdown-frame', pid };
+  if (!asked.ok && asked.reasonCode === SHUTDOWN_BUSY_CODE) return { stopped: false, method: 'failed', pid, busy: { reasonCode: SHUTDOWN_BUSY_CODE, message: asked.message } };
+  if (asked.ok) {
+    if (await waitForExit(pid, timeoutMs)) return { stopped: true, method: 'shutdown-frame', pid };
+    if (!force) {
+      // Accepted, so the sidecar is closing. A second wait stands where the signal used to be.
+      if (await waitForExit(pid, timeoutMs)) return { stopped: true, method: 'shutdown-frame', pid };
+      return { stopped: false, method: 'failed', pid };
+    }
+  }
   try {
     process.kill(pid, 'SIGTERM');
   } catch {

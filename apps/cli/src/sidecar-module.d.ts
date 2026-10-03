@@ -14,7 +14,15 @@ declare module '@jevris/sidecar' {
   export function stopSidecarProcess(
     home?: string,
     timeoutMs?: number,
-  ): Promise<{ readonly stopped: boolean; readonly method: 'not-running' | 'shutdown-frame' | 'signal' | 'failed'; readonly pid?: number; readonly foreign?: true }>;
+    options?: { readonly force?: boolean },
+  ): Promise<{
+    readonly stopped: boolean;
+    readonly method: 'not-running' | 'shutdown-frame' | 'signal' | 'failed';
+    readonly pid?: number;
+    readonly foreign?: true;
+    /** The sidecar refused to stop: it is finishing verification runs (VERIFICATION_RUNNING); nothing was signalled. */
+    readonly busy?: { readonly reasonCode: 'VERIFICATION_RUNNING'; readonly message: string };
+  }>;
   export function sidecarMain(argv: readonly string[]): Promise<number>;
   export function hostScopeId(home: string): string;
   /** DATA-10: the scope to open a store with, and the earlier host-name scopes it may adopt. */

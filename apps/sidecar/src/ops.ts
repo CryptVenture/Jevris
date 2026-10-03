@@ -229,6 +229,12 @@ export async function loadOps(input: LoadOpsInput = {}): Promise<LoadedOps> {
   return { ops, owners, subscribers, sources: sources.map((source) => source.name) };
 }
 
+/**
+ * The daemon's answer to a `shutdown` frame, decided in the step that accepts it: refused while
+ * `runs` verification runs are under way (unless the frame forces it), else accepted.
+ */
+export type ShutdownDecision = { readonly accepted: true } | { readonly accepted: false; readonly runs: number };
+
 export function ok(body: unknown): SidecarOpOutcome {
   return { ok: true, body };
 }

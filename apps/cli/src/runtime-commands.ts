@@ -40,7 +40,7 @@ interface Parsed {
 }
 
 const VALUE_FLAGS = new Set(['--home', '--idle-ms', '--wait-ms', '--reason', '--scope', '--ttl-minutes', '--hours', '--minutes']);
-const BOOLEAN_FLAGS = new Set(['--json', '--supervised', '--dry-run', '--yes']);
+const BOOLEAN_FLAGS = new Set(['--json', '--supervised', '--dry-run', '--yes', '--force']);
 
 function parse(argv: readonly string[]): Parsed | undefined {
   const positionals: string[] = [];
@@ -78,7 +78,7 @@ function out(write: Write | undefined, text: string): void {
   else process.stdout.write(text);
 }
 
-const SIDECAR_USAGE = 'usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose|run [--home <dir>] [--json]\n';
+const SIDECAR_USAGE = 'usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose|run [--home <dir>] [--json] [--force (stop and restart only)]\n';
 
 function formatUptime(ms: number): string {
   const s = Math.floor(ms / 1000);
@@ -261,17 +261,33 @@ export async function sidecarDoctorView(home?: string, options: { readonly env?:
 }
 
 /**
- * How long install and `jevris service install` wait for a sidecar to finish its in-flight work and
- * exit cleanly. A generous bound: the graceful stop (the shutdown frame, then SIGTERM through the
- * pid file) is the only thing ever asked of it, and a sidecar that outlasts the bound is left alone.
+ * How long install and `jevris service install` wait, after each step, for a sidecar they asked to
+ * stop. It is this command's wait only, not a limit on the sidecar: the stop is a request (the
+ * shutdown frame), and a sidecar that has not exited when the wait ends is left running and the
+ * line says so. The sidecar itself refuses the request while it is finishing a verification run.
  */
 export const SIDECAR_STOP_BOUND_MS = 15_000;
+
+/** What a refused stop says (the sidecar's reason code and its own sentence), when it refused. */
+export interface StopBusy {
+  readonly reasonCode: 'VERIFICATION_RUNNING';
+  readonly message: string;
+}
+
+/**
+ * Why a stop that did not happen is not a stop, for the commands that need the sidecar gone first
+ * (uninstall, data delete, store restore): a sidecar that refused because it is finishing
+ * verification runs says so and names the two ways on; any other failure keeps its own text.
+ */
+function busyStopText(busy: StopBusy): string {
+  return `${busy.message.replace(/\.$/, '')} (${busy.reasonCode}). Wait for the runs to end, or run \`jevris sidecar stop --force\` to end them, then retry.`;
+}
 
 /** What install and upgrade need from the running sidecar (tests inject stubs; no real sidecar). */
 export interface SidecarBuildPorts {
   readonly probe: (home: string) => Promise<{ readonly running: boolean; readonly pid: number | null; readonly supervised: boolean }>;
   readonly health: (home: string) => Promise<{ readonly ok: boolean; readonly result?: unknown }>;
-  readonly stop: (home: string) => Promise<{ readonly stopped: boolean }>;
+  readonly stop: (home: string) => Promise<{ readonly stopped: boolean; readonly busy?: StopBusy }>;
   /** Starts the sidecar (with the wait `jevris sidecar start` gives it); `reasonCode` names why it did not come up. Through the service when one is installed. */
   readonly start: (home: string) => Promise<{ readonly ok: boolean; readonly reasonCode?: string }>;
   /** The build a runtime folder holds (protocol runtimeBuild), or null without a bundle. */
@@ -306,15 +322,18 @@ async function defaultBuildPorts(): Promise<SidecarBuildPorts> {
  * - A sidecar with verification runs under way is left to finish them; it retires itself once
  *   idle (the daemon's build check) and the next hook or command starts the installed build.
  * - A supervised one retires itself the same way, so its service manager starts it again.
- * - Otherwise, and for a sidecar from before build ids (it cannot retire itself), it is stopped
- *   now with the graceful shutdown frame (in-flight requests drain first), and the installed
+ * - Otherwise, and for a sidecar from before build ids (it cannot retire itself), it is asked to
+ *   stop now with the graceful shutdown frame (in-flight requests drain first), and the installed
  *   build is started at once (on the same socket path; a Windows pipe gets a new name), so the first hooks after the install are
- *   answered and do not run rules-only.
+ *   answered and do not run rules-only. The sidecar decides whether it may: with a verification
+ *   run under way (one that began after the health read above, say) it refuses, and the line says
+ *   it was left running. This command never forces a stop.
  * - With a service installed for this home, one sidecar must run, the supervised one: a sidecar
  *   that runs on demand (a hook started it before the service was installed, or while it was down)
- *   is handed over whatever its build. It is asked to finish its in-flight work and exit, within
- *   SIDECAR_STOP_BOUND_MS and never by a kill; the service manager then starts the installed
- *   build. A sidecar that will not stop in that time is left running and the line says so.
+ *   is handed over whatever its build. It is asked to finish its in-flight work and exit; this
+ *   command waits up to SIDECAR_STOP_BOUND_MS after each step (the wait is this command's, not a
+ *   limit on the sidecar), and the service manager then starts the installed build. A sidecar
+ *   that had not exited when the wait ended is left running and the line says so.
  * - A sidecar that was not running is not started (autostart on the next hook is unchanged), and
  *   neither is one when JEVRIS_SIDECAR_AUTOSTART=0 is set (then only an older build is stopped; a
  *   sidecar on the installed build is left as it is). A supervised sidecar is never started
@@ -362,8 +381,13 @@ export async function refreshSidecarBuild(input: {
     }
     const older = running !== installed.id;
     const stopped = await ports.stop(input.home);
+    if (stopped.busy !== undefined) {
+      // The sidecar itself decided: a run began after the health read. It is left to finish it.
+      if (!older) return `sidecar build: ${who} runs on demand, not under the service, and is finishing verification runs, so it refused to stop and was left running. Once it stops, the next hook starts the service's sidecar, or run jevris sidecar restart`;
+      return `sidecar build: ${who} runs an older build and is finishing verification runs, so it refused to stop and was left running; ${running === null ? 'run jevris sidecar restart once they end' : 'it restarts on the installed build once they end'}`;
+    }
     if (!stopped.stopped) {
-      return `sidecar build: ${who} ${older ? 'runs an older build' : 'runs on demand, not under the service'} and did not stop within ${SIDECAR_STOP_BOUND_MS / 1000} s, so it was left running (nothing was killed); fix: jevris sidecar restart`;
+      return `sidecar build: ${who} ${older ? 'runs an older build' : 'runs on demand, not under the service'} and had not exited when the install's wait ended (up to ${SIDECAR_STOP_BOUND_MS / 1000} s after each step), so it was left running; fix: jevris sidecar restart`;
     }
     const was = `stopped ${who}, which ran ${older ? 'an older build' : 'on demand'}`;
     if (!autostart) {
@@ -417,7 +441,9 @@ export async function stopSidecarForRemoval(home?: string, options: { readonly r
     ? 'A Jevris sidecar for this home runs in another execution environment; stop it there first.'
     : stopped.stopped
       ? 'No Jevris sidecar is running for this home.'
-      : 'The Jevris sidecar did not stop. Run `jevris sidecar stop`, then retry.';
+      : stopped.busy !== undefined
+        ? `The Jevris sidecar did not stop. ${busyStopText(stopped.busy)}`
+        : 'The Jevris sidecar did not stop. Run `jevris sidecar stop`, then retry.';
   return { stopped: stopped.stopped, method: stopped.method, service, message };
 }
 
@@ -482,7 +508,7 @@ export async function purgeStoreCapsules(home: string, options: { readonly works
   }
   const sidecar = await import('@jevris/sidecar');
   const stopped = await sidecar.stopSidecarProcess(home);
-  if (!stopped.stopped) return { ok: false, reasonCode: 'SIDECAR_RUNNING', message: 'The Jevris sidecar did not stop. Run `jevris sidecar stop`, then retry.' };
+  if (!stopped.stopped) return { ok: false, reasonCode: 'SIDECAR_RUNNING', message: stopped.busy !== undefined ? `The Jevris sidecar did not stop. ${busyStopText(stopped.busy)}` : 'The Jevris sidecar did not stop. Run `jevris sidecar stop`, then retry.' };
   const storeApi = await import('@jevris/store');
   const dbPath = join(jevrisPaths({ home }).data, 'jevris.db');
   const inspected = storeApi.inspectStore(dbPath);
@@ -499,15 +525,20 @@ export async function purgeStoreCapsules(home: string, options: { readonly works
   }
 }
 
-/** The verification runs a running sidecar is finishing (0 when it does not say or does not answer). */
-async function verificationRunsOf(ports: ReturnType<typeof sidecarPorts>, home: string | undefined): Promise<number> {
+/**
+ * The verification runs a running sidecar is finishing, as it reports them: null when it does not
+ * answer (refused, timed out, threw) or does not say. Unknown is not zero: a caller that is about
+ * to stop the sidecar leaves it running. The sidecar's own refusal of a stop is what covers a run
+ * that begins after this read.
+ */
+async function verificationRunsOf(ports: ReturnType<typeof sidecarPorts>, home: string | undefined): Promise<number | null> {
   try {
     const health = await ports.sidecarRequest({ ...(home !== undefined ? { home } : {}), op: 'health', scope: 'cli', body: {} });
-    if (!health.ok) return 0;
+    if (!health.ok) return null;
     const runs = rec(health.result)['verificationRuns'];
-    return typeof runs === 'number' && Number.isSafeInteger(runs) && runs > 0 ? runs : 0;
+    return typeof runs === 'number' && Number.isSafeInteger(runs) && runs >= 0 ? runs : null;
   } catch {
-    return 0;
+    return null;
   }
 }
 
@@ -538,11 +569,14 @@ async function runServiceCommand(parsed: Parsed, write: Write | undefined, hooks
   const input = planned.input;
   const exec = serviceExecFor(hooks?.serviceExec);
   // One sidecar must run when this is done, the service's. A running supervised sidecar (the
-  // service's own) is stopped cleanly first, so the service manager starts it on the new unit: a
+  // service's own) is asked to stop first, so the service manager starts it on the new unit: a
   // manager leaves an already-running unit alone (systemctl enable --now, schtasks /Run). A sidecar
   // that runs on demand would hold the sidecar lock and make the service's own exit at once, so it
-  // is asked to finish and exit as well, by the graceful stop and never a kill, unless it is
-  // finishing a verification run or will not stop in time: then it is left alone and the line says so.
+  // is asked to finish and exit as well. The request is the graceful one and is never forced: the
+  // sidecar refuses it while it is finishing a verification run. The health read before it is
+  // advice only (it gives the line its count): a health answer that is missing means the run
+  // count is unknown, and then the sidecar is left alone. A sidecar that had not exited when the
+  // wait ended is left alone too, and the line says so.
   let sidecarLine: string | null = null;
   if (sub === 'install') {
     const ports = sidecarPorts(sidecar, hooks);
@@ -553,20 +587,29 @@ async function runServiceCommand(parsed: Parsed, write: Write | undefined, hooks
       if (probe.endpoint?.supervised === true) {
         const stopped = await ports.stopSidecarProcess(given, SIDECAR_STOP_BOUND_MS);
         if (!stopped.stopped) {
-          out(write, `The sidecar${stopped.pid === undefined ? '' : ` (pid ${String(stopped.pid)})`} did not stop, so the service was not changed. Stop that process by hand, then run \`jevris service install\` again.\n`);
+          const name = `The sidecar${stopped.pid === undefined ? '' : ` (pid ${String(stopped.pid)})`}`;
+          out(write, stopped.busy !== undefined
+            ? `${name} is finishing verification runs, so it was not stopped and the service was not changed. Run \`jevris service install\` again once they end, or \`jevris sidecar stop --force\` to end them.\n`
+            : `${name} did not stop, so the service was not changed. Stop that process by hand, then run \`jevris service install\` again.\n`);
           return 1;
         }
         if (stopped.method !== 'not-running') sidecarLine = `sidecar: stopped (pid ${String(stopped.pid)}) so the service can start it`;
       } else {
         const runs = await verificationRunsOf(ports, given);
-        if (runs > 0) {
-          sidecarLine = `sidecar: the on-demand sidecar${which} is finishing ${runs === 1 ? 'a verification run' : `${runs} verification runs`} and was left running; it is not under the service yet. Once it stops, the next hook starts the service's sidecar, or run \`jevris sidecar restart\`.`;
+        const handOver = 'it is not under the service yet. Once it stops, the next hook starts the service\'s sidecar, or run `jevris sidecar restart`.';
+        if (runs === null) {
+          sidecarLine = `sidecar: the on-demand sidecar${which} did not answer a health check, so it was left running in case it is finishing a verification run; it is not under the service yet. Run \`jevris sidecar restart\` to hand it over.`;
+        } else if (runs > 0) {
+          sidecarLine = `sidecar: the on-demand sidecar${which} is finishing ${runs === 1 ? 'a verification run' : `${runs} verification runs`} and was left running; ${handOver}`;
         } else {
           const stopped = await ports.stopSidecarProcess(given, SIDECAR_STOP_BOUND_MS);
           if (stopped.stopped) {
             if (stopped.method !== 'not-running') sidecarLine = `sidecar: stopped the on-demand sidecar${which} so the service can start its own`;
+          } else if (stopped.busy !== undefined) {
+            // A run began after the health read; the sidecar decided and refused.
+            sidecarLine = `sidecar: the on-demand sidecar${which} is finishing verification runs and was left running; ${handOver}`;
           } else {
-            sidecarLine = `sidecar: the on-demand sidecar${which} did not stop within ${SIDECAR_STOP_BOUND_MS / 1000} s and was left running (nothing was killed); it is not under the service yet. Run \`jevris sidecar restart\` to hand it over.`;
+            sidecarLine = `sidecar: the on-demand sidecar${which} had not exited when this command's wait ended (up to ${SIDECAR_STOP_BOUND_MS / 1000} s after each step), so it was left running; it is not under the service yet. Run \`jevris sidecar restart\` to hand it over.`;
           }
         }
       }
@@ -676,6 +719,10 @@ async function runSidecarCommand(parsed: Parsed, write: Write | undefined, argv:
     const rest = argv.slice(argv.indexOf('run') + 1);
     return sidecar.sidecarMain(rest);
   }
+  if (parsed.flags.get('--force') === true && sub !== 'stop' && sub !== 'restart') {
+    out(write, `--force applies to \`jevris sidecar stop\` and \`jevris sidecar restart\` only.\n${SIDECAR_USAGE}`);
+    return 2;
+  }
   if (sub === 'diagnose') return sidecarDiagnose(parsed, home, json, write);
   if (parsed.positionals.length !== 2) {
     out(write, SIDECAR_USAGE);
@@ -747,9 +794,15 @@ async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parse
   }
 
   if (sub === 'stop' || sub === 'restart') {
-    const stopped = await ports.stopSidecarProcess(home);
+    // The sidecar decides whether it may stop: while it is finishing a verification run it refuses,
+    // and only an explicit --force orders it to stop anyway.
+    const stopped = parsed.flags.get('--force') === true ? await ports.stopSidecarProcess(home, undefined, { force: true }) : await ports.stopSidecarProcess(home);
     if (stopped.foreign === true) {
       out(write, `${FOREIGN_LOCALITY}\n`);
+      return 1;
+    }
+    if (stopped.busy !== undefined) {
+      out(write, `sidecar ${sub}: refused (${stopped.busy.reasonCode}). ${stopped.busy.message} Run \`jevris sidecar ${sub}\` again once they end, or \`jevris sidecar ${sub} --force\` to end them now.\n`);
       return 1;
     }
     if (!stopped.stopped) {
@@ -801,13 +854,14 @@ async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parse
 
 const MY_HELP: { readonly [command: string]: string } = {
   sidecar: [
-    'Usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose [--home <dir>] [--json] [--wait-ms <n>]',
+    'Usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose [--home <dir>] [--json] [--wait-ms <n>] [--force]',
     'Manages the local Jevris service. Hooks, MCP tools and commands start it on demand (through the service',
     'manager when a service is installed, so there is one sidecar, never two).',
     '  status      pid, version, uptime, endpoint, store and kill-switch state (exit 1 when not running)',
     '  start       start it now (through the service when one is installed), or report it is running',
-    '  stop        ask it to finish in-flight work and exit (a service does not restart a clean stop)',
-    '  restart     stop, then start; with a service installed the service starts it again',
+    '  stop        ask it to finish in-flight work and exit (a service does not restart a clean stop); it refuses',
+    '              while it is finishing a verification run, and --force orders it to stop anyway',
+    '  restart     stop, then start (--force as for stop); with a service installed the service starts it again',
     '              (this also hands a sidecar started on demand over to the service)',
     '  statusline  one line from the local cache, for a status line command (no sidecar call)',
     '  metrics     decisions, abstentions, fallbacks, latency, tokens and cost [--hours <n>, default 24]',
@@ -1114,7 +1168,7 @@ async function runStoreCommand(parsed: Parsed, write: Write | undefined, hooks: 
     // Both need the single writer: stop the sidecar first.
     const stopped = await sidecarModule.stopSidecarProcess(home);
     if (!stopped.stopped) {
-      out(write, `store ${sub}: the sidecar (pid ${String(stopped.pid)}) did not stop. Stop it, then retry.\n`);
+      out(write, stopped.busy !== undefined ? `store ${sub}: the sidecar (pid ${String(stopped.pid)}) did not stop. ${busyStopText(stopped.busy)}\n` : `store ${sub}: the sidecar (pid ${String(stopped.pid)}) did not stop. Stop it, then retry.\n`);
       return 1;
     }
     const { hostScope, adoptHostScopes } = sidecarModule.hostScopeForStore(home, dbPath);
@@ -1187,7 +1241,7 @@ async function runStoreAdopt(home: string, dbPath: string, json: boolean, write:
   }
   const stopped = await sidecarModule.stopSidecarProcess(home);
   if (!stopped.stopped) {
-    out(write, `store adopt: the sidecar (pid ${String(stopped.pid)}) did not stop. Stop it, then retry.\n`);
+    out(write, stopped.busy !== undefined ? `store adopt: the sidecar (pid ${String(stopped.pid)}) did not stop. ${busyStopText(stopped.busy)}\n` : `store adopt: the sidecar (pid ${String(stopped.pid)}) did not stop. Stop it, then retry.\n`);
     return 1;
   }
   const adopted = storeApi.adoptStoreHostScope({ dbPath, hostScope: sidecarModule.hostScopeId(home), nowMs: Date.now(), actor: actorName(hooks) });

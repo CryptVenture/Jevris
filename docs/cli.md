@@ -1105,13 +1105,14 @@ Examples:
 ## jevris sidecar
 
 ```text
-Usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose [--home <dir>] [--json] [--wait-ms <n>]
+Usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose [--home <dir>] [--json] [--wait-ms <n>] [--force]
 Manages the local Jevris service. Hooks, MCP tools and commands start it on demand (through the service
 manager when a service is installed, so there is one sidecar, never two).
   status      pid, version, uptime, endpoint, store and kill-switch state (exit 1 when not running)
   start       start it now (through the service when one is installed), or report it is running
-  stop        ask it to finish in-flight work and exit (a service does not restart a clean stop)
-  restart     stop, then start; with a service installed the service starts it again
+  stop        ask it to finish in-flight work and exit (a service does not restart a clean stop); it refuses
+              while it is finishing a verification run, and --force orders it to stop anyway
+  restart     stop, then start (--force as for stop); with a service installed the service starts it again
               (this also hands a sidecar started on demand over to the service)
   statusline  one line from the local cache, for a status line command (no sidecar call)
   metrics     decisions, abstentions, fallbacks, latency, tokens and cost [--hours <n>, default 24]
