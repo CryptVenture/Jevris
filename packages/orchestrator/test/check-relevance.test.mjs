@@ -26,7 +26,7 @@ import {
 import { pendingChecks } from '../dist/verify/runs.js';
 import { nodeGit } from '../dist/verify/revision.js';
 import { resetStopAutoVerifyState } from '../dist/hooks/stop-autoverify.js';
-import { lastStateOf, orderIsInformed, orderMissingEvidence, rankApprovedChecks } from '../dist/verify/relevance.js';
+import { changedPathsOf, lastStateOf, orderIsInformed, orderMissingEvidence, rankApprovedChecks } from '../dist/verify/relevance.js';
 import { closeTestStore, testStore } from './store-fixture.mjs';
 import { tempDir } from './temp-dirs.mjs';
 import { removeTree } from '../../../scripts/remove-tree.mjs';
@@ -102,6 +102,33 @@ function stopEvent(f, extra = {}, env = {}) {
   );
 }
 const stop = (f, env) => handleHookEvent(stopEvent(f, {}, env));
+
+/**
+ * A Stop whose changed-files read is already in memory. The ranking waits for that read only for
+ * the time the request has left less its margin (150 ms, or 50 ms, in the tests below), so with a
+ * real git a loaded host that starts git slowly answers GIT_DEADLINE where the test is about Jev's
+ * deadline or the lack of time. The read is made here once, with no deadline, and the Stop then
+ * gets the same answer at once. Which git calls the Stop makes is unchanged.
+ */
+async function stopWithWarmGit(f, env) {
+  const real = nodeGit();
+  const seen = new Map();
+  const git = {
+    // By the arguments alone: the Stop names the workspace by its real path, the fixture by the path it made, and it is one repository.
+    run: (args, cwd) => {
+      const key = JSON.stringify(args);
+      if (!seen.has(key)) seen.set(key, real.run(args, cwd));
+      return seen.get(key);
+    },
+  };
+  await changedPathsOf(f.repo, git);
+  setSubscriberGit(git);
+  try {
+    return await stop(f, env);
+  } finally {
+    setSubscriberGit(undefined);
+  }
+}
 
 /** A check that appends its own id to the run log, then passes. */
 const logging = (f, id) => [NODE, '-e', 'require("node:fs").appendFileSync(process.argv[1], process.argv[2] + "\\n")', f.log, id];
@@ -226,7 +253,7 @@ test('Jev never blocks Stop: a call that never answers is abandoned at the deadl
     f.editDocs();
     const engine = jevEngine({}, { hang: true });
     // 600 ms left leaves 150 ms for Jev after the margin kept for the rest of the answer.
-    const answer = await stop(f, { engine, deadline: { budgetMs: 600, remainingMs: () => 600, expired: () => false } });
+    const answer = await stopWithWarmGit(f, { engine, deadline: { budgetMs: 600, remainingMs: () => 600, expired: () => false } });
     assert.equal(answer.reasonCode, 'STOP_REMINDER', JSON.stringify(answer));
     assert.equal(engine.calls.length, 1, 'Jev was asked');
     assert.deepEqual(answer.stopContinuation.missingEvidence, ['unit-test', 'lint', 'docs-check'], 'the rules order');
@@ -251,7 +278,7 @@ test('jev.assist off, the kill switch, mode off and too little time ask Jev noth
       f.editSource();
       f.editDocs();
       const engine = jevEngine({ docs: 4 });
-      await stop(f, { engine, ...extra });
+      await stopWithWarmGit(f, { engine, ...extra });
       assert.equal(engine.calls.length, 0, reasonCode);
       assert.equal(f.ranked().at(-1)?.reasonCode, reasonCode, JSON.stringify(f.traces));
     } finally {

@@ -14,6 +14,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { trackEngine } from './engine-settle.mjs';
 
 const provider = await import('../dist/index.js');
 const core = await import('@jevris/core');
@@ -59,10 +60,18 @@ function scriptedFetch(answer, { gate = null, hang = false } = {}) {
 
 async function setup(t, answer, options = {}) {
   const home = mkdtempSync(join(tmpdir(), 'jevris-newtask-'));
-  // A late answer may still be writing its record when the test ends: retry the removal.
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }));
+  let tracker = null;
+  // A late answer may still be writing its record when the test ends: wait for the engine's own work (not for a fixed time), then remove the home.
+  t.after(async () => {
+    try {
+      await tracker?.settled();
+    } finally {
+      rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+    }
+  });
   const script = scriptedFetch(answer, options);
   const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {}, sourceEgress: options.sourceEgress ?? APPROVED });
+  tracker = trackEngine(engine);
   return { home, engine, script, requests: script.requests };
 }
 
@@ -274,10 +283,13 @@ test('a slow Jev is abandoned at the deadline with nothing to say; the late answ
   const gate = new Promise((resolve) => {
     open = resolve;
   });
+  // Opened first on the way out (hooks run in the order they were registered), so a test that failed with the gate shut does not wait for the call's own deadline.
+  t.after(() => open());
   const { engine, requests, script } = await setup(t, ANSWER('bugfix', 'scope'), { gate });
   const late = await provider.adviseNewTask(engine, REQUEST, { ...ASK, deadlineMs: 150, lateGraceMs: 60_000 });
   assert.deepEqual([late.text, late.reasonCode, late.asked], [null, 'NEW_TASK_DEADLINE', true], 'the caller did not wait for Jev');
-  assert.equal(requests.length, 1);
+  // The engine does several durable journal writes before it sends: on a slow disk the request goes out after the 150 ms. Wait for the request, not for a fixed time.
+  await until(() => requests.length === 1);
   assert.equal(script.finishedCount(), 0);
   open();
   await until(() => script.finishedCount() === 1);
@@ -384,13 +396,20 @@ test('egress approved on the hook path: the hook answers at once, the question r
 });
 
 test('the hook answers at once whether or not the provider ever answers: the question is abandoned at its own deadline with nothing queued', async (t) => {
-  const { engine, requests } = await setup(t, () => null, { hang: true });
-  const live = liveSubscriber({ deadlineMs: 1_000, lateGraceMs: 50 });
+  // The provider answers nothing until the test ends: a held answer, opened first on the way out (hooks run in the order they were registered). The engine's own call gets a generous grace, so a slow disk cannot cut it off before it sends; the question's wait is the 1 s deadline under test.
+  let open;
+  const gate = new Promise((resolve) => {
+    open = resolve;
+  });
+  t.after(() => open());
+  const { engine, requests } = await setup(t, () => null, { gate });
+  const live = liveSubscriber({ deadlineMs: 1_000, lateGraceMs: 60_000 });
   const answer = await live.send(promptCtx({ engine }));
   assert.equal(answer.hookOutcome.kind, 'observe', 'the hook was answered before the provider did anything');
   assert.equal(live.background.length, 1);
   assert.equal(live.store.count('w-hook', 'sess-1'), 0);
   await Promise.all(live.background);
+  await until(() => requests.length === 1);
   assert.equal(requests.length, 1, 'one request, never answered');
   assert.equal(live.traces.findLast((x) => x.event === 'new-task-advice').reasonCode, 'NEW_TASK_DEADLINE');
   assert.equal(live.store.count('w-hook', 'sess-1'), 0, 'nothing to show');

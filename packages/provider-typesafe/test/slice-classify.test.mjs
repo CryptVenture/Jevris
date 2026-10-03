@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { trackEngine } from './engine-settle.mjs';
 
 const provider = await import('../dist/index.js');
 const core = await import('@jevris/core');
@@ -48,9 +49,18 @@ const DENIED = () => ({ provenance: 'administrator', sourceEgress: 'deny-until-a
 
 async function setup(t, answer, { sourceEgress = DENIED, delayMs = 0 } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'jevris-slice-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  let tracker = null;
+  // A call the test abandoned (a deadline passed) still settles the budget and the breaker and ends its journal entry in this home: wait for that work, then remove the home.
+  t.after(async () => {
+    try {
+      await tracker?.settled();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
   const script = scriptedFetch(answer, { delayMs });
   const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {}, sourceEgress });
+  tracker = trackEngine(engine);
   return { home, engine, requests: script.requests };
 }
 
@@ -127,6 +137,8 @@ test('egress denied: only structured features leave, never a path name or the ti
   assert.equal(denied.requests.length, 1);
   for (const leak of ['zebra', 'lexer', 'tokens.ts', 'crash']) assert.equal(wire.includes(leak), false, `${leak} must not leave while egress is denied`);
   assert.ok(wire.includes('"verb"') || wire.includes('verb'), 'the verb class is a feature');
+  // Not even a withheld title: the question is built without the span, so the engine has nothing to hold back.
+  assert.deepEqual([denied.requests[0].state.untrustedEvidence, denied.requests[0].state.withheldEvidence], [[], []], 'no title span, and none withheld either');
   const approved = await setup(t, JEV_FIX, { sourceEgress: APPROVED });
   await core.classifyTaskSlice(approved.engine, task, CTX, { assist: 'classify' });
   const wire2 = JSON.stringify(approved.requests);

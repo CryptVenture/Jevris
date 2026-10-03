@@ -8,6 +8,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { trackEngine } from './engine-settle.mjs';
 
 const provider = await import('../dist/index.js');
 const core = await import('@jevris/core');
@@ -51,10 +52,26 @@ function scriptedFetch(answer, { gate = null } = {}) {
 
 async function setup(t, answer, options = {}) {
   const home = mkdtempSync(join(tmpdir(), 'jevris-relevance-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  let tracker = null;
+  // A call the test abandoned (the deadline passed) still writes its budget, breaker and journal entries in this home: wait for that work, then remove the home.
+  t.after(async () => {
+    try {
+      await tracker?.settled();
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
   const script = scriptedFetch(answer, options);
   const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {}, sourceEgress: options.sourceEgress ?? APPROVED });
+  tracker = trackEngine(engine);
   return { home, engine, script, requests: script.requests };
+}
+
+/** Waits for a state, with a generous bound; the wait ends as soon as it holds. */
+async function until(condition, what) {
+  const stop = performance.now() + 30_000;
+  while (!condition() && performance.now() < stop) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(condition(), true, `${what} held before the generous bound`);
 }
 
 const CTX = { workspaceId: 'w-relevance' };
@@ -209,17 +226,21 @@ test('a slow Jev is abandoned at the deadline and the rules order answers; the l
   const gate = new Promise((resolve) => {
     open = resolve;
   });
+  // Opened first on the way out (hooks run in the order they were registered), so a test that failed with the gate shut does not wait for the call's own deadline.
+  t.after(() => open());
   const byKind = { docs: 4, lint: 3, test: 1, typecheck: 0 };
   const { engine, requests, script } = await setup(t, (_id, kind) => ({ score: byKind[kind] ?? 2 }), { gate });
   const rules = ids(core.rulesOrderOf({ checks: CHECKS, paths: MIXED }, 'X'));
-  const late = await core.rankChecks(engine, { checks: CHECKS, paths: MIXED }, CTX, { assist: 'classify', deadlineMs: 150 });
+  // The caller's wait is the 150 ms under test; the late call itself gets a generous grace, so a loaded host cannot cut it off before it reaches the endpoint or finishes.
+  const late = await core.rankChecks(engine, { checks: CHECKS, paths: MIXED }, CTX, { assist: 'classify', deadlineMs: 150, lateGraceMs: 60_000 });
   assert.deepEqual([late.source, late.reasonCode, ids(late)], ['rules', 'CHECK_RELEVANCE_DEADLINE', rules], 'the caller did not wait for Jev');
-  assert.equal(requests.length, 1);
+  // On a loaded host the engine reaches the endpoint after the 150 ms: wait for the request, not for a fixed time.
+  await until(() => requests.length === 1, 'the abandoned call reached the endpoint');
   assert.equal(script.finishedCount(), 0, 'Jev has not answered yet');
   open();
-  for (let i = 0; i < 400 && script.finishedCount() === 0; i += 1) await new Promise((resolve) => setImmediate(resolve));
-  assert.equal(script.finishedCount(), 1);
-  await new Promise((resolve) => setTimeout(resolve, 100));
+  await until(() => script.finishedCount() === 1, 'the late answer was sent');
+  // The engine puts the late answer in the decision cache just after the response: wait for the entry, not for a fixed time.
+  await until(() => engine.cache.stats().entries === 1, 'the late answer was cached');
   const warm = await core.rankChecks(engine, { checks: CHECKS, paths: MIXED }, CTX, ASK);
   assert.deepEqual([warm.source, warm.cacheHit, ids(warm)], ['jev', true, ['docs-check', 'lint', 'unit-test', 'typecheck']], 'the late answer is in the cache for the next ranking');
   assert.equal(requests.length, 1, 'and cost no second call');

@@ -12,6 +12,7 @@ import { createHash } from 'node:crypto';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { trackEngine } from './engine-settle.mjs';
 
 const provider = await import('../dist/index.js');
 const core = await import('@jevris/core');
@@ -61,11 +62,19 @@ function scriptedFetch(answer, { gate = null, hang = false } = {}) {
 
 async function setup(t, answer, options = {}) {
   const home = mkdtempSync(join(tmpdir(), 'jevris-failure-'));
-  // A late answer may still be writing its record when the test ends: retry the removal.
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }));
+  let tracker = null;
+  // A late answer may still be writing its record when the test ends: wait for the engine's own work (not for a fixed time), then remove the home.
+  t.after(async () => {
+    try {
+      await tracker?.settled();
+    } finally {
+      rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+    }
+  });
   const script = scriptedFetch(answer, options);
   // Repeated-failure advice sends features only, so it works with source egress DENIED (the default).
   const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {}, sourceEgress: options.sourceEgress ?? DENIED });
+  tracker = trackEngine(engine);
   return { home, engine, script, requests: script.requests };
 }
 
@@ -323,11 +332,14 @@ test('a slow Jev is abandoned at the deadline and the rules advice answers; the 
   const gate = new Promise((resolve) => {
     open = resolve;
   });
+  // Opened first on the way out (hooks run in the order they were registered), so a test that failed with the gate shut does not wait for the call's own deadline.
+  t.after(() => open());
   const { engine, requests, script } = await setup(t, NEXT('logs'), { gate });
   const rules = provider.failureAdviceText('artifact', 2, 'failing-test-output', false);
   const late = await provider.adviseRepeatedFailure(engine, context(), { ...ASK, deadlineMs: 150, lateGraceMs: 60_000 });
   assert.deepEqual([late.source, late.reasonCode, late.text, late.asked], ['rules', 'REPEATED_FAILURE_DEADLINE', rules, true], 'the caller did not wait for Jev');
-  assert.equal(requests.length, 1);
+  // The engine does several durable journal writes before it sends: on a slow disk the request goes out after the 150 ms. Wait for the request, not for a fixed time.
+  await until(() => requests.length === 1);
   assert.equal(script.finishedCount(), 0, 'Jev has not answered yet');
   open();
   await until(() => script.finishedCount() === 1);
@@ -469,8 +481,14 @@ test('the count escalates across a session: the same failure at attempt 2 names 
 });
 
 test('the hook answers at once whether or not the provider ever answers: the question is detached and the line falls back to the rules at the deadline', async (t) => {
-  const { engine, requests } = await setup(t, () => ({}), { hang: true });
-  const live = liveSubscriber(t, { engine, deadlineMs: 1_000, lateGraceMs: 50 });
+  // The provider answers nothing until the test ends: a held answer, opened first on the way out (hooks run in the order they were registered). The engine's own call gets a generous grace, so a slow disk cannot cut it off before it sends; the line's wait is the 1 s deadline under test.
+  let open;
+  const gate = new Promise((resolve) => {
+    open = resolve;
+  });
+  t.after(() => open());
+  const { engine, requests } = await setup(t, () => ({}), { gate });
+  const live = liveSubscriber(t, { engine, deadlineMs: 1_000, lateGraceMs: 60_000 });
   const fail = () => live.send(hookCtx('tool.failed', { failure: F(), engine }));
   await fail();
   const answered = await fail();
@@ -478,6 +496,7 @@ test('the hook answers at once whether or not the provider ever answers: the que
   assert.equal(live.background.length, 1, 'the question runs detached');
   assert.equal(live.store.count('w-hook', 'sess-1'), 0, 'and nothing is queued yet');
   await Promise.all(live.background);
+  await until(() => requests.length === 1);
   assert.equal(requests.length, 1, 'the one request was made and never answered');
   assert.equal(live.traces.findLast((x) => x.event === 'repeated-failure-advice').reasonCode, 'REPEATED_FAILURE_DEADLINE');
   const waiting = live.store.peek('w-hook', 'sess-1');

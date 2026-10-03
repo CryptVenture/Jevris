@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { trackEngine } from './engine-settle.mjs';
 
 const provider = await import('../dist/index.js');
 const core = await import('@jevris/core');
@@ -59,9 +60,18 @@ const JEV_FIX = (id) => (id === 'slice' ? { choice: 'issue-fix', probabilities: 
 
 async function setup(t, answer = JEV_FIX, { sourceEgress = DENIED, hang = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'jevris-plan-slices-'));
-  t.after(() => rmSync(home, { recursive: true, force: true }));
+  let tracker = null;
+  // A question the plan abandoned at its shared deadline still settles the budget and the breaker and ends its journal entry in this home: wait for that work, then remove the home.
+  t.after(async () => {
+    try {
+      await tracker?.settled();
+    } finally {
+      rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+    }
+  });
   const script = scriptedFetch(answer, { hang });
   const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {}, sourceEgress });
+  tracker = trackEngine(engine);
   return { home, engine, requests: script.requests };
 }
 
@@ -115,9 +125,13 @@ async function labels(engine, tasks, { workspaceId = 'w-plan-slices-direct', opt
 }
 
 /** An engine that answers every slice question `choice` at once, with no disk and no clock: what the op does with an answer, not how long one takes. */
-function stubEngine(choice = 'issue-fix') {
+function stubEngine(choice = 'issue-fix', { together = 0 } = {}) {
   const decides = [];
   const recorded = [];
+  let arrived;
+  const allArrived = new Promise((resolve) => {
+    arrived = resolve;
+  });
   return {
     decides,
     recorded,
@@ -125,6 +139,11 @@ function stubEngine(choice = 'issue-fix') {
     sourceEgress: () => 'denied',
     async decide(request) {
       decides.push(request);
+      // `together: n` holds every answer until n questions have been asked, so a test can show they are asked at the same time without timing anything.
+      if (together > 0) {
+        if (decides.length >= together) arrived();
+        await allArrived;
+      }
       return {
         abstained: false,
         decisionId: `d-stub-call-${decides.length}`,
@@ -166,7 +185,7 @@ test('a mixed plan: each task is labelled, rules answer where sure, Jev for the 
   for (const id of ['DOC', 'TST', 'SRC', 'CI', 'NONE']) assert.ok(s[id].decisionId !== null, `${id} is recorded`);
   const record = await engine.lookup(s.SRC.decisionId);
   assert.equal(record.specId, 'slice-classify');
-  assert.equal(record.taskId, 'SRC');
+  assert.equal(record.taskId, undefined, 'a plan check records no task id: its tasks do not exist');
   assert.ok(record.reasonCodes.includes('SLICE_PLAN_TASK') && record.reasonCodes.includes('SLICE_SOURCE_JEV') && record.reasonCodes.includes('SLICE_ID_ISSUE_FIX'));
   assert.equal(record.outcome, 'advisory');
 });
@@ -181,7 +200,7 @@ test('a slice the plan declared is kept as given; the classifier is recorded bes
   assert.ok(['SLICE_PLAN_TASK', 'SLICE_GIVEN_ISSUE_FIX', 'SLICE_AGREE'].every((c) => same.reasonCodes.includes(c)), same.reasonCodes.join(','));
   const diff = await engine.lookup(s.DIFF.decisionId);
   assert.ok(['SLICE_PLAN_TASK', 'SLICE_GIVEN_REFACTOR', 'SLICE_DIFFER'].every((c) => diff.reasonCodes.includes(c)), diff.reasonCodes.join(','));
-  assert.equal(same.taskId, 'SAME');
+  assert.equal(same.taskId, undefined, 'a plan check records no task id: its tasks do not exist');
   // explain says so in words.
   const text = core.explainDecision(diff);
   assert.match(text, /Plan task: the plan declared slice refactor, which stands; the classifier differs/);
@@ -202,14 +221,17 @@ function capTasks() {
   return tasks;
 }
 
-test('the cap: at most 8 distinct questions per plan, the rest get the rules answer with PLAN_JEV_CAP; tasks without a declared slice are served first', async (t) => {
+test('the cap: at most 8 distinct questions per plan, the rest get the rules answer with PLAN_JEV_CAP; tasks without a declared slice are served first', async () => {
   // The step itself, with a wait long enough that a slow runner cannot cut a question short: the
-  // number of questions asked is then the cap and nothing else.
-  const { engine, requests } = await setup(t);
+  // number of questions asked is then the cap and nothing else. The engine is the stub (no disk): with
+  // eight real calls at once on a loaded host, one was seen not to reach the provider (7 requests of 8).
+  // The real engine can fall back to the rules before it sends, for example when its wait for the budget
+  // file's lock passes 2 s, which is its behaviour and not the cap's.
+  const engine = stubEngine();
   const tasks = capTasks();
   const order = core.planTaskGraph(tasks).order;
   const list = await core.suggestPlanSlices(engine, core.planSliceTasksOf(tasks, order), { workspaceId: 'w-plan-slices-cap', evidenceRevision: 'r1' }, { assist: 'classify', mode: 'advise', deadlineMs: 30_000, totalMs: 60_000 });
-  assert.equal(requests.length, 8, 'eight questions, no more');
+  assert.equal(engine.decides.length, 8, 'eight questions, no more');
   const capped = list.filter((x) => x.reasonCode === 'PLAN_JEV_CAP');
   assert.equal(capped.length, 3);
   assert.ok(capped.some((x) => x.taskId === 'DECL'), 'the declared task is among the capped');
@@ -239,16 +261,24 @@ test('one shared deadline: a provider that never answers does not hold the plan;
   const started = Date.now();
   const body = await plan(home, { tasks }, engine);
   const took = Date.now() - started;
-  // Three questions ran in parallel inside one wait (700 ms at most), not one after another. A generous bound for slow runners.
+  // The questions share one wait (700 ms at most), not one wait each. A generous bound for slow runners.
   assert.ok(took < 6000, `the plan did not wait for the hung provider (${took} ms)`);
-  assert.equal(requests.length, 3, 'the three questions went out together');
+  // How many of the three had reached the provider when the wait ended depends on how fast the host does the engine's journal writes, so the count is bounded here; that they go out together is the next test, with no clock.
+  assert.ok(requests.length <= 3, `${requests.length} requests for three questions`);
   for (const x of body.sliceSuggestions) {
     assert.deepEqual([x.slice, x.source], ['bounded-edit', 'rules'], x.taskId);
     assert.match(x.reasonCode, /^(PLAN_JEV_DEADLINE|SLICE_JEV_DEADLINE)$/, 'the plan wait or the engine\'s own deadline, whichever came first');
   }
   assert.equal(body.valid, true);
-  // Let the abandoned calls end before the home is removed (not an assertion about time).
-  await new Promise((resolve) => setTimeout(resolve, 1500));
+});
+
+test('the questions of a plan are asked together, not one after another: all three are out before any is answered', async () => {
+  // The engine holds every answer until the third question has been asked. A plan that asked one question at a time would never get there and every label would be the rules' at the deadline. Nothing here is timed: the bound is the generous 30 s wait of `labels`, and no disk is involved (three questions at once on a loaded disk can wait on the budget lock, which is the engine's own business).
+  const engine = stubEngine('issue-fix', { together: 3 });
+  const tasks = [SOURCE('A'), SOURCE('B', { writeScopes: ['src/x/a.ts'] }), SOURCE('C', { writeScopes: ['src/y/a.ts', 'src/y/b.ts', 'src/y/c.ts'] })];
+  const list = await labels(engine, tasks);
+  assert.equal(engine.decides.length, 3, 'the three questions were asked together');
+  assert.deepEqual(list.map((x) => [x.taskId, x.source]), [['A', 'jev'], ['B', 'jev'], ['C', 'jev']], 'and each was answered by Jev, none cut short');
 });
 
 test('identical tasks share one question and the decision cache; a repeated plan makes no new call and records no label twice', async (t) => {
@@ -304,7 +334,7 @@ test('through the op, with an engine that answers at once: the answer reaches th
   assert.deepEqual([s.D.slice, s.D.source], ['docs', 'rules']);
   assert.deepEqual([s.P.slice, s.P.source, s.P.suggestedSlice, s.P.suggestedBy, s.P.agrees], ['bounded-edit', 'given', 'refactor', 'jev', false]);
   assert.equal(engine.decides.length, 1, 'tasks with the same features share one question');
-  assert.deepEqual(engine.recorded.map((r) => r.taskId).sort(), ['A', 'D', 'P']);
+  assert.ok(engine.recorded.every((r) => !Object.hasOwn(r, 'taskId')), 'a plan check records no task id: its tasks do not exist');
   assert.ok(engine.recorded.every((r) => r.specId === 'slice-classify' && r.reasonCodes.includes('SLICE_PLAN_TASK')));
   // The gates the op reads: none of them asks again.
   const off = byTask(await plan(home, { tasks }, engine, { jevAssist: 'off' }));
@@ -334,6 +364,8 @@ test('egress denied: no path name, title or check name leaves; approved adds onl
   assert.equal(denied.requests.length, 2);
   for (const leak of ['zebra', 'lexer', 'tokens', 'crash', 'giraffe', 'neck', 'support']) assert.equal(wire.includes(leak), false, `${leak} must not leave while egress is denied`);
   assert.ok(wire.includes('verb'), 'the verb class is a feature');
+  // Not even a withheld title: the question is built without the span, so the engine has nothing to hold back.
+  for (const body of denied.requests) assert.deepEqual([body.state.untrustedEvidence, body.state.withheldEvidence], [[], []], 'no title span, and none withheld either');
   const approved = await setup(t, JEV_FIX, { sourceEgress: APPROVED });
   await labels(approved.engine, tasks);
   const wire2 = JSON.stringify(approved.requests);
@@ -342,6 +374,17 @@ test('egress denied: no path name, title or check name leaves; approved adds onl
   // The recorded decisions carry reason codes and feature names only.
   const ids = await denied.engine.journal.list();
   for (const id of ids) assert.equal(JSON.stringify(await denied.engine.entry(id)).includes('zebra'), false);
+});
+
+test('tasks that differ only in their title are one question while egress is denied, because the title is not sent; approved, each title is its own question', async (t) => {
+  const same = { writeScopes: ['src/parser/lexer.ts', 'src/parser/tokens.ts'], acceptanceCheckIds: ['unit-test'] };
+  const tasks = [node('A', { ...same, title: 'fix the zebra crash' }), node('B', { ...same, title: 'fix the walrus crash' })];
+  const denied = await setup(t, JEV_FIX, { sourceEgress: DENIED });
+  await labels(denied.engine, tasks);
+  assert.equal(denied.requests.length, 1, 'the title is not sent, so the two tasks are one question');
+  const approved = await setup(t, JEV_FIX, { sourceEgress: APPROVED });
+  await labels(approved.engine, tasks);
+  assert.equal(approved.requests.length, 2, 'the title is sent, so each task is its own question');
 });
 
 test('an invalid graph gets no suggestions; a sound graph with issues (a missing check) still does', async (t) => {
