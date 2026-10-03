@@ -639,6 +639,44 @@ export const PLAN_ISSUE_CODES = [
   'WRITE_OVERLAP',
 ] as const;
 
+/** Who chose the slice a plan suggestion shows: the plan itself (`given`), the rules, Jev, or nobody. */
+export const PLAN_SLICE_SOURCES = ['given', 'rules', 'jev', 'none'] as const;
+
+const PLAN_SLICE_ID = S.string({ minLength: 1, maxLength: 128, pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$' });
+
+/**
+ * Owner decision 2026-10-01: the slice and risk the route classifier gives one task of a plan, shown
+ * beside the task. A label for a person: it is not stored in the plan, changes nothing in it and is
+ * never a learned arm or a signed prior. `slice` is the plan's own when it declared one (`source`
+ * `given`, with what the classifier said in `suggestedSlice` and whether it agrees), else the
+ * suggestion, or null when none was usable.
+ */
+export const PlanSliceSuggestionSchema = S.object({
+  taskId: Id,
+  slice: S.nullable(PLAN_SLICE_ID),
+  source: S.enumOf(PLAN_SLICE_SOURCES),
+  risk: S.enumOf(['low', 'medium', 'high', 'unknown'] as const),
+  confidencePercent: S.nullable(S.integer({ minimum: 0, maximum: 100 })),
+  reasonCode: Code,
+  decisionId: S.nullable(Id),
+}, {
+  suggestedSlice: S.nullable(PLAN_SLICE_ID),
+  suggestedBy: S.enumOf(['rules', 'jev', 'none'] as const),
+  agrees: S.nullable(S.boolean()),
+});
+export type PlanSliceSuggestion = S.Static<typeof PlanSliceSuggestionSchema>;
+
+/** The most tasks a plan labels. */
+export const PLAN_SLICE_SUGGESTIONS_MAX = 256;
+
+export const PlanSliceSuggestionsContract = defineContract<readonly PlanSliceSuggestion[]>({
+  name: 'PlanSliceSuggestions',
+  description: 'The slice suggestions of a plan, one per task, advice only.',
+  // At least one: a plan with nothing to label carries no list at all, and an empty array is not a
+  // value any contract validator may accept from arbitrary input (QA-04).
+  schema: S.array(PlanSliceSuggestionSchema, { minItems: 1, maxItems: PLAN_SLICE_SUGGESTIONS_MAX }),
+});
+
 export const PlanPayloadSchema = S.object({
   valid: S.boolean(),
   taskCount: Count,
@@ -652,6 +690,11 @@ export const PlanPayloadSchema = S.object({
   ),
   advice: S.array(ShortText, { maxItems: 32 }),
 }, {
+  /**
+   * Owner decision 2026-10-01: one suggestion per task, present when the task graph is sound and at
+   * least one task could be labelled. Advice for a person; never part of the plan.
+   */
+  sliceSuggestions: S.array(PlanSliceSuggestionSchema, { maxItems: PLAN_SLICE_SUGGESTIONS_MAX }),
   /**
    * INT-02, INT-07 (C03, C07): present only when the request supplied requirements or plan
    * candidates. Review scores are review aids, never feasibility verdicts.

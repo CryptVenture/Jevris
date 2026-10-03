@@ -110,6 +110,13 @@ are checked: the scheduling fields --submit reads (title, models, expectedOutput
 are allowed in the file and ignored by this check. With --submit, expectedOutputs are names
 (letters, digits, . _ : -), not file paths: an entry with a slash is refused, naming the field.
 
+Each task of a sound plan also gets a slice and risk hint, one line per task ("task T2: slice
+bounded-edit (suggested by Jev, advice only)"), from the same classifier as jevris route: the
+rules answer when they are sure, Jev (from counts and categories of the task's write scopes, check
+ids and title, never a path name) when jev.assist is classify and there is time, else the rules.
+A slice a task declares (sliceId) is kept and shown with whether the classifier agrees. The hints
+are advice for a person: they are not stored in the plan and change nothing in it.
+
 With --submit, hands the plan to the Jevris sidecar as owned work under a new root budget and
 prints the plan id, the budget id and the task ids. Only the CLI can submit a plan; no model
 tool can. It commits a spending limit and may start owned workers (in bounded-auto mode, for
@@ -1098,13 +1105,14 @@ Examples:
 ## jevris sidecar
 
 ```text
-Usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose [--home <dir>] [--json] [--wait-ms <n>]
+Usage: jevris sidecar start|stop|restart|status|statusline|metrics|diagnose [--home <dir>] [--json] [--wait-ms <n>] [--force]
 Manages the local Jevris service. Hooks, MCP tools and commands start it on demand (through the service
 manager when a service is installed, so there is one sidecar, never two).
   status      pid, version, uptime, endpoint, store and kill-switch state (exit 1 when not running)
   start       start it now (through the service when one is installed), or report it is running
-  stop        ask it to finish in-flight work and exit (a service does not restart a clean stop)
-  restart     stop, then start; with a service installed the service starts it again
+  stop        ask it to finish in-flight work and exit (a service does not restart a clean stop); it refuses
+              while it is finishing a verification run, and --force orders it to stop anyway
+  restart     stop, then start (--force as for stop); with a service installed the service starts it again
               (this also hands a sidecar started on demand over to the service)
   statusline  one line from the local cache, for a status line command (no sidecar call)
   metrics     decisions, abstentions, fallbacks, latency, tokens and cost [--hours <n>, default 24]

@@ -79,6 +79,7 @@ export * from './learned-router.js';
 export * from './policy-lab.js';
 export * from './route-learning.js';
 export * from './slice-classifier.js';
+export * from './plan-slices.js';
 export { protectedClasses, type ProtectedClass } from './protected-paths.js';
 export { sliceAssistLines } from './slice-explain.js';
 export * from './check-relevance.js';

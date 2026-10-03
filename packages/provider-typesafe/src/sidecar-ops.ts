@@ -16,6 +16,7 @@ import {
   AUTH_MODES,
   DecisionRecordContract,
   HARNESS_IDS,
+  PlanSliceSuggestionsContract,
   modeAllows,
   surfacePayloadContract,
   type DecisionRecord,
@@ -29,6 +30,8 @@ import {
   type CalibrationArtifact,
   type HarnessId,
   type ModelRegistry,
+  type PlanPayload,
+  type PlanSliceSuggestion,
   type RouteServing,
   type TaskNode,
   type WorkerModel,
@@ -94,6 +97,9 @@ import {
   HARNESS_MODEL_ID,
   harnessModelRef,
   classifyTaskSlice,
+  planSliceTasksOf,
+  planSliceTimes,
+  suggestPlanSlices,
   type SliceClassification,
   type SliceTaskHints,
 } from '@jevris/core';
@@ -805,6 +811,37 @@ function planCandidates(value: unknown): { id: string; summary: string; constrai
   return out;
 }
 
+/**
+ * Owner decision 2026-10-01: each task of a sound plan is labelled with the slice and risk the
+ * route classifier gives it (Jev from structured features, rules as the fallback), for a person to
+ * read. It never changes the plan or the graph, and any failure is no labels, never a failed plan.
+ */
+async function planSliceSuggestions(ctx: SidecarOpContext, rawTasks: readonly unknown[], graph: PlanPayload, sessionId: string | null): Promise<readonly PlanSliceSuggestion[]> {
+  if (graph.taskCount === 0 || graph.order.length !== graph.taskCount) return [];
+  try {
+    const found = await suggestPlanSlices(
+      engineOf(ctx),
+      planSliceTasksOf(rawTasks, graph.order),
+      { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), sessionId },
+      {
+        // Absent (a direct unit call) reads as classify, like the route op.
+        assist: ctx.jevAssist === 'off' ? 'off' : 'classify',
+        ...(ctx.mode === undefined ? {} : { mode: ctx.mode }),
+        killSwitchStopped: ctx.killSwitchStopped,
+        ...planSliceTimes(ctx.deadline.remainingMs()),
+      },
+    );
+    const checked = PlanSliceSuggestionsContract.validate(found);
+    return checked.ok ? checked.value : [];
+  } catch {
+    return [];
+  }
+}
+
+function suggestionsField(list: readonly PlanSliceSuggestion[]): { readonly sliceSuggestions?: readonly PlanSliceSuggestion[] } {
+  return list.length === 0 ? {} : { sliceSuggestions: list };
+}
+
 async function handlePlan(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
   const body = ctx.body;
   if (!plain(body) || !onlyKeys(body, ['tasks', 'requirements', 'candidates', 'sessionId', 'revision']) || !Array.isArray(body['tasks']) || body['tasks'].length > 1024) {
@@ -814,7 +851,9 @@ async function handlePlan(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
   const candidates = planCandidates(body['candidates']);
   if (requirements === null || candidates === null) return fail('INVALID_REQUEST', 'requirements are { id, text }[] (at most 64); candidates are { id, summary, constraints?, tradeoffs? }[] (at most 12)');
   const graph = planTaskGraph(body['tasks']);
-  if (requirements.length === 0 && candidates.length === 0) return respond(ctx, 'plan', graph);
+  // Started now, so the labels are asked for while the reviews (when there are any) run.
+  const slicing = planSliceSuggestions(ctx, body['tasks'], graph, typeof body['sessionId'] === 'string' ? body['sessionId'] : null);
+  if (requirements.length === 0 && candidates.length === 0) return respond(ctx, 'plan', { ...graph, ...suggestionsField(await slicing) });
   const engine = engineOf(ctx);
   // DEC-12: the review starts on the workspace revision the sidecar tracks (a caller's revision
   // resets it); a write reported while Jev evaluates makes the result stale.
@@ -840,7 +879,7 @@ async function handlePlan(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
     const ranked = await rankPlanCandidates(engine, { plans: candidates }, intent);
     plans = { label: ranked.label, isFeasibility: ranked.isFeasibility, reviewRequired: ranked.reviewRequired, ranking: ranked.ranking.map((r) => ({ planId: r.planId, rank: r.rank, score: r.score })), note: ranked.note, reasonCode: ranked.reasonCode, decisionId: ranked.decisionId };
   }
-  return respond(ctx, 'plan', { ...graph, review: { decomposition, plans } });
+  return respond(ctx, 'plan', { ...graph, ...suggestionsField(await slicing), review: { decomposition, plans } });
 }
 
 /**

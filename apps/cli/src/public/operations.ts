@@ -9,7 +9,7 @@
  * The CLI prints the result (`--json`) or its rendering; the MCP server mirrors it in
  * `structuredContent`. Both therefore show the same answer.
  */
-import { harnessModelRef, planTaskGraph } from '@jevris/core';
+import { harnessModelRef, planSliceTasksOf, planTaskGraph, suggestPlanSlices } from '@jevris/core';
 import { workerModelOf } from '@jevris/provider-typesafe';
 import type { SidecarRequestResult } from './ports.js';
 import {
@@ -18,6 +18,7 @@ import {
   MODE_OFF_REASON,
   MODE_OFF_REFUSED_OPS,
   PROVIDER_CONSENT_TEXT,
+  PlanSliceSuggestionsContract,
   modeOffMessage,
   surfacePayloadContract,
   surfaceResultContract,
@@ -174,6 +175,18 @@ function reasonText(view: SidecarView): string {
   }
 }
 
+/** The rules-only slice labels of a sound plan, for a reduced answer (no sidecar, so no Jev and no record). */
+async function localPlanSlices(tasks: readonly unknown[], graph: SurfacePayloads['plan']): Promise<{ readonly sliceSuggestions?: SurfacePayloads['plan']['sliceSuggestions'] }> {
+  if (graph.taskCount === 0 || graph.order.length !== graph.taskCount) return {};
+  try {
+    const found = await suggestPlanSlices(null, planSliceTasksOf(tasks, graph.order), { workspaceId: 'local', evidenceRevision: 'local' }, { assist: 'classify', deadlineMs: 0, record: false });
+    const checked = PlanSliceSuggestionsContract.validate(found);
+    return checked.ok && checked.value.length > 0 ? { sliceSuggestions: checked.value } : {};
+  } catch {
+    return {};
+  }
+}
+
 async function reduced<K extends SurfaceOperation>(
   ctx: SurfaceContext,
   op: K,
@@ -200,8 +213,11 @@ async function reduced<K extends SurfaceOperation>(
     }
     case 'route':
       return done(await routeLocally(ctx, input as OpInputs['route'], reason));
-    case 'plan':
-      return done(planTaskGraph((input as OpInputs['plan']).tasks));
+    case 'plan': {
+      const tasks = (input as OpInputs['plan']).tasks;
+      const graph = planTaskGraph(tasks);
+      return done({ ...graph, ...(await localPlanSlices(tasks, graph)) });
+    }
     case 'checkpoint': {
       const stopped = await killSwitchWriteRefusal(ctx, 'checkpoint');
       if (stopped !== null) return stopped;

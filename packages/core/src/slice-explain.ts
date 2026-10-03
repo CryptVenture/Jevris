@@ -3,7 +3,9 @@
  * 2026-10-01, Jev as an active decision aid). A leaf module: the engine's `explainDecision` and the
  * classifier both read it, and it imports nothing. The classifier writes reason codes only (no
  * text), so this reads them back: `SLICE_SOURCE_JEV`, `SLICE_ID_BOUNDED_EDIT`, `RISK_LOW`,
- * `JEV_SLICE_ISSUE_FIX`, `RULES_ALT_DOCS`, `JEV_CACHE_HIT`, `CONF_86` and the outcome's own code.
+ * `JEV_SLICE_ISSUE_FIX`, `RULES_ALT_DOCS`, `JEV_CACHE_HIT`, `CONF_86` and the outcome's own code. A
+ * plan task adds `SLICE_PLAN_TASK`, and when the plan declared a slice `SLICE_GIVEN_BOUNDED_EDIT` with
+ * `SLICE_AGREE` or `SLICE_DIFFER`.
  */
 
 /** The decision spec id a slice classification is recorded under. */
@@ -46,6 +48,14 @@ export function sliceAssistLines(record: { readonly specId: string; readonly rea
     `Question: which listed task slice fits the structured features, and how risky is the task (0 to 4). Jev ${jev === null ? 'gave no usable answer' : `answered ${jev === 'UNKNOWN' ? 'unknown' : sliceOfCode(jev)}`}${confidence === null ? '' : ` with confidence ${confidence} percent`} (${cache}${ms}).`,
   );
   lines.push(`Rules alternative: ${rules === null ? 'none' : sliceOfCode(rules)}.`);
+  if (codes.includes('SLICE_PLAN_TASK')) {
+    const given = codeAfter(codes, 'SLICE_GIVEN_');
+    lines.push(
+      given === null
+        ? 'Plan task: the plan named no slice, so this is a suggestion for a person to read. It is not stored in the plan and changes nothing in it.'
+        : `Plan task: the plan declared slice ${sliceOfCode(given)}, which stands; the classifier ${codes.includes('SLICE_AGREE') ? 'agrees' : codes.includes('SLICE_DIFFER') ? 'differs' : 'gave no slice to compare'}.`,
+    );
+  }
   const evidence = record.proposedAction.evidenceIds ?? [];
   lines.push(`Evidence: ${evidence.length === 0 ? 'none' : evidence.slice(0, 16).join(', ')} (structured features only; no file content or path names).`);
   lines.push('A Jev or rules slice is never a learned arm or a signed prior, and it never switches a model.');

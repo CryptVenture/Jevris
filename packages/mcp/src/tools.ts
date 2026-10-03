@@ -192,7 +192,7 @@ export const TOOLS: readonly ToolSpec[] = [
     op: 'plan',
     title: 'Validate a plan',
     description:
-      'Validates a task graph: cycles, unknown dependencies, missing acceptance checks and requirements, and parallel tasks that share a write scope. Returns waves, the critical path and ready tasks. Read-only.',
+      'Validates a task graph: cycles, unknown dependencies, missing acceptance checks and requirements, and parallel tasks that share a write scope. Returns waves, the critical path and ready tasks, and a slice and risk hint per task (sliceSuggestions, advice only). Read-only.',
     inputSchema: input({ tasks: { type: 'array', items: { type: 'object' }, minItems: 1, maxItems: 1024, description: 'TaskNode objects (§6.2).' } }, ['tasks']),
     effect: 'read',
   },

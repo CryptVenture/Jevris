@@ -16,8 +16,9 @@
  */
 import { readFile } from 'node:fs/promises';
 import { userInfo } from 'node:os';
-import { COMMAND_EXIT_CODES } from '@jevris/contracts';
+import { COMMAND_EXIT_CODES, PlanSliceSuggestionsContract, type PlanSliceSuggestion } from '@jevris/contracts';
 import { defaultPorts } from './public/ports.js';
+import { planSliceLines } from './public/render.js';
 import { actorName } from './budget-command.js';
 import { authorized, contextFor, parse, stdioIsTerminal, type VerifyAdminOptions } from './verify-admin.js';
 import { homeRefusal } from './public/home-guard.js';
@@ -46,6 +47,8 @@ export interface PlanSubmitResult {
   readonly waves: readonly (readonly string[])[];
   readonly leaseIds: readonly string[];
   readonly issues: readonly { readonly taskId: string; readonly code: string; readonly detail: string | null }[];
+  /** Owner decision 2026-10-01: the slice and risk the route classifier gives each task, advice for a person; not part of the plan. */
+  readonly sliceSuggestions?: readonly PlanSliceSuggestion[];
 }
 
 function ids(value: unknown, pattern: RegExp, cap: number): readonly string[] | null {
@@ -83,7 +86,9 @@ export function checkPlanSubmitResult(raw: unknown): PlanSubmitResult | null {
   // An accepted plan has its ids; a refused one has none.
   if (accepted && (planId === null || rootBudgetId === null || taskIds.length === 0 || r['reasonCode'] !== 'SUBMITTED')) return null;
   if (!accepted && (planId !== null || r['reasonCode'] === 'SUBMITTED')) return null;
-  return { accepted, reasonCode: r['reasonCode'], planId, rootBudgetId, taskIds, waves, leaseIds, issues };
+  // Labels for a person: one that does not match its contract is left out, never a reason to doubt the submit.
+  const suggestions = r['sliceSuggestions'] === undefined ? undefined : PlanSliceSuggestionsContract.validate(r['sliceSuggestions']);
+  return { accepted, reasonCode: r['reasonCode'], planId, rootBudgetId, taskIds, waves, leaseIds, issues, ...(accepted && suggestions !== undefined && suggestions.ok && suggestions.value.length > 0 ? { sliceSuggestions: suggestions.value } : {}) };
 }
 
 function integer(text: string | undefined): number | null | undefined {
@@ -130,6 +135,7 @@ function render(result: PlanSubmitResult & { readonly budgetId?: string }): stri
   ];
   result.waves.forEach((wave, index) => lines.push(`wave ${index + 1}: ${wave.join(', ')}`));
   lines.push(result.leaseIds.length === 0 ? 'workers: none started (the tasks are queued; owned workers start only in bounded-auto mode with a worker model)' : `workers started: ${result.leaseIds.join(', ')}`);
+  if (result.sliceSuggestions !== undefined) lines.push(...planSliceLines(result.sliceSuggestions));
   return lines.join('\n');
 }
 

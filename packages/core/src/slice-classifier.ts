@@ -226,6 +226,13 @@ export function rulesSlice(features: SliceFeatures): RulesSlice {
   return { sliceId: null, sure: false };
 }
 
+/** Whether classifying these features would ask Jev: there is something to go on and the rules are not sure. */
+export function sliceNeedsJev(features: SliceFeatures): boolean {
+  if (!hasSliceEvidence(features)) return false;
+  const rules = rulesSlice(features);
+  return !(rules.sure && rules.sliceId !== null);
+}
+
 const SLICE_DEFINITIONS: Readonly<Record<string, string>> = {
   'bounded-edit': 'A small edit to a few existing source files that has a clear acceptance check.',
   'issue-fix': 'A fix for a reported defect in product code.',
@@ -323,6 +330,11 @@ export interface ClassifyOptions {
   readonly record?: boolean;
   /** The clock; tests inject one. */
   readonly now?: () => number;
+  /**
+   * Do not ask Jev: the answer is the rules' and carries this reason code (a plan that used up its
+   * Jev calls, or ran out of time). A code that is not `[A-Z][A-Z0-9_]{0,63}` reads as assist off.
+   */
+  readonly skipAsk?: string;
 }
 
 /** Jev's confidence floor and margin over the next choice, and the highest risk score still used. */
@@ -371,7 +383,7 @@ export async function classifyTaskSlice(engine: DecisionEngine | null, hints: Sl
   const rules = rulesSlice(features);
   const rulesHint = rulesRisk(features);
   const rulesId = rules.sliceId;
-  const finish = (r: SliceClassification): Promise<SliceClassification> => recordClassification(engine, r, features, ctx, options.record !== false, now() - started);
+  const finish = (r: SliceClassification): Promise<SliceClassification> => recordClassification(engine, r, ctx, options.record !== false, now() - started, []);
 
   // A deterministic fact needs no model.
   if (rules.sure && rulesId !== null) {
@@ -383,6 +395,7 @@ export async function classifyTaskSlice(engine: DecisionEngine | null, hints: Sl
     if (rulesHint === 'high') return finish(result({ sliceId: null, source: 'none', risk: 'high', reasonCode: 'SLICE_HIGH_RISK', rulesAlternative: rulesId, ...extra, evidenceIds: evidenceIdsOf(features, false) }));
     return finish(result({ sliceId: rulesId, source: 'rules', risk: rulesHint, reasonCode, rulesAlternative: rulesId, ...extra, evidenceIds: evidenceIdsOf(features, false) }));
   };
+  if (options.skipAsk !== undefined) return weak(REASON_CODE.test(options.skipAsk) ? options.skipAsk : 'SLICE_ASSIST_OFF');
   if (options.assist === 'off') return weak('SLICE_ASSIST_OFF');
   if (engine === null) return weak('PROVIDER_NOT_CONFIGURED');
 
@@ -430,7 +443,7 @@ async function cacheHitOf(engine: DecisionEngine, decisionId: string): Promise<b
 const REASON_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
 
 /** The reason codes of the recorded decision: every one reads back through `sliceAssistLines`. */
-export function sliceReasonCodes(r: SliceClassification): string[] {
+export function sliceReasonCodes(r: SliceClassification, extra: readonly string[] = []): string[] {
   const codes = [
     `SLICE_SOURCE_${r.source.toUpperCase()}`,
     ...(r.sliceId === null ? [] : [`SLICE_ID_${sliceCodeOf(r.sliceId)}`]),
@@ -440,11 +453,22 @@ export function sliceReasonCodes(r: SliceClassification): string[] {
     ...(r.asked ? [r.cacheHit === true ? 'JEV_CACHE_HIT' : 'JEV_CACHE_MISS'] : []),
     ...(r.confidence === null ? [] : [`CONF_${Math.round(r.confidence * 100)}`]),
     r.reasonCode,
+    ...extra,
   ];
   return codes.filter((c) => REASON_CODE.test(c));
 }
 
-async function recordClassification(engine: DecisionEngine | null, r: SliceClassification, features: SliceFeatures, ctx: IntentContext, record: boolean, elapsedMs: number): Promise<SliceClassification> {
+/**
+ * Records a classification as an advisory `slice-classify` decision (what `classifyTaskSlice` does
+ * for a route request), for a caller that classified with `record: false`: a plan records one per
+ * task, with that task's id. `extraCodes` join the reason codes (a plan task's own). Returns the
+ * classification with its decision id, or as it was when nothing could be recorded.
+ */
+export function recordSliceClassification(engine: DecisionEngine | null, r: SliceClassification, ctx: IntentContext, elapsedMs: number, extraCodes: readonly string[] = []): Promise<SliceClassification> {
+  return recordClassification(engine, r, ctx, true, elapsedMs, extraCodes);
+}
+
+async function recordClassification(engine: DecisionEngine | null, r: SliceClassification, ctx: IntentContext, record: boolean, elapsedMs: number, extraCodes: readonly string[]): Promise<SliceClassification> {
   const withLatency = r.latencyMs === null && r.asked ? { ...r, latencyMs: Math.round(elapsedMs) } : r;
   if (!record || engine === null || engine.recordAdvice === undefined) return withLatency;
   try {
@@ -455,10 +479,9 @@ async function recordClassification(engine: DecisionEngine | null, r: SliceClass
       ...(ctx.taskId === undefined ? {} : { taskId: ctx.taskId }),
       ...(ctx.sessionId === undefined ? {} : { sessionId: ctx.sessionId }),
       action: { kind: 'advise', templateId: SLICE_CLASSIFY_SPEC_ID, evidenceIds: [...r.evidenceIds].slice(0, 64) },
-      reasonCodes: sliceReasonCodes(r),
+      reasonCodes: sliceReasonCodes(r, extraCodes),
       durationMs: Math.max(0, Math.round(elapsedMs)),
     });
-    void features;
     return recorded.ok ? { ...withLatency, decisionId: recorded.decisionId } : withLatency;
   } catch {
     return withLatency;

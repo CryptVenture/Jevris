@@ -205,6 +205,13 @@ are checked: the scheduling fields --submit reads (title, models, expectedOutput
 are allowed in the file and ignored by this check. With --submit, expectedOutputs are names
 (letters, digits, . _ : -), not file paths: an entry with a slash is refused, naming the field.
 
+Each task of a sound plan also gets a slice and risk hint, one line per task ("task T2: slice
+bounded-edit (suggested by Jev, advice only)"), from the same classifier as jevris route: the
+rules answer when they are sure, Jev (from counts and categories of the task's write scopes, check
+ids and title, never a path name) when jev.assist is classify and there is time, else the rules.
+A slice a task declares (sliceId) is kept and shown with whether the classifier agrees. The hints
+are advice for a person: they are not stored in the plan and change nothing in it.
+
 With --submit, hands the plan to the Jevris sidecar as owned work under a new root budget and
 prints the plan id, the budget id and the task ids. Only the CLI can submit a plan; no model
 tool can. It commits a spending limit and may start owned workers (in bounded-auto mode, for

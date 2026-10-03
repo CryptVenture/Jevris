@@ -3,7 +3,7 @@
  * lines. No colour, no symbols that carry meaning alone, stable wording for screen readers.
  */
 import { accessUsageLines, untimedClearTextFor } from '@jevris/core';
-import { jevBudgetText, servingHostOf, type ModeSource, type RouteServing, type SurfaceOperation, type SurfacePayloads, type SurfaceResult } from '@jevris/contracts';
+import { jevBudgetText, servingHostOf, type ModeSource, type PlanSliceSuggestion, type RouteServing, type SurfaceOperation, type SurfacePayloads, type SurfaceResult } from '@jevris/contracts';
 import { backgroundVerifyAtStopText } from '../background-verify-line.js';
 import { firstTrySliceLines, firstTryStatusLine } from '../first-try-lines.js';
 import { reminderLine } from '../learning-report.js';
@@ -355,6 +355,36 @@ function sliceLines(s: NonNullable<SurfacePayloads['route']['slice']>): string[]
   ];
 }
 
+const PLAN_SLICE_NOTES: { readonly [code: string]: string } = {
+  SLICE_NO_FEATURES: 'the task names no write scope, check or title to go on',
+  SLICE_HIGH_RISK: 'a protected path or a high risk, so the approved baseline stays',
+  SLICE_JEV_LOW_CONFIDENCE: 'Jev was not sure enough',
+  SLICE_JEV_UNKNOWN: 'Jev could not tell from the features',
+};
+
+/**
+ * One line per task of a plan: the slice Jev or the rules suggest, or the plan's own with what the
+ * classifier makes of it, and the risk. Advice for a person; it is not part of the plan.
+ */
+export function planSliceLines(list: readonly PlanSliceSuggestion[]): string[] {
+  return list.map((s) => {
+    const by = (source: string | undefined): string => (source === 'jev' ? 'Jev' : 'the rules');
+    const why = s.reasonCode.startsWith('PLAN_JEV_') ? `; reason ${s.reasonCode}` : '';
+    const risk = `risk ${s.risk}`;
+    if (s.source === 'given') {
+      const verdict =
+        s.agrees === true
+          ? `; ${by(s.suggestedBy)} agrees`
+          : s.agrees === false
+            ? `; ${by(s.suggestedBy)} suggests ${s.suggestedSlice ?? 'another slice'}, advice only`
+            : '';
+      return `task ${s.taskId}: slice ${s.slice ?? 'none'} (declared in the plan${verdict}${why}); ${risk}`;
+    }
+    if (s.slice === null) return `task ${s.taskId}: no slice suggested (${PLAN_SLICE_NOTES[s.reasonCode] ?? `reason ${s.reasonCode}`}); ${risk}`;
+    return `task ${s.taskId}: slice ${s.slice} (suggested by ${by(s.source)}, advice only${why}); ${risk}`;
+  });
+}
+
 /**
  * Serving hosts R55 (design 8): which host the session's model and the route's target go through,
  * whether the route kept the host, each party's consent and what the price rests on. Ids, codes
@@ -523,6 +553,7 @@ function body(result: SurfaceResult): string[] {
       lines.push(list('critical path', p.criticalPath), list('ready', p.ready));
       for (const issue of p.issues) lines.push(`issue: ${issue.taskId} ${issue.code}`);
       for (const advice of p.advice) lines.push(`advice: ${advice}`);
+      if (p.sliceSuggestions !== undefined) lines.push(...planSliceLines(p.sliceSuggestions));
       return lines;
     }
     case 'checkpoint': {

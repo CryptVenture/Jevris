@@ -5,7 +5,7 @@
  * `task.complete` and `task.cancel` answer with the task.get payload (the task after the
  * change, with its receipts).
  */
-import { ID_PATTERN, MODEL_ID_PATTERN, PROVIDER_CONSENT_TEXT, modeAllows, type HarnessId, type ModelRegistry, type SidecarOpContext, type SidecarOpOutcome } from '@jevris/contracts';
+import { ID_PATTERN, MODEL_ID_PATTERN, PROVIDER_CONSENT_TEXT, modeAllows, type HarnessId, type ModelRegistry, type PlanSliceSuggestion, type SidecarOpContext, type SidecarOpOutcome } from '@jevris/contracts';
 import { BUNDLED_MODEL_REGISTRY, loadModelRegistry, providerConsentGate, readModelOffer, routeBaseline, sessionHost, signedInProvidersOf, stepUpTarget, type ModelOffer, type ProviderConsentReader, type RouteRisk } from '@jevris/core';
 import { readProviderConsent, useAuthorization, type AuthorizationAction } from '@jevris/store';
 import type { WorkspaceServices } from '../workspace.js';
@@ -32,6 +32,7 @@ import { hostRouteCertified } from '../orchestration/approved-scope.js';
 import { refuseLeasedTask } from '../orchestration/workers.js';
 import { MODEL_PORT_OF, cancelPending, cancelTask, completeTask, heldTaskEffects, loadWorkerPort, modelUnavailableHere, reconcileOwnedEffect, runLeasedTask, workerRuns, type RunLeasedTaskResult, type WorkerPort, type WorkerRunRecord } from '../orchestration/workers.js';
 import { isPlain, own, recordKey, safeText } from '../util.js';
+import { submittedPlanSuggestions } from './plan-slice-ops.js';
 
 const CONTRACT_ID = new RegExp(ID_PATTERN);
 
@@ -951,6 +952,12 @@ export interface PlanSubmitPayload {
   readonly waves: readonly (readonly string[])[];
   readonly leaseIds: readonly string[];
   readonly issues: readonly { readonly taskId: string; readonly code: string; readonly detail: string | null }[];
+  /**
+   * Owner decision 2026-10-01: the slice and risk the route classifier gives each submitted task,
+   * for a person to read. Advice; not part of the plan. Present on an accepted plan when any task
+   * could be labelled.
+   */
+  readonly sliceSuggestions?: readonly PlanSliceSuggestion[];
 }
 
 const POLICIES: readonly BudgetPolicy[] = ['finish-running', 'cancel-newest', 'pause-all'];
@@ -1134,7 +1141,10 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
           ctx.trace({ event: 'orchestrator.plan-refused', reasonCode });
           return { ok: true, body: { accepted: false, reasonCode, planId: null, rootBudgetId: null, taskIds: [], waves: [], leaseIds: [], issues } satisfies PlanSubmitPayload };
         }
+        // Labels for a person (a slice and a risk per task), asked for while the workers start.
+        const slicing = submittedPlanSuggestions(ctx, ws.workspaceId, submission.tasks, result.taskIds);
         const started = await startOwnedWork(ctx, ws, result.taskIds);
+        const suggestions = await slicing;
         ctx.trace({ event: 'orchestrator.plan-submitted', reasonCode: 'SUBMITTED' });
         return {
           ok: true,
@@ -1147,6 +1157,7 @@ export function taskOps(respond: Respond, workspaceOf: WorkspaceOf) {
             waves: result.waves.map((w) => [...w]),
             leaseIds: [...started.leaseIds],
             issues: [],
+            ...(suggestions.length === 0 ? {} : { sliceSuggestions: suggestions }),
           } satisfies PlanSubmitPayload,
         };
       },
