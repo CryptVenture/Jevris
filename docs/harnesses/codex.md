@@ -138,6 +138,14 @@ as a failed tool call, with its first error line as evidence for recovery advice
 command's `tool_response` is only its output, with no exit status, so a failing command is not
 recognised as a failure (a recorded vendor limit).
 
+Only that MCP case feeds repeated-failure advice. Its content-free failure record is the same as
+in Claude Code (closed codes and one-way digests, never the error text or the tool input). A
+Bash or `apply_patch` result stays a finished call and gives no failure record, so Codex gives
+no repeated-failure advice for a failing shell command. New-task advice reads the `UserPromptSubmit`
+prompt of the first message of a session, only with source egress approved. Both lines are shown as a `systemMessage` at the next
+prompt or tool event, never block, and rewrite nothing (see
+[settings.md](../settings.md#jev-assist)).
+
 Hooks also fire in a subagent thread, on the root `session_id` with the thread's `agent_id`.
 Jevris reports those events under the parent session, as that subagent's work: a subagent's
 prompt or compaction is a worker event, and the verification gate answers only the parent's

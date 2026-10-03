@@ -182,6 +182,15 @@ A failed tool call becomes failure evidence, as in Claude Code. There are two ca
 - A bash call that exits non-zero: `metadata.exit` in `tool.execute.after`.
 - A tool that throws: it never reaches `tool.execute.after`, but its part in `message.part.updated` ends in state `error`.
 
+Both cases also give the content-free failure record behind repeated-failure advice (closed codes
+and one-way digests that stay on this machine, never the error text, the command or a path), the
+same as in Claude Code. A tool event cannot show a message in OpenCode, so when the same failure comes
+back the one advice line (which evidence would help most next, or that the repair attempts are used
+up) waits for your next message and is added to that turn's system prompt, once. New-task advice
+reads the `chat.message` text of the first message of a session, only with source egress approved. Its answer comes after the turn
+has started, so it is shown with your next message. Both are advice only: they never block a message or a tool call and rewrite nothing (see
+[settings.md](../settings.md#jev-assist)).
+
 Only the first line of the output or error is kept as evidence. Every other part update is still
 dropped. This was read from the OpenCode source at v1.18.32 and Kilo at v7.8.1.
 

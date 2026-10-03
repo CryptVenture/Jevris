@@ -171,6 +171,13 @@ The hooks only observe:
   hooks cannot show text, so advice that comes due on them, such as a loop explanation after a
   failed tool call, is held for the session and sent as that message before the next
   invocation (at most the four newest, for up to an hour), once.
+- A PostToolUse that carries an `error` gives the content-free failure record behind
+  repeated-failure advice (closed codes and one-way digests that stay on this machine, never the
+  error text, the command or a path). PostToolUse shows nothing, so when the same failure comes
+  back the one advice line (which evidence would help most next, or that the repair attempts are
+  used up) is held for the session and sent as the ephemeral message before the next invocation,
+  once. Antigravity forwards no prompt text, so there is no new-task advice here. See
+  [settings.md](../settings.md#jev-assist).
 - Antigravity has no SessionStart event, so the one-line orientation the other harnesses get when a
   session starts is not sent here. The MCP server instructions and the `jevris-guide` skill carry it.
 
