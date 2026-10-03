@@ -4,6 +4,7 @@
 // graph and releases it. A declared dependency on the holder lifts the overlap. This pins both
 // directions with real task states: a worker run that ends verified, a task moved to failed, and a
 // cancelled one. Scripted workers, temp home and repository; no model, no harness binary.
+// The pinned behaviour is by design and is an owner-visible rule (docs/mcp.md, jevris_submit_task): do not change it to make a test pass.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';

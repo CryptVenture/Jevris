@@ -27,7 +27,11 @@ async function until(check, what) {
 
 /**
  * T1 and T2 run until released (go1, go2); T3 is queued behind the two-worker cap and finishes at once.
- * With `ordered`, T3 also waits for a release (go3) and a fourth task, T4, is queued behind it.
+ * With `ordered`, the plan holds only T1 and T2, and two more tasks are then submitted one at a time,
+ * T4 first and T3 second (a moment apart), both queued behind the cap. Their ids sort the other way
+ * (T3 before T4), so the order they start in tells the queue (first come, first served) from a sort
+ * by id, from the plan order and from the order of the worker script. T4 waits for a release (go4)
+ * so that it holds its slot while T3 is checked.
  */
 async function fixture({ killSwitchNow, ordered = false } = {}) {
   const dir = tempDir('jv-qd-');
@@ -52,13 +56,13 @@ async function fixture({ killSwitchNow, ordered = false } = {}) {
   writeFileSync(join(cfg, 'jevris.config.json'), JSON.stringify({ ...DEFAULT_CONFIG, routing: { ...DEFAULT_CONFIG.routing, managedWorkers: 'bounded-auto' }, orchestration: { ...DEFAULT_CONFIG.orchestration, enabled: true, maxConcurrentWorkers: 2 } }));
   const go1 = join(dir, 'go1');
   const go2 = join(dir, 'go2');
-  const go3 = join(dir, 'go3');
+  const go4 = join(dir, 'go4');
   const path = join(dir, 'worker-script.json');
   writeFileSync(path, JSON.stringify({ schemaVersion: 'jevris-test-worker-1', runs: [
     { taskId: 'T1', writes: [], status: 'completed', waitForFile: go1 },
     { taskId: 'T2', writes: [], status: 'completed', waitForFile: go2 },
-    { taskId: 'T3', writes: [], status: 'completed', ...(ordered ? { waitForFile: go3 } : {}) },
-    ...(ordered ? [{ taskId: 'T4', writes: [], status: 'completed' }] : []),
+    { taskId: 'T3', writes: [], status: 'completed' },
+    ...(ordered ? [{ taskId: 'T4', writes: [], status: 'completed', waitForFile: go4 }] : []),
   ] }));
   const env = { JEVRIS_TEST: '1', JEVRIS_TEST_WORKER_SCRIPT: path };
   setTaskOpDeps({ workerPort: async () => scriptedWorkerPort(env, home) });
@@ -69,16 +73,27 @@ async function fixture({ killSwitchNow, ordered = false } = {}) {
     ...(killSwitchNow === undefined ? {} : { killSwitchNow }), engine: undefined, trace: (e) => traces.push(e),
   });
   const task = (id, scope) => ({ id, requirementIds: ['R1'], acceptanceCheckIds: ['fixed'], expectedOutputs: ['patch'], writeScopes: [scope], models: ['claude-sonnet-4-5'] });
-  const plan = await call('plan.submit', { plan: { tasks: [task('T1', 'a'), task('T2', 'b'), task('T3', 'c'), ...(ordered ? [task('T4', 'd')] : [])] }, ownerId: 'alice', channel: 'terminal', rootBudget: { id: 'b1', limitMicroUsd: 5_000_000 } });
+  const plan = await call('plan.submit', { plan: { tasks: ordered ? [task('T1', 'a'), task('T2', 'b')] : [task('T1', 'a'), task('T2', 'b'), task('T3', 'c')] }, ownerId: 'alice', channel: 'terminal', rootBudget: { id: 'b1', limitMicroUsd: 5_000_000 } });
   assert.equal(plan.body.leaseIds.length, 2, 'the cap starts two workers');
-  assert.equal(getTask(ws, 'T3').node.state, 'ready', 'the third waits');
-  if (ordered) assert.equal(getTask(ws, 'T4').node.state, 'ready', 'the fourth waits too');
+  if (ordered) {
+    // Queued one at a time, T4 first: a task that is created later starts later, whatever its id.
+    for (const [id, scope] of [['T4', 'd'], ['T3', 'c']]) {
+      const submitted = await call('task.submit', { task: { ...task(id, scope), rootBudgetId: 'b1' } });
+      assert.equal(submitted.ok, true, JSON.stringify(submitted));
+      assert.equal(getTask(ws, id).node.state, 'ready', `${id} waits behind the cap`);
+      await new Promise((resolve) => setTimeout(resolve, 15)); // the queue is ordered by creation time, in ms
+    }
+    assert.ok(getTask(ws, 'T4').createdAtMs < getTask(ws, 'T3').createdAtMs, 'T4 was queued before T3');
+    assert.ok('T3' < 'T4', 'and its id sorts after');
+  } else {
+    assert.equal(getTask(ws, 'T3').node.state, 'ready', 'the third waits');
+  }
   return {
-    ws, call, traces, go1, go2, go3,
+    ws, call, traces, go1, go2, go4,
     done: async () => {
       writeFileSync(go1, '');
       writeFileSync(go2, '');
-      writeFileSync(go3, '');
+      writeFileSync(go4, '');
       await drainBackgroundWorkers();
       setTaskOpDeps({});
       closeTestStore(store);
@@ -124,20 +139,23 @@ test('a worker that ends while the kill switch is stopped starts nothing: the sw
   }
 });
 
-test('queued tasks start in the order they were queued as slots free, with nobody else asking (JEV-0008)', async () => {
+test('queued tasks start in the order they were queued, not in id, plan or script order, as slots free, with nobody else asking (JEV-0008)', async () => {
+  // T4 was queued first and T3 second; T3's id sorts first. T1 and T2 hold both slots.
   const f = await fixture({ ordered: true });
   try {
     const stateOf = (id) => getTask(f.ws, id).node.state;
     const started = (id) => ['leased', 'running', 'awaiting-evidence'].includes(stateOf(id));
-    // One slot frees (T1 ends): the first queued task takes it, the second keeps waiting.
+    assert.equal(stateOf('T3'), 'ready');
+    assert.equal(stateOf('T4'), 'ready');
+    // One slot frees (T1 ends): the first queued task takes it, although its id sorts after the other's.
     writeFileSync(f.go1, '');
-    await until(() => started('T3'), 'T3 to start when T1 ended');
-    assert.equal(stateOf('T4'), 'ready', 'T4 does not jump ahead of T3, and the cap (T2 and T3 hold both slots) keeps it queued');
+    await until(() => started('T4'), 'T4 (queued first) to start when T1 ended');
+    assert.equal(stateOf('T3'), 'ready', 'T3 (queued second) does not jump ahead of T4 by its id, and the cap (T2 and T4 hold both slots) keeps it queued');
     assert.ok(['leased', 'running'].includes(stateOf('T2')), 'the other running task is left alone');
     // The next slot frees (T2 ends): now the second queued task starts, with no new submit or request.
     writeFileSync(f.go2, '');
-    await until(() => started('T4'), 'T4 to start when T2 ended');
-    assert.ok(['leased', 'running'].includes(stateOf('T3')), 'T3 still holds its slot');
+    await until(() => started('T3'), 'T3 to start when T2 ended');
+    assert.ok(['leased', 'running'].includes(stateOf('T4')), 'T4 still holds its slot');
     assert.equal(f.traces.some((e) => e.event === 'orchestrator.plan-continued' && e.reasonCode === 'KILL_SWITCH'), false, 'nothing was held back');
   } finally {
     await f.done();
