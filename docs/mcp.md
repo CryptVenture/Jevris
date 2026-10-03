@@ -222,7 +222,7 @@ Validates a task graph. It finds:
 - parallel tasks that write to the same scope.
 
 - **Arguments:** `tasks` (required): 1 to 1024 task objects. Only each task's TaskNode fields are checked; the scheduling fields of a submitted task (`title`, `models`, `expectedOutputs` and so on) are allowed and ignored.
-- **Result:** `{ valid, taskCount, order, waves, criticalPath, ready, issues, advice }`.
+- **Result:** `{ valid, taskCount, order, waves, criticalPath, ready, issues, advice }`, plus `sliceSuggestions` for a sound graph: one `{ taskId, slice, source, risk, confidencePercent, reasonCode, decisionId }` per task, the slice and risk the route classifier gives it (Jev from structured features, rules as the fallback; see [routing.md](routing.md#slice-hints-for-the-tasks-of-a-plan)). A slice a task declares (`sliceId`) is kept as given, with `suggestedSlice`, `suggestedBy` and `agrees`. Advice for a person: it is not part of the plan, and no path name is sent to Jev.
   - `issues` codes are `DUPLICATE_TASK`, `UNKNOWN_DEPENDENCY`, `SELF_DEPENDENCY`, `CYCLE`, `WORKSPACE_SCOPE`, `INVALID_TASK`, `NO_ACCEPTANCE_CHECK`, `NO_REQUIREMENT` and `WRITE_OVERLAP`.
   - An invalid plan is a normal result with `valid: false`.
 

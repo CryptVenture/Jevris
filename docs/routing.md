@@ -40,6 +40,25 @@ jevris route --model claude-opus-5-5 --path src/parser.ts --path test/parser.tes
 - **Milliseconds, honestly.** The decision cache answers a repeat of the same features in tens of milliseconds. A new question is a network call: on one machine's own ledger the median was about 400 ms and the 95th percentile about 940 ms, so the call is abandoned at 700 ms and the rules answer is used. Those are one developer's measurements, not a benchmark.
 - **Advice only.** A classified slice is labelled as Jev's or the rules', shown as `task slice` and `slice risk` in the output, recorded as a `slice-classify` decision (`jevris explain <decision-id>` shows what was asked, what answered, the confidence, whether the cache answered, the rules alternative and the evidence names), and never becomes a learned arm, a signed prior or a model switch. `jev.assist off` makes it rules-only.
 
+### Slice hints for the tasks of a plan
+
+`jevris plan` and `jevris plan --submit` give every task of a sound plan the same hint, so a person reading the plan sees each task's slice and risk beside it:
+
+```text
+task T2: slice bounded-edit (suggested by Jev, advice only); risk low
+task T3: slice refactor (declared in the plan; Jev agrees); risk low
+task T4: no slice suggested (a protected path or a high risk, so the approved baseline stays); risk high
+```
+
+The evidence is the task's own write scopes, acceptance check ids and title, reduced to features exactly as for a route request, and the rules, the gates and the privacy rules are the same: rules answer first when they are sure, Jev is asked from counts and categories otherwise, no path name is sent, and the title goes only when source egress is approved. What is new is the bound on a plan, which can hold many tasks:
+
+- **At most 8 Jev questions per plan.** Tasks with identical features share one question, and the decision cache answers a repeat. A task past the cap gets the rules answer with the reason `PLAN_JEV_CAP`. Tasks that declare no slice are served before those that do.
+- **One shared wait.** The questions run at the same time inside one wait of at most 700 ms, within the time the plan request has left. A question still out when it ends is dropped and its task keeps the rules answer (`PLAN_JEV_DEADLINE`, or `PLAN_JEV_NO_TIME` when too little time was left to ask).
+- **A slice the plan declares stands.** A task's `sliceId` is shown as given, with what the classifier makes of it ("Jev agrees", "Jev suggests issue-fix, advice only"). Both are recorded, so a later report can score Jev against slices people declared.
+- **Advice for a person, nothing more.** The hint is not stored in the plan, is not part of what `--submit` creates, never changes the graph, a task, its slice or its route, never becomes a learned arm or a signed prior, and starts nothing. The `sliceSuggestions` field of the result (`taskId`, `slice`, `source`, `risk`, `confidencePercent`, `reasonCode`, `decisionId`) is additive, and a plan that is not sound (a cycle, an unknown dependency, a duplicate id) gets none.
+- **Gates.** `jev.assist off`, a mode below `observe`, the kill switch, the budgets, the Jev circuit and the question and byte caps all apply as for a route. With any of them the hint is the rules answer and the line says so. With no sidecar running, the rules hints still print.
+- **Recorded.** Each task's hint is one `slice-classify` advisory decision with the task's id (`jevris explain <decision-id>` says it was a plan task and, for a declared slice, whether the classifier agreed), joined to the task's outcome through the decision and outcome ledger when the task is verified. A repeat of the same plan records nothing twice.
+
 ## Harness sign-in: subscription or API key
 
 Each harness can run on your subscription login or on a vendor API key. Both are supported equally. Jevris reads only which mode is in use, never a key, a token, an email or an account id.
