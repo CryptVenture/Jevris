@@ -14,7 +14,7 @@
  * by then. Advice is queued only where the mode shows advice; in observe it is recorded and not shown.
  */
 import { modeAllows, type Mode } from '@jevris/contracts';
-import type { DecisionEngine } from '@jevris/core';
+import { UNKNOWN_SESSION_ID, type DecisionEngine } from '@jevris/core';
 import type { HookProposal, TriggerHandler, TriggerHandlerInput } from './sidecar-subscribers.js';
 import { DEFAULT_MAX_REPAIR_ATTEMPTS, adviseRepeatedFailure, failureAskGate, failureContextOf, parseFailureFeatures, planFailureAdvice } from './failure-advice.js';
 import { adviseNewTask, newTaskAskGate } from './new-task-advice.js';
@@ -33,6 +33,10 @@ export interface LiveHandlerOptions {
 }
 
 const DETACHED_DEADLINE_MS = 1_500;
+/** Time kept back from the hook's remaining time for the rest of its answer when the record is waited for, in ms. */
+const RECORD_MARGIN_MS = 150;
+/** The longest a hook waits for the advisory record, in ms: a journal write takes a few ms, so a longer wait is a stalled disk. */
+const RECORD_WAIT_MAX_MS = 250;
 const MAX_TEXT = 4000;
 
 function plain(value: unknown): value is Record<string, unknown> {
@@ -88,6 +92,12 @@ export function createRepeatedFailureHandler(options: LiveHandlerOptions = {}): 
     const features = parseFailureFeatures(body['failure']);
     // Without the adapter's content-free features (or the filter's counts) there is nothing to advise on.
     if (features === null || input.failure === undefined) return null;
+    // An event with no usable session id shares one bucket with every other such event of the workspace, so
+    // its repeat count is not one session's and a line for it could show in another: nothing is advised.
+    if (input.envelope.sessionId === UNKNOWN_SESSION_ID) {
+      input.ctx.trace({ event: 'repeated-failure-advice', reasonCode: 'REPEATED_FAILURE_NO_SESSION' });
+      return null;
+    }
     const mode = modeOf(input);
     const engine = engineLike(input);
     const context = failureContextOf(features, input.failure, repairBound(body));
@@ -97,8 +107,13 @@ export function createRepeatedFailureHandler(options: LiveHandlerOptions = {}): 
     const asks = (plan.askSame || plan.askNext) && failureAskGate({ ...common, engine }) === null;
     const show = modeAllows(mode, 'show-advice');
     if (!asks) {
-      // Nothing to wait for: the rules (or the gate's fallback) answer at once.
-      const advice = await adviseRepeatedFailure(engine, context, common);
+      // Nothing to wait for: the rules (or the gate's fallback) answer at once. Recording the advice is
+      // waited for only briefly, and never past the time the hook has left less a margin for the rest of its answer.
+      const advice = await adviseRepeatedFailure(engine, context, {
+        ...common,
+        recordWaitMs: Math.max(0, Math.min(RECORD_WAIT_MAX_MS, input.ctx.deadline.remainingMs() - RECORD_MARGIN_MS)),
+        note: (reasonCode) => input.ctx.trace({ event: 'repeated-failure-advice', reasonCode }),
+      });
       input.ctx.trace({ event: 'repeated-failure-advice', reasonCode: advice.reasonCode, ...(advice.decisionId === null ? {} : { decisionId: advice.decisionId }) });
       if (advice.text === null) return null;
       if (!showsHere(input)) {
@@ -147,6 +162,11 @@ export function createNewTaskHandler(options: LiveHandlerOptions = {}): TriggerH
     const raw = plain(task) ? task['objective'] : undefined;
     const objective = typeof raw === 'string' && raw.trim().length > 0 ? raw.slice(0, MAX_TEXT) : null;
     if (objective === null) return null;
+    // No usable session id: the line could not be queued for a session, so the request is not read.
+    if (input.envelope.sessionId === UNKNOWN_SESSION_ID) {
+      input.ctx.trace({ event: 'new-task-advice', reasonCode: 'NEW_TASK_NO_SESSION' });
+      return null;
+    }
     const mode = modeOf(input);
     const engine = engineLike(input);
     const common = {

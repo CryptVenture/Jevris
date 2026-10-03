@@ -29,6 +29,14 @@ import {
 const ID = new RegExp(ID_PATTERN);
 const DEDUP = /^[0-9a-f]{64}$/;
 
+/**
+ * The session id an envelope carries when the harness gave none or an unsafe one (an Antigravity
+ * `conversationId` can be null). It stands for no session in particular: every such event of a
+ * workspace shares it, so nothing may be queued under it, shown through it or counted by it as if
+ * it were one session's.
+ */
+export const UNKNOWN_SESSION_ID = 'unknown-session';
+
 export interface EnvelopeInput {
   readonly event: NormalizedHarnessEvent;
   readonly workspaceId: string;
@@ -82,7 +90,7 @@ export function toEventEnvelope(input: EnvelopeInput): EnvelopeResult {
     schemaVersion: '1.0',
     eventId: `ev-${event.dedupKey.slice(0, 40)}`,
     workspaceId: input.workspaceId,
-    sessionId: safeId(event.sessionId) ?? 'unknown-session',
+    sessionId: safeId(event.sessionId) ?? UNKNOWN_SESSION_ID,
     sequence: input.sequence,
     occurredAt: input.occurredAt,
     kind: event.kind,

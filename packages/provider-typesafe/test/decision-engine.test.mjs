@@ -370,7 +370,13 @@ test('sidecar ops: explain, decision.get, plan, cost.report and calibration.stat
   assert.ok(cyclic.body.issues.some((issue) => issue.code === 'CYCLE' || issue.code === 'INVALID_TASK'));
   assert.equal((await ops.plan.handle(ctx('plan', { tasks: 'x' }, e))).reasonCode, 'INVALID_REQUEST');
   // The plans' slice hints are decisions too: one mock Jev slice question (tasks with the same features share it, so a second provider call) and four hints answered with no provider call; a repeat of the same task and result records nothing twice, and the cyclic and the refused plans recorded none.
-  const afterPlans = await ops['cost.report'].handle(ctx('cost.report', {}, e));
+  // The hints are recorded after the labels and the plan answers within its own time: on a slow disk the last records finish just after the answer (PLAN_JEV_RECORD_LATE), so wait for the sixth decision, not for a clock.
+  let afterPlans = await ops['cost.report'].handle(ctx('cost.report', {}, e));
+  const settleBy = Date.now() + 30_000;
+  while (afterPlans.body.decisions.total < 6 && Date.now() < settleBy) {
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    afterPlans = await ops['cost.report'].handle(ctx('cost.report', {}, e));
+  }
   assert.equal(afterPlans.body.decisions.providerCalls, 2);
   assert.equal(afterPlans.body.decisions.total, 6);
   assert.equal(afterPlans.body.decisions.byBillingBasis['no-provider-call'], 4);

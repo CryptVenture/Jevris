@@ -17,8 +17,11 @@
  * - A slice the plan declared is kept as given. The classifier still runs on it, and the two are
  *   recorded together (`SLICE_AGREE` or `SLICE_DIFFER`), so the outcome join can later score Jev
  *   against a plan-declared slice.
- * - One advisory `slice-classify` decision per task, with the task's id, joined to its outcome
- *   through the decision/outcome ledger. A repeated check of the same task and result records once.
+ * - One advisory `slice-classify` decision per task. A submitted plan records each under the id of the
+ *   task it created, joined to that task's outcome through the decision/outcome ledger; a plan check
+ *   records no task id (its tasks do not exist). A repeated check of the same task and result records
+ *   once inside one engine's lifetime, and a recording that runs past the step's time is dropped from
+ *   the answer (`PLAN_JEV_RECORD_LATE`, see `PlanSliceOptions.note`).
  */
 import { createHash } from 'node:crypto';
 import { modeAllows, type Mode } from '@jevris/contracts';
@@ -79,7 +82,10 @@ export interface PlanSliceSuggestion {
 /** Decisions already recorded for a task and result, so a repeated check records once. */
 export interface PlanSliceMemory {
   get(key: string): string | null | undefined;
+  /** `null` marks a recording that is under way (its id is not known yet). */
   set(key: string, decisionId: string | null): void;
+  /** Forgets a key whose recording failed, so the next check records it again. Optional: without it a failed key stays marked. */
+  forget?(key: string): void;
 }
 
 export function createPlanSliceMemory(max = 4096): PlanSliceMemory {
@@ -94,6 +100,9 @@ export function createPlanSliceMemory(max = 4096): PlanSliceMemory {
         const oldest = seen.keys().next();
         if (oldest.done !== true) seen.delete(oldest.value);
       }
+    },
+    forget: (key) => {
+      seen.delete(key);
     },
   };
 }
@@ -125,9 +134,22 @@ export interface PlanSliceOptions {
   readonly maxJevCalls?: number;
   /** Record one advisory decision per task (default true). */
   readonly record?: boolean;
+  /**
+   * The plan's tasks exist now under these ids (`plan --submit` has just created them): each decision
+   * is recorded under its task's id, so the outcome join can score it when that task is verified.
+   * Absent, as for a plan check, a decision carries no task id: a hypothetical `T1` must never join
+   * the outcome of a real task that is later given the same id.
+   */
+  readonly tasksExist?: boolean;
   readonly memory?: PlanSliceMemory;
   /** The clock; tests inject one. */
   readonly now?: () => number;
+  /**
+   * Told a reason code for the step as a whole, content-free, for the caller's trace. Today only
+   * `PLAN_JEV_RECORD_LATE`: some labels were returned without a decision id because recording them
+   * ran past the step's time. The labels themselves are unchanged.
+   */
+  readonly note?: (reasonCode: string) => void;
 }
 
 export interface PlanSliceContext {
@@ -180,8 +202,9 @@ function featureKey(features: SliceFeatures, title: string): string {
   return JSON.stringify([features, title]);
 }
 
-function memoryKey(workspaceId: string, taskId: string, group: string, declared: string | null, r: SliceClassification): string {
-  return createHash('sha256').update(JSON.stringify([workspaceId, taskId, group, declared, r.source, r.sliceId, r.risk, r.reasonCode])).digest('hex').slice(0, 40);
+function memoryKey(workspaceId: string, taskId: string, tasksExist: boolean, group: string, declared: string | null, r: SliceClassification): string {
+  // `tasksExist` is part of the key: a plan check's decision (no task id) is not the submit's, which carries the created task's id.
+  return createHash('sha256').update(JSON.stringify([workspaceId, taskId, tasksExist, group, declared, r.source, r.sliceId, r.risk, r.reasonCode])).digest('hex').slice(0, 40);
 }
 
 interface Group {
@@ -294,7 +317,7 @@ export async function suggestPlanSlices(engine: DecisionEngine | null, tasks: re
     const declared = declaredOf(task);
     const agrees = declared === null || r.sliceId === null ? null : r.sliceId === declared;
     const extra = ['SLICE_PLAN_TASK', ...(declared === null ? [] : [`SLICE_GIVEN_${sliceCodeOf(declared)}`, ...(agrees === null ? [] : [agrees ? 'SLICE_AGREE' : 'SLICE_DIFFER'])])];
-    const mkey = memoryKey(ctx.workspaceId, task.id, key, declared, r);
+    const mkey = memoryKey(ctx.workspaceId, task.id, options.tasksExist === true, key, declared, r);
     const remembered = recordable ? memory.get(mkey) : undefined;
     if (recordable && remembered === undefined) pending.push({ index: i, r, extra, key: mkey, elapsed: leader ? (r.latencyMs ?? 0) : 0, taskId: task.id });
     out[i] = {
@@ -309,22 +332,60 @@ export async function suggestPlanSlices(engine: DecisionEngine | null, tasks: re
     };
   });
 
-  // One advisory decision per task, in small parallel batches, and none once the step's time is used.
-  for (let at = 0; at < pending.length; at += RECORD_BATCH) {
-    if (now() - started >= totalMs) break;
-    await Promise.all(
-      pending.slice(at, at + RECORD_BATCH).map(async (p) => {
-        try {
-          const recorded = await recordSliceClassification(engine, p.r, { workspaceId: ctx.workspaceId, evidenceRevision: ctx.evidenceRevision, taskId: p.taskId, ...(typeof ctx.sessionId === 'string' ? { sessionId: ctx.sessionId } : {}) }, p.elapsed, p.extra);
-          if (recorded.decisionId !== null) {
-            memory.set(p.key, recorded.decisionId);
-            out[p.index] = { ...(out[p.index] as PlanSliceSuggestion), decisionId: recorded.decisionId };
-          }
-        } catch {
-          // Not recorded: the label stands without a decision id.
-        }
-      }),
-    );
+  // One advisory decision per task, in small parallel batches. The phase is bounded by the step's own
+  // time, as the ask phase is: a batch that is still out at the limit does not hold the answer. The
+  // labels go back without the decision ids it had not yet given, the batches not yet started are
+  // dropped, and a recording already out finishes (or fails) on its own and is remembered, so a repeat
+  // of the plan finds it. An answer already returned is never changed by a late recording.
+  if (pending.length > 0) {
+    let abandoned = false;
+    const record = async (): Promise<'done' | 'out-of-time'> => {
+      for (let at = 0; at < pending.length; at += RECORD_BATCH) {
+        if (abandoned || now() - started >= totalMs) return 'out-of-time';
+        await Promise.all(
+          pending.slice(at, at + RECORD_BATCH).map(async (p) => {
+            // Marked as under way before it starts, so a check of the same plan that arrives while a late
+            // recording is still out does not record the same decision a second time.
+            memory.set(p.key, null);
+            try {
+              const recorded = await recordSliceClassification(engine, p.r, { workspaceId: ctx.workspaceId, evidenceRevision: ctx.evidenceRevision, ...(options.tasksExist === true ? { taskId: p.taskId } : {}), ...(typeof ctx.sessionId === 'string' ? { sessionId: ctx.sessionId } : {}) }, p.elapsed, p.extra);
+              if (recorded.decisionId !== null) {
+                memory.set(p.key, recorded.decisionId);
+                if (!abandoned) out[p.index] = { ...(out[p.index] as PlanSliceSuggestion), decisionId: recorded.decisionId };
+              } else {
+                memory.forget?.(p.key);
+              }
+            } catch {
+              // Not recorded: the label stands without a decision id, and the next check tries again.
+              memory.forget?.(p.key);
+            }
+          }),
+        );
+      }
+      return 'done';
+    };
+    const left = totalMs - (now() - started);
+    let outcome: 'done' | 'out-of-time' = 'out-of-time';
+    if (left > 0) {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const late = new Promise<'out-of-time'>((resolve) => {
+        timer = setTimeout(() => resolve('out-of-time'), Math.max(1, Math.ceil(left)));
+      });
+      const running = record().catch(() => 'out-of-time' as const);
+      try {
+        outcome = await Promise.race([running, late]);
+      } finally {
+        if (timer !== undefined) clearTimeout(timer);
+      }
+    }
+    if (outcome === 'out-of-time') {
+      abandoned = true;
+      try {
+        options.note?.('PLAN_JEV_RECORD_LATE');
+      } catch {
+        // A note is for the caller's trace; its failure changes nothing.
+      }
+    }
   }
   return out;
 }

@@ -9,7 +9,12 @@
  *
  * In memory only. A sidecar restart drops pending advice, which is acceptable: it is advice, the
  * decision it came from is already recorded, and nothing depends on it being shown.
+ *
+ * A session with no usable id (`UNKNOWN_SESSION_ID`, the placeholder the envelope carries when the
+ * harness gave none) has no queue: every such event of a workspace shares the placeholder, so
+ * advice for one conversation would show in another. Nothing is queued for it and it is given none.
  */
+import { UNKNOWN_SESSION_ID } from '@jevris/core';
 
 export type PendingKind = 'repeated-failure' | 'new-task';
 
@@ -61,8 +66,9 @@ export class PendingAdviceStore {
     return list;
   }
 
-  /** Adds advice for a session, replacing any pending advice of the same kind. Empty text is ignored. */
+  /** Adds advice for a session, replacing any pending advice of the same kind. Empty text, and a session with no usable id, are ignored. */
   put(workspaceId: string, sessionId: string, advice: Omit<PendingAdvice, 'atMs'> & { readonly atMs?: number }): boolean {
+    if (sessionId === UNKNOWN_SESSION_ID) return false;
     const text = advice.text.trim().slice(0, MAX_TEXT_CHARS);
     if (text.length === 0) return false;
     const key = PendingAdviceStore.key(workspaceId, sessionId);
@@ -80,17 +86,20 @@ export class PendingAdviceStore {
 
   /** The oldest unexpired advice of the session, without taking it. */
   peek(workspaceId: string, sessionId: string): PendingAdvice | null {
+    if (sessionId === UNKNOWN_SESSION_ID) return null;
     const list = this.#live(PendingAdviceStore.key(workspaceId, sessionId));
     return list[0] ?? null;
   }
 
   /** The unexpired advice of one kind in the session, without taking it. */
   find(workspaceId: string, sessionId: string, kind: PendingKind): PendingAdvice | null {
+    if (sessionId === UNKNOWN_SESSION_ID) return null;
     return this.#live(PendingAdviceStore.key(workspaceId, sessionId)).find((advice) => advice.kind === kind) ?? null;
   }
 
   /** Takes the advice off the queue. False when it was already taken or replaced. */
   consume(workspaceId: string, sessionId: string, advice: PendingAdvice): boolean {
+    if (sessionId === UNKNOWN_SESSION_ID) return false;
     const key = PendingAdviceStore.key(workspaceId, sessionId);
     const list = this.#live(key);
     const at = list.findIndex((existing) => existing === advice);
@@ -102,6 +111,7 @@ export class PendingAdviceStore {
 
   /** Pending advice in the session (tests and status). */
   count(workspaceId: string, sessionId: string): number {
+    if (sessionId === UNKNOWN_SESSION_ID) return 0;
     return this.#live(PendingAdviceStore.key(workspaceId, sessionId)).length;
   }
 }

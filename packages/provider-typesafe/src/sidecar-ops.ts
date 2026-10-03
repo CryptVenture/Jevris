@@ -828,6 +828,8 @@ async function planSliceSuggestions(ctx: SidecarOpContext, rawTasks: readonly un
         assist: ctx.jevAssist === 'off' ? 'off' : 'classify',
         ...(ctx.mode === undefined ? {} : { mode: ctx.mode }),
         killSwitchStopped: ctx.killSwitchStopped,
+        // A plan check: its tasks do not exist, so no decision is recorded under a task id.
+        note: (reasonCode) => ctx.trace({ event: 'plan-slices', reasonCode }),
         ...planSliceTimes(ctx.deadline.remainingMs()),
       },
     );

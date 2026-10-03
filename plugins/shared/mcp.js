@@ -143,9 +143,9 @@ var TOOLS = [
     name: "jevris_plan",
     op: "plan",
     title: "Validate a plan",
-    description: "Validates a task graph: cycles, unknown dependencies, missing acceptance checks and requirements, and parallel tasks that share a write scope. Returns waves, the critical path and ready tasks, and a slice and risk hint per task (sliceSuggestions, advice only). Read-only.",
+    description: "Validates a task graph: cycles, unknown dependencies, missing acceptance checks and requirements, and parallel tasks that share a write scope. Returns waves, the critical path and ready tasks, and a slice and risk hint per task (sliceSuggestions, advice only). It changes no plan, file or setting, but it records one advisory decision per labelled task in the local journal and, with Jev on, may ask Jev up to 8 questions.",
     inputSchema: input({ tasks: { type: "array", items: { type: "object" }, minItems: 1, maxItems: 1024, description: "TaskNode objects (§6.2)." } }, ["tasks"]),
-    effect: "read"
+    effect: "advise"
   },
   {
     name: "jevris_recover",

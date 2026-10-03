@@ -10,7 +10,7 @@ import { WORKSPACE_REVISIONS, planSliceTimes, suggestPlanSlices, type PlanSliceT
 import type { TaskInput } from '../orchestration/tasks.js';
 import { decisionEngineOf } from '../verify/relevance.js';
 
-export type PlanSliceContext = Pick<SidecarOpContext, 'engine' | 'mode' | 'jevAssist' | 'killSwitchStopped' | 'deadline'>;
+export type PlanSliceContext = Pick<SidecarOpContext, 'engine' | 'mode' | 'jevAssist' | 'killSwitchStopped' | 'deadline' | 'trace'>;
 
 /** The slice evidence of the submitted tasks, in the plan's order. */
 export function submittedSliceTasks(tasks: readonly TaskInput[], order: readonly string[]): PlanSliceTask[] {
@@ -33,6 +33,9 @@ export async function submittedPlanSuggestions(ctx: PlanSliceContext, workspaceI
         assist: ctx.jevAssist === 'off' ? 'off' : 'classify',
         ...(ctx.mode === undefined ? {} : { mode: ctx.mode }),
         killSwitchStopped: ctx.killSwitchStopped,
+        // The tasks were created a moment ago under these ids: each decision is recorded under its own task's id.
+        tasksExist: true,
+        note: (reasonCode) => ctx.trace({ event: 'plan-slices', reasonCode }),
         ...planSliceTimes(ctx.deadline.remainingMs()),
       },
     );

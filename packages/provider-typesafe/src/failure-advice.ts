@@ -335,6 +335,15 @@ export interface AdviseFailureOptions extends Omit<FailureGateInput, 'engine'> {
   readonly now?: () => number;
   /** How long past `deadlineMs` the engine lets the call run to warm the cache (default 1000 ms). */
   readonly lateGraceMs?: number;
+  /**
+   * The longest to wait for the advisory record, in ms. Absent, the record is waited for (a detached
+   * run has no one waiting). A hook path sets it to the time the hook has left: past it the advice is
+   * returned without a decision id, the record finishes or fails on its own, and `note` is told
+   * `REPEATED_FAILURE_RECORD_LATE`.
+   */
+  readonly recordWaitMs?: number;
+  /** Told a reason code for the run as a whole (content-free), for the caller's trace. */
+  readonly note?: (reasonCode: string) => void;
   readonly ids: { readonly workspaceId: string; readonly taskId?: string | null; readonly sessionId?: string | null };
 }
 
@@ -400,20 +409,44 @@ export async function adviseRepeatedFailure(engine: DecisionEngine | null, c: Fa
     const timed: FailureAdvice = { ...advice, latencyMs: advice.asked ? elapsed : null };
     if (!recordable || engine === null || engine.recordAdvice === undefined || (timed.text === null && !timed.asked)) return timed;
     const facts = failureFacts(c);
+    let recording: Promise<FailureAdvice>;
     try {
-      const recorded = await engine.recordAdvice({
-        specId: REPEATED_FAILURE_SPEC_ID,
-        workspaceId: options.ids.workspaceId,
-        evidenceRevision: revisionOf(facts, plan),
-        ...(options.ids.taskId === undefined || options.ids.taskId === null ? {} : { taskId: options.ids.taskId }),
-        ...(options.ids.sessionId === undefined || options.ids.sessionId === null ? {} : { sessionId: options.ids.sessionId }),
-        action: { kind: 'advise', templateId: REPEATED_FAILURE_SPEC_ID, evidenceIds: evidenceIdsOf(c) },
-        reasonCodes: failureReasonCodes(c, timed, plan.next),
-        durationMs: elapsed,
-      });
-      return recorded.ok ? { ...timed, decisionId: recorded.decisionId } : timed;
+      recording = engine
+        .recordAdvice({
+          specId: REPEATED_FAILURE_SPEC_ID,
+          workspaceId: options.ids.workspaceId,
+          evidenceRevision: revisionOf(facts, plan),
+          ...(options.ids.taskId === undefined || options.ids.taskId === null ? {} : { taskId: options.ids.taskId }),
+          ...(options.ids.sessionId === undefined || options.ids.sessionId === null ? {} : { sessionId: options.ids.sessionId }),
+          action: { kind: 'advise', templateId: REPEATED_FAILURE_SPEC_ID, evidenceIds: evidenceIdsOf(c) },
+          reasonCodes: failureReasonCodes(c, timed, plan.next),
+          durationMs: elapsed,
+        })
+        .then(
+          (recorded) => (recorded.ok ? { ...timed, decisionId: recorded.decisionId } : timed),
+          () => timed,
+        );
     } catch {
       return timed;
+    }
+    if (options.recordWaitMs === undefined) return recording;
+    // The hook has only so long: past it the line goes without its decision id and the record
+    // finishes (or fails) on its own, so a slow disk never holds the line.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => resolve('late'), Math.max(0, Math.floor(options.recordWaitMs ?? 0)));
+    });
+    try {
+      const raced = await Promise.race([recording, late]);
+      if (raced !== 'late') return raced;
+      try {
+        options.note?.('REPEATED_FAILURE_RECORD_LATE');
+      } catch {
+        // A note is for the caller's trace; its failure changes nothing.
+      }
+      return timed;
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
     }
   };
 

@@ -24,7 +24,7 @@ import {
   type SidecarEventSubscriber,
   type SidecarOpContext,
 } from '@jevris/contracts';
-import { DecisionQueues, EventDeduper, TriggerFilter, WRITE_TOOL_NAMES, WorkspaceRevisions, noteSubagentRoute, toEventEnvelope, type DecisionEngine, type FailureHints, type FailureObservation, type TriggerKind } from '@jevris/core';
+import { DecisionQueues, EventDeduper, TriggerFilter, UNKNOWN_SESSION_ID, WRITE_TOOL_NAMES, WorkspaceRevisions, noteSubagentRoute, toEventEnvelope, type DecisionEngine, type FailureHints, type FailureObservation, type TriggerKind } from '@jevris/core';
 import type { EventEnvelope } from '@jevris/contracts';
 import { engineOf } from './engine-of.js';
 import { parseFailureFeatures } from './failure-advice.js';
@@ -229,6 +229,8 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
    */
   function deliveryProposal(ctx: SidecarOpContext, envelope: EventEnvelope, mode: NonNullable<SidecarOpContext['mode']>): HookProposal | null {
     if (!DELIVERY_KINDS.has(envelope.kind) || !modeAllows(mode, 'show-advice')) return null;
+    // An event with no usable session id belongs to no session: it is given no one's waiting advice.
+    if (envelope.sessionId === UNKNOWN_SESSION_ID) return null;
     // G2: the harness says whether it shows an answer on this event; where it does not, nothing is spent.
     if (plain(ctx.body) && ctx.body['showsExplain'] === false) return null;
     if ((ctx.signal as { readonly aborted?: boolean }).aborted === true) return null;

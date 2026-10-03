@@ -15,7 +15,7 @@
  * - Every packet has a `state`; a request without one is never built.
  * - Source egress (GOV-01, US02): unless the administrator approved egress, no evidence text
  *   leaves the machine. Each item is replaced in `withheldEvidence` by bounded structured
- *   features (span id, source kind, category, character count and a digest salted per engine),
+ *   features (a span id and a digest, both salted per engine, the source kind, category and character count),
  *   and `untrustedEvidence` stays empty. With egress approved, text is still screened for
  *   secrets first (a hit refuses the packet) and capped by the size limits.
  */
@@ -153,6 +153,15 @@ export function spanId(evidenceId: string, text: string): string {
   return `s${sha256Hex(`${evidenceId}\u0000${text}`).slice(0, 12)}`;
 }
 
+/**
+ * The span id of an item whose text is withheld: the same shape, salted with the engine's per-process
+ * salt, so a dictionary of common error lines cannot be matched against it. Stable inside one engine
+ * (the decision cache and the packet hash still tell equal evidence apart), different in the next.
+ */
+function withheldSpanId(salt: string, evidenceId: string, text: string): string {
+  return `s${sha256Hex(`${salt}\u0000${evidenceId}\u0000${text}`).slice(0, 12)}`;
+}
+
 /** A JSON pointer (RFC 6901 style) from its segments. */
 function pointer(...segments: readonly (string | number)[]): string {
   return segments.map((segment) => ['', String(segment)].join('/')).join('');
@@ -239,8 +248,10 @@ export function buildPacket(input: PacketInput, limits: PacketLimits = DEFAULT_P
   const findings = secretFindings(approved ? input : { ...input, evidence: [] });
   if (findings.length > 0) return { ok: false, reasonCode: 'SECRET_BLOCKED', field: findings[0]?.field ?? null, findings };
   const category = (item: PacketEvidence): string => (item.category !== undefined && CATEGORY.test(item.category) ? item.category : item.sourceKind);
+  // Sent text keeps the stable id Jev chooses by. Withheld text, with the engine's salt, gets the salted one.
+  const spanOf = (item: PacketEvidence): string => (approved || options.salt === undefined ? spanId(item.id, item.text) : withheldSpanId(options.salt, item.id, item.text));
   const withhold = (item: PacketEvidence): WithheldSpan => ({
-    span: spanId(item.id, item.text),
+    span: spanOf(item),
     source: item.sourceKind,
     category: category(item),
     characters: item.text.length,
@@ -263,7 +274,7 @@ export function buildPacket(input: PacketInput, limits: PacketLimits = DEFAULT_P
       facts: input.facts,
       candidates: [...(input.candidates ?? [])],
       missingEvidence: [...(input.missingEvidence ?? [])],
-      untrustedEvidence: approved ? sortedKeep.map(({ item }) => ({ span: spanId(item.id, item.text), source: item.sourceKind, text: item.text })) : [],
+      untrustedEvidence: approved ? sortedKeep.map(({ item }) => ({ span: spanOf(item), source: item.sourceKind, text: item.text })) : [],
       withheldEvidence: approved ? [] : sortedKeep.map(({ item }) => withhold(item)),
       truncated: dropped.length > 0,
       omittedCategories: categories,
@@ -289,7 +300,7 @@ export function buildPacket(input: PacketInput, limits: PacketLimits = DEFAULT_P
   }
   const state = assemble(included, omitted);
   const spans: Record<string, string> = {};
-  for (const { item } of included) spans[item.id] = spanId(item.id, item.text);
+  for (const { item } of included) spans[item.id] = spanOf(item);
   return {
     ok: true,
     state,
