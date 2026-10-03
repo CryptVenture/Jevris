@@ -42,8 +42,10 @@ import {
 function seenSpellingsOn(offer: ModelOffer | null, harness: string, authMode: string | null): (modelId: string) => readonly SeenSpelling[] {
   return (modelId) => seenSpellings(offer, { harness, authMode }, modelId);
 }
-import { HARNESS_MODEL_ID_PATTERN } from '@jevris/contracts';
+import { FAILURE_ARTIFACT_IDS, HARNESS_MODEL_ID_PATTERN, type FailureArtifactId } from '@jevris/contracts';
 import type { HookProposal, TriggerHandler, TriggerHandlerInput } from './sidecar-subscribers.js';
+import { FAILURE_ARTIFACT_TEXT } from './failure-advice.js';
+import { newTaskAdvice, repeatedFailureAdvice } from './live-handlers.js';
 import { bundledCalibrationPath, trustedCalibrationKeys } from './calibration-trust.js';
 import { adviceIgnored, openAdvice } from './advice-adherence.js';
 import { consentReaderOf } from './engine-of.js';
@@ -213,8 +215,12 @@ function unknownsOf(value: unknown): ExplicitUnknown[] {
 function artifactsOf(value: unknown): RequiredArtifact[] {
   return list(value, 32).flatMap((a) => {
     const id = text(a['id'], 64);
-    const description = text(a['description'], 300);
-    if (id === null || description === null) return [];
+    if (id === null) return [];
+    // A fixed-vocabulary id (failing-test-output, stack-trace, ...) carries its own fixed description:
+    // a caller's free text is never read for it, so an id alone is a complete artifact.
+    const known = (FAILURE_ARTIFACT_IDS as readonly string[]).includes(id);
+    const description = known ? FAILURE_ARTIFACT_TEXT[id as FailureArtifactId].phrase : text(a['description'], 300);
+    if (description === null) return [];
     const location = text(a['location'], 1000);
     return [{ id, description, available: a['available'] === true, fresh: a['fresh'] === true ? true : a['fresh'] === false ? false : null, ...(location === null ? {} : { location }) }];
   });
@@ -411,8 +417,12 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
 export const DEFAULT_TRIGGER_HANDLERS: Partial<Record<TriggerKind, readonly TriggerHandler[]>> = Object.freeze({
   'model-change-request': [modelChangeAdvice],
   'worker-creation': [subagentRouteAdvice],
-  'new-task': [newTaskIntent],
+  // The live adviser first (it needs only the prompt the adapter supplies, and only with egress
+  // approved); the older handler runs only when a body also carries `task.templates` or `unknowns`.
+  'new-task': [newTaskAdvice, newTaskIntent],
   'diff-boundary': [scopeChangeAdvice],
   'new-failure-family': [evidenceAdvice],
-  'repeated-failure': [evidenceAdvice],
+  // The live adviser first (it reads the adapter's content-free `failure` features); a body that
+  // also carries `evidence` still gets the older handler's artifact request.
+  'repeated-failure': [repeatedFailureAdvice, evidenceAdvice],
 });

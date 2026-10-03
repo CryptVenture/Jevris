@@ -24,9 +24,11 @@ import {
   type SidecarEventSubscriber,
   type SidecarOpContext,
 } from '@jevris/contracts';
-import { DecisionQueues, EventDeduper, TriggerFilter, WRITE_TOOL_NAMES, WorkspaceRevisions, noteSubagentRoute, toEventEnvelope, type DecisionEngine, type TriggerKind } from '@jevris/core';
+import { DecisionQueues, EventDeduper, TriggerFilter, WRITE_TOOL_NAMES, WorkspaceRevisions, noteSubagentRoute, toEventEnvelope, type DecisionEngine, type FailureHints, type FailureObservation, type TriggerKind } from '@jevris/core';
 import type { EventEnvelope } from '@jevris/contracts';
 import { engineOf } from './engine-of.js';
+import { parseFailureFeatures } from './failure-advice.js';
+import { PENDING_ADVICE, type PendingAdviceStore } from './pending-advice.js';
 
 /**
  * Certification feature ids for model-visible outcomes (F's shared vocabulary; switch to the
@@ -80,6 +82,11 @@ export interface TriggerHandlerInput {
   readonly currentRevision?: () => string;
   /** Whether no newer event of the same trigger in this session has arrived since this one. */
   readonly stillUseful?: () => boolean;
+  /**
+   * What the trigger filter knows about a failure when the trigger is a failure one: how many times
+   * it was seen in the session and how it compares with the previous one (counts and flags only).
+   */
+  readonly failure?: FailureObservation;
 }
 
 export type TriggerHandler = (input: TriggerHandlerInput) => Promise<HookProposal | null> | HookProposal | null;
@@ -172,7 +179,17 @@ export interface SubscriberOptions {
   readonly harnessVersionOf?: (home: string, harness: string) => string | null;
   /** DEC-12: the revision tracker; the registered subscriber shares core's WORKSPACE_REVISIONS. */
   readonly revisions?: WorkspaceRevisions;
+  /** Where detached advice (repeated failure, new task) waits for the next event; the handlers share it. */
+  readonly pending?: PendingAdviceStore;
 }
+
+/**
+ * The events a waiting piece of detached advice may be handed to: a prompt, the tool events of the
+ * turn and, for Antigravity (whose tool events show nothing), the start of an invocation. Never a
+ * session start or end, a compaction or a model switch, whose answers other subscribers own. Each
+ * harness shows an explain only on some of these (`showsExplain`); the rest leave the line queued.
+ */
+const DELIVERY_KINDS: ReadonlySet<string> = new Set(['task.requested', 'tool.proposed', 'tool.finished', 'tool.failed', 'invocation.started']);
 
 /** Whether a signed record covers this harness, version, OS and feature now. Unknown version or OS: no. */
 export async function isCertified(
@@ -198,11 +215,32 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
   const certifications = options.certifications ?? cliCertificationSource;
   const now = options.now ?? (() => Date.now());
   const handlers = options.handlers ?? {};
+  const pending = options.pending ?? PENDING_ADVICE;
   let sequence = 0;
   // DEC-12: the workspace revision as the sidecar sees it (shared with the ops when registered).
   const revisions = options.revisions ?? new WorkspaceRevisions();
   const latestTrigger = new Map<string, number>();
   const MAX_TRACKED = 1024;
+
+  /**
+   * The oldest waiting detached advice of this session as an `explain` proposal, or null. Only on an
+   * event that can show it, in a mode that shows advice, while the answer is still wanted. Nothing
+   * is taken until the proposal's commit runs, which the caller does only when this answer is used.
+   */
+  function deliveryProposal(ctx: SidecarOpContext, envelope: EventEnvelope, mode: NonNullable<SidecarOpContext['mode']>): HookProposal | null {
+    if (!DELIVERY_KINDS.has(envelope.kind) || !modeAllows(mode, 'show-advice')) return null;
+    // G2: the harness says whether it shows an answer on this event; where it does not, nothing is spent.
+    if (plain(ctx.body) && ctx.body['showsExplain'] === false) return null;
+    if ((ctx.signal as { readonly aborted?: boolean }).aborted === true) return null;
+    const waiting = pending.peek(envelope.workspaceId, envelope.sessionId);
+    if (waiting === null) return null;
+    return {
+      hookOutcome: { kind: 'explain', text: waiting.text },
+      reasonCode: 'PENDING_ADVICE_DELIVERED',
+      ...(waiting.decisionId === null ? {} : { decisionId: waiting.decisionId }),
+      commit: () => pending.consume(envelope.workspaceId, envelope.sessionId, waiting),
+    };
+  }
 
   async function handle(ctx: SidecarOpContext): Promise<SubscriberResult> {
     if (ctx.killSwitchStopped) return observe('KILL_SWITCH');
@@ -227,34 +265,47 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
     if (!deduper.accept(built.envelope)) return observe('DUPLICATE_DELIVERY');
     const written = built.envelope.kind === 'tool.finished' && WRITE_TOOL_NAMES.has(typeof event.toolName === 'string' ? event.toolName : '');
     revisions.observe(ctx.workspace.id, { revision: typeof body['revision'] === 'string' ? body['revision'] : null, wrote: written });
-    const classified = filter.classify(built.envelope);
-    if (classified.trigger === null) return observe(classified.reasonCode);
-    const trigger = classified.trigger;
+    // The adapter's content-free failure features, parsed strictly; the filter tells failures apart by them.
+    const features = built.envelope.kind === 'tool.failed' ? parseFailureFeatures(body['failure']) : null;
+    const hints: FailureHints = features === null ? {} : { signature: features.signature, commandDigest: features.commandDigest, shape: { exitClass: features.exitClass, environmental: features.environmental, elapsed: features.elapsed, present: features.present } };
+    const classified = filter.classify(built.envelope, hints);
+    const trigger: TriggerKind | null = classified.trigger;
+    // Detached advice that finished since the last event is handed over now, when this event can show
+    // it. Its commit takes it off the queue, and only when this answer is the one used.
+    const delivery = deliveryProposal(ctx, built.envelope, mode);
+    if (trigger === null && delivery === null) return observe(classified.reasonCode);
     const atRevision = revisions.current(ctx.workspace.id);
-    const triggerKey = `${ctx.workspace.id}\n${built.envelope.sessionId}\n${trigger}`;
-    const mySequence = built.envelope.sequence;
-    latestTrigger.delete(triggerKey);
-    latestTrigger.set(triggerKey, mySequence);
-    if (latestTrigger.size > MAX_TRACKED) {
-      const first = latestTrigger.keys().next();
-      if (first.done !== true) latestTrigger.delete(first.value);
-    }
     const workspaceId = ctx.workspace.id;
     const currentRevision = (): string => revisions.current(workspaceId);
-    const stillUseful = (): boolean => (latestTrigger.get(triggerKey) ?? mySequence) === mySequence;
-    const list = handlers[trigger] ?? [];
-    if (list.length === 0) return observe('NO_HANDLER', trigger);
+    let stillUseful = (): boolean => true;
+    if (trigger !== null) {
+      const triggerKey = `${ctx.workspace.id}\n${built.envelope.sessionId}\n${trigger}`;
+      const mySequence = built.envelope.sequence;
+      latestTrigger.delete(triggerKey);
+      latestTrigger.set(triggerKey, mySequence);
+      if (latestTrigger.size > MAX_TRACKED) {
+        const first = latestTrigger.keys().next();
+        if (first.done !== true) latestTrigger.delete(first.value);
+      }
+      stillUseful = (): boolean => (latestTrigger.get(triggerKey) ?? mySequence) === mySequence;
+    }
+    const list = trigger === null ? [] : (handlers[trigger] ?? []);
+    if (trigger !== null && list.length === 0 && delivery === null) return observe('NO_HANDLER', trigger);
     const engine = engineOf(ctx);
     const proposals: HookProposal[] = [];
-    for (const handler of list) {
-      if (ctx.deadline.expired()) break;
-      try {
-        const proposal = await handler({ ctx, envelope: built.envelope, event, trigger, engine, queues, revision: atRevision, currentRevision, stillUseful });
-        if (proposal !== null) proposals.push(proposal);
-      } catch {
-        // A failing handler never blocks the hook; it contributes nothing.
+    if (trigger !== null) {
+      for (const handler of list) {
+        if (ctx.deadline.expired()) break;
+        try {
+          const proposal = await handler({ ctx, envelope: built.envelope, event, trigger, engine, queues, revision: atRevision, currentRevision, stillUseful, ...(classified.trigger !== null && classified.failure !== undefined ? { failure: classified.failure } : {}) });
+          if (proposal !== null) proposals.push(proposal);
+        } catch {
+          // A failing handler never blocks the hook; it contributes nothing.
+        }
       }
     }
+    // Last, so that it never shadows a proposal of this event's own trigger: the first of equal strength wins.
+    if (delivery !== null) proposals.push(delivery);
     const harnessVersion = typeof body['harnessVersion'] === 'string' ? body['harnessVersion'] : null;
     const platform = (globalThis as { process?: { platform?: string } }).process?.platform ?? '';
     const operatingSystem = options.operatingSystem ?? (['darwin', 'linux', 'win32'].includes(platform) ? (platform as OperatingSystem) : null);

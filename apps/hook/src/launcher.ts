@@ -323,7 +323,10 @@ function queuedOf(result: Record<string, unknown>): readonly string[] {
 /**
  * The outcome to render from an `event` result: the strongest proposal among subscribers,
  * where `context` and `route` count only when certified. Ties keep the first subscriber by
- * name so the choice is deterministic. When nothing was proposed and a subscriber missed its
+ * name so the choice is deterministic, except that when the strongest is an `explain`, the
+ * explains of every subscriber are shown together (in name order, each once, one per line):
+ * each is a line of advice, and one subscriber's line (the orchestrator's once-only loop advice,
+ * which it marks as shown when it proposes it) must not hide another's. When nothing was proposed and a subscriber missed its
  * slice, the reason is SUBSCRIBER_QUEUED, not NO_PROPOSAL: a proposal may have been lost to time.
  * A duplicate delivery observes, unless the sidecar replayed the first delivery's answer (D's
  * answer replay): that renders as the first did, with reason DUPLICATE_REPLAYED.
@@ -341,6 +344,7 @@ export function chooseOutcome(result: unknown): { readonly outcome: HookOutcome;
   let best: HookOutcome = { kind: 'observe' };
   let reason = 'NO_PROPOSAL';
   let continuation: readonly string[] | null = null;
+  const explains: string[] = [];
   for (const name of Object.keys(results).sort()) {
     continuation ??= stopContinuationOf(results[name]);
     const proposal = outcomeOf(results[name]);
@@ -350,11 +354,13 @@ export function chooseOutcome(result: unknown): { readonly outcome: HookOutcome;
       if (reason === 'NO_PROPOSAL') reason = 'NOT_CERTIFIED';
       continue;
     }
+    if (proposal.outcome.kind === 'explain' && !explains.includes(proposal.outcome.text)) explains.push(proposal.outcome.text);
     if (RANK[proposal.outcome.kind] > RANK[best.kind]) {
       best = proposal.outcome;
       reason = `PROPOSED_BY_${name.toUpperCase().replace(/[^A-Z0-9]+/g, '_').slice(0, 40)}`;
     }
   }
+  if (best.kind === 'explain' && explains.length > 1) best = { kind: 'explain', text: explains.join('\n').slice(0, CONTEXT_CAP) };
   if (reason === 'NO_PROPOSAL' && queuedOf(result).length > 0) reason = 'SUBSCRIBER_QUEUED';
   return { outcome: best, reason: replayed ? 'DUPLICATE_REPLAYED' : reason, continuation };
 }

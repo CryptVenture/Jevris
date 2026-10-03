@@ -24,3 +24,11 @@ export { DEFAULT_TRIGGER_HANDLERS, evidenceAdvice, modelChangeAdvice, modelChang
 export { TEST_PROVIDER_KEY_ENV, TEST_PROVIDER_URL_ENV, providerOverrideDiagnostic, readProviderOverride } from './provider-override.js';
 export type { ProviderOverride, ProviderOverrideRefusal } from './provider-override.js';
 export { TEST_BUNDLED_CALIBRATION_ENV, TEST_CALIBRATION_KEYS_ENV, bundledCalibrationPath, calibrationKeysOverride, trustedCalibrationKeys, type CalibrationKeysOverride } from './calibration-trust.js';
+export { DEFAULT_MAX_REPAIR_ATTEMPTS, FAILURE_ARTIFACT_TEXT, FAILURE_MIN_CONFIDENCE, REPEATED_FAILURE_SPEC_ID, adviseRepeatedFailure, failureAdviceText, failureAskGate, failureContextOf, failureFacts, failureQuestions, parseFailureFeatures, planFailureAdvice } from './failure-advice.js';
+export type { FailureAdvice, FailureContext, FailureFeatures, FailurePlan, FailureStep } from './failure-advice.js';
+export { NEW_TASK_SPEC_ID, OPEN_KINDS, OPEN_QUESTION_TEXT, TASK_FAMILIES, TASK_FAMILY_TEXT, adviseNewTask, newTaskAdviceText, newTaskAskGate, newTaskQuestions } from './new-task-advice.js';
+export type { NewTaskAdvice, OpenKind, TaskFamily } from './new-task-advice.js';
+export { createNewTaskHandler, createRepeatedFailureHandler, newTaskAdvice, repeatedFailureAdvice } from './live-handlers.js';
+export type { LiveHandlerOptions } from './live-handlers.js';
+export { PENDING_ADVICE, PendingAdviceStore } from './pending-advice.js';
+export type { PendingAdvice, PendingKind } from './pending-advice.js';

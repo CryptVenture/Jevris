@@ -1721,12 +1721,23 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
    * Every body also gets the sidecar's `hostRouteCertified` (serving hosts R50).
    */
   function withApprovedScope(ctx: SidecarOpContext, sessionId: string | null): SidecarOpContext {
-    const claimed = bodyRecord(ctx);
+    const { repair: _claimedRepair, ...claimed } = bodyRecord(ctx);
     // R50: `hostRouteCertified` is the sidecar's own route.host answer for the event's harness and
     // version (the cached one; the event path waits for it on a worker event). A hook's claim is
     // replaced, so a subagent route never reads the plugin's word for it.
     const eventSession = sessionOf(claimed['envelope'] ?? ctx.body, claimed);
-    const body: Record<string, unknown> = { ...claimed, hostRouteCertified: eventSession === undefined ? false : hostCerts.now(eventSession.harness, eventSession.harnessVersion) };
+    // A failure event also gets the repair-attempt bound from the effective config
+    // (`orchestration.maxRepairAttempts`), replacing anything the hook sent: repeated-failure advice
+    // says the attempts are used up by this number. Read only for a failure, never for other events.
+    let repair: { readonly maxAttempts: number } | undefined;
+    if (plainRecord(claimed['failure']) !== undefined) {
+      try {
+        repair = { maxAttempts: readEffectiveConfig({ home: ctx.home, workspaceRoot: ctx.workspace.root }).config.orchestration.maxRepairAttempts };
+      } catch {
+        repair = undefined;
+      }
+    }
+    const body: Record<string, unknown> = { ...claimed, hostRouteCertified: eventSession === undefined ? false : hostCerts.now(eventSession.harness, eventSession.harnessVersion), ...(repair === undefined ? {} : { repair }) };
     ctx = { ...ctx, body };
     const scope = body['scope'];
     if (scope === null || typeof scope !== 'object' || Array.isArray(scope)) return ctx;
@@ -1785,6 +1796,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       store: storeFor(workspace),
       killSwitchStopped: false,
       mode: effectiveModeFor(home, workspace.root),
+      // A subscriber that runs after the answer asks Jev only when `jev.assist` allows it, as it would on the hot path.
+      jevAssist: effectiveJevAssistFor(home, workspace.root),
       ...(adherence !== undefined ? { adviceAdherence: adherence } : {}),
       engine: sessionId === null ? engine : engineForSession(engine, sessionId),
       trace(event) {

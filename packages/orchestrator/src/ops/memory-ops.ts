@@ -97,6 +97,9 @@ async function handleRecover(ctx: SidecarOpContext, respond: Respond, ws: Worksp
   if (taskId === undefined) return { ok: false, reasonCode: 'INVALID_REQUEST' };
   const signals = isPlain(ctx.body) ? own(ctx.body, 'signals') : undefined;
   const fingerprints = strings(signals, 'fingerprints', 64, 2000);
+  // Ids of the fixed artifact vocabulary the failures already show (`signals.artifacts`); the loop
+  // assessment drops any other string, so no free text reaches a Jev question through it.
+  const artifacts = strings(signals, 'artifacts', 16, 64);
   // signals.environment (a caller's claim) is not used: the environment family comes from
   // the failure text itself (RET-06, C38).
   for (const text of strings(ctx.body, 'rejectedApproaches', 32, 500)) await recordRejectedApproach(ws, { taskId, text, evidence: [], source: 'user' });
@@ -104,6 +107,7 @@ async function handleRecover(ctx: SidecarOpContext, respond: Respond, ws: Worksp
   const assessment = await assessLoop(ws, {
     taskId,
     fingerprints,
+    artifacts,
     engine: ctx.engine,
     remainingMs: ctx.deadline.remainingMs() - 200,
     budgets: { ...DEFAULT_LOOP_BUDGETS, perTask: config.orchestration.maxRepairAttempts + 1 },

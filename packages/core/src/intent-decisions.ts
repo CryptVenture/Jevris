@@ -11,7 +11,7 @@
  * change, marks unavailable evidence as absent behaviour, or calls a Score feasibility.
  */
 import { isAbsoluteOnAnyPlatform } from '@jevris/platform';
-import type { JevQuestions, TaskNode } from '@jevris/contracts';
+import { FAILURE_ARTIFACT_IDS, type JevQuestions, type TaskNode } from '@jevris/contracts';
 import { JEV_TARIFF, decide, type DecideOptions, type DecideOutcome, type DecideRequest, type DecisionEngine } from './decision-engine.js';
 import { jevCostMicroUsd } from './decision-budget.js';
 import { DecisionRescheduler } from './decision-reschedule.js';
@@ -159,7 +159,15 @@ export async function triageTaskFamily(engine: DecisionEngine | null, input: { r
   criteria['none'] = 'No listed workflow family fits this request.';
   criteria['unknown'] = 'The evidence is insufficient to choose a family.';
   const questions = { taskFamily: { type: 'choice', instructions: 'Which listed workflow family fits the objective?', criteria } } as unknown as JevQuestions;
-  const packet: PacketInput = { objective: clip(input.objective, 2000), trustedPolicy: { templateFamilies: families }, facts: { templates: templates.length }, evidence: [] };
+  // The request is the person's own words: it travels as ONE screened evidence span, never in the
+  // packet's objective, which is caller-authored and not screened. With source egress not approved
+  // `ask` abstains (`EGRESS_NOT_APPROVED`) before anything is built or sent.
+  const packet: PacketInput = {
+    objective: 'Choose the workflow family that fits the request in the evidence item request.',
+    trustedPolicy: { templateFamilies: families },
+    facts: { templates: templates.length },
+    evidence: [{ id: 'request', text: clip(input.objective, 2000), sourceKind: 'user', priority: 'mandatory' }],
+  };
   const asked = await ask(engine, 'c01-task-family', questions, packet, ctx);
   if (!asked.ok) return { outcome: 'abstain', reasonCode: asked.reasonCode, family: null, originalRequest, decisionId: asked.decisionId };
   const c = choiceOf(asked.answers, 'taskFamily');
@@ -352,8 +360,13 @@ export async function checkEvidenceSufficiency(
   const stale = input.required.find((a) => a.fresh === false);
   if (stale !== undefined) return request(stale, 'STALE_ARTIFACT', null);
   const obtainable = (input.obtainable ?? []).slice(0, 10);
+  // An artifact of the fixed vocabulary (failing-test-output, stack-trace, ...) is named by its id
+  // alone. A free-text description of any other artifact is the caller's text: it is read into a
+  // request only with source egress approved, and is never put in a question.
+  const known = new Set<string>(FAILURE_ARTIFACT_IDS);
+  const approved = (engine?.sourceEgress?.() ?? 'denied') === 'approved';
   const evidence: PacketEvidence[] = [
-    ...input.required.slice(0, 32).map((a, i) => ({ id: safeId(a.id, `artifact-${i}`), text: clip(a.description, 1000), sourceKind: 'tool' as const, priority: 'mandatory' as const })),
+    ...input.required.slice(0, 32).map((a, i) => ({ id: safeId(a.id, `artifact-${i}`), text: clip(known.has(a.id) ? a.id : a.description, 1000), sourceKind: 'tool' as const, priority: 'mandatory' as const })),
     ...(input.diagnostics ?? []).slice(0, 16).map((d, i) => ({ id: safeId(d.id, `diagnostic-${i}`), text: clip(d.text, 2000), sourceKind: 'tool' as const, priority: 'high' as const })),
   ];
   const questions: Record<string, unknown> = {
@@ -361,7 +374,7 @@ export async function checkEvidenceSufficiency(
   };
   if (obtainable.length > 0) {
     const criteria: Record<string, string> = {};
-    obtainable.forEach((a, i) => (criteria[`a${i}`] = clip(`Artifact ${a.id}: ${a.description}`, 300)));
+    obtainable.forEach((a, i) => (criteria[`a${i}`] = clip(known.has(a.id) ? `Artifact ${a.id}` : approved ? `Artifact ${a.id}: ${a.description}` : `Artifact number ${i + 1} in the list`, 300)));
     criteria['none'] = 'None of the listed artifacts would reduce the uncertainty.';
     criteria['unknown'] = 'The evidence is insufficient to tell which artifact helps.';
     questions['nextArtifact'] = { type: 'choice', instructions: 'Which listed artifact would most reduce the uncertainty about the cause?', criteria };

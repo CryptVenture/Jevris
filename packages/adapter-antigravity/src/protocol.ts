@@ -9,7 +9,7 @@
  * Observation uses PostToolUse, PreInvocation, PostInvocation and Stop.
  */
 import type { AdapterFixture, HookOutcome, NormalizeContext, NormalizeResult, NormalizedHarnessEvent } from '@jevris/contracts';
-import { WRITE_TOOL_NAMES, boundedPayload, buildEvent, contextText, count, failureEvidence, field, flag, intentOf, isPlainObject, keyNames, own, refuse, scopeIntent, screen, sizeOf, stopReason, untrustedIntent, type StopRunning } from './common.js';
+import { WRITE_TOOL_NAMES, boundedPayload, buildEvent, contextText, count, failureEvidence, failureFeatures, field, flag, intentOf, isPlainObject, keyNames, own, refuse, scopeIntent, screen, sizeOf, stopReason, untrustedIntent, type StopRunning } from './common.js';
 
 export const HARNESS_ID = 'antigravity' as const;
 export const LAUNCHER_NAME = 'agy' as const;
@@ -63,6 +63,7 @@ export function normalize(native: unknown, context: NormalizeContext = {}): Norm
   const intent = intentOf({
     scope: kind === 'tool.finished' && toolName !== null && WRITE_TOOL_NAMES.has(toolName) ? scopeIntent([own(args, 'TargetFile'), own(args, 'targetFile')], firstWorkspace) : null,
     evidence: kind === 'tool.failed' ? failureEvidence(toolName, own(input, 'error')) : null,
+    failure: kind === 'tool.failed' ? failureFeatures({ toolName, toolInput: args, error: own(input, 'error') }) : null,
     // GOV-12: Antigravity's PostToolUse carries no tool output, only the error of a failed call.
     untrusted: kind === 'tool.failed' ? untrustedIntent(toolName, count(own(input, 'stepIdx')) === null ? null : `step-${count(own(input, 'stepIdx'))}`, own(input, 'error')) : null,
     // GOV-13: no effect. PreToolUse is never registered (D-F1); one that arrives anyway is only observed.

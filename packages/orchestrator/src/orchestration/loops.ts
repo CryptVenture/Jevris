@@ -8,6 +8,7 @@
  * per-error-family budgets cap retries, and the approaches that failed are written to the
  * rejected-approach ledger, which the capsule carries.
  */
+import { FAILURE_ARTIFACT_IDS } from '@jevris/contracts';
 import type { WorkspaceServices } from '../workspace.js';
 import { consultChoice } from '../capabilities/consult.js';
 import { recordKey, safeText, sha256 } from '../util.js';
@@ -260,6 +261,31 @@ export interface AssessInput {
   readonly remainingMs?: number;
   /** Record the rejected approach for repeated or oscillating failures (default true). */
   readonly record?: boolean;
+  /**
+   * Which of the fixed artifact vocabulary (failing-test-output, stack-trace, config-file,
+   * environment-info, repro-steps, recent-diff, logs) the failures already show. Ids only: any
+   * other string is dropped, so free text cannot ride in on it.
+   */
+  readonly artifacts?: readonly string[];
+}
+
+const FAMILY_CODES: ReadonlySet<string> = new Set(['environment', 'compile', 'test', 'lint', 'other']);
+
+/** `test=2,other=1`: the closed failure families among the signals, counted. Never a label or text. */
+function familySummary(diagnostics: readonly { readonly family?: string | null }[]): string {
+  const counts = new Map<string, number>();
+  for (const d of diagnostics) {
+    const family = d.family !== undefined && d.family !== null && FAMILY_CODES.has(d.family) ? d.family : 'other';
+    counts.set(family, (counts.get(family) ?? 0) + 1);
+  }
+  return counts.size === 0 ? 'none' : [...counts.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([f, n]) => `${f}=${String(n)}`).join(',');
+}
+
+/** The vocabulary ids among the given strings, sorted and unique; `none` when there are none. */
+function artifactSummary(artifacts: readonly string[] | undefined): string {
+  const known = new Set<string>(FAILURE_ARTIFACT_IDS);
+  const picked = [...new Set((artifacts ?? []).filter((a) => known.has(a)))].sort();
+  return picked.length === 0 ? 'none' : picked.join(',');
 }
 
 export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Promise<LoopAssessment> {
@@ -326,8 +352,11 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
       objective: 'Classify whether the agent is making progress or looping.',
       instructions: 'Classify the recent failure pattern of a coding agent. Choose the single best description.',
       options,
+      // The failures are also described by closed family codes and counts (in the facts) and the
+      // artifacts they already show by vocabulary ids, which need no egress. The failure text below is
+      // screened, and the engine withholds it while source egress is not approved.
       evidence: diagnostics.slice(-12).map((d, i) => ({ id: `sig-${String(i)}`, text: `${d.family ?? 'other'}: ${d.label}`, sourceKind: 'tool' as const, priority: 'high' as const })),
-      facts: { failures: signals.failures, distinct: distinct, maxRepeat, environmentFailures: envFailures, diffStates: diffs.length },
+      facts: { failures: signals.failures, distinct: distinct, maxRepeat, environmentFailures: envFailures, diffStates: diffs.length, families: familySummary(diagnostics.slice(-12)), artifacts: artifactSummary(input.artifacts) },
       workspaceId: ws.workspaceId,
       evidenceRevision: `loop-${String(all.length)}`,
       taskId: input.taskId,

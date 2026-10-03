@@ -21,8 +21,53 @@ export const TRIGGER_KINDS = [
 ] as const;
 export type TriggerKind = (typeof TRIGGER_KINDS)[number];
 
+/**
+ * The closed, content-free shape of one failed call, as the adapter reported it (the contracts'
+ * `HarnessFailureIntent` without its digests). The filter keeps the last one per failure family so
+ * the next failure can be compared with it.
+ */
+export interface FailureShape {
+  readonly exitClass: string;
+  readonly environmental: boolean;
+  readonly elapsed: string;
+  readonly present: readonly string[];
+}
+
+/** What the adapter's failure features give the filter to tell failures apart. All optional. */
+export interface FailureHints {
+  /** A one-way digest of the normalized error text; two failures with the same one are the same failure. */
+  readonly signature?: string | null;
+  /** A one-way digest of the failed call's input; the same one is the same call run again. */
+  readonly commandDigest?: string | null;
+  readonly shape?: FailureShape | null;
+}
+
+/**
+ * What the filter knows about one failure when it triggers: how many times this failure was seen in
+ * the session and how it compares with the previous failure of the same family. Counts and flags only.
+ */
+export interface FailureObservation {
+  /** Attempts of this failure in the session, this one included (1 for the first). */
+  readonly attempts: number;
+  /** The signature equals the previous one's. Without signatures the family stands in, so it is true. */
+  readonly sameSignature: boolean;
+  /** The failed call's input digest equals the previous one's; null when either is unknown. */
+  readonly sameCommand: boolean | null;
+  /** Write-tool completions since the previous failure of the family. */
+  readonly editsSince: number;
+  /** Milliseconds since the previous failure of the family; null for the first or when a time is unreadable. */
+  readonly gapMs: number | null;
+  /**
+   * The signature differs but the same call ran again with nothing edited between: the rules cannot
+   * say whether this is the same failure, so it counts as a possible repeat and Jev may be asked.
+   */
+  readonly unsure: boolean;
+  /** The previous failure of the family, when there was one. */
+  readonly previous: FailureShape | null;
+}
+
 export type TriggerResult =
-  | { readonly trigger: TriggerKind; readonly coalesceKey: string; readonly reasonCode: 'TRIGGERED' }
+  | { readonly trigger: TriggerKind; readonly coalesceKey: string; readonly reasonCode: 'TRIGGERED'; readonly failure?: FailureObservation }
   | { readonly trigger: null; readonly reasonCode: 'NO_TRIGGER' | 'COALESCED' | 'READ_ONLY' | 'NOT_A_DECISION_POINT' | 'BELOW_THRESHOLD' };
 
 export interface TriggerOptions {
@@ -74,10 +119,24 @@ export function failureFamily(envelope: Pick<EventEnvelope, 'payload'>): string 
   return `${tool}:${klass}`;
 }
 
+interface FamilyState {
+  count: number;
+  fingerprint: string;
+  command: string | null;
+  shape: FailureShape | null;
+  atMs: number | null;
+  /** The session's write count (never reset) when this family last failed. */
+  editsAt: number;
+  /** Which run of the same failure this is; a different failure in between starts a new one. */
+  episode: number;
+}
+
 interface SessionState {
-  families: Map<string, { count: number; fingerprint: string }>;
+  families: Map<string, FamilyState>;
   writes: number;
   lines: number;
+  /** Write-tool completions in the session, never reset: failures compare against it. */
+  totalWrites: number;
 }
 
 export class TriggerFilter {
@@ -98,7 +157,7 @@ export class TriggerFilter {
   #session(key: string): SessionState {
     let state = this.#sessions.get(key);
     if (state === undefined) {
-      state = { families: new Map(), writes: 0, lines: 0 };
+      state = { families: new Map(), writes: 0, lines: 0, totalWrites: 0 };
       this.#sessions.set(key, state);
       if (this.#sessions.size > this.#max) {
         const first = this.#sessions.keys().next();
@@ -108,7 +167,7 @@ export class TriggerFilter {
     return state;
   }
 
-  #fire(trigger: TriggerKind, envelope: EventEnvelope, extra = ''): TriggerResult {
+  #fire(trigger: TriggerKind, envelope: EventEnvelope, extra = '', failure?: FailureObservation): TriggerResult {
     const scope = envelope.taskId ?? envelope.sessionId;
     const key = sha256Hex(`${envelope.workspaceId}\n${scope}\n${envelope.expectedRevision}\n${trigger}\n${extra}`);
     if (this.#coalesced.has(key)) return { trigger: null, reasonCode: 'COALESCED' };
@@ -117,11 +176,15 @@ export class TriggerFilter {
       const first = this.#coalesced.values().next();
       if (first.done !== true) this.#coalesced.delete(first.value);
     }
-    return { trigger, coalesceKey: key, reasonCode: 'TRIGGERED' };
+    return { trigger, coalesceKey: key, reasonCode: 'TRIGGERED', ...(failure === undefined ? {} : { failure }) };
   }
 
-  /** Classifies one domain event. Pure apart from the filter's own counters. */
-  classify(envelope: EventEnvelope): TriggerResult {
+  /**
+   * Classifies one domain event. Pure apart from the filter's own counters. `hints` are the
+   * content-free features of a failed call (an adapter's `body.failure`); without them a failure is
+   * told apart by its family alone, as before.
+   */
+  classify(envelope: EventEnvelope, hints: FailureHints = {}): TriggerResult {
     const payload = record(envelope.payload);
     const summary = record(payload['summary']);
     const tool = str(payload['toolName']);
@@ -142,19 +205,37 @@ export class TriggerFilter {
       }
       case 'tool.failed': {
         const family = failureFamily(envelope);
-        const fingerprint = str(summary['fingerprint']) ?? family;
+        const signature = str(hints.signature);
+        const fingerprint = str(summary['fingerprint']) ?? signature ?? family;
+        const command = str(hints.commandDigest);
+        const shape = hints.shape ?? null;
+        const parsedAt = Date.parse(envelope.occurredAt);
+        const atMs = Number.isFinite(parsedAt) ? parsedAt : null;
         const seen = session.families.get(family);
         if (seen === undefined) {
-          session.families.set(family, { count: 1, fingerprint });
-          return this.#fire('new-failure-family', envelope, family);
+          session.families.set(family, { count: 1, fingerprint, command, shape, atMs, editsAt: session.totalWrites, episode: 1 });
+          return this.#fire('new-failure-family', envelope, family, { attempts: 1, sameSignature: true, sameCommand: null, editsSince: 0, gapMs: null, unsure: false, previous: null });
         }
-        if (seen.fingerprint !== fingerprint) {
-          seen.fingerprint = fingerprint;
+        const editsSince = Math.max(0, session.totalWrites - seen.editsAt);
+        const sameCommand = command !== null && seen.command !== null ? command === seen.command : null;
+        const gapMs = atMs !== null && seen.atMs !== null ? Math.max(0, atMs - seen.atMs) : null;
+        const previous = seen.shape;
+        const sameSignature = seen.fingerprint === fingerprint;
+        // The same call, run again with nothing edited, whose error text differs: possibly the same
+        // failure with a detail that moved (a timestamp, a port). Counted as a possible repeat.
+        const unsure = !sameSignature && signature !== null && sameCommand === true && editsSince === 0;
+        seen.fingerprint = fingerprint;
+        seen.command = command;
+        seen.shape = shape;
+        seen.atMs = atMs;
+        seen.editsAt = session.totalWrites;
+        if (!sameSignature && !unsure) {
           seen.count = 1;
+          seen.episode += 1;
           return { trigger: null, reasonCode: 'BELOW_THRESHOLD' };
         }
         seen.count += 1;
-        if (seen.count % this.#repeat === 0) return this.#fire('repeated-failure', envelope, `${family}#${seen.count}`);
+        if (seen.count % this.#repeat === 0) return this.#fire('repeated-failure', envelope, `${family}#${seen.episode}#${seen.count}#${fingerprint}`, { attempts: seen.count, sameSignature, sameCommand, editsSince, gapMs, unsure, previous });
         return { trigger: null, reasonCode: 'BELOW_THRESHOLD' };
       }
       case 'tool.finished': {
@@ -162,6 +243,7 @@ export class TriggerFilter {
         if (tool !== null && RETRIEVAL_TOOLS.has(tool) && (num(summary['candidates']) ?? 0) > 1) return this.#fire('candidate-retrieval', envelope);
         if (tool !== null && WRITE_TOOLS.has(tool)) {
           session.writes += 1;
+          session.totalWrites += 1;
           session.lines += Math.max(0, num(summary['changedLines']) ?? 0);
           if (session.writes >= this.#writes || session.lines >= this.#lines) {
             session.writes = 0;

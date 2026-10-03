@@ -413,6 +413,119 @@ function failureEvidence(toolName, error) {
         ...(text === null ? {} : { diagnostics: [{ id: 'error', text }] }),
     };
 }
+// ---------------------------------------------------------------------------
+// Live repeated-failure advice: the content-free features of a failed tool call. A closed set of
+// codes, two one-way digests and booleans: no text, no path and no output. The vocabularies are
+// the contracts' FAILURE_* lists (a test checks they agree); this file imports no runtime value.
+const FAILURE_ARTIFACT_IDS = ['failing-test-output', 'stack-trace', 'config-file', 'environment-info', 'repro-steps', 'recent-diff', 'logs'];
+const SHELL_TOOLS = new Set(['Bash', 'bash', 'shell', 'local_shell', 'exec_command', 'run_command', 'command', 'PowerShell', 'powershell']);
+const AGENT_TOOLS = new Set(['Agent', 'Task', 'spawn_agent', 'task']);
+const FAILURE_TEXT_CAP = 20_000;
+const SIGNATURE_TEXT_CAP = 2000;
+/** The class of a failed tool, from its name: shell, edit, read, web, agent, mcp, skill, or other. */
+function failureToolClass(toolName) {
+    if (toolName === null)
+        return 'other';
+    if (SHELL_TOOLS.has(toolName))
+        return 'shell';
+    if (AGENT_TOOLS.has(toolName))
+        return 'agent';
+    if (WRITE_TOOL_NAMES.has(toolName))
+        return 'edit';
+    if (FILE_TOOLS.has(toolName))
+        return 'read';
+    if (FETCH_TOOLS.has(toolName))
+        return 'web';
+    if (SKILL_TOOLS.has(toolName))
+        return 'skill';
+    if (/^mcp(?:__|[._:-])/i.test(toolName))
+        return 'mcp';
+    return 'other';
+}
+/** The exit status a failure's text states (`Exit code 1`, `exit status 2`, `exit 137`), or null. */
+function statedExit(text) {
+    const match = /\bexit(?:ed)?(?: with)?(?: code| status)?\s*[:=]?\s*(\d{1,3})\b/i.exec(text.slice(0, 400));
+    return match === null ? null : Number(match[1]);
+}
+/** Closed exit classes: a timeout or interrupt, a signal (128 and up), a non-zero exit, or an error with no status. */
+function failureExitClass(exit, interrupted, text) {
+    if (interrupted || /\b(?:timed out|timeout|etimedout|deadline exceeded)\b/i.test(text.slice(0, 2000)))
+        return 'timeout';
+    const code = exit ?? statedExit(text);
+    if (code === null || code === 0)
+        return 'error';
+    return code >= 128 || code < 0 ? 'signal' : 'nonzero';
+}
+/**
+ * The environment's failures, not the source's: a missing tool, service, network or permission. The
+ * same rule the orchestrator's loop assessment uses (`errorFamily`); a test keeps the two in step.
+ */
+const FAILURE_ENVIRONMENT_RULE = /\b(enotfound|econnrefused|econnreset|etimedout|eai_again|command not found|is not recognized as an internal or external command|no such file or directory.*(bin|exe)|enoent.*spawn|permission denied|eacces|cannot connect to the docker daemon|connection refused|service unavailable|could not resolve host|network is unreachable|missing (?:tool|toolchain|sdk))\b/i;
+// Line-start whitespace below is spaces and tabs only, never `\s`: that spans newlines, so a long run of blank lines would make a `^`-anchored rule quadratic in the hook.
+const TEST_OUTPUT_RULE = /\bnot ok \d+|✖|\bfail(?:ed|ing)? (?:test|spec)|\bassertion(?:error)?\b|\bexpected\b.{0,80}\b(?:received|to equal|to be|but)\b|\b\d+ (?:tests? )?failed\b|^[ \t]*FAIL\b/im;
+const STACK_TRACE_RULE = /^[ \t]+at [^\n]*:\d+(?::\d+)?\)?[ \t\r]*$|Traceback \(most recent call last\)|\bpanic: |^goroutine \d+|^[ \t]+File ".*", line \d+/im;
+const CONFIG_FILE_RULE = /\b(?:tsconfig|package|composer|pyproject|cargo)\.(?:json|toml)\b|\bgo\.mod\b|\.(?:ya?ml|toml|ini|cfg|conf)\b|\.env\b|\b(?:webpack|vite|jest|vitest|babel|eslint)\.config\b/i;
+const ENVIRONMENT_INFO_RULE = /\b(?:node|npm|python|ruby|java|rustc|cargo|go) v?\d+\.\d+(?:\.\d+)?\b|\bplatform\b.{0,40}\b(?:linux|darwin|win32)\b/i;
+const LOG_LINES = 15;
+/** Which of the fixed vocabulary a failure's own text shows, sorted. The text itself is never kept. */
+function failurePresent(text) {
+    const seen = text.slice(0, FAILURE_TEXT_CAP);
+    const present = new Set();
+    if (TEST_OUTPUT_RULE.test(seen))
+        present.add('failing-test-output');
+    if (STACK_TRACE_RULE.test(seen))
+        present.add('stack-trace');
+    if (CONFIG_FILE_RULE.test(seen))
+        present.add('config-file');
+    if (ENVIRONMENT_INFO_RULE.test(seen))
+        present.add('environment-info');
+    if (seen.split('\n').filter((line) => line.trim().length > 0).length >= LOG_LINES)
+        present.add('logs');
+    return [...present].sort();
+}
+/** Error text with paths, hex ids, numbers and spacing folded, so the same error with other line numbers matches. */
+function normalizedFailureText(text) {
+    return text
+        .slice(0, FAILURE_TEXT_CAP)
+        .toLowerCase()
+        .replace(/[a-z]:\\[^\s:]+|\/[^\s:]+/g, '<path>')
+        .replace(/0x[0-9a-f]+|[0-9a-f]{8,}/g, '<hex>')
+        .replace(/\d+/g, '<n>')
+        .replace(/\s+/g, ' ')
+        .trim()
+        .slice(0, SIGNATURE_TEXT_CAP);
+}
+/** A reported duration in milliseconds as a whole, non-negative number; null when absent or odd. */
+function durationOf(value) {
+    return typeof value === 'number' && Number.isFinite(value) && value >= 0 && value <= 2 ** 40 ? Math.round(value) : null;
+}
+function elapsedBucket(durationMs) {
+    if (durationMs === null || durationMs < 0)
+        return 'unknown';
+    return durationMs < 1000 ? 'lt1s' : durationMs < 10_000 ? 'lt10s' : durationMs < 60_000 ? 'lt60s' : 'gte60s';
+}
+/**
+ * The content-free features of one failed tool call, for `intent.failure`. Never throws; a failure
+ * with no text has no signature and none of the text-derived codes.
+ */
+function failureFeatures(input) {
+    const text = typeof input.error === 'string' ? input.error : '';
+    const toolClass = failureToolClass(input.toolName);
+    const exitClass = failureExitClass(input.exit ?? null, input.interrupted === true, text);
+    const normalized = normalizedFailureText(text);
+    // A call with no input at all has nothing to tell it from another: no digest, never "the same call".
+    const identity = isPlainObject(input.toolInput) && Object.keys(input.toolInput).length > 0 ? failureIdentity(input.toolName, input.toolInput) : null;
+    return {
+        toolClass,
+        exitClass,
+        family: `${toolClass}:${exitClass}`,
+        signature: normalized.length === 0 ? null : sha256Hex(`jevris-failure-v1\n${toolClass}\n${normalized}`).slice(0, 16),
+        commandDigest: identity === null ? null : identity.digest,
+        environmental: FAILURE_ENVIRONMENT_RULE.test(text.slice(0, FAILURE_TEXT_CAP)),
+        elapsed: elapsedBucket(input.durationMs ?? null),
+        present: failurePresent(text),
+    };
+}
 // GOV-12 and GOV-13 (C48, C49): what a tool returned, as untrusted text for injection
 // screening, and what a tool call proposes to do, for permission-risk triage. Both are advice
 // inputs only. The sidecar's bounds: at most 4 spans of 8192 characters, 32768 in all; a command
@@ -596,6 +709,7 @@ function intentOf(parts) {
         ...(parts.task ? { task: parts.task } : {}),
         ...(parts.scope ? { scope: parts.scope } : {}),
         ...(parts.evidence ? { evidence: parts.evidence } : {}),
+        ...(parts.failure ? { failure: parts.failure } : {}),
         ...(parts.untrusted ? { untrusted: parts.untrusted } : {}),
         ...(parts.effect ? { effect: parts.effect } : {}),
     };
@@ -729,6 +843,10 @@ function commandHookParts(harness, name, spec, native, context = {}) {
             ? scopeIntent([own(input, 'file_path'), own(input, 'notebook_path'), ...patchPaths(own(input, 'command')), ...patchPaths(own(input, 'input'))], cwd)
             : null,
         evidence: spec.kind === 'tool.failed' ? failureEvidence(toolName, own(native, 'error')) : null,
+        // Claude Code's PostToolUseFailure names whether the user interrupted the call and how long it ran.
+        failure: spec.kind === 'tool.failed'
+            ? failureFeatures({ toolName, toolInput, error: own(native, 'error'), interrupted: own(native, 'is_interrupt') === true, durationMs: durationOf(own(native, 'duration_ms')) })
+            : null,
         untrusted: spec.kind === 'tool.finished'
             ? untrustedIntent(toolName, field(own(native, 'tool_use_id')), own(native, 'tool_response'))
             : spec.kind === 'tool.failed'
@@ -824,7 +942,17 @@ function erroredToolPart(part) {
     const state = own(part, 'state');
     if (!isPlainObject(state) || own(state, 'status') !== 'error')
         return null;
-    return { id: field(own(part, 'id')), callId: field(own(part, 'callID')), tool: field(own(part, 'tool'), 128), error: own(state, 'error') };
+    const time = own(state, 'time');
+    const start = isPlainObject(time) ? own(time, 'start') : undefined;
+    const end = isPlainObject(time) ? own(time, 'end') : undefined;
+    return {
+        id: field(own(part, 'id')),
+        callId: field(own(part, 'callID')),
+        tool: field(own(part, 'tool'), 128),
+        error: own(state, 'error'),
+        input: own(state, 'input'),
+        durationMs: typeof start === 'number' && typeof end === 'number' ? durationOf(end - start) : null,
+    };
 }
 /** A bash `metadata.exit` that is a non-zero exit code. */
 function failedExit(tool, metadata) {
@@ -931,7 +1059,13 @@ function pluginEvent(harness, native, hookKey) {
             kind: scope.kind,
             ...(failed === null
                 ? {}
-                : { intent: intentOf({ evidence: failureEvidence(failed.tool, failed.error), untrusted: untrustedIntent(failed.tool, failed.callId, failed.error) }) }),
+                : {
+                    intent: intentOf({
+                        evidence: failureEvidence(failed.tool, failed.error),
+                        failure: failureFeatures({ toolName: failed.tool, toolInput: failed.input, error: failed.error, durationMs: failed.durationMs }),
+                        untrusted: untrustedIntent(failed.tool, failed.callId, failed.error),
+                    }),
+                }),
             sessionId: scope.sessionId,
             ...(scope.parentSessionId === null ? {} : { agentId: scope.agentId, parentSessionId: scope.parentSessionId }),
             toolUseId: failed?.callId ?? field(own(props, 'callID')),
@@ -966,6 +1100,8 @@ function pluginEvent(harness, native, hookKey) {
             ? scopeIntent([own(args, 'filePath'), own(metadata, 'filepath'), own(metadata, 'filePath'), ...patchPaths(own(args, 'patchText'))], null)
             : null,
         evidence: exitFailed ? failureEvidence(tool, own(outputObject, 'output')) : null,
+        // A bash call's non-zero exit status is in its metadata; a timed-out or aborted one has none.
+        failure: exitFailed ? failureFeatures({ toolName: tool, toolInput: args, error: own(outputObject, 'output'), exit: count(own(metadata, 'exit')) }) : null,
         untrusted: key === 'tool.execute.after' ? untrustedIntent(tool, field(own(input, 'callID')), own(outputObject, 'output')) : null,
         effect: key === 'tool.execute.before' ? effectIntent(tool, args) : null,
     });

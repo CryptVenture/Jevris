@@ -139,10 +139,55 @@ export interface HarnessEffectIntent {
   readonly hosts?: readonly string[];
 }
 
+/**
+ * The fixed vocabulary of evidence a failure can be missing (repeated-failure advice, C05 and
+ * C29). A failure carries ids from this list, never text: each id has one fixed description that
+ * Jevris writes, so a question about "which artifact to obtain next" has no user text in it.
+ */
+export const FAILURE_ARTIFACT_IDS = ['failing-test-output', 'stack-trace', 'config-file', 'environment-info', 'repro-steps', 'recent-diff', 'logs'] as const;
+export type FailureArtifactId = (typeof FAILURE_ARTIFACT_IDS)[number];
+
+/** What kind of tool call failed. Closed set; a tool outside the known lists is `other`. */
+export const FAILURE_TOOL_CLASSES = ['shell', 'edit', 'read', 'web', 'agent', 'mcp', 'skill', 'other'] as const;
+export type FailureToolClass = (typeof FAILURE_TOOL_CLASSES)[number];
+
+/** How it failed, from what the harness reports: a non-zero exit, a signal (128 and up), a timeout or interruption, or an error with no exit status. */
+export const FAILURE_EXIT_CLASSES = ['nonzero', 'signal', 'timeout', 'error'] as const;
+export type FailureExitClass = (typeof FAILURE_EXIT_CLASSES)[number];
+
+/** How long the failed call ran, when the harness says. */
+export const FAILURE_ELAPSED_BUCKETS = ['lt1s', 'lt10s', 'lt60s', 'gte60s', 'unknown'] as const;
+export type FailureElapsedBucket = (typeof FAILURE_ELAPSED_BUCKETS)[number];
+
+/**
+ * The content-free features of one failed tool call, built by the adapter from what the harness
+ * reports and sent next to the envelope as `body.failure` (never inside it). No text, no path and
+ * no output: a closed set of codes, two one-way digests and booleans. The two digests never leave
+ * the machine: the sidecar compares them to the last failure of the session and sends Jev only the
+ * outcome of that comparison.
+ */
+export interface HarnessFailureIntent {
+  readonly toolClass: FailureToolClass;
+  readonly exitClass: FailureExitClass;
+  /** `<toolClass>:<exitClass>`, the failure family code. */
+  readonly family: string;
+  /** 16 hex characters: a digest of the normalized error text (paths, numbers and ids folded), or null when the failure carried no text. */
+  readonly signature: string | null;
+  /** 16 hex characters: a digest of the failed call's input (the same call again), or null when the harness gave none. */
+  readonly commandDigest: string | null;
+  /** True when a fixed rule reads the failure as the environment's (a missing tool, service, network or permission), not the source's. */
+  readonly environmental: boolean;
+  readonly elapsed: FailureElapsedBucket;
+  /** Which of the fixed vocabulary the failure itself already shows, sorted. */
+  readonly present: readonly FailureArtifactId[];
+}
+
 export interface HarnessIntent {
   readonly task?: HarnessTaskIntent;
   readonly scope?: HarnessScopeIntent;
   readonly evidence?: HarnessEvidenceIntent;
+  /** On a failed tool call: its content-free features (live repeated-failure advice). */
+  readonly failure?: HarnessFailureIntent;
   /** On a finished or failed tool call (GOV-12). */
   readonly untrusted?: HarnessUntrustedIntent;
   /** On a proposed tool call (GOV-13). */
