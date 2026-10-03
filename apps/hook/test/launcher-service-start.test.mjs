@@ -14,6 +14,11 @@ const { installService, runtimeFiles, serviceInputForHome } = await import('@jev
 const client = await import('@jevris/sidecar/client');
 const claude = await import('@jevris/adapter-claude-code');
 
+// A Linux unit goes under $XDG_CONFIG_HOME when that is set, and the test runner sets it to one
+// folder for the whole run, so every scene's unit would land in the same file, shared with the other
+// test files running beside this one. Unset, the unit goes under each scene's own account home.
+delete process.env.XDG_CONFIG_HOME;
+
 const platform = ['darwin', 'linux', 'win32'].includes(process.platform) ? process.platform : 'linux';
 const native = JSON.stringify(claude.FIXTURES.find((f) => f.id === 'claude.session-start').native);
 const bases = new Set();

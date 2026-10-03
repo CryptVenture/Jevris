@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -168,12 +168,19 @@ test('uninstall leaves a unit that serves another Jevris home in place (IPC-17, 
 
 test('jevris service through the CLI writes the unit for this Node and this Jevris, and never calls a real manager in tests (IPC-20)', async () => {
   const { runRuntimeCommand } = await import('../../cli/dist/runtime-commands.js');
-  const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-service-cli-')));
-  // The unit goes under the OS home: point it at the temp directory for this test.
-  const saved = { HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
-  process.env.HOME = home;
-  process.env.USERPROFILE = home;
-  delete process.env.XDG_CONFIG_HOME;
+  const account = realpathSync(mkdtempSync(join(tmpdir(), 'b-service-cli-')));
+  // A Jevris home that is not the account's own: a folder inside the account's home. The unit
+  // for it must name it with --home; the account's own home gets a unit with no --home.
+  const jevrisHome = join(account, 'jevris-home');
+  mkdirSync(jevrisHome);
+  // The unit goes under the OS home: point every variable the OS home and the default folders come from at the temp account.
+  const names = ['HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME'];
+  const saved = Object.fromEntries(names.map((name) => [name, process.env[name]]));
+  process.env.HOME = account;
+  process.env.USERPROFILE = account;
+  process.env.APPDATA = join(account, 'AppData', 'Roaming');
+  process.env.LOCALAPPDATA = join(account, 'AppData', 'Local');
+  for (const name of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']) delete process.env[name];
   try {
     const calls = [];
     let unitPath = null;
@@ -181,17 +188,23 @@ test('jevris service through the CLI writes the unit for this Node and this Jevr
     const registered = () => (unitPath !== null && existsSync(unitPath) ? { status: 0, stdout: readFileSync(unitPath).subarray(2).toString('utf16le'), stderr: '' } : { status: 1, stdout: '', stderr: 'not found' });
     const serviceExec = (file, args) => (calls.push([file, ...args]), args[0] === '/Query' ? registered() : { status: 0, stdout: '', stderr: '' });
     let text = '';
-    const run = (args, hooks) => runRuntimeCommand([...args, '--home', home], (chunk) => (text += chunk), hooks);
+    const run = (args, hooks, home = jevrisHome) => runRuntimeCommand([...args, '--home', home], (chunk) => (text += chunk), hooks);
+    const unitText = (path) => (process.platform === 'win32' ? readFileSync(path).subarray(2).toString('utf16le') : readFileSync(path, 'utf8'));
     if (!['darwin', 'linux', 'win32'].includes(process.platform)) return;
+
+    // A Jevris home that differs from the account's own is served with --home.
     assert.equal(await run(['service', 'install', '--json'], { serviceExec }), 0, text);
     const result = JSON.parse(text.trim());
     assert.equal(result.ok, true);
     unitPath = result.unitPath;
-    const unit = process.platform === 'win32' ? readFileSync(result.unitPath).subarray(2).toString('utf16le') : readFileSync(result.unitPath, 'utf8');
+    const unit = unitText(result.unitPath);
     assert.ok(unit.includes('--supervised'));
-    assert.ok(unit.includes(process.platform === 'win32' ? '--home' : home), 'the non-default home is served');
+    // The unit's own --home argument, not any path that happens to sit under the home (a macOS
+    // plist also names a log file there, which once made this assertion pass for the wrong reason).
+    const named = su.unitHomeFragment(unit);
+    assert.ok(named !== null && named.includes(jevrisHome), `the non-default home is served: the unit names ${jevrisHome} after --home (${String(named)})`);
     assert.ok(calls.length >= 1);
-    assert.ok(result.unitPath.startsWith(home), 'the unit is under the temp OS home');
+    assert.ok(result.unitPath.startsWith(account), 'the unit is under the temp OS home');
     // Without an injected runner, JEVRIS_TEST never reaches launchctl, systemctl or schtasks.
     text = '';
     assert.equal(await run(['service', 'status', '--json']), 0);
@@ -199,6 +212,22 @@ test('jevris service through the CLI writes the unit for this Node and this Jevr
     text = '';
     assert.equal(await run(['service', 'uninstall'], { serviceExec }), 0, text);
     assert.equal(existsSync(result.unitPath), false);
+
+    // The account's own home is the default home, whichever way it is named: its unit has no --home.
+    // On Linux and Windows the OS home follows $HOME / %USERPROFILE%, so the folder this test made
+    // the OS home is that account's own home on every OS.
+    text = '';
+    assert.equal(await run(['service', 'install', '--json'], { serviceExec }, account), 0, text);
+    const own = JSON.parse(text.trim());
+    assert.equal(own.ok, true);
+    unitPath = own.unitPath;
+    const ownUnit = unitText(own.unitPath);
+    assert.ok(ownUnit.includes('--supervised'));
+    assert.equal(su.unitHomeFragment(ownUnit), null, 'the account\'s own home is served without --home');
+    assert.ok(own.unitPath.startsWith(account), 'the unit is under the temp OS home');
+    text = '';
+    assert.equal(await run(['service', 'uninstall'], { serviceExec }, account), 0, text);
+    assert.equal(existsSync(own.unitPath), false);
     text = '';
     assert.equal(await run(['service', 'bogus']), 2);
     assert.match(text, /Usage: jevris service install\|uninstall\|status/);
@@ -207,7 +236,7 @@ test('jevris service through the CLI writes the unit for this Node and this Jevr
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
-    rmSync(home, { recursive: true, force: true });
+    rmSync(account, { recursive: true, force: true });
   }
 });
 

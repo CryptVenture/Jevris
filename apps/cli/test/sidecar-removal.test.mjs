@@ -17,12 +17,17 @@ const SIDECAR_MAIN = join(here, '..', '..', 'sidecar', 'dist', 'main.js');
 
 test('doctor sees the sidecar facts, and removal stops it and its service first (IPC-16, IPC-17)', { skip: managedHostSkip() }, async () => {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-removal-')));
-  const saved = { entry: process.env.JEVRIS_SIDECAR_ENTRY, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
+  const saved = { entry: process.env.JEVRIS_SIDECAR_ENTRY, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, APPDATA: process.env.APPDATA, LOCALAPPDATA: process.env.LOCALAPPDATA, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, XDG_DATA_HOME: process.env.XDG_DATA_HOME, XDG_STATE_HOME: process.env.XDG_STATE_HOME };
   process.env.JEVRIS_SIDECAR_ENTRY = SIDECAR_MAIN;
-  // Any service unit path lands under this temp OS home, never the real one.
+  // Any service unit path lands under this temp OS home, never the real one. The Jevris home below
+  // is this same folder, so it is the account's own home and its unit uses the default layout: on
+  // Windows that is %LOCALAPPDATA%, so it too points here (the runner's own value is the run's temp
+  // home, not this test's folder).
   process.env.HOME = home;
   process.env.USERPROFILE = home;
-  delete process.env.XDG_CONFIG_HOME;
+  process.env.APPDATA = join(home, 'AppData', 'Roaming');
+  process.env.LOCALAPPDATA = join(home, 'AppData', 'Local');
+  for (const name of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']) delete process.env[name];
   try {
     // Idle is normal: hooks and commands start the sidecar on demand (IPC-16).
     let view = await sidecarDoctorView(home);
@@ -86,7 +91,7 @@ test('doctor sees the sidecar facts, and removal stops it and its service first 
     assert.equal((await sidecarDoctorView(home)).state, 'idle');
   } finally {
     await main(['sidecar', 'stop', '--home', home], () => {});
-    for (const [name, value] of [['JEVRIS_SIDECAR_ENTRY', saved.entry], ['HOME', saved.HOME], ['USERPROFILE', saved.USERPROFILE], ['XDG_CONFIG_HOME', saved.XDG_CONFIG_HOME]]) {
+    for (const [name, value] of [['JEVRIS_SIDECAR_ENTRY', saved.entry], ['HOME', saved.HOME], ['USERPROFILE', saved.USERPROFILE], ['APPDATA', saved.APPDATA], ['LOCALAPPDATA', saved.LOCALAPPDATA], ['XDG_CONFIG_HOME', saved.XDG_CONFIG_HOME], ['XDG_DATA_HOME', saved.XDG_DATA_HOME], ['XDG_STATE_HOME', saved.XDG_STATE_HOME]]) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }
@@ -96,10 +101,12 @@ test('doctor sees the sidecar facts, and removal stops it and its service first 
 
 test('doctor reports a sidecar killed without cleanup as degraded, and idle again once a start recovers it (IPC-16)', { skip: managedHostSkip() }, async () => {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'b-stale-')));
-  const saved = { entry: process.env.JEVRIS_SIDECAR_ENTRY, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE };
+  const saved = { entry: process.env.JEVRIS_SIDECAR_ENTRY, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
   process.env.JEVRIS_SIDECAR_ENTRY = SIDECAR_MAIN;
   process.env.HOME = home;
   process.env.USERPROFILE = home;
+  // The service unit a start looks for is under this temp OS home, not the run's shared folder.
+  delete process.env.XDG_CONFIG_HOME;
   try {
     assert.equal(await main(['sidecar', 'start', '--home', home], () => {}), 0);
     const running = await sidecarDoctorView(home);
@@ -125,7 +132,7 @@ test('doctor reports a sidecar killed without cleanup as degraded, and idle agai
     assert.deepEqual([idle.state, idle.degraded], ['idle', false]);
   } finally {
     await main(['sidecar', 'stop', '--home', home], () => {});
-    for (const [name, value] of [['JEVRIS_SIDECAR_ENTRY', saved.entry], ['HOME', saved.HOME], ['USERPROFILE', saved.USERPROFILE]]) {
+    for (const [name, value] of [['JEVRIS_SIDECAR_ENTRY', saved.entry], ['HOME', saved.HOME], ['USERPROFILE', saved.USERPROFILE], ['XDG_CONFIG_HOME', saved.XDG_CONFIG_HOME]]) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }

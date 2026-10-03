@@ -152,8 +152,8 @@ declare module 'node:path' {
   export function resolve(...parts: readonly string[]): string;
   export function relative(from: string, to: string): string;
   export function isAbsolute(path: string): boolean;
-  export const posix: { join(...parts: readonly string[]): string };
-  export const win32: { join(...parts: readonly string[]): string };
+  export const posix: { join(...parts: readonly string[]): string; resolve(...parts: readonly string[]): string };
+  export const win32: { join(...parts: readonly string[]): string; resolve(...parts: readonly string[]): string };
 }
 
 declare module 'node:url' {

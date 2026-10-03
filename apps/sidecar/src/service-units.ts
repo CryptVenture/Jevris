@@ -53,10 +53,27 @@ export interface ServiceInputOptions {
 }
 
 /**
+ * Whether two folder names are one place, as far as the names can tell: resolved, trailing
+ * separators dropped, and compared without case where the file system usually ignores it (Windows
+ * and macOS, like the test-home guard). Nothing is read from disk.
+ */
+export function sameHomeDirectory(a: string, b: string, platform: string = process.platform): boolean {
+  const api = platform === 'win32' ? win32 : posix;
+  const fold = (path: string): string => {
+    const resolved = api.resolve(path);
+    return platform === 'win32' || platform === 'darwin' ? resolved.toLowerCase() : resolved;
+  };
+  return fold(a) === fold(b);
+}
+
+/**
  * The unit input for this Node, this Jevris and a home (IPC-20). The unit runs this Node with the
  * sidecar entry, `--supervised`, and `--home` when the home is not the account's own. The CLI
  * (`jevris service`, `jevris sidecar`) and the client's on-demand start build the same input, so
- * they agree on which unit serves which home.
+ * they agree on which unit serves which home. The account's own home is the default one however
+ * it is named (`--home`, `JEVRIS_HOME` or neither), so on Linux and Windows, where the OS home
+ * follows `$HOME` or `%USERPROFILE%`, a test that points those at a folder and names that same
+ * folder as the Jevris home gets a unit with no `--home`.
  */
 export function serviceInputForHome(options: ServiceInputOptions = {}): ServiceInput {
   const env = options.env ?? process.env;
@@ -64,7 +81,7 @@ export function serviceInputForHome(options: ServiceInputOptions = {}): ServiceI
   const resolved = resolveHome({ ...explicit, env });
   const osHome = options.osHome ?? resolveHome({ env: {} }).home;
   // The account's own home is the default one: its unit carries no --home, whichever way it was named.
-  const defaultHome = resolved.source === 'os' || resolved.home === osHome;
+  const defaultHome = resolved.source === 'os' || sameHomeDirectory(resolved.home, osHome);
   const getuid = Reflect.get(process, 'getuid') as (() => number) | undefined;
   const user = env['USERNAME'];
   return {

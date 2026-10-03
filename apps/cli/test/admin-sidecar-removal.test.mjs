@@ -30,12 +30,19 @@ test('doctor shows the sidecar; uninstall and data delete stop it first, and rem
   const account = join(dir, 'account');
   mkdirSync(home);
   mkdirSync(account);
-  const saved = { entry: process.env.JEVRIS_SIDECAR_ENTRY, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME };
+  const saved = { entry: process.env.JEVRIS_SIDECAR_ENTRY, HOME: process.env.HOME, USERPROFILE: process.env.USERPROFILE, APPDATA: process.env.APPDATA, LOCALAPPDATA: process.env.LOCALAPPDATA, XDG_CONFIG_HOME: process.env.XDG_CONFIG_HOME, XDG_DATA_HOME: process.env.XDG_DATA_HOME, XDG_STATE_HOME: process.env.XDG_STATE_HOME };
   process.env.JEVRIS_SIDECAR_ENTRY = SIDECAR_MAIN;
-  // Any service unit path lands under the temporary OS home, never the real one.
-  delete process.env.XDG_CONFIG_HOME;
-  process.env.HOME = account;
-  process.env.USERPROFILE = account;
+  // Any service unit path lands under the temporary OS home, never the real one. The OS home is
+  // the folder $HOME and %USERPROFILE% name, and the account's default folders come from the XDG
+  // and AppData variables, so all of them point at the temporary account.
+  const asAccount = (folder) => {
+    process.env.HOME = folder;
+    process.env.USERPROFILE = folder;
+    process.env.APPDATA = join(folder, 'AppData', 'Roaming');
+    process.env.LOCALAPPDATA = join(folder, 'AppData', 'Local');
+    for (const name of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']) delete process.env[name];
+  };
+  asAccount(account);
   const calls = [];
   let taskXml = '';
   const serviceExec = (file, args) => (calls.push([file.split(/[\\/]/).at(-1), ...args]), { status: 0, stdout: args.includes('/XML') ? taskXml : '', stderr: '' });
@@ -58,8 +65,8 @@ test('doctor shows the sidecar; uninstall and data delete stop it first, and rem
     assert.match(removed.text, /jevris service uninstall --home/);
 
     // Data delete of the account's own home: the unit is removed, then the sidecar stops, then the data goes.
-    process.env.HOME = home;
-    process.env.USERPROFILE = home;
+    // The Jevris home is now the account's own home, so its unit has no --home and lives in the default layout.
+    asAccount(home);
     assert.equal(await main(['sidecar', 'start', '--home', home], () => {}), 0);
     assert.equal((await sidecarDoctorView(home)).state, 'running');
     // A unit for this home is installed first (the service manager is faked), so every OS has
@@ -83,7 +90,7 @@ test('doctor shows the sidecar; uninstall and data delete stop it first, and rem
     }
   } finally {
     await main(['sidecar', 'stop', '--home', home], () => {});
-    for (const [name, value] of [['JEVRIS_SIDECAR_ENTRY', saved.entry], ['HOME', saved.HOME], ['USERPROFILE', saved.USERPROFILE], ['XDG_CONFIG_HOME', saved.XDG_CONFIG_HOME]]) {
+    for (const [name, value] of [['JEVRIS_SIDECAR_ENTRY', saved.entry], ['HOME', saved.HOME], ['USERPROFILE', saved.USERPROFILE], ['APPDATA', saved.APPDATA], ['LOCALAPPDATA', saved.LOCALAPPDATA], ['XDG_CONFIG_HOME', saved.XDG_CONFIG_HOME], ['XDG_DATA_HOME', saved.XDG_DATA_HOME], ['XDG_STATE_HOME', saved.XDG_STATE_HOME]]) {
       if (value === undefined) delete process.env[name];
       else process.env[name] = value;
     }

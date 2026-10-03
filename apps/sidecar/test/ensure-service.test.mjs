@@ -17,6 +17,11 @@ import { join } from 'node:path';
 const { ensureSidecar, installService, probeSidecar, runtimeFiles, serviceInputForHome, serviceInstalledFor, serviceStartCommand, startDaemon } = await import('../dist/index.js');
 const { sidecarCommand } = await import('../dist/client.js');
 
+// A Linux unit goes under $XDG_CONFIG_HOME when that is set, and the test runner sets it to one
+// folder for the whole run, so every installed 'linux' unit would land in the same file, shared with
+// the other test files running beside this one. Unset, each unit goes under its own account home.
+delete process.env.XDG_CONFIG_HOME;
+
 const PLATFORMS = ['darwin', 'linux', 'win32'];
 const ENTRY = '/opt/jevris/dist/sidecar.mjs';
 
