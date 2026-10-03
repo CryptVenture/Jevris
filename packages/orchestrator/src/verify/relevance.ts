@@ -21,6 +21,11 @@ import { approvedManifests, verificationStatus } from './service.js';
 export const RELEVANCE_WAIT_MS = 700;
 /** Time kept back from the request's remaining time for the rest of the answer, in ms. */
 export const RELEVANCE_MARGIN_MS = 450;
+/**
+ * The reason code of a ranking whose changed-files read was not in by the request's deadline (a
+ * slow or locked git): the rules order with no change known, no Jev call and no record.
+ */
+export const RELEVANCE_GIT_DEADLINE = 'CHECK_RELEVANCE_GIT_DEADLINE';
 
 /** A completion status as a check's last receipt state: a failing or passing receipt, or none current. */
 export function lastStateOf(status: CheckStatus): CheckLastState {
@@ -84,18 +89,34 @@ export interface RankRequest {
 }
 
 /**
+ * The changed paths, or 'late' when they are not in within `waitMs`. A read that is already in
+ * wins at any `waitMs`; one that rejects is no paths. The read itself is left to finish (or time
+ * out) on its own; nothing here waits for it.
+ */
+async function pathsWithin(paths: RankRequest['paths'], waitMs: number): Promise<readonly string[] | null | 'late'> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const late = new Promise<'late'>((resolve) => {
+    timer = setTimeout(() => resolve('late'), Math.max(0, Math.floor(waitMs)));
+  });
+  try {
+    return await Promise.race([Promise.resolve(paths).catch(() => null), late]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
+}
+
+/**
  * Ranks the checks for this request. Rules answer when they are sure; Jev is asked when `jev.assist`
  * is `classify`, the mode and the kill switch allow it and there is time. Never throws, and never
- * waits for Jev past the request's own deadline: every miss is the rules order with a reason code.
+ * waits past the request's own deadline, for Jev or for the changed-files read (a slow or locked
+ * git): every miss is the rules order with a reason code.
  */
 export async function rankApprovedChecks(request: RankRequest): Promise<CheckRanking> {
   const { ctx } = request;
-  let paths: readonly string[] | null;
-  try {
-    paths = await request.paths;
-  } catch {
-    paths = null;
-  }
+  // The same deadline as the Jev wait below: the time left less the margin kept for the rest of the answer.
+  const waited = await pathsWithin(request.paths, ctx.deadline.remainingMs() - (request.marginMs ?? RELEVANCE_MARGIN_MS));
+  if (waited === 'late') return rulesOrderOf({ checks: request.checks, paths: null }, RELEVANCE_GIT_DEADLINE);
+  const paths = waited;
   const input = { checks: request.checks, paths };
   try {
     const left = ctx.deadline.remainingMs() - (request.marginMs ?? RELEVANCE_MARGIN_MS);

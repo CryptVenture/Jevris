@@ -18,11 +18,13 @@ import {
   openWorkspace,
   parseManifest,
   runVerification,
+  setSubscriberGit,
   sidecarOps,
   SURFACE_OP_OF,
   verificationStatus,
 } from '../dist/index.js';
 import { pendingChecks } from '../dist/verify/runs.js';
+import { nodeGit } from '../dist/verify/revision.js';
 import { resetStopAutoVerifyState } from '../dist/hooks/stop-autoverify.js';
 import { lastStateOf, orderIsInformed, orderMissingEvidence, rankApprovedChecks } from '../dist/verify/relevance.js';
 import { closeTestStore, testStore } from './store-fixture.mjs';
@@ -407,4 +409,57 @@ test('rankApprovedChecks never throws: a throwing engine, an unreadable change a
   assert.deepEqual([noGit.source, noGit.reasonCode, noGit.order], ['rules', 'CHECK_RELEVANCE_NO_PROVIDER', ['unit-test', 'docs-check']]);
   const late = await rankApprovedChecks({ ctx: ctx({ deadline: { budgetMs: 1, remainingMs: () => -50, expired: () => true } }), workspaceId: 'w', checks, paths: ['lib/a.js', 'docs/a.md'] });
   assert.equal(late.reasonCode, 'CHECK_RELEVANCE_NO_TIME');
+});
+
+// ------------------------------------------------------------------ the Stop answer never waits for git (review of wave 1, M2)
+
+/** Fails fast (20 s, a guard and not an assertion on speed) if `promise` never settles. */
+const settles = (promise) => Promise.race([promise, sleep(20_000).then(() => assert.fail('the call did not settle: it is waiting for git'))]);
+
+test('rankApprovedChecks does not wait past its deadline for the changed-files read: rules order with a reason code, no Jev call (M2)', async () => {
+  const engine = jevEngine({ docs: 4 });
+  const ctx = { engine, mode: 'advise', jevAssist: 'classify', killSwitchStopped: false, deadline: { budgetMs: 600, remainingMs: () => 600, expired: () => false } };
+  const checks = [{ id: 'unit-test', state: 'missing' }, { id: 'docs-check', state: 'missing' }, { id: 'lint', state: 'missing' }];
+  // A read that never resolves (a locked or very slow git).
+  const never = await settles(rankApprovedChecks({ ctx, workspaceId: 'w', checks, paths: new Promise(() => undefined), marginMs: 550 }));
+  assert.deepEqual([never.source, never.reasonCode, never.order, never.shape, never.asked], ['rules', 'CHECK_RELEVANCE_GIT_DEADLINE', ['unit-test', 'docs-check', 'lint'], 'none', false]);
+  // A read that finishes after the deadline is just as late: the order does not use it.
+  const late = await settles(rankApprovedChecks({ ctx, workspaceId: 'w', checks, paths: sleep(400).then(() => ['lib/a.js', 'docs/b.md']), marginMs: 550 }));
+  assert.deepEqual([late.source, late.reasonCode, late.order, late.shape], ['rules', 'CHECK_RELEVANCE_GIT_DEADLINE', ['unit-test', 'docs-check', 'lint'], 'none']);
+  assert.equal(engine.calls.length, 0, 'Jev is not asked about a change that is not known');
+  // No time left at all: a read that is not already in is not waited for.
+  const spent = await settles(rankApprovedChecks({ ctx: { ...ctx, deadline: { budgetMs: 1, remainingMs: () => -50, expired: () => true } }, workspaceId: 'w', checks, paths: new Promise(() => undefined) }));
+  assert.equal(spent.reasonCode, 'CHECK_RELEVANCE_GIT_DEADLINE');
+  // A read that is already in (started earlier) is used, even with no time left.
+  const ready = await settles(rankApprovedChecks({ ctx: { ...ctx, deadline: { budgetMs: 1, remainingMs: () => -50, expired: () => true } }, workspaceId: 'w', checks, paths: Promise.resolve(['docs/b.md']) }));
+  assert.notEqual(ready.reasonCode, 'CHECK_RELEVANCE_GIT_DEADLINE');
+  assert.equal(ready.shape, 'docs');
+});
+
+test('a Stop with a git that never answers the changed-files read still answers, with the rules order and a reason, and the rest of the Stop path runs (M2)', async () => {
+  const f = fixture();
+  const real = nodeGit();
+  // Only the changed-files read hangs; every other git call is the real one.
+  const stub = { run: (args, cwd) => (args[0] === 'diff' && args.includes('--name-only') ? new Promise(() => undefined) : real.run(args, cwd)) };
+  try {
+    await approve(f, THREE.map(([id]) => [id, logging(f, id)]));
+    userConfig(f, { verification: { backgroundAtStop: 'on' } });
+    f.editSource();
+    setSubscriberGit(stub);
+    // 600 ms left leaves 150 ms for the changed-files read after the margin kept for the rest of the answer.
+    const answer = await settles(stop(f, { deadline: { budgetMs: 600, remainingMs: () => 600, expired: () => false } }));
+    // The remaining steps ran: the background run of the missing checks was queued (the answer says they are
+    // running) and the Stop was decided, with the usual order because the change was not read in time.
+    assert.equal(answer.reasonCode, 'STOP_UNVERIFIED', JSON.stringify(answer));
+    assert.match(answer.hookOutcome.text, /receipts for docs-check:missing, lint:missing, unit-test:missing\./);
+    assert.match(answer.hookOutcome.text, /Still running in the background: docs-check \(running\), lint \(running\), unit-test \(running\);/);
+    assert.deepEqual(f.ranked().map((t) => [t.source, t.reasonCode, t.checks]), [['rules', 'CHECK_RELEVANCE_GIT_DEADLINE', 3]]);
+    // The background run finishes: every check ran, in the usual order.
+    for (let i = 0; i < 2400 && pendingChecks(f.ws.workspaceId, THREE.map(([id]) => id)).size > 0; i += 1) await sleep(25);
+    assert.deepEqual(ran(f), ['docs-check', 'lint', 'unit-test'], 'every check ran, in the usual order');
+    assert.deepEqual(await statuses(f), { 'docs-check': 'passed', lint: 'passed', 'unit-test': 'passed' });
+  } finally {
+    setSubscriberGit(undefined);
+    f.done();
+  }
 });
