@@ -144,7 +144,11 @@ Bash or `apply_patch` result stays a finished call and gives no failure record, 
 no repeated-failure advice for a failing shell command. New-task advice reads the `UserPromptSubmit`
 prompt of the first message of a session, only with source egress approved. Both lines are shown as a `systemMessage` at the next
 prompt or tool event, never block, and rewrite nothing (see
-[settings.md](../settings.md#jev-assist)).
+[settings.md](../settings.md#jev-assist)). A `systemMessage` is shown to you and is not put in
+the model's context. A line that has to wait is kept in the sidecar's memory for up to 10
+minutes, never on disk, and is dropped if it is not shown in that time or the sidecar restarts.
+Only the first prompt of a session is read, so a first prompt of fewer than 4 words
+(`NEW_TASK_TOO_SHORT`) uses up the session's one chance for new-task advice.
 
 Hooks also fire in a subagent thread, on the root `session_id` with the thread's `agent_id`.
 Jevris reports those events under the parent session, as that subagent's work: a subagent's

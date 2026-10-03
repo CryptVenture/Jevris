@@ -212,20 +212,6 @@ Returns a portable memory capsule for another session or harness. The capsule gr
 - **Arguments:** `capsuleId` (optional; the newest capsule when omitted) and `taskId` (optional).
 - **Result:** `{ capsuleId, found, capsule, contentHash }`.
 
-#### `jevris_plan`
-
-Validates a task graph. It finds:
-
-- cycles;
-- unknown dependencies;
-- missing acceptance checks and requirements;
-- parallel tasks that write to the same scope.
-
-- **Arguments:** `tasks` (required): 1 to 1024 task objects. Only each task's TaskNode fields are checked; the scheduling fields of a submitted task (`title`, `models`, `expectedOutputs` and so on) are allowed and ignored.
-- **Result:** `{ valid, taskCount, order, waves, criticalPath, ready, issues, advice }`, plus `sliceSuggestions` for a sound graph: one `{ taskId, slice, source, risk, confidencePercent, reasonCode, decisionId }` per task, the slice and risk the route classifier gives it (Jev from structured features, rules as the fallback; see [routing.md](routing.md#slice-hints-for-the-tasks-of-a-plan)). A slice a task declares (`sliceId`) is kept as given, with `suggestedSlice`, `suggestedBy` and `agrees`. Advice for a person: it is not part of the plan, and no path name is sent to Jev.
-  - `issues` codes are `DUPLICATE_TASK`, `UNKNOWN_DEPENDENCY`, `SELF_DEPENDENCY`, `CYCLE`, `WORKSPACE_SCOPE`, `INVALID_TASK`, `NO_ACCEPTANCE_CHECK`, `NO_REQUIREMENT` and `WRITE_OVERLAP`.
-  - An invalid plan is a normal result with `valid: false`.
-
 #### `jevris_verify`
 
 Reports whether each declared check has a current passing runner receipt. It never runs a check and never marks one passed. Checks run only from the `jevris` CLI.
@@ -244,7 +230,7 @@ Shows the effective Jevris settings and where each one comes from. This tool can
 
 ### Advice tools
 
-These tools are also read-only (`readOnlyHint: true`).
+These tools change no plan, file, setting or permission and are marked `readOnlyHint: true`. Two of them keep a local record of their advice: `jevris_plan_route` and `jevris_plan` each write advisory decisions to the local journal, and may ask Jev within the usual budgets and the `jev.assist` setting.
 
 #### `jevris_plan_route`
 
@@ -271,6 +257,21 @@ Advice on the main-session model and on managed workers. It never switches a mod
   - `worker.outcome` is `recommend` or `abstain`. Worker advice needs a released calibration for the slice.
 
   The same advice is `jevris route` in the CLI; see [routing.md](routing.md).
+
+#### `jevris_plan`
+
+Validates a task graph and labels each task with a slice and risk hint. It finds:
+
+- cycles;
+- unknown dependencies;
+- missing acceptance checks and requirements;
+- parallel tasks that write to the same scope.
+
+- **Arguments:** `tasks` (required): 1 to 1024 task objects. Only each task's TaskNode fields are checked; the scheduling fields of a submitted task (`title`, `models`, `expectedOutputs` and so on) are allowed and ignored.
+- **Result:** `{ valid, taskCount, order, waves, criticalPath, ready, issues, advice }`, plus `sliceSuggestions` for a sound graph: one `{ taskId, slice, source, risk, confidencePercent, reasonCode, decisionId }` per task, the slice and risk the route classifier gives it (Jev from structured features, rules as the fallback; see [routing.md](routing.md#slice-hints-for-the-tasks-of-a-plan)). A slice a task declares (`sliceId`) is kept as given, with `suggestedSlice`, `suggestedBy` and `agrees`. Advice for a person: it is not part of the plan, and no path name is sent to Jev.
+  - `issues` codes are `DUPLICATE_TASK`, `UNKNOWN_DEPENDENCY`, `SELF_DEPENDENCY`, `CYCLE`, `WORKSPACE_SCOPE`, `INVALID_TASK`, `NO_ACCEPTANCE_CHECK`, `NO_REQUIREMENT` and `WRITE_OVERLAP`.
+  - An invalid plan is a normal result with `valid: false`.
+- **What it records:** the plan itself is never stored or changed, but each labelled task's hint is recorded as one advisory decision in the local journal (with no task id, because a checked plan's tasks do not exist; see [routing.md](routing.md#slice-hints-for-the-tasks-of-a-plan)), and with Jev on it may ask Jev up to 8 questions of the usual kind, within the budgets. It is an advice tool for that reason, not a read-only one. At most 256 tasks are labelled.
 
 #### `jevris_recover`
 

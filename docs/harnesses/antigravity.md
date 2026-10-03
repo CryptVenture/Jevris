@@ -176,8 +176,12 @@ The hooks only observe:
   error text, the command or a path). PostToolUse shows nothing, so when the same failure comes
   back the one advice line (which evidence would help most next, or that the repair attempts are
   used up) is held for the session and sent as the ephemeral message before the next invocation,
-  once. Antigravity forwards no prompt text, so there is no new-task advice here. See
-  [settings.md](../settings.md#jev-assist).
+  once. The ephemeral message is part of the model's input, so the model reads the line. Until
+  then the sidecar keeps the line in its memory for up to 10 minutes, never on disk, and drops it
+  if it is not delivered in that time or the sidecar restarts. An event with no usable
+  conversation id (the id can be null) is given no waiting line and gets no repeated-failure
+  advice, because its failures cannot be told from another conversation's. Antigravity forwards
+  no prompt text, so there is no new-task advice here. See [settings.md](../settings.md#jev-assist).
 - Antigravity has no SessionStart event, so the one-line orientation the other harnesses get when a
   session starts is not sent here. The MCP server instructions and the `jevris-guide` skill carry it.
 

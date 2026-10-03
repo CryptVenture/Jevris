@@ -189,7 +189,9 @@ back the one advice line (which evidence would help most next, or that the repai
 up) waits for your next message and is added to that turn's system prompt, once. New-task advice
 reads the `chat.message` text of the first message of a session, only with source egress approved. Its answer comes after the turn
 has started, so it is shown with your next message. Both are advice only: they never block a message or a tool call and rewrite nothing (see
-[settings.md](../settings.md#jev-assist)).
+[settings.md](../settings.md#jev-assist)). Unlike a Claude Code or Codex `systemMessage`, the line is added to the system prompt, so the model reads it. A line that
+has to wait is kept in the sidecar's memory for up to 10 minutes, never on disk, and is dropped if it is not shown in that time or the sidecar restarts. Only the first
+message of a session is read for new-task advice, so a first message of fewer than 4 words (`NEW_TASK_TOO_SHORT`) uses up the session's one chance.
 
 Only the first line of the output or error is kept as evidence. Every other part update is still
 dropped. This was read from the OpenCode source at v1.18.32 and Kilo at v7.8.1.
