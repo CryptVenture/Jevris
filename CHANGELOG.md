@@ -130,6 +130,8 @@ The first public release: one package that installs into five coding harnesses o
 - The Linux CI cells run the ORC-12 container lease test with `JEVRIS_TEST_DOCKER_IMAGE=node:24`; before, it skipped everywhere. [docs/testing.md](docs/testing.md) lists the expected skips per operating system and how the owner runs the four billed live test files.
 - The suite no longer assumes a fast machine: polling loops and wait deadlines under 10 s, sidecar start waits of 3 to 8 s, the abort and BUSY windows of the worker and sidecar tests, and the per-test timeouts (`--test-timeout` 120 s to 300 s) are raised to generous bounds that end as soon as the condition holds. A new lint (`lint/slow-ci.lint.mjs`) fails a short polling bound, a short wait deadline, a short sidecar start wait or an exact run time such as "(0s)" in an assertion. The Linux and macOS CI test cells get 45 minutes instead of 30.
 - Printed copy-and-run commands are pinned by tests at all four quoting sites, each with a value that needs quoting and a round trip through `/bin/sh`.
+- Tests that abandon a Jev call at a deadline (check-relevance, slice-classify, plan-slices and the repeated-failure and new-task advice tests) no longer fail under parallel load. They wait for the engine's own work and for the request to arrive instead of sleeping, and the two Stop-ranking tests with a tight window read the changed files before the Stop. `docs/testing.md` describes the pattern, and `packages/provider-typesafe/test/engine-settle.mjs` is the helper.
+- The slice-classify and plan-slices privacy tests now fail if the task title is sent, or counted as a separate question, while source egress is denied.
 
 ### Documentation
 
