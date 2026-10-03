@@ -224,9 +224,12 @@ work ends, and nothing is tuned live from it.
 | `CHECK_RELEVANCE_ASSIST_OFF` / `_MODE_OFF` / `_KILL_SWITCH` | `jev.assist` is `off`, the mode is `off`, or the kill switch is set |
 | `CHECK_RELEVANCE_NO_PROVIDER` | no Jev is configured (rules-only) |
 | `CHECK_RELEVANCE_NO_TIME` / `_DEADLINE` | too little time was left, or Jev did not answer in time |
+| `CHECK_RELEVANCE_GIT_DEADLINE` | git had not listed the changed files by the request's deadline (a slow or locked repository): no change is known, Jev is not asked and no decision is recorded |
 | `CHECK_RELEVANCE_JEV_CIRCUIT_OPEN` / `_BUDGET` | the Jev circuit is open, or the Jev budget is spent (`BUDGET_*`) |
 | `CHECK_RELEVANCE_JEV_LOW_CONFIDENCE` / `_NO_ANSWER` | no Jev score reached a confidence of 0.6 |
 | `CHECK_RELEVANCE_ERROR` / `CHECK_RELEVANCE_JEV_*` | the call or the ranking failed |
+
+The read of the changed files shares the Stop and verify deadline: it waits no longer than the time left, less the margin kept for the rest of the answer, the same bound as the Jev wait. A slow or locked git therefore costs the ranking (the usual order, with `CHECK_RELEVANCE_GIT_DEADLINE`), never the Stop answer or the checks that go on after it.
 
 ## 4. Freshness
 
