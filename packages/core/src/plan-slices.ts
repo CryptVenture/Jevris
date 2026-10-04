@@ -11,9 +11,12 @@
  * - Rules answer first where they are sure; Jev is asked for the rest, with the route's gates
  *   (confidence 0.6, margin 0.15, risk score 2 or less; a protected path gets no slice and high risk).
  * - A plan is bounded: at most `PLAN_MAX_JEV_CALLS` distinct questions per plan (the rest get the
- *   rules answer, `PLAN_JEV_CAP`), asked in parallel inside one shared deadline (`PLAN_JEV_DEADLINE`
- *   for any still out at the end), identical tasks sharing one question and the engine's decision
- *   cache. Every miss, and an off or absent engine, is the rules answer with a reason code.
+ *   rules answer, `PLAN_JEV_CAP`), identical tasks sharing one question and the engine's decision
+ *   cache. The tasks that need Jev are asked together, six to a request (`classifyTaskSliceBatch`:
+ *   two questions a task and at most 12 to a request) instead of one request each, inside one shared
+ *   deadline (`PLAN_JEV_DEADLINE` for any still out at the end). A task keeps its own answer, floors
+ *   and decision; a task whose features were answered before is not asked again. Every miss, and an
+ *   off or absent engine, is the rules answer with a reason code.
  * - A slice the plan declared is kept as given. The classifier still runs on it, and the two are
  *   recorded together (`SLICE_AGREE` or `SLICE_DIFFER`), so the outcome join can later score Jev
  *   against a plan-declared slice.
@@ -27,7 +30,7 @@ import { createHash } from 'node:crypto';
 import { modeAllows, type Mode } from '@jevris/contracts';
 import type { DecisionEngine } from './decision-engine.js';
 import type { IntentContext } from './intent-decisions.js';
-import { classifyTaskSlice, recordSliceClassification, sliceFeatures, sliceNeedsJev, type SliceAssist, type SliceClassification, type SliceFeatures, type SliceRisk } from './slice-classifier.js';
+import { classifyTaskSlice, classifyTaskSliceBatch, recordSliceClassification, sliceFeatures, sliceNeedsJev, type SliceAssist, type SliceClassification, type SliceFeatures, type SliceRisk } from './slice-classifier.js';
 import { sliceCodeOf } from './slice-explain.js';
 
 /** The most distinct questions one plan asks Jev; the rest of its tasks get the rules answer. */
@@ -276,14 +279,25 @@ export async function suggestPlanSlices(engine: DecisionEngine | null, tasks: re
 
   const intent: IntentContext = { workspaceId: ctx.workspaceId, evidenceRevision: ctx.evidenceRevision, deadlineMs: Math.max(1, deadlineMs) };
   const results = new Map<string, SliceClassification>();
-  const runs = [...groups.values()].map(async (g) => {
-    try {
-      const r = await classifyTaskSlice(engine, g.hints, intent, { assist: g.assist, record: false, now, ...(g.skip === null ? {} : { skipAsk: g.skip }) });
-      results.set(g.key, r);
-    } catch {
-      // Left out of `results`: the rules answer below.
-    }
-  });
+  const all = [...groups.values()];
+  // The tasks that need Jev go together (six to a request); each result is stored as soon as its request answers, so a
+  // request still out at the deadline leaves only its own tasks to the rules answer.
+  const askGroups = all.filter((g) => g.asks);
+  const runs: Promise<void>[] = all
+    .filter((g) => !g.asks)
+    .map(async (g) => {
+      try {
+        const r = await classifyTaskSlice(engine, g.hints, intent, { assist: g.assist, record: false, now, ...(g.skip === null ? {} : { skipAsk: g.skip }) });
+        results.set(g.key, r);
+      } catch {
+        // Left out of `results`: the rules answer below.
+      }
+    });
+  if (askGroups.length > 0) {
+    runs.push(
+      classifyTaskSliceBatch(engine, askGroups.map((g) => ({ key: g.key, hints: g.hints })), intent, { assist: 'classify', now, onResult: (key, r) => void results.set(key, r) }).catch(() => undefined),
+    );
+  }
   if ([...groups.values()].some((g) => g.asks)) {
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<'late'>((resolve) => {

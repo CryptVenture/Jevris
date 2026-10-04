@@ -385,6 +385,44 @@ function result(base: Partial<SliceClassification> & Pick<SliceClassification, '
   return { confidence: null, decisionId: null, jevDecisionId: null, asked: false, cacheHit: null, latencyMs: null, jevSlice: null, rulesAlternative: null, evidenceIds: [], ...base };
 }
 
+/** The rules' answer when Jev's does not stand: the rules' slice (or none) with the reason. The evidence ids never carry the title. */
+function weakResult(features: SliceFeatures, reasonCode: string, extra: Partial<SliceClassification> = {}): SliceClassification {
+  const rulesId = rulesSlice(features).sliceId;
+  const rulesHint = rulesRisk(features);
+  if (rulesId === null) return result({ sliceId: null, source: 'none', risk: rulesHint, reasonCode, ...extra, evidenceIds: evidenceIdsOf(features, false) });
+  return result({ sliceId: rulesId, source: 'rules', risk: rulesHint, reasonCode, rulesAlternative: rulesId, ...extra, evidenceIds: evidenceIdsOf(features, false) });
+}
+
+/** What Jev said about one task, in the shape both ways of asking produce. */
+interface JevSliceAnswer {
+  readonly choice: ChoiceAnswer | null;
+  readonly score: number | null;
+}
+
+/**
+ * Applies the floors to Jev's answer for one task (the one place they are applied, for a request of one task and a
+ * request of several): a slice that is not in the vocabulary, a confidence under 0.6 or a margin under 0.15 is the rules
+ * answer; a high risk gives no slice; Jev can only raise the risk. `base` carries what is known of the ask.
+ */
+function judgeSliceAnswer(features: SliceFeatures, answer: JevSliceAnswer, base: Partial<SliceClassification>): { readonly weak: string; readonly extra: Partial<SliceClassification> } | { readonly final: SliceClassification } {
+  const rulesId = rulesSlice(features).sliceId;
+  const rulesHint = rulesRisk(features);
+  const { choice, score } = answer;
+  if (choice === null) return { weak: 'SLICE_JEV_NO_ANSWER', extra: base };
+  const jevRisk = score === null ? 'unknown' : riskOfScore(score);
+  const risk = higherRisk(rulesHint, jevRisk);
+  const known = (SHARED_SLICE_IDS as readonly string[]).includes(choice.choice);
+  const common = { ...base, confidence: Math.round(choice.confidence * 100) / 100, jevSlice: choice.choice === 'unknown' || known ? choice.choice : null, risk };
+  if (!known) return { weak: choice.choice === 'unknown' ? 'SLICE_JEV_UNKNOWN' : 'SLICE_JEV_UNKNOWN_OPTION', extra: { ...common, risk } };
+  if (choice.confidence < SLICE_MIN_CONFIDENCE || choice.margin < SLICE_MIN_MARGIN) return { weak: 'SLICE_JEV_LOW_CONFIDENCE', extra: common };
+  if (risk === 'high' || (score !== null && score > SLICE_MAX_RISK_SCORE)) {
+    // A high-risk answer falls to the baseline: no slice is used, whatever the rules guessed.
+    return { final: result({ ...common, sliceId: null, source: 'none', risk: 'high', reasonCode: 'SLICE_HIGH_RISK' }) };
+  }
+  const disagree = rulesId !== null && rulesId !== choice.choice;
+  return { final: result({ ...common, sliceId: choice.choice, source: 'jev', reasonCode: disagree ? 'SLICE_JEV_OVER_RULES' : 'SLICE_JEV' }) };
+}
+
 /**
  * Classifies a task into a known slice and a risk. Never throws and never blocks past its
  * deadline: any failure is the rules answer.
@@ -406,10 +444,7 @@ export async function classifyTaskSlice(engine: DecisionEngine | null, hints: Sl
   if (rules.sure && rulesId !== null) {
     return finish(result({ sliceId: rulesId, source: 'rules', risk: rulesHint, reasonCode: 'SLICE_RULES_SURE', rulesAlternative: rulesId, evidenceIds: evidenceIdsOf(features, false) }));
   }
-  const weak = (reasonCode: string, extra: Partial<SliceClassification> = {}): Promise<SliceClassification> => {
-    if (rulesId === null) return finish(result({ sliceId: null, source: 'none', risk: rulesHint, reasonCode, ...extra, evidenceIds: evidenceIdsOf(features, false) }));
-    return finish(result({ sliceId: rulesId, source: 'rules', risk: rulesHint, reasonCode, rulesAlternative: rulesId, ...extra, evidenceIds: evidenceIdsOf(features, false) }));
-  };
+  const weak = (reasonCode: string, extra: Partial<SliceClassification> = {}): Promise<SliceClassification> => finish(weakResult(features, reasonCode, extra));
   if (options.skipAsk !== undefined) return weak(REASON_CODE.test(options.skipAsk) ? options.skipAsk : 'SLICE_ASSIST_OFF');
   if (options.assist === 'off') return weak('SLICE_ASSIST_OFF');
   if (engine === null) return weak('PROVIDER_NOT_CONFIGURED');
@@ -427,23 +462,187 @@ export async function classifyTaskSlice(engine: DecisionEngine | null, hints: Sl
   const evidenceIds = evidenceIdsOf(features, withTitle);
   const asked = await askBoundedDecision(engine, SLICE_CLASSIFY_SPEC_ID, sliceQuestions(), packet, ctx, false);
   if (!asked.ok) return weak(`SLICE_JEV_${asked.reasonCode}`.slice(0, 64), { asked: true, jevDecisionId: asked.decisionId, latencyMs: Math.round(now() - started) });
-  const choice = choiceOf(asked.answers, 'slice');
-  const score = scoreOf(asked.answers, 'risk');
   const cacheHit = await cacheHitOf(engine, asked.decisionId);
   const base = { asked: true, jevDecisionId: asked.decisionId, cacheHit, latencyMs: Math.round(now() - started), rulesAlternative: rulesId, evidenceIds };
-  if (choice === null) return weak('SLICE_JEV_NO_ANSWER', base);
-  const jevRisk = score === null ? 'unknown' : riskOfScore(score);
-  const risk = higherRisk(rulesHint, jevRisk);
-  const known = (SHARED_SLICE_IDS as readonly string[]).includes(choice.choice);
-  const common = { ...base, confidence: Math.round(choice.confidence * 100) / 100, jevSlice: choice.choice === 'unknown' || known ? choice.choice : null, risk };
-  if (!known) return weak(choice.choice === 'unknown' ? 'SLICE_JEV_UNKNOWN' : 'SLICE_JEV_UNKNOWN_OPTION', { ...common, risk });
-  if (choice.confidence < SLICE_MIN_CONFIDENCE || choice.margin < SLICE_MIN_MARGIN) return weak('SLICE_JEV_LOW_CONFIDENCE', common);
-  if (risk === 'high' || (score !== null && score > SLICE_MAX_RISK_SCORE)) {
-    // A high-risk answer falls to the baseline: no slice is used, whatever the rules guessed.
-    return finish(result({ ...common, sliceId: null, source: 'none', risk: 'high', reasonCode: 'SLICE_HIGH_RISK' }));
+  const judged = judgeSliceAnswer(features, { choice: choiceOf(asked.answers, 'slice'), score: scoreOf(asked.answers, 'risk') }, base);
+  return 'weak' in judged ? weak(judged.weak, judged.extra) : finish(judged.final);
+}
+
+// --------------------------------------------------------------------------------- several tasks in one request
+
+/**
+ * The most tasks one request carries: each is two questions (its slice and its risk), and a request holds at most 12.
+ * Measured live (jev-1.13.0, 2026-10-04) for a plan of 6 tasks that all need Jev: six requests at once took 429 ms
+ * (median; the slowest of six, each about 330 ms) and cost 282 micro-USD; one request of the 12 questions took 227 ms
+ * and cost 198 micro-USD, and both labelled all 24 of 24 tasks as expected, every one above the confidence floor.
+ */
+export const SLICE_BATCH_TASKS = 6;
+
+/** The batch's questions for `count` tasks: the single-task questions' texts, once per task, each naming its task's facts. Fixed text. */
+export function sliceBatchQuestions(count: number): JevQuestions {
+  const one = sliceQuestions() as unknown as { readonly slice: { readonly criteria: Record<string, string> }; readonly risk: { readonly criteria: readonly string[] } };
+  const questions: Record<string, unknown> = {};
+  for (let i = 0; i < count; i += 1) {
+    questions[`slice${String(i)}`] = { type: 'choice', instructions: `Which listed kind of coding task fits the structured features of task ${String(i)}? They are the facts that start with t${String(i)}_.`, criteria: one.slice.criteria };
+    questions[`risk${String(i)}`] = { type: 'score', instructions: `How risky is coding task ${String(i)} for an agent working without supervision, judging only from its structured features, the facts that start with t${String(i)}_?`, criteria: [...one.risk.criteria] };
   }
-  const disagree = rulesId !== null && rulesId !== choice.choice;
-  return finish(result({ ...common, sliceId: choice.choice, source: 'jev', reasonCode: disagree ? 'SLICE_JEV_OVER_RULES' : 'SLICE_JEV' }));
+  return questions as unknown as JevQuestions;
+}
+
+/**
+ * One answer per task, remembered by the task's features, so a plan that shares tasks with an earlier one asks only about
+ * the new ones. It follows the engine's own decision cache: the same lifetime (one engine, so a restart or a changed policy
+ * or model starts it empty), the same ten minutes, no sharing across workspaces, and only answers the engine would have cached.
+ */
+const SLICE_MEMO = new WeakMap<object, Map<string, { readonly answer: JevSliceAnswer; readonly atMs: number }>>();
+const SLICE_MEMO_MAX = 512;
+const SLICE_MEMO_TTL_MS = 10 * 60 * 1000;
+
+function memoOf(engine: DecisionEngine): Map<string, { readonly answer: JevSliceAnswer; readonly atMs: number }> {
+  let memo = SLICE_MEMO.get(engine);
+  if (memo === undefined) {
+    memo = new Map();
+    SLICE_MEMO.set(engine, memo);
+  }
+  return memo;
+}
+
+/** The engine's wall clock (its own, so one clock decides every cache); the real one when it has none. */
+function engineNow(engine: DecisionEngine): number {
+  try {
+    return engine.now?.() ?? Date.now();
+  } catch {
+    return Date.now();
+  }
+}
+
+export interface SliceBatchItem {
+  /** The caller's own key for this task's features (a plan's group key); results come back under it. */
+  readonly key: string;
+  readonly hints: SliceTaskHints;
+}
+
+export interface SliceBatchOptions {
+  readonly assist: SliceAssist;
+  /** Do not ask Jev: every answer is the rules' with this reason code (see `ClassifyOptions.skipAsk`). */
+  readonly skipAsk?: string;
+  readonly now?: () => number;
+  /** Told each result as soon as it is known (a chunk that is out at the caller's deadline is simply never told). */
+  readonly onResult: (key: string, result: SliceClassification) => void;
+}
+
+/**
+ * Classifies several tasks, asking Jev for all that need it in as few requests as the 12-question cap allows (6 tasks to a
+ * request) instead of one request per task. Each task still gets its own answer and the same floors as a task asked alone
+ * (`judgeSliceAnswer`); a task the rules settle, or that a gate stops, is answered without a request, exactly as
+ * `classifyTaskSlice` would; a task whose features were answered before (by this engine, in this workspace) is answered
+ * from that, as a cache hit; a chunk of one task goes the single way and so shares the single-task decision cache. A
+ * request that fails gives every task in it the rules answer with the reason. Results are not recorded here (the plan does).
+ * Never throws.
+ */
+export async function classifyTaskSliceBatch(engine: DecisionEngine | null, items: readonly SliceBatchItem[], ctx: IntentContext, options: SliceBatchOptions): Promise<void> {
+  const now = options.now ?? (() => performance.now());
+  const single = (item: SliceBatchItem, skipAsk?: string): Promise<void> =>
+    classifyTaskSlice(engine, item.hints, ctx, { assist: options.assist, record: false, now, ...(skipAsk === undefined ? {} : { skipAsk }) }).then(
+      (r) => options.onResult(item.key, r),
+      () => undefined,
+    );
+  const asking: { readonly item: SliceBatchItem; readonly features: SliceFeatures; readonly title: string; readonly memoKey: string }[] = [];
+  const direct: Promise<void>[] = [];
+  const egressApproved = engine !== null && (engine.sourceEgress?.() ?? 'denied') === 'approved';
+  for (const item of items) {
+    const features = sliceFeatures(item.hints);
+    if (engine === null || options.assist !== 'classify' || options.skipAsk !== undefined || !sliceNeedsJev(features)) {
+      direct.push(single(item, options.skipAsk));
+      continue;
+    }
+    const title = egressApproved && typeof item.hints.title === 'string' ? item.hints.title.trim().slice(0, 300) : '';
+    asking.push({ item, features, title, memoKey: JSON.stringify([ctx.workspaceId, features, title]) });
+  }
+  const memo = engine === null ? null : memoOf(engine);
+  const nowMs = engine === null ? 0 : engineNow(engine);
+  const fresh: typeof asking = [];
+  for (const entry of asking) {
+    const hit = memo?.get(entry.memoKey);
+    const known = hit !== undefined && nowMs - hit.atMs <= SLICE_MEMO_TTL_MS ? hit.answer : undefined;
+    if (known === undefined) {
+      fresh.push(entry);
+      continue;
+    }
+    // The same features were answered before: the answer stands, as a cache hit, with no request.
+    const base = { asked: true, cacheHit: true, latencyMs: 0, rulesAlternative: rulesSlice(entry.features).sliceId, evidenceIds: evidenceIdsOf(entry.features, entry.title.length > 0) };
+    const judged = judgeSliceAnswer(entry.features, known, base);
+    options.onResult(entry.item.key, 'weak' in judged ? weakResult(entry.features, judged.weak, judged.extra) : judged.final);
+  }
+  const chunks: (typeof asking)[] = [];
+  for (let at = 0; at < fresh.length; at += SLICE_BATCH_TASKS) chunks.push(fresh.slice(at, at + SLICE_BATCH_TASKS));
+  const asks = chunks.map(async (chunk) => {
+    const only = chunk[0];
+    if (chunk.length === 1 && only !== undefined) return single(only.item);
+    try {
+      await askChunk(engine as DecisionEngine, chunk, ctx, now, memo as Map<string, { readonly answer: JevSliceAnswer; readonly atMs: number }>, options.onResult);
+    } catch {
+      // Left without a result: the caller's rules answer.
+    }
+    return undefined;
+  });
+  await Promise.all([...direct, ...asks]);
+}
+
+async function askChunk(
+  engine: DecisionEngine,
+  chunk: readonly { readonly item: SliceBatchItem; readonly features: SliceFeatures; readonly title: string; readonly memoKey: string }[],
+  ctx: IntentContext,
+  now: () => number,
+  memo: Map<string, { readonly answer: JevSliceAnswer; readonly atMs: number }>,
+  onResult: (key: string, result: SliceClassification) => void,
+): Promise<void> {
+  const started = now();
+  const facts: Record<string, string | number> = {};
+  chunk.forEach((entry, i) => {
+    for (const [name, value] of Object.entries(featureFacts(entry.features))) facts[`t${String(i)}_${name}`] = value;
+  });
+  // A title travels as one screened span per task, only with egress approved, led by the task it belongs to.
+  const evidence = chunk.flatMap((entry, i) => (entry.title.length === 0 ? [] : [{ id: `task-title-${String(i)}`, text: `Task ${String(i)} title: ${entry.title}`, sourceKind: 'user' as const, priority: 'high' as const }]));
+  const packet = {
+    objective: 'Classify the kind and the risk of several coding tasks from their structured features (advice only).',
+    trustedPolicy: { slices: [...SHARED_SLICE_IDS], grantsAuthority: false },
+    facts,
+    evidence,
+  };
+  const asked = await askBoundedDecision(engine, SLICE_CLASSIFY_SPEC_ID, sliceBatchQuestions(chunk.length), packet, ctx, false);
+  const latencyMs = Math.round(now() - started);
+  if (!asked.ok) {
+    for (const entry of chunk) onResult(entry.item.key, weakResult(entry.features, `SLICE_JEV_${asked.reasonCode}`.slice(0, 64), { asked: true, jevDecisionId: asked.decisionId, latencyMs }));
+    return;
+  }
+  const flags = await recordFlagsOf(engine, asked.decisionId);
+  chunk.forEach((entry, i) => {
+    const answer: JevSliceAnswer = { choice: choiceOf(asked.answers, `slice${String(i)}`), score: scoreOf(asked.answers, `risk${String(i)}`) };
+    // Only an answer the engine itself would have cached is remembered: not one from an observe-only route or a repacked request.
+    if (answer.choice !== null && flags.memoizable) {
+      memo.delete(entry.memoKey);
+      memo.set(entry.memoKey, { answer, atMs: engineNow(engine) });
+      if (memo.size > SLICE_MEMO_MAX) {
+        const oldest = memo.keys().next();
+        if (oldest.done !== true) memo.delete(oldest.value);
+      }
+    }
+    const base = { asked: true, jevDecisionId: asked.decisionId, cacheHit: flags.cacheHit, latencyMs, rulesAlternative: rulesSlice(entry.features).sliceId, evidenceIds: evidenceIdsOf(entry.features, entry.title.length > 0) };
+    const judged = judgeSliceAnswer(entry.features, answer, base);
+    onResult(entry.item.key, 'weak' in judged ? weakResult(entry.features, judged.weak, judged.extra) : judged.final);
+  });
+}
+
+/** From the engine's record of a call: whether the cache answered, and whether the answer is one the engine caches. */
+async function recordFlagsOf(engine: DecisionEngine, decisionId: string): Promise<{ readonly cacheHit: boolean | null; readonly memoizable: boolean }> {
+  try {
+    const record = await engine.lookup(decisionId);
+    if (record === null) return { cacheHit: null, memoizable: false };
+    return { cacheHit: record.reasonCodes.includes('CACHE_HIT'), memoizable: !record.reasonCodes.includes('OBSERVE_ONLY_ROUTE') && !record.reasonCodes.includes('PACKET_REPACKED') };
+  } catch {
+    return { cacheHit: null, memoizable: false };
+  }
 }
 
 async function cacheHitOf(engine: DecisionEngine, decisionId: string): Promise<boolean | null> {

@@ -56,7 +56,10 @@ function scriptedFetch(answer, { hang = false } = {}) {
 
 const APPROVED = () => ({ provenance: 'administrator', sourceEgress: 'approved-scoped' });
 const DENIED = () => ({ provenance: 'administrator', sourceEgress: 'deny-until-approved' });
-const JEV_FIX = (id) => (id === 'slice' ? { choice: 'issue-fix', probabilities: { 'issue-fix': 0.85 } } : { score: 1 });
+// The tasks that need Jev go together, six to a request, so the questions are `slice0`, `risk0`, `slice1`, ... (a request of one task keeps `slice` and `risk`).
+const isSlice = (id) => /^slice\d*$/.test(id);
+const isRisk = (id) => /^risk\d*$/.test(id);
+const JEV_FIX = (id) => (isSlice(id) ? { choice: 'issue-fix', probabilities: { 'issue-fix': 0.85 } } : { score: 1 });
 
 async function setup(t, answer = JEV_FIX, { sourceEgress = DENIED, hang = false } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'jevris-plan-slices-'));
@@ -144,13 +147,12 @@ function stubEngine(choice = 'issue-fix', { together = 0 } = {}) {
         if (decides.length >= together) arrived();
         await allArrived;
       }
-      return {
-        abstained: false,
-        decisionId: `d-stub-call-${decides.length}`,
-        automation: true,
-        rulesOnly: false,
-        result: { answers: { slice: { type: 'choice', choice, probabilities: { [choice]: 0.9, unknown: 0.1 }, confidence: 0.9 }, risk: { type: 'score', score: 1, probabilities: { 1: 1 }, confidence: 1 } } },
-      };
+      // One answer per question the request carries: a request of several tasks has `slice0`, `risk0`, `slice1`, ...
+      const answers = {};
+      for (const id of Object.keys(request.questions)) {
+        answers[id] = isSlice(id) ? { type: 'choice', choice, probabilities: { [choice]: 0.9, unknown: 0.1 }, confidence: 0.9 } : { type: 'score', score: 1, probabilities: { 1: 1 }, confidence: 1 };
+      }
+      return { abstained: false, decisionId: `d-stub-call-${decides.length}`, automation: true, rulesOnly: false, result: { answers } };
     },
     async lookup() {
       return { reasonCodes: [] };
@@ -223,7 +225,7 @@ function capTasks() {
   return tasks;
 }
 
-test('the cap: at most 8 distinct questions per plan, the rest get the rules answer with PLAN_JEV_CAP; tasks without a declared slice are served first', async () => {
+test('the cap: at most 8 distinct tasks asked per plan (in two requests), the rest get the rules answer with PLAN_JEV_CAP; tasks without a declared slice are served first', async () => {
   // The step itself, with a wait long enough that a slow runner cannot cut a question short: the
   // number of questions asked is then the cap and nothing else. The engine is the stub (no disk): with
   // eight real calls at once on a loaded host, one was seen not to reach the provider (7 requests of 8).
@@ -233,7 +235,9 @@ test('the cap: at most 8 distinct questions per plan, the rest get the rules ans
   const tasks = capTasks();
   const order = core.planTaskGraph(tasks).order;
   const list = await core.suggestPlanSlices(engine, core.planSliceTasksOf(tasks, order), { workspaceId: 'w-plan-slices-cap', evidenceRevision: 'r1' }, { assist: 'classify', mode: 'advise', deadlineMs: 30_000, totalMs: 60_000 });
-  assert.equal(engine.decides.length, 8, 'eight questions, no more');
+  // Eight tasks, two questions each, at most twelve questions to a request: six tasks in one request and two in another.
+  assert.deepEqual(engine.decides.map((d) => Object.keys(d.questions).length).sort((a, b) => a - b), [4, 12], 'eight tasks asked in two requests, no more');
+  assert.equal(engine.decides.reduce((n, d) => n + Object.keys(d.questions).filter(isSlice).length, 0), 8, 'eight tasks asked, no more');
   const capped = list.filter((x) => x.reasonCode === 'PLAN_JEV_CAP');
   assert.equal(capped.length, 3);
   assert.ok(capped.some((x) => x.taskId === 'DECL'), 'the declared task is among the capped');
@@ -251,8 +255,8 @@ test('the cap through the op: the same plan is capped the same way, whatever tim
   const capped = list.filter((x) => x.reasonCode === 'PLAN_JEV_CAP');
   assert.equal(capped.length, 3);
   assert.ok(capped.some((x) => x.taskId === 'DECL'));
-  // A question the shared wait cuts short is the rules answer: at most eight went out, and every label that is not Jev's is the rules'.
-  assert.ok(requests.length <= 8, `${requests.length} questions`);
+  // A request the shared wait cuts short is the rules answer: at most two went out (eight tasks, six to a request), and every label that is not Jev's is the rules'.
+  assert.ok(requests.length <= 2, `${requests.length} requests`);
   assert.ok(list.every((x) => x.source === 'jev' || x.source === 'rules' || x.source === 'given'));
   assert.ok(list.filter((x) => x.source === 'jev').length <= 8);
 });
@@ -265,8 +269,8 @@ test('one shared deadline: a provider that never answers does not hold the plan;
   const took = Date.now() - started;
   // The questions share one wait (700 ms at most), not one wait each. A generous bound for slow runners.
   assert.ok(took < 6000, `the plan did not wait for the hung provider (${took} ms)`);
-  // How many of the three had reached the provider when the wait ended depends on how fast the host does the engine's journal writes, so the count is bounded here; that they go out together is the next test, with no clock.
-  assert.ok(requests.length <= 3, `${requests.length} requests for three questions`);
+  // Whether the request had reached the provider when the wait ended depends on how fast the host does the engine's journal writes, so the count is bounded here; that the tasks go out together is the next test, with no clock.
+  assert.ok(requests.length <= 1, `${requests.length} requests for three tasks (one request)`);
   for (const x of body.sliceSuggestions) {
     assert.deepEqual([x.slice, x.source], ['bounded-edit', 'rules'], x.taskId);
     assert.match(x.reasonCode, /^(PLAN_JEV_DEADLINE|SLICE_JEV_DEADLINE)$/, 'the plan wait or the engine\'s own deadline, whichever came first');
@@ -274,13 +278,22 @@ test('one shared deadline: a provider that never answers does not hold the plan;
   assert.equal(body.valid, true);
 });
 
-test('the questions of a plan are asked together, not one after another: all three are out before any is answered', async () => {
-  // The engine holds every answer until the third question has been asked. A plan that asked one question at a time would never get there and every label would be the rules' at the deadline. Nothing here is timed: the bound is the generous 30 s wait of `labels`, and no disk is involved (three questions at once on a loaded disk can wait on the budget lock, which is the engine's own business).
-  const engine = stubEngine('issue-fix', { together: 3 });
+test('the requests of a plan are asked together, not one after another: both are out before either is answered', async () => {
+  // Eight tasks make two requests (six and two). The engine holds every answer until the second request has been asked. A plan that asked one request at a time would never get there and every label would be the rules' at the deadline. Nothing here is timed: the bound is the generous 30 s wait of `labels`, and no disk is involved.
+  const engine = stubEngine('issue-fix', { together: 2 });
+  const tasks = Array.from({ length: 8 }, (_, i) => SOURCE(`T${i}`, { writeScopes: Array.from({ length: i + 1 }, (_, k) => `src/m${i}/f${k}.ts`) }));
+  const list = await labels(engine, tasks);
+  assert.equal(engine.decides.length, 2, 'the two requests were asked together');
+  assert.deepEqual(list.map((x) => x.source), tasks.map(() => 'jev'), 'and every task was answered by Jev, none cut short');
+});
+
+test('three tasks that need Jev are one request of six questions, and each task keeps its own answer', async () => {
+  const engine = stubEngine('issue-fix');
   const tasks = [SOURCE('A'), SOURCE('B', { writeScopes: ['src/x/a.ts'] }), SOURCE('C', { writeScopes: ['src/y/a.ts', 'src/y/b.ts', 'src/y/c.ts'] })];
   const list = await labels(engine, tasks);
-  assert.equal(engine.decides.length, 3, 'the three questions were asked together');
-  assert.deepEqual(list.map((x) => [x.taskId, x.source]), [['A', 'jev'], ['B', 'jev'], ['C', 'jev']], 'and each was answered by Jev, none cut short');
+  assert.equal(engine.decides.length, 1, 'one request for three tasks');
+  assert.deepEqual(Object.keys(engine.decides[0].questions), ['slice0', 'risk0', 'slice1', 'risk1', 'slice2', 'risk2']);
+  assert.deepEqual(list.map((x) => [x.taskId, x.source, x.slice]), [['A', 'jev', 'issue-fix'], ['B', 'jev', 'issue-fix'], ['C', 'jev', 'issue-fix']]);
 });
 
 test('identical tasks share one question and the decision cache; a repeated plan makes no new call and records no label twice', async (t) => {
@@ -380,7 +393,7 @@ test('egress denied: no path name, title or check name leaves; approved adds onl
   const denied = await setup(t, JEV_FIX, { sourceEgress: DENIED });
   await labels(denied.engine, tasks);
   const wire = JSON.stringify(denied.requests);
-  assert.equal(denied.requests.length, 2);
+  assert.equal(denied.requests.length, 1, 'two tasks, one request');
   for (const leak of ['zebra', 'lexer', 'tokens', 'crash', 'giraffe', 'neck', 'support']) assert.equal(wire.includes(leak), false, `${leak} must not leave while egress is denied`);
   assert.ok(wire.includes('verb'), 'the verb class is a feature');
   // Not even a withheld title: the question is built without the span, so the engine has nothing to hold back.
@@ -389,13 +402,15 @@ test('egress denied: no path name, title or check name leaves; approved adds onl
   await labels(approved.engine, tasks);
   const wire2 = JSON.stringify(approved.requests);
   assert.ok(wire2.includes('fix the zebra crash') && wire2.includes('add giraffe support'), 'with egress approved the title goes as one screened span');
+  assert.equal(approved.requests[0].state.untrustedEvidence.length, 2, 'one span per task, each led by its task');
+  assert.ok(approved.requests[0].state.untrustedEvidence.every((span, i) => span.text.startsWith(`Task ${i} title: `)));
   for (const leak of ['lexer', 'tokens', 'neck', 'zebra-unit', 'giraffe-lint']) assert.equal(wire2.includes(leak), false, `${leak} never leaves, even with egress approved`);
   // The recorded decisions carry reason codes and feature names only.
   const ids = await denied.engine.journal.list();
   for (const id of ids) assert.equal(JSON.stringify(await denied.engine.entry(id)).includes('zebra'), false);
 });
 
-test('tasks that differ only in their title are one question while egress is denied, because the title is not sent; approved, each title is its own question', async (t) => {
+test('tasks that differ only in their title are one question while egress is denied, because the title is not sent; approved, each title is its own task in one request', async (t) => {
   const same = { writeScopes: ['src/parser/lexer.ts', 'src/parser/tokens.ts'], acceptanceCheckIds: ['unit-test'] };
   const tasks = [node('A', { ...same, title: 'fix the zebra crash' }), node('B', { ...same, title: 'fix the walrus crash' })];
   const denied = await setup(t, JEV_FIX, { sourceEgress: DENIED });
@@ -403,7 +418,9 @@ test('tasks that differ only in their title are one question while egress is den
   assert.equal(denied.requests.length, 1, 'the title is not sent, so the two tasks are one question');
   const approved = await setup(t, JEV_FIX, { sourceEgress: APPROVED });
   await labels(approved.engine, tasks);
-  assert.equal(approved.requests.length, 2, 'the title is sent, so each task is its own question');
+  assert.equal(approved.requests.length, 1, 'the title is sent, so each task is its own question, and the two go in one request');
+  assert.deepEqual(Object.keys(approved.requests[0].questions), ['slice0', 'risk0', 'slice1', 'risk1']);
+  assert.equal(approved.requests[0].state.untrustedEvidence.length, 2);
 });
 
 test('an invalid graph gets no suggestions; a sound graph with issues (a missing check) still does', async (t) => {
@@ -419,7 +436,7 @@ test('an invalid graph gets no suggestions; a sound graph with issues (a missing
 });
 
 test('with reviews asked too (requirements), the labels ride along and the review is unchanged', async (t) => {
-  const { home, engine } = await setup(t, (id, q) => (q.type === 'score' && id !== 'risk' ? { score: 3 } : JEV_FIX(id)));
+  const { home, engine } = await setup(t, (id, q) => (q.type === 'score' && !isRisk(id) ? { score: 3 } : JEV_FIX(id)));
   const body = await plan(home, { tasks: [SOURCE('A')], requirements: [{ id: 'R1', text: 'The parser accepts a trailing comma.' }] }, engine, { deadline: createDeadline(5000) });
   // Jev's answer or, on a runner too loaded for it inside the op's wait, the rules': either way one label rides along.
   assert.equal(body.sliceSuggestions.length, 1);
@@ -439,7 +456,7 @@ function rng(seed) {
 }
 
 test('property: the suggestion step never changes the graph, the plan answer or its input (seeded graphs, valid and broken)', async (t) => {
-  const { home, engine } = await setup(t, (id) => (id === 'slice' ? { choice: 'feature', probabilities: { feature: 0.8 } } : { score: 1 }));
+  const { home, engine } = await setup(t, (id) => (isSlice(id) ? { choice: 'feature', probabilities: { feature: 0.8 } } : { score: 1 }));
   const verbs = ['fix the bug', 'add support', 'refactor module', 'update docs', 'run the script', 'review the change', ''];
   const roots = ['src', 'lib', 'docs', 'test', '.github/workflows', 'package-lock.json', 'app', 'src/auth']; // test-hygiene: not product source
   for (let seed = 1; seed <= 30; seed += 1) {

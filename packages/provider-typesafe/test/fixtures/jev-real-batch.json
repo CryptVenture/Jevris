@@ -1,0 +1,248 @@
+{
+ "_note": "Numbers from one real jev-1.13.0 answer (2026-10-04) to a batched request of the six plan tasks in slice-batch.test.mjs: the 12 answers (slice0..slice5, risk0..risk5) as the API reported them, rounded to 0.01. No request or response body, header, key or account data.",
+ "tasks": [
+  {
+   "id": "fix",
+   "title": "Fix the intermittent failure in the billing module",
+   "paths": [
+    "src/billing/a.ts",
+    "src/billing/b.ts",
+    "test/billing/a.test.ts"
+   ],
+   "checkIds": [
+    "unit-tests"
+   ]
+  },
+  {
+   "id": "add",
+   "title": "Add a new option to the export job",
+   "paths": [
+    "src/export/a.ts",
+    "src/export/b.ts",
+    "src/export/c.ts",
+    "src/export/d.ts",
+    "src/export/e.ts",
+    "test/export/a.test.ts"
+   ],
+   "checkIds": [
+    "unit-tests",
+    "lint"
+   ]
+  },
+  {
+   "id": "refactor",
+   "title": "Refactor the shared helpers of the cache layer",
+   "paths": [
+    "src/cache/a.ts",
+    "src/cache/b.ts",
+    "src/cache/c.ts",
+    "src/cache/d.ts"
+   ],
+   "checkIds": [
+    "unit-tests",
+    "typecheck"
+   ]
+  },
+  {
+   "id": "review",
+   "title": "Review the recent changes to the login flow",
+   "paths": [],
+   "checkIds": []
+  },
+  {
+   "id": "research",
+   "title": "Investigate how to speed up the search index",
+   "paths": [],
+   "checkIds": []
+  },
+  {
+   "id": "debug",
+   "title": "Debug the crash that happens in the sync worker",
+   "paths": [
+    "src/sync/a.ts",
+    "src/sync/b.ts"
+   ],
+   "checkIds": []
+  }
+ ],
+ "answers": {
+  "slice0": {
+   "choice": "issue-fix",
+   "probabilities": {
+    "test-fix": 0.05,
+    "unknown": 0,
+    "feature": 0,
+    "refactor": 0,
+    "debug": 0,
+    "bounded-edit": 0.01,
+    "review": 0,
+    "docs": 0,
+    "issue-fix": 0.93,
+    "migration": 0,
+    "research": 0,
+    "terminal": 0
+   },
+   "confidence": 0.93
+  },
+  "risk0": {
+   "score": 0.04,
+   "probabilities": {
+    "0": 0.96,
+    "1": 0.04,
+    "2": 0,
+    "3": 0,
+    "4": 0
+   },
+   "confidence": 0.96
+  },
+  "slice1": {
+   "choice": "feature",
+   "probabilities": {
+    "test-fix": 0,
+    "unknown": 0,
+    "feature": 1,
+    "issue-fix": 0,
+    "bounded-edit": 0,
+    "debug": 0,
+    "review": 0,
+    "docs": 0,
+    "refactor": 0,
+    "migration": 0,
+    "research": 0,
+    "terminal": 0
+   },
+   "confidence": 1
+  },
+  "risk1": {
+   "score": 0.54,
+   "probabilities": {
+    "0": 0.68,
+    "1": 0.1,
+    "2": 0.22,
+    "3": 0,
+    "4": 0
+   },
+   "confidence": 0.55
+  },
+  "slice2": {
+   "choice": "refactor",
+   "probabilities": {
+    "test-fix": 0,
+    "refactor": 1,
+    "feature": 0,
+    "unknown": 0,
+    "debug": 0,
+    "bounded-edit": 0,
+    "review": 0,
+    "docs": 0,
+    "issue-fix": 0,
+    "migration": 0,
+    "research": 0,
+    "terminal": 0
+   },
+   "confidence": 1
+  },
+  "risk2": {
+   "score": 0.54,
+   "probabilities": {
+    "0": 0.61,
+    "1": 0.24,
+    "2": 0.15,
+    "3": 0,
+    "4": 0
+   },
+   "confidence": 0.55
+  },
+  "slice3": {
+   "choice": "review",
+   "probabilities": {
+    "test-fix": 0,
+    "unknown": 0,
+    "feature": 0,
+    "issue-fix": 0,
+    "bounded-edit": 0,
+    "debug": 0,
+    "review": 1,
+    "docs": 0,
+    "refactor": 0,
+    "migration": 0,
+    "research": 0,
+    "terminal": 0
+   },
+   "confidence": 1
+  },
+  "risk3": {
+   "score": 0.41,
+   "probabilities": {
+    "0": 0.74,
+    "1": 0.12,
+    "2": 0.14,
+    "3": 0,
+    "4": 0
+   },
+   "confidence": 0.66
+  },
+  "slice4": {
+   "choice": "research",
+   "probabilities": {
+    "test-fix": 0,
+    "refactor": 0,
+    "feature": 0,
+    "issue-fix": 0,
+    "bounded-edit": 0,
+    "debug": 0,
+    "review": 0,
+    "docs": 0,
+    "unknown": 0,
+    "migration": 0,
+    "research": 1,
+    "terminal": 0
+   },
+   "confidence": 1
+  },
+  "risk4": {
+   "score": 0.57,
+   "probabilities": {
+    "0": 0.67,
+    "1": 0.09,
+    "2": 0.24,
+    "3": 0,
+    "4": 0
+   },
+   "confidence": 0.52
+  },
+  "slice5": {
+   "choice": "debug",
+   "probabilities": {
+    "test-fix": 0,
+    "refactor": 0,
+    "feature": 0,
+    "unknown": 0,
+    "debug": 1,
+    "issue-fix": 0,
+    "review": 0,
+    "docs": 0,
+    "bounded-edit": 0,
+    "migration": 0,
+    "research": 0,
+    "terminal": 0
+   },
+   "confidence": 1
+  },
+  "risk5": {
+   "score": 1.09,
+   "probabilities": {
+    "0": 0.07,
+    "1": 0.77,
+    "2": 0.16,
+    "3": 0,
+    "4": 0
+   },
+   "confidence": 0.81
+  }
+ },
+ "usage": {
+  "input_tokens": 4782,
+  "output_tokens": 721
+ }
+}
