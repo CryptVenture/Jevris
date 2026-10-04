@@ -115,11 +115,13 @@ function withoutRouteInput(stdout, text) {
 test(`the hook launcher survives ${RUNS} hostile stdin and sidecar answers per run seed (QA-04, US30)`, async (t) => {
   assert.equal(typeof runLauncher, 'function', '@jevris/hook exports runLauncher (HKR-01)');
   const reasons = new Map();
-  const { seed } = await forAll('hook launcher fuzz', async (rand) => {
+  const { seed } = await forAll('hook launcher fuzz', async (rand, run) => {
     const harness = rand.pick(Object.keys(ADAPTERS));
     const adapter = ADAPTERS[harness];
     const fixture = rand.pick(adapter.FIXTURES);
-    const text = hostileText(rand, fixture.native);
+    // Run 0 is always an input over the cap, so the coverage checks below never depend on a seed
+    // drawing the one rare oversize variant (seed 1657067800 drew none in 1000 runs).
+    const text = run === 0 ? 'x'.repeat(contracts.HARNESS_INPUT_CAP + 1) : hostileText(rand, fixture.native);
     const answer = hostileAnswer(rand);
     let requested = false;
     const deps = {

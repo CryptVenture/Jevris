@@ -12,7 +12,8 @@ const root = fileURLToPath(new URL('../../..', import.meta.url));
 function sources(dir) {
   const out = [];
   for (const entry of readdirSync(join(root, dir), { withFileTypes: true })) {
-    const rel = join(dir, entry.name);
+    // Forward slashes on every host: the inventory names files the way the repository does.
+    const rel = `${dir}/${entry.name}`;
     if (entry.isDirectory()) out.push(...sources(rel));
     else if (entry.name.endsWith('.ts') && !entry.name.endsWith('.d.ts')) out.push(rel);
   }
