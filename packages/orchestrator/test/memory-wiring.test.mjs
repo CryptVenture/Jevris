@@ -106,11 +106,16 @@ function engine({ answer = {}, egress = 'approved', calls = [] } = {}) {
     sourceEgress: () => egress,
     async decide(request) {
       calls.push(request);
-      const type = request.questions.q.type;
       const a = typeof answer === 'function' ? answer(request) : answer;
-      // A confidence below 1 is a real answer's: its best option holds that much and the rest shares what is left.
-      const given = a[type] === undefined ? undefined : type === 'choice' && typeof a.confidence === 'number' ? { choice: a.choice, confidence: a.confidence, probabilities: { [a.choice]: a.confidence, other: Math.round((1 - a.confidence) * 100) / 100 } } : { [type]: a[type] };
-      return { abstained: false, decisionId: `dec-${String(calls.length)}`, automation: 'advice', rulesOnly: false, result: { answers: { q: asEngineAnswer(given) } } };
+      // Every question of the request is answered by its type (C22 and C24 ask several Scores in one request).
+      const answers = {};
+      for (const [id, question] of Object.entries(request.questions)) {
+        const type = question.type;
+        // A confidence below 1 is a real answer's: its best option holds that much and the rest shares what is left.
+        const given = a[type] === undefined ? undefined : type === 'choice' && typeof a.confidence === 'number' ? { choice: a.choice, confidence: a.confidence, probabilities: { [a.choice]: a.confidence, other: Math.round((1 - a.confidence) * 100) / 100 } } : { [type]: a[type] };
+        answers[id] = asEngineAnswer(given);
+      }
+      return { abstained: false, decisionId: `dec-${String(calls.length)}`, automation: 'advice', rulesOnly: false, result: { answers } };
     },
   };
 }
@@ -434,9 +439,15 @@ test('C22: the verify op scores the spans of a long check output with Jev only w
       const spans = calls.filter((c) => c.spec.id === 'd-c22');
       assert.equal(spans.length > 0, expected, label);
       if (expected) {
-        assert.ok(spans.length <= 8, 'at most 8 spans');
-        assert.equal(spans[0].questions.q.type, 'score');
-        assert.equal(spans[0].packet.evidence.length, 1, 'one span of the output each');
+        // The spans are asked together: one request, a Score question and one span of the output for each, at most 8 (was one request per span).
+        assert.equal(spans.length, 1, 'one request for all the spans');
+        const asked = Object.entries(spans[0].questions);
+        assert.ok(asked.length >= 2 && asked.length <= 8, `${String(asked.length)} spans, at most 8`);
+        assert.deepEqual(asked.map(([id]) => id), asked.map((_, i) => `s${String(i)}`));
+        assert.ok(asked.every(([, q]) => q.type === 'score'));
+        assert.equal(spans[0].packet.evidence.length, asked.length, 'one span of the output for each question');
+        asked.forEach(([, q], i) => assert.match(q.instructions, new RegExp(`about span ${String(i)}: the evidence item that begins "Span ${String(i)}:"`)));
+        spans[0].packet.evidence.forEach((e, i) => assert.ok(e.text.startsWith(`Span ${String(i)}: `)));
       }
       const row = f.ws.receipts.latest(f.ws.workspaceId, null).get('noisy');
       assert.equal(row.receipt.outcome, 'passed', `${label}: the verification result is the runner's, whatever Jev said`);

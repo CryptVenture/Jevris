@@ -14,7 +14,7 @@
  * caller's scopes first, then ranks lexically, or with a Jev Score (C24) when available.
  */
 import type { WorkspaceServices } from '../workspace.js';
-import { consultNoul, consultScore } from '../capabilities/consult.js';
+import { consultNoul, consultScoreBatch } from '../capabilities/consult.js';
 import { isId, recordKey, safeText, sha256, tokens } from '../util.js';
 
 // ------------------------------------------------------------------------ facts (MEM-11)
@@ -333,30 +333,33 @@ export async function retrieveProjectMemory(ws: WorkspaceServices, input: Retrie
   const limit = Math.max(1, Math.min(input.limit ?? 8, 32));
   if (input.engine === undefined || input.egressApproved !== true || scored.length <= limit) return scored.slice(0, limit);
   const pool = scored.slice(0, limit * 2);
-  // Each entry is rescored side by side (at most 64): the wait is one request. The question and the entry are workspace
-  // text, so they go only with the administrator's approval too (`sendsWorkspaceText`); with it denied the lexical score stands.
-  const rescored = await Promise.all(
-    pool.map(async (e) => {
-      const r = await consultScore(input.engine, {
-        capabilityId: 'C24',
-        specVersion: '1',
-        sendsWorkspaceText: true,
-        objective: 'Retrieve relevant project knowledge.',
-        instructions: 'How relevant is this remembered project fact to the current question?',
-        anchors: ['Unrelated to the question', 'Only tangentially related to the question', 'Relevant to the question', 'Directly answers the question'],
-        evidence: [
-          { id: 'question', text: input.query, sourceKind: 'user', priority: 'mandatory' },
-          { id: e.id, text: e.text, sourceKind: 'policy', priority: 'high' },
-        ],
-        workspaceId: ws.workspaceId,
-        evidenceRevision: e.revision.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 100) || 'rev',
-        ...(input.remainingMs === undefined ? {} : { remainingMs: input.remainingMs }),
-        rules: () => ({ score: Math.round(e.score * 3), reasonCode: 'RULES_LEXICAL' }),
-      });
-      if (r.decisionId !== null) input.onDecision?.(r.decisionId);
-      return { ...e, score: r.value };
-    }),
-  );
+  // The entries are rescored together (at most 64, twelve to a request): the wait is one request, not one per entry, and each entry keeps
+  // its own answer, its own confidence floor and its own lexical fallback. The question and the entry are workspace text, so they go
+  // only with the administrator's approval too (`sendsWorkspaceText`); with it denied the lexical score stands.
+  const results = await consultScoreBatch(input.engine, {
+    capabilityId: 'C24',
+    specVersion: '1',
+    sendsWorkspaceText: true,
+    objective: 'Retrieve relevant project knowledge.',
+    instructions: 'How relevant is this remembered project fact to the current question?',
+    anchors: ['Unrelated to the question', 'Only tangentially related to the question', 'Relevant to the question', 'Directly answers the question'],
+    noun: 'fact',
+    shared: [{ id: 'question', text: input.query, sourceKind: 'user', priority: 'mandatory' }],
+    items: pool.map((e) => ({ evidence: { id: e.id, text: e.text, sourceKind: 'policy' as const, priority: 'high' as const }, rules: () => ({ score: Math.round(e.score * 3), reasonCode: 'RULES_LEXICAL' }) })),
+    workspaceId: ws.workspaceId,
+    evidenceRevision: sha256(pool.map((e) => `${e.id}:${e.revision}`).join('|')).slice(0, 32),
+    ...(input.remainingMs === undefined ? {} : { remainingMs: input.remainingMs }),
+  });
+  // One decision record per request: told once, however many entries it scored.
+  const told = new Set<string>();
+  const rescored = pool.map((e, i) => {
+    const r = results[i];
+    if (r !== undefined && r.decisionId !== null && !told.has(r.decisionId)) {
+      told.add(r.decisionId);
+      input.onDecision?.(r.decisionId);
+    }
+    return { ...e, score: r === undefined ? e.score : r.value };
+  });
   return rescored.sort((a, b) => b.score - a.score || b.admittedAtMs - a.admittedAtMs).slice(0, limit);
 }
 

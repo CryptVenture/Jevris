@@ -8,8 +8,8 @@
  *
  * Every consult is advice: it grants nothing, applies nothing and certifies nothing.
  */
-import { DecisionSpecContract, questionHash, type DecisionSpec, type JevQuestions } from '@jevris/contracts';
-import { safeText } from '../util.js';
+import { DecisionSpecContract, MAX_QUESTIONS, questionHash, type DecisionSpec, type JevQuestions } from '@jevris/contracts';
+import { safeText, sha256 } from '../util.js';
 
 export type ConsultSource = 'jev' | 'rules';
 
@@ -117,14 +117,18 @@ function specFor(base: ConsultBase, questions: JevQuestions): DecisionSpec | nul
   return DecisionSpecContract.validate(spec).ok ? spec : null;
 }
 
-async function ask(engine: unknown, base: ConsultBase, questions: JevQuestions): Promise<{ readonly answer: { readonly [key: string]: unknown } | null; readonly decisionId: string | null; readonly reasonCode: string }> {
+type Answers = { readonly [key: string]: unknown };
+type Asked = { readonly answer: Answers | null; /** Every answer of the request, by question id. */ readonly answers: { readonly [id: string]: Answers }; readonly decisionId: string | null; readonly reasonCode: string };
+
+async function ask(engine: unknown, base: ConsultBase, questions: JevQuestions): Promise<Asked> {
+  const none = (decisionId: string | null, reasonCode: string): Asked => ({ answer: null, answers: {}, decisionId, reasonCode });
   const e = engineOf(engine);
-  if (e === null) return { answer: null, decisionId: null, reasonCode: 'NO_ENGINE' };
+  if (e === null) return none(null, 'NO_ENGINE');
   const approved = egressApproved(e);
-  if (base.sendsWorkspaceText === true && !approved) return { answer: null, decisionId: null, reasonCode: 'EGRESS_NOT_APPROVED' };
-  if (base.remainingMs !== undefined && base.remainingMs < (base.minProviderMs ?? 400)) return { answer: null, decisionId: null, reasonCode: 'DEADLINE_SHORT' };
+  if (base.sendsWorkspaceText === true && !approved) return none(null, 'EGRESS_NOT_APPROVED');
+  if (base.remainingMs !== undefined && base.remainingMs < (base.minProviderMs ?? 400)) return none(null, 'DEADLINE_SHORT');
   const spec = specFor(base, questions);
-  if (spec === null) return { answer: null, decisionId: null, reasonCode: 'SPEC_INVALID' };
+  if (spec === null) return none(null, 'SPEC_INVALID');
   try {
     const outcome = (await e.decide({
       spec,
@@ -140,13 +144,15 @@ async function ask(engine: unknown, base: ConsultBase, questions: JevQuestions):
       lane: base.lane ?? 'background',
       ...(base.taskId === undefined || base.taskId === null ? {} : { taskId: base.taskId }),
     })) as { readonly abstained?: boolean; readonly reasonCode?: string; readonly decisionId?: string; readonly result?: { readonly answers?: { readonly [key: string]: unknown } } };
-    if (outcome === null || typeof outcome !== 'object') return { answer: null, decisionId: null, reasonCode: 'ENGINE_INVALID' };
+    if (outcome === null || typeof outcome !== 'object') return none(null, 'ENGINE_INVALID');
     const decisionId = typeof outcome.decisionId === 'string' ? outcome.decisionId : null;
-    if (outcome.abstained === true) return { answer: null, decisionId, reasonCode: typeof outcome.reasonCode === 'string' ? outcome.reasonCode : 'ABSTAINED' };
+    if (outcome.abstained === true) return none(decisionId, typeof outcome.reasonCode === 'string' ? outcome.reasonCode : 'ABSTAINED');
     const answer = outcome.result?.answers?.['q'];
-    return { answer: answer !== null && typeof answer === 'object' ? (answer as { readonly [key: string]: unknown }) : null, decisionId, reasonCode: 'JEV' };
+    const answers: { [id: string]: Answers } = {};
+    for (const [id, a] of Object.entries(outcome.result?.answers ?? {})) if (a !== null && typeof a === 'object') answers[id] = a as Answers;
+    return { answer: answer !== null && typeof answer === 'object' ? (answer as Answers) : null, answers, decisionId, reasonCode: 'JEV' };
   } catch {
-    return { answer: null, decisionId: null, reasonCode: 'ENGINE_ERROR' };
+    return none(null, 'ENGINE_ERROR');
   }
 }
 
@@ -243,4 +249,102 @@ export async function consultScore(engine: unknown, input: ScoreConsult): Promis
   }
   const rules = input.rules();
   return { value: rules.score, source: 'rules', reasonCode: rules.reasonCode, decisionId: got.decisionId, confidence: null, probabilities: null };
+}
+
+// ------------------------------------------------------------------------------ several Scores in one request
+
+/** The most questions one request carries (the contracts' cap): one Score per item, so twelve items. */
+export const SCORE_BATCH_ITEMS = MAX_QUESTIONS;
+/** The most evidence bytes (UTF-8) one batched request carries: a chunk is cut here too, under the request byte cap (131,072) with room for the questions and facts. */
+export const SCORE_BATCH_BYTES = 96_000;
+const encoder = new TextEncoder();
+const bytesOf = (text: string): number => encoder.encode(text.slice(0, 3000)).length;
+
+export interface ScoreBatchItem {
+  /** The one piece of evidence this item is judged on: a span of tool output, a remembered fact. Its text is led by the item's number in the request. */
+  readonly evidence: EvidenceItem;
+  /** The item's own fallback, used when Jev is not asked, misses, or answers below the confidence floor. */
+  readonly rules: () => { readonly score: number; readonly reasonCode: string };
+}
+
+export interface ScoreBatchConsult extends Omit<ScoreConsult, 'evidence' | 'rules' | 'evidenceRevision'> {
+  /** Evidence that every item is judged against (a question), sent once, ahead of the items'. */
+  readonly shared?: readonly EvidenceItem[];
+  /** What an item is called in the question and in its evidence: `span` gives "span 3". Fixed text, never the person's. */
+  readonly noun: string;
+  /** A stable name of the evidence as a whole; each request's revision is a digest of it and the items it carries. */
+  readonly evidenceRevision: string;
+  readonly items: readonly ScoreBatchItem[];
+}
+
+/**
+ * Consults several Scores that share one question: all of them in as few requests as the 12-question cap and the
+ * evidence size allow, instead of one request each (the plan's slice labels do the same: a request of 12 questions
+ * took about as long as one, and fewer calls cost less). Each item keeps its own answer, its own confidence floor
+ * (0.6, as `consultScore`), its own rules fallback and its own result, in the order given. A request holds one decision
+ * record, which every item of it names (`decisionId`); each item's answer is under its own question id in that record.
+ * An item alone, or a chunk of one, is asked the single way, so it shares the single-item decision cache. A request that
+ * is refused, abstains or fails gives each of its items its rules answer. Never throws.
+ */
+export async function consultScoreBatch(engine: unknown, input: ScoreBatchConsult): Promise<ConsultResult<number>[]> {
+  const results: ConsultResult<number>[] = new Array<ConsultResult<number>>(input.items.length);
+  const rulesResult = (item: ScoreBatchItem, decisionId: string | null, confidence: number | null, probabilities: { readonly [key: string]: number } | null): ConsultResult<number> => {
+    const r = item.rules();
+    return { value: r.score, source: 'rules', reasonCode: r.reasonCode, decisionId, confidence, probabilities };
+  };
+  // Chunks, in order: at most 12 items, and at most SCORE_BATCH_BYTES of evidence text (the shared evidence counts against every chunk;
+  // the text of an item is cut at 3000 characters, so a request of 3-byte characters is the one that reaches the byte cap first).
+  const sharedBytes = (input.shared ?? []).reduce((n, e) => n + bytesOf(e.text), 0);
+  const chunks: number[][] = [];
+  let current: number[] = [];
+  let bytes = sharedBytes;
+  input.items.forEach((item, index) => {
+    const size = bytesOf(item.evidence.text) + 16;
+    if (current.length > 0 && (current.length >= SCORE_BATCH_ITEMS || bytes + size > SCORE_BATCH_BYTES)) {
+      chunks.push(current);
+      current = [];
+      bytes = sharedBytes;
+    }
+    current.push(index);
+    bytes += size;
+  });
+  if (current.length > 0) chunks.push(current);
+
+  await Promise.all(
+    chunks.map(async (chunk) => {
+      const only = chunk[0];
+      if (chunk.length === 1 && only !== undefined) {
+        const item = input.items[only] as ScoreBatchItem;
+        results[only] = await consultScore(engine, { ...input, evidence: [...(input.shared ?? []), item.evidence], rules: item.rules, evidenceRevision: sha256(`${input.evidenceRevision}|${item.evidence.id}`).slice(0, 32) });
+        return;
+      }
+      try {
+        const label = (i: number): string => `${input.noun.charAt(0).toUpperCase()}${input.noun.slice(1)} ${String(i)}`;
+        const questions: { [id: string]: unknown } = {};
+        chunk.forEach((_, i) => {
+          questions[`s${String(i)}`] = { type: 'score', instructions: `${input.instructions} This question is about ${input.noun} ${String(i)}: the evidence item that begins "${label(i)}:".`, criteria: [...input.anchors] };
+        });
+        const evidence: EvidenceItem[] = [...(input.shared ?? []), ...chunk.map((index, i) => ({ ...(input.items[index] as ScoreBatchItem).evidence, text: `${label(i)}: ${(input.items[index] as ScoreBatchItem).evidence.text}` }))];
+        const base: ConsultBase = { ...input, evidence, evidenceRevision: sha256(`${input.evidenceRevision}|${chunk.map((i) => (input.items[i] as ScoreBatchItem).evidence.id).join(',')}`).slice(0, 32) };
+        const got = await ask(engine, base, questions as unknown as JevQuestions);
+        chunk.forEach((index, i) => {
+          const item = input.items[index] as ScoreBatchItem;
+          const answer = got.answers[`s${String(i)}`];
+          const score = answer?.['score'];
+          if (answer !== undefined && typeof score === 'number' && score >= 0 && score <= input.anchors.length - 1) {
+            const confidence = typeof answer['confidence'] === 'number' ? (answer['confidence'] as number) : null;
+            const probabilities = probs(answer['probabilities']);
+            results[index] = confidence !== null && confidence >= CONSULT_MIN_CONFIDENCE ? { value: score, source: 'jev', reasonCode: 'JEV_SCORE', decisionId: got.decisionId, confidence, probabilities } : rulesResult(item, got.decisionId, confidence, probabilities);
+          } else results[index] = rulesResult(item, got.decisionId, null, null);
+        });
+      } catch {
+        // Left to the rules below.
+      }
+    }),
+  );
+  // An item no request settled (a chunk that threw) is the rules' own.
+  input.items.forEach((item, index) => {
+    if (results[index] === undefined) results[index] = rulesResult(item, null, null, null);
+  });
+  return results;
 }

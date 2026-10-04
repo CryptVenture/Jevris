@@ -57,14 +57,14 @@ function fixture() {
     } };
 }
 
-/** A fake engine that answers by question type. */
+/** A fake engine that answers every question of a request by its type (C22 and C24 ask several Scores in one request). */
 function engine(answers, calls = []) {
   return {
     sourceEgress: () => 'approved',
     async decide(request) {
       calls.push(request);
-      const type = request.questions.q.type;
-      return { abstained: false, decisionId: `dec-${String(calls.length)}`, automation: 'advice', rulesOnly: false, result: { answers: { q: asEngineAnswer({ [type]: answers[type] }) } } };
+      const out = Object.fromEntries(Object.entries(request.questions).map(([id, q]) => [id, asEngineAnswer({ [q.type]: answers[q.type] })]));
+      return { abstained: false, decisionId: `dec-${String(calls.length)}`, automation: 'advice', rulesOnly: false, result: { answers: out } };
     },
   };
 }
