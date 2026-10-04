@@ -116,47 +116,26 @@ test('INT-03: ambiguity asks one consequence-focused question only when material
   assert.equal(requests.length, n);
 });
 
-test('INT-03/INT-04 (paired): without approved egress, evidence-dependent questions are not asked', async (t) => {
+test('INT-03: without approved egress, an evidence-dependent question is not asked', async (t) => {
   const { engine, requests } = await engineWith(t, () => ({ noul: 0.9 }), DENIED);
   const amb = await core.detectAmbiguity(engine, { objective: 'Add labels', unknowns: UNKNOWNS }, CTX);
   assert.deepEqual([amb.outcome, amb.reasonCode], ['proceed', 'EGRESS_NOT_APPROVED']);
-  const suff = await core.checkEvidenceSufficiency(engine, { objective: 'Fix the failing test', required: [{ id: 'log', description: 'test log', available: true, fresh: true }], approvedRoots: ['/w'] }, CTX);
-  assert.deepEqual([suff.outcome, suff.reasonCode], ['undetermined', 'EGRESS_NOT_APPROVED']);
   assert.equal(requests.length, 0);
 });
 
-test('INT-04 (features): over the fixed artifact vocabulary, sufficiency is asked with egress denied and no text of the caller leaves', async (t) => {
-  const { engine, requests } = await engineWith(t, (id) => (id === 'sufficient' ? { noul: 0.1 } : { probabilities: { a0: 0.8 } }), DENIED);
-  const r = await core.checkEvidenceSufficiency(engine, {
-    objective: 'Find out why the nightly job fails, TEXT-MARKER-OBJECTIVE',
-    required: [{ id: 'failing-test-output', description: 'free text TEXT-MARKER-DESCRIPTION', available: true, fresh: true }],
-    obtainable: [{ id: 'stack-trace', description: 'free text TEXT-MARKER-OPTION', available: false, fresh: null }, { id: 'logs', description: 'job logs', available: false, fresh: null }],
-    approvedRoots: [],
-  }, CTX);
-  assert.equal(requests.length, 1, 'the fixed vocabulary needs no egress approval');
-  assert.doesNotMatch(JSON.stringify(requests[0]), /TEXT-MARKER/, 'neither the objective nor a description is sent while egress is denied');
-  assert.deepEqual([r.outcome, r.reasonCode, r.artifact.id], ['request-artifact', 'REQUEST_BEFORE_ESCALATION', 'stack-trace']);
-});
-
-test('INT-04: a specific missing artifact is requested before escalation, only from an approved root', async (t) => {
-  let script = { sufficient: { noul: 0.8 } };
-  const { engine, requests } = await engineWith(t, (id) => script[id]);
-  const base = { objective: 'Fix the failing test', approvedRoots: ['/w/repo'] };
-  const missing = await core.checkEvidenceSufficiency(engine, { ...base, required: [{ id: 'junit', description: 'JUnit report of the failing run', available: false, fresh: null, location: '/w/repo/build/junit.xml' }] }, CTX);
+test('INT-04: a specific missing artifact is requested before escalation, only from an approved root, by rule and with no call', () => {
+  const base = { approvedRoots: ['/w/repo'] };
+  const missing = core.checkEvidenceSufficiency({ ...base, required: [{ id: 'junit', description: 'JUnit report of the failing run', available: false, fresh: null, location: '/w/repo/build/junit.xml' }] });
   assert.deepEqual([missing.outcome, missing.reasonCode, missing.artifact.location, missing.escalate, missing.notObserved], ['request-artifact', 'MISSING_REQUIRED_ARTIFACT', '/w/repo/build/junit.xml', false, ['junit']]);
-  const outside = await core.checkEvidenceSufficiency(engine, { ...base, required: [{ id: 'junit', description: 'JUnit report', available: false, fresh: null, location: '/etc/passwd' }] }, CTX);
+  const outside = core.checkEvidenceSufficiency({ ...base, required: [{ id: 'junit', description: 'JUnit report', available: false, fresh: null, location: '/etc/passwd' }] });
   assert.equal(outside.artifact.location, null, 'a location outside the approved roots is never suggested');
   assert.equal(core.withinApprovedRoots('/w/repo/../other/x', ['/w/repo']), false);
-  const stale = await core.checkEvidenceSufficiency(engine, { ...base, required: [{ id: 'log', description: 'CI log', available: true, fresh: false }] }, CTX);
+  const stale = core.checkEvidenceSufficiency({ ...base, required: [{ id: 'log', description: 'CI log', available: true, fresh: false }] });
   assert.equal(stale.reasonCode, 'STALE_ARTIFACT');
-  assert.equal(requests.length, 0, 'the rules answered without a call');
+  // Nothing missing or stale is not "enough": nothing here judges that, and nothing asks Jev (it was measured live and removed, 2026-10-04).
   const present = [{ id: 'log', description: 'CI log of the failing run', available: true, fresh: true }];
-  const enough = await core.checkEvidenceSufficiency(engine, { ...base, required: present }, CTX);
-  assert.deepEqual([enough.outcome, enough.reasonCode], ['sufficient', 'EVIDENCE_SUFFICIENT']);
-  script = { sufficient: { noul: 0.2 }, nextArtifact: { probabilities: { a1: 0.8 } } };
-  const obtainable = [{ id: 'coverage', description: 'coverage report', available: true, fresh: true }, { id: 'env', description: 'environment dump', available: true, fresh: true, location: '/w/repo/env.txt' }];
-  const next = await core.checkEvidenceSufficiency(engine, { ...base, required: present, obtainable }, { ...CTX, evidenceRevision: 'rev-2' });
-  assert.deepEqual([next.outcome, next.reasonCode, next.artifact.id, next.artifact.location, next.escalate], ['request-artifact', 'REQUEST_BEFORE_ESCALATION', 'env', '/w/repo/env.txt', false]);
+  const none = core.checkEvidenceSufficiency({ ...base, required: present });
+  assert.deepEqual([none.outcome, none.reasonCode, none.escalate], ['undetermined', 'NOTHING_MISSING', false]);
 });
 
 test('INT-05: only the out-of-scope part pauses, and approval counts only from a trusted channel', async (t) => {

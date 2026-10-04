@@ -9,7 +9,7 @@
  * the rules, why.
  *
  * Groups (this module): `slice` (route slice classification), `plan-slices`, `check-ranking`,
- * `repeated-failure`, `new-task`, `intent` (C01 to C07), `security` (C51 and C49) and
+ * `repeated-failure`, `new-task`, `intent` (C01 to C04, C06 and C07), `security` (C51 and C49) and
  * `worker-readiness` (a question the product defines but no code asks yet). The capability catalogue
  * (C18 to C72) and the hot path through a real sidecar run from `apps/sidecar/scripts/jev-features.mjs`
  * and merge their rows into the same record.
@@ -26,7 +26,6 @@ import {
   classifyTaskSlice,
   detectAmbiguity,
   detectScopeChange,
-  checkEvidenceSufficiency,
   injectionSuspicion,
   permissionRiskTriage,
   planSliceTimes,
@@ -402,23 +401,35 @@ interface FailureCase {
   readonly attempts: number;
   readonly unsure?: boolean;
   readonly max?: number;
+  /** Whether the engine of this case has source egress approved (the answer must not depend on it). */
+  readonly egress?: boolean;
 }
 
+/**
+ * The repeated-failure cases. The only question Jev is asked is the same-failure Noul (the `unequal` case,
+ * content-free). Which artifact comes next is the rules' priority pick and never a question: every other case
+ * must make no request at all, with source egress denied or approved, and name the rules' artifact (or stop).
+ */
 export const FAILURE_CASES: readonly FailureCase[] = [
-  { id: 'equal-2-nothing-known', expected: 'failing-test-output|stack-trace|logs', features: features({}), attempts: 2 },
-  { id: 'equal-3-trace-known', expected: 'failing-test-output|logs|recent-diff|repro-steps', features: features({ present: ['stack-trace'] }), attempts: 3 },
-  { id: 'equal-5-two-left', expected: 'config-file|environment-info', features: features({ present: ['stack-trace', 'logs', 'failing-test-output', 'recent-diff', 'repro-steps'] }), attempts: 5 },
+  { id: 'equal-2-nothing-known', expected: 'failing-test-output', features: features({}), attempts: 2 },
+  { id: 'equal-2-nothing-known-egress', expected: 'failing-test-output', features: features({}), attempts: 2, egress: true },
+  { id: 'equal-3-trace-known', expected: 'failing-test-output', features: features({ present: ['stack-trace'] }), attempts: 3 },
+  { id: 'equal-5-two-left', expected: 'config-file', features: features({ present: ['stack-trace', 'logs', 'failing-test-output', 'recent-diff', 'repro-steps'] }), attempts: 5 },
   { id: 'unequal-3-same-call', expected: 'same', features: features({ signature: 'cccccccccccccccc' }), attempts: 3, unsure: true },
-  { id: 'equal-3-timeout', expected: 'logs|environment-info|repro-steps', features: features({ exitClass: 'timeout', elapsed: 'gte60s' }), attempts: 3 },
+  { id: 'equal-3-timeout', expected: 'logs', features: features({ exitClass: 'timeout', elapsed: 'gte60s' }), attempts: 3 },
   { id: 'equal-3-environmental', expected: 'environment-info', features: features({ environmental: true }), attempts: 3 },
   { id: 'equal-8-capped', expected: 'capped', features: features({}), attempts: 8, max: 2 },
 ];
+
+/** The failure cases that must send no request: every one but the same-failure Noul. */
+export const FAILURE_NO_REQUEST_IDS: readonly string[] = FAILURE_CASES.filter((c) => c.unsure !== true).map((c) => `failure-${c.id}`);
 
 function failureCases(waitMs: number): CaseDef[] {
   return FAILURE_CASES.map((c) => ({
     group: 'repeated-failure' as const,
     id: `failure-${c.id}`,
     expected: c.expected,
+    ...(c.egress === true ? { egress: true } : {}),
     async run(engine: DecisionEngine): Promise<CaseOutcome> {
       const unsureObs = { attempts: c.attempts, sameCommand: true, editsSince: 0, unsure: c.unsure === true, previous: c.unsure === true ? { environmental: false, elapsed: 'lt10s', present: [] as readonly string[] } : null };
       const context = failureContextOf(c.features, unsureObs as Parameters<typeof failureContextOf>[1], c.max ?? 6);
@@ -432,7 +443,7 @@ function failureCases(waitMs: number): CaseDef[] {
         source: a.source,
         reasonCode: a.reasonCode,
         asked: a.asked,
-        answered: a.usedCount > 0 || a.reasonCode === 'REPEATED_FAILURE_JEV_LOW_CONFIDENCE' || a.reasonCode === 'REPEATED_FAILURE_JEV_UNUSABLE',
+        answered: a.usedCount > 0 || a.reasonCode === 'REPEATED_FAILURE_JEV_LOW_CONFIDENCE',
         cacheHit: a.cacheHit,
         decisionId: a.jevDecisionId,
         detail: { step: a.step, asked: a.askedCount, used: a.usedCount, same: a.sameByJev },
@@ -557,21 +568,6 @@ function intentCases(waitMs: number): CaseDef[] {
         const tasks = [node('T1', ['R1'], [], ['src/login']), node('T2', ['R2'], ['T1'], ['src/reset'])];
         const r = await auditDecomposition(engine, { requirements: [{ id: 'R1', text: 'Users can log in with a password.' }, { id: 'R2', text: 'Users can reset a forgotten password by email.' }], tasks }, ctx);
         return { spec: 'c03-decomposition', got: r.reasonCode, source: r.reasonCode === 'SCORED' ? 'jev' : 'rules', reasonCode: r.reasonCode, asked: r.decisionId !== null, answered: r.reasonCode === 'SCORED', decisionId: r.decisionId, detail: { reviewed: r.coverageReview.length, lowest: r.coverageReview.length === 0 ? null : Math.min(...r.coverageReview.map((c) => c.score)) } };
-      },
-    },
-    {
-      group: 'intent', id: 'c05-evidence', egress: true,
-      async run(engine) {
-        const r = await checkEvidenceSufficiency(engine, { objective: 'Find out why the nightly job fails.', required: [{ id: 'failing-test-output', description: 'The failing run output', available: true, fresh: true }], obtainable: [{ id: 'stack-trace', description: 'The stack trace', available: false, fresh: null }, { id: 'logs', description: 'Job logs', available: false, fresh: null }], diagnostics: [], approvedRoots: [] }, ctx);
-        return { spec: 'c05-evidence', got: r.outcome, source: r.reasonCode === 'EVIDENCE_SUFFICIENT' || r.reasonCode === 'REQUEST_BEFORE_ESCALATION' || r.reasonCode === 'INSUFFICIENT_NO_ARTIFACT_NAMED' ? 'jev' : 'rules', reasonCode: r.reasonCode, asked: r.decisionId !== null, answered: r.decisionId !== null && !r.reasonCode.startsWith('EGRESS') && r.reasonCode !== 'DEADLINE', decisionId: r.decisionId };
-      },
-    },
-    {
-      // The fixed artifact vocabulary only (ids and their fixed texts): nothing of the failure or the person is text, so this runs with egress denied.
-      group: 'intent', id: 'c05-evidence-denied', egress: false, probes: ['nightly job'],
-      async run(engine) {
-        const r = await checkEvidenceSufficiency(engine, { objective: 'Find out why the nightly job fails.', required: [{ id: 'failing-test-output', description: 'The failing run output', available: true, fresh: true }], obtainable: [{ id: 'stack-trace', description: 'The stack trace', available: false, fresh: null }, { id: 'logs', description: 'Job logs', available: false, fresh: null }], diagnostics: [], approvedRoots: [] }, ctx);
-        return { spec: 'c05-evidence', got: r.outcome, source: r.decisionId === null ? 'rules' : 'jev', reasonCode: r.reasonCode, asked: r.decisionId !== null, answered: r.decisionId !== null && !r.reasonCode.startsWith('EGRESS') && r.reasonCode !== 'DEADLINE', decisionId: r.decisionId };
       },
     },
     {
@@ -786,7 +782,7 @@ export function suiteFailures(rows: readonly FeatureRow[], halted: string | null
   const failures: string[] = [];
   if (halted !== null) failures.push(`HALTED_${halted}`);
   if (rows.some((r) => r.leaks > 0)) failures.push('REQUEST_CARRIED_PRIVATE_TEXT');
-  const mustNot = new Set(rows.filter((r) => r.id === 'new-task-fake-secret' || r.id === 'new-task-egress-denied' || r.id === 'new-task-too-short' || r.id === 'c01-triage-denied' || r.id === 'c02-ambiguity-denied' || r.id === 'c02-objective-with-fake-secret').map((r) => r.id));
+  const mustNot = new Set(rows.filter((r) => FAILURE_NO_REQUEST_IDS.includes(r.id) || r.id === 'new-task-fake-secret' || r.id === 'new-task-egress-denied' || r.id === 'new-task-too-short' || r.id === 'c01-triage-denied' || r.id === 'c02-ambiguity-denied' || r.id === 'c02-objective-with-fake-secret').map((r) => r.id));
   if (rows.some((r) => mustNot.has(r.id) && r.calls > 0)) failures.push('REFUSED_CASE_SENT_A_REQUEST');
   if (rows.some((r) => r.failureKind !== null)) failures.push('PROVIDER_ANSWER_REJECTED_BY_VALIDATOR');
   if (rows.some((r) => r.failedCalls > 0)) failures.push('PROVIDER_CALL_FAILED');

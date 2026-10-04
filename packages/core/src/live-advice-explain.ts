@@ -7,8 +7,8 @@
  *
  * repeated-failure codes: `FAIL_FAMILY_SHELL_NONZERO`, `FAIL_ATTEMPTS_3`, `FAIL_SOURCE_JEV`,
  * `FAIL_STEP_ARTIFACT` (or `ENVIRONMENT`, `CAPPED`, `NONE`), `FAIL_NEXT_STACK_TRACE`,
- * `FAIL_RULES_FAILING_TEST_OUTPUT`, `FAIL_ENV`, `FAIL_SAME_UNSURE`, `FAIL_SAME_JEV`, `FAIL_SUFFICIENT_JEV`,
- * `FAIL_ASKED_2`, `FAIL_USED_2`, `JEV_CACHE_HIT`, and the reason of the source (`REPEATED_FAILURE_*`).
+ * `FAIL_RULES_FAILING_TEST_OUTPUT`, `FAIL_ENV`, `FAIL_SAME_UNSURE`, `FAIL_SAME_JEV`,
+ * `FAIL_ASKED_1`, `FAIL_USED_1`, `JEV_CACHE_HIT`, and the reason of the source (`REPEATED_FAILURE_*`).
  * new-task codes: `TASK_SOURCE_JEV`, `TASK_FAMILY_BUGFIX`, `TASK_OPEN_SCOPE`,
  * `TASK_ADVICE_QUESTION` (or `FAMILY`, `NONE`), `TASK_ASKED_2`, `TASK_USED_1`, `JEV_CACHE_MISS`, the
  * outcome of each core decision it ran (`TASK_C01_SELECTED`, `TASK_C02_NOT_MATERIAL`, `TASK_C04_SINGLE_MATCH`)
@@ -102,9 +102,8 @@ function repeatedFailureLines(record: LineRecord): string[] {
   lines.push(`Repeated failure: ${tool === null ? 'a tool call' : (FAMILY_TEXT[tool] ?? 'a tool call')} failed${exit === null ? '' : ` with ${EXIT_TEXT[exit] ?? nameOf(exit)}`}${attempts === null ? '' : ` ${String(attempts)} times in this session`}${codes.includes('FAIL_ENV') ? ' and looks environmental' : ''}; the advice is from ${who} and decides nothing.`);
   lines.push(`Advice: ${step === null ? 'unknown' : (STEP_TEXT[step] ?? nameOf(step))}${next === null ? '' : `: ${nameOf(next)}`}${rules !== null && rules !== next ? ` (the rules would have said ${nameOf(rules)})` : ''}.`);
   const same = codes.includes('FAIL_SAME_JEV') ? 'Jev read it as the same failure as before' : codes.includes('FAIL_SAME_UNSURE') ? 'the rules could not tell whether it is the same failure as before' : 'the same error signature as before';
-  const enough = codes.includes('FAIL_SUFFICIENT_JEV') ? ' Jev said the evidence so far is enough to choose a fix, so no more is named.' : '';
   lines.push(
-    `Questions: ${same}. Decision C05 (evidence sufficiency): is the evidence so far enough, and if not which one kind of evidence to get next, from a fixed list of seven kinds.${enough} ${asked === null || asked === 0 ? 'Jev was not asked' : `Jev was asked ${String(asked)} question${asked === 1 ? '' : 's'}${used === null ? '' : ` and ${String(used)} answer${used === 1 ? '' : 's'} cleared the confidence bar`}`} (${cacheText(codes, asked)}${ms}).`,
+    `Questions: ${same}. Which kind of evidence to get next, from a fixed list of seven kinds, is not asked of Jev: the rules' priority order names it. ${asked === null || asked === 0 ? 'Jev was not asked' : `Jev was asked ${String(asked)} question${asked === 1 ? '' : 's'}${used === null ? '' : ` and ${String(used)} answer${used === 1 ? '' : 's'} cleared the confidence bar`}`} (${cacheText(codes, asked)}${ms}).`,
   );
   if (reason !== undefined) lines.push(`Reason: ${reason}.`);
   const evidence = record.proposedAction.evidenceIds ?? [];

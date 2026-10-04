@@ -1,6 +1,6 @@
 /**
- * Repeated-failure advice (owner decision 2026-10-01, Jev as an active decision aid; C05 and C29 on
- * the hook path). When the same tool failure comes back in a session, say once, in one short line,
+ * Repeated-failure advice (owner decision 2026-10-01, Jev as an active decision aid; the rules part of C05
+ * and C29 on the hook path). When the same tool failure comes back in a session, say once, in one short line,
  * what evidence would help most next, instead of letting the agent try random changes.
  *
  * The input is content-free: the adapter's `failure` features (a tool class and an exit class, two
@@ -10,14 +10,14 @@
  * advice needs no egress approval. The parser here drops everything it does not know.
  *
  * Rules first. `adviseFailureLoop` and `orchestration.maxRepairAttempts` decide when repair attempts
- * are used up and when a failure is environmental; a fixed priority list names the next artifact.
- * Jev is asked only when the rules cannot settle a question, and the two questions run side by side:
+ * are used up and when a failure is environmental; a fixed priority list names the next artifact,
+ * always: Jev is not asked which artifact comes next. Measured live (2026-10-04, jev-1.13.0), on these
+ * content-free facts that Choice never reached the confidence floor, and with the failure's first line
+ * as one screened span (source egress approved) it cleared the floors in 2 of 24 answers (one case of
+ * twelve), so it is not asked with or without egress and the priority list stands
+ * (`REPEATED_FAILURE_NEXT_RULES`). Jev is asked one question, and only when the rules cannot settle it:
  * - a Noul "is this the same failure as before" when the signatures differ but the same call ran
- *   again with nothing edited (equal signatures are the same failure, no call), and
- * - C05, core's evidence-sufficiency decision (`checkEvidenceSufficiency`), when more than one candidate
- *   remains and the failure is not environmental: is the evidence so far enough, and if not which listed
- *   artifact to obtain next. It is the decision's own handler that asks; this module supplies the
- *   failure's content-free facts and the candidates, and reads the result.
+ *   again with nothing edited (equal signatures are the same failure, no call).
  * The question text, the options and the instructions are fixed templates over the vocabulary.
  * A Jev answer is used at a confidence of 0.6 or more; any miss (kill switch, mode, `jev.assist`
  * off, no provider, no time, a deadline, an error, a budget stop, an open circuit, low confidence)
@@ -25,7 +25,7 @@
  * permission, runs nothing and marks nothing done. Each advised failure is one advisory decision
  * (`repeated-failure`) that `jevris explain` renders.
  */
-import { FAILURE_ARTIFACT_TEXT, adviseFailureLoop, askBoundedDecision, checkEvidenceSufficiency, type DecisionEngine, type FailureObservation, type IntentContext, type SufficiencyResult } from '@jevris/core';
+import { FAILURE_ARTIFACT_TEXT, adviseFailureLoop, askBoundedDecision, type DecisionEngine, type FailureObservation } from '@jevris/core';
 import {
   FAILURE_ARTIFACT_IDS,
   FAILURE_ELAPSED_BUCKETS,
@@ -40,7 +40,7 @@ import {
   type JevQuestions,
   type Mode,
 } from '@jevris/contracts';
-import { cacheHitOf, codeOf, noulProbability, raceDeadline, raceDeadlineOf, refusedBeforeSending, validReasonCodes } from './live-advice-util.js';
+import { cacheHitOf, codeOf, noulProbability, raceDeadline, refusedBeforeSending, validReasonCodes } from './live-advice-util.js';
 
 export { FAILURE_ARTIFACT_TEXT };
 
@@ -157,14 +157,13 @@ export interface FailureContext {
 
 export interface FailurePlan {
   readonly step: FailureStep;
-  /** The rules' pick of the next artifact (null when none is named). */
+  /** The rules' pick of the next artifact (null when none is named). Jev is never asked to change it. */
   readonly next: FailureArtifactId | null;
   /** The artifacts not already present, in the rules' priority order. */
   readonly candidates: readonly FailureArtifactId[];
-  /** The rules settle which artifact to name: Jev is not asked the Choice. */
-  readonly sure: boolean;
-  readonly sureCode: string | null;
-  readonly askNext: boolean;
+  /** Why the rules' pick stands without a question about it: a `REPEATED_FAILURE_*` code. */
+  readonly rulesCode: string;
+  /** The same-failure Noul would be asked (signatures differ, the same call ran again, nothing edited). */
   readonly askSame: boolean;
 }
 
@@ -200,19 +199,20 @@ function loopStepOf(c: FailureContext): 'request-environment-evidence' | 'stop-w
   return result.nextStep === 'request-environment-evidence' || result.nextStep === 'stop-with-report' ? result.nextStep : 'abstain';
 }
 
-/** The rules' plan: the step, the candidate artifacts, and which questions Jev would be asked. Pure. */
+/** The rules' plan: the step, the candidate artifacts, and whether Jev would be asked the same-failure question. Pure. */
 export function planFailureAdvice(c: FailureContext): FailurePlan {
   const f = c.features;
   const order = f.environmental ? ORDER_ENVIRONMENT : f.exitClass === 'timeout' ? ORDER_TIMEOUT : ORDER_DEFAULT;
   const candidates = order.filter((id) => !f.present.includes(id));
   const loop = loopStepOf(c);
   const base = { candidates, askSame: c.unsure };
-  if (loop === 'stop-with-report') return { ...base, step: 'capped', next: null, sure: true, sureCode: 'REPEATED_FAILURE_RULES_SURE', askNext: false };
-  if (loop === 'request-environment-evidence') return { ...base, step: 'environment', next: 'environment-info', sure: true, sureCode: 'REPEATED_FAILURE_RULES_SURE', askNext: false };
-  if (candidates.length === 0) return { ...base, step: 'none', next: null, sure: true, sureCode: 'REPEATED_FAILURE_NO_CANDIDATE', askNext: false };
-  if (f.environmental) return { ...base, step: 'artifact', next: candidates[0] ?? null, sure: true, sureCode: 'REPEATED_FAILURE_RULES_SURE', askNext: false };
-  if (candidates.length === 1) return { ...base, step: 'artifact', next: candidates[0] ?? null, sure: true, sureCode: 'REPEATED_FAILURE_ONE_CANDIDATE', askNext: false };
-  return { ...base, step: 'artifact', next: candidates[0] ?? null, sure: false, sureCode: null, askNext: true };
+  if (loop === 'stop-with-report') return { ...base, step: 'capped', next: null, rulesCode: 'REPEATED_FAILURE_RULES_SURE' };
+  if (loop === 'request-environment-evidence') return { ...base, step: 'environment', next: 'environment-info', rulesCode: 'REPEATED_FAILURE_RULES_SURE' };
+  if (candidates.length === 0) return { ...base, step: 'none', next: null, rulesCode: 'REPEATED_FAILURE_NO_CANDIDATE' };
+  if (f.environmental) return { ...base, step: 'artifact', next: candidates[0] ?? null, rulesCode: 'REPEATED_FAILURE_RULES_SURE' };
+  if (candidates.length === 1) return { ...base, step: 'artifact', next: candidates[0] ?? null, rulesCode: 'REPEATED_FAILURE_ONE_CANDIDATE' };
+  // Several candidates and nothing environmental: the priority order names the first. Jev is not asked which is best (see the header).
+  return { ...base, step: 'artifact', next: candidates[0] ?? null, rulesCode: 'REPEATED_FAILURE_NEXT_RULES' };
 }
 
 // ---------------------------------------------------------------------------------- gates
@@ -244,8 +244,7 @@ export function failureAskGate(g: FailureGateInput): string | null {
 // -------------------------------------------------------------------------------- questions
 
 /**
- * The adviser's own question, a Noul "same failure" when `askSame`; empty otherwise. Fixed text only. The
- * Choice "which artifact next" is C05's (`checkEvidenceSufficiency`), with its own fixed text.
+ * The adviser's one question, a Noul "same failure" when `askSame`; empty otherwise. Fixed text only.
  */
 export function failureQuestions(plan: FailurePlan): JevQuestions {
   const questions: Record<string, unknown> = {};
@@ -285,7 +284,7 @@ export function failureFacts(c: FailureContext): Record<string, string | number 
 }
 
 function revisionOf(facts: Record<string, string | number | boolean>, plan: FailurePlan): string {
-  return `fail-${sha256Hex(JSON.stringify([facts, plan.candidates, plan.askSame, plan.askNext])).slice(0, 24)}`;
+  return `fail-${sha256Hex(JSON.stringify([facts, plan.candidates, plan.askSame])).slice(0, 24)}`;
 }
 
 function evidenceIdsOf(c: FailureContext): string[] {
@@ -314,8 +313,6 @@ export interface FailureAdvice {
   readonly jevDecisionId: string | null;
   /** The signatures differed, the same call ran again, and Jev said it is the same failure. */
   readonly sameByJev: boolean;
-  /** C05: Jev said the evidence so far is enough to choose a fix, so no further evidence is named. */
-  readonly sufficientByJev: boolean;
 }
 
 export interface AdviseFailureOptions extends Omit<FailureGateInput, 'engine'> {
@@ -347,7 +344,6 @@ export function failureReasonCodes(c: FailureContext, a: Omit<FailureAdvice, 'de
     ...(rulesNext === null ? [] : [`FAIL_RULES_${codeOf(rulesNext)}`]),
     ...(c.features.environmental ? ['FAIL_ENV'] : []),
     ...(a.sameByJev ? ['FAIL_SAME_JEV'] : c.unsure ? ['FAIL_SAME_UNSURE'] : []),
-    ...(a.sufficientByJev ? ['FAIL_SUFFICIENT_JEV'] : []),
     ...(a.asked ? [`FAIL_ASKED_${String(a.askedCount)}`, `FAIL_USED_${String(a.usedCount)}`, a.cacheHit === true ? 'JEV_CACHE_HIT' : 'JEV_CACHE_MISS'] : []),
     a.reasonCode,
   ];
@@ -360,9 +356,6 @@ interface Miss {
   readonly asked: boolean;
   readonly decisionId: string | null;
 }
-
-/** The reasons C05 returns when Jev answered and the answer was not used: not a miss of the request itself. */
-const C05_ANSWERED: ReadonlySet<string> = new Set(['LOW_CONFIDENCE', 'INSUFFICIENT_NO_ARTIFACT_NAMED', 'NO_ARTIFACT_HELPS', 'NO_ANSWER']);
 
 /**
  * Advice for one repeated failure. Never throws and never waits past `deadlineMs` for Jev: any
@@ -387,7 +380,6 @@ export async function adviseRepeatedFailure(engine: DecisionEngine | null, c: Fa
     readonly cacheHit?: boolean | null;
     readonly jevDecisionId?: string | null;
     readonly sameByJev?: boolean;
-    readonly sufficientByJev?: boolean;
     readonly silent?: boolean;
   }): FailureAdvice => ({
     text: r.silent === true ? null : failureAdviceText(r.step, c.attempts, r.next, c.features.environmental),
@@ -403,7 +395,6 @@ export async function adviseRepeatedFailure(engine: DecisionEngine | null, c: Fa
     decisionId: null,
     jevDecisionId: r.jevDecisionId ?? null,
     sameByJev: r.sameByJev === true,
-    sufficientByJev: r.sufficientByJev === true,
   });
 
   /** Records the advice when there is advice to give or Jev was asked, and stamps its latency. */
@@ -456,7 +447,7 @@ export async function adviseRepeatedFailure(engine: DecisionEngine | null, c: Fa
   const rules = (reasonCode: string, extra: Partial<Parameters<typeof make>[0]> = {}): Promise<FailureAdvice> => finish(make({ step: plan.step, next: plan.next, source: 'rules', reasonCode, ...extra }));
 
   // The rules settle everything: no question to ask.
-  if (!plan.askSame && !plan.askNext) return rules(plan.sureCode ?? 'REPEATED_FAILURE_RULES_SURE');
+  if (!plan.askSame) return rules(plan.rulesCode);
   const gate = failureAskGate({ ...options, engine });
   if (gate !== null || engine === null) return rules(gate ?? 'REPEATED_FAILURE_NO_PROVIDER');
 
@@ -470,111 +461,33 @@ export async function adviseRepeatedFailure(engine: DecisionEngine | null, c: Fa
     ...(options.ids.taskId === undefined || options.ids.taskId === null ? {} : { taskId: options.ids.taskId }),
     ...(options.ids.sessionId === undefined || options.ids.sessionId === null ? {} : { sessionId: options.ids.sessionId }),
   };
-  // The two questions need nothing from each other: side by side, so the wait is one request, not two.
-  const sameRun = plan.askSame
-    ? raceDeadline(
-        askBoundedDecision(
-          engine,
-          REPEATED_FAILURE_SPEC_ID,
-          failureQuestions(plan),
-          { objective: 'Decide whether the latest tool failure is the same failure as the previous one (advice only).', trustedPolicy: { grantsAuthority: false, kinds: [...FAILURE_ARTIFACT_IDS] }, facts, evidence: [] },
-          { ...idFields, deadlineMs: deadline },
-          false,
-        ),
-        options.deadlineMs,
-      )
-    : Promise.resolve(null);
-  // C05: the evidence the failure already shows is what is available; the candidates are what could be obtained. Fixed ids only.
-  const artifact = (id: FailureArtifactId, available: boolean) => ({ id, description: FAILURE_ARTIFACT_TEXT[id].phrase, available, fresh: available ? true : null });
-  const intentCtx: IntentContext = { ...idFields, deadlineMs: deadline };
-  const nextRun = plan.askNext
-    ? raceDeadlineOf(
-        checkEvidenceSufficiency(
-          engine,
-          { objective: 'Decide which one kind of evidence would help most with a repeated tool failure, from the listed kinds (advice only).', objectiveIsFixed: true, required: c.features.present.map((id) => artifact(id, true)), obtainable: plan.candidates.map((id) => artifact(id, false)), approvedRoots: [], facts },
-          intentCtx,
-        ),
-        options.deadlineMs,
-      )
-    : Promise.resolve(null);
-  const [same, sufficiency] = await Promise.all([sameRun, nextRun]);
+  // The one question: whether the latest failure is the same as the previous one, from content-free facts.
+  const same = await raceDeadline(
+    askBoundedDecision(
+      engine,
+      REPEATED_FAILURE_SPEC_ID,
+      failureQuestions(plan),
+      { objective: 'Decide whether the latest tool failure is the same failure as the previous one (advice only).', trustedPolicy: { grantsAuthority: false, kinds: [...FAILURE_ARTIFACT_IDS] }, facts, evidence: [] },
+      { ...idFields, deadlineMs: deadline },
+      false,
+    ),
+    options.deadlineMs,
+  );
 
   // A request that missed (abandoned at the deadline, threw, refused or abstained) leaves the rules advice standing.
   const miss = (code: string, asked: boolean, decisionId: string | null = null): Miss => ({ code: code.slice(0, 64), asked, decisionId });
-  const sameMiss: Miss | null = same === null ? null : same === 'late' ? miss('REPEATED_FAILURE_DEADLINE', true) : same === 'failed' ? miss('REPEATED_FAILURE_ERROR', true) : same.ok ? null : miss(`REPEATED_FAILURE_JEV_${same.reasonCode}`, !refusedBeforeSending(same.reasonCode), same.decisionId);
-  const nextMiss: Miss | null =
-    sufficiency === null
-      ? null
-      : sufficiency === 'late'
-        ? miss('REPEATED_FAILURE_DEADLINE', true)
-        : sufficiency === 'failed'
-          ? miss('REPEATED_FAILURE_ERROR', true)
-          : sufficiency.outcome === 'undetermined' && !C05_ANSWERED.has(sufficiency.reasonCode)
-            ? miss(`REPEATED_FAILURE_JEV_${sufficiency.reasonCode}`, !refusedBeforeSending(sufficiency.reasonCode), sufficiency.decisionId)
-            : null;
-  const wanted = (plan.askSame ? 1 : 0) + (plan.askNext ? 1 : 0);
-  const misses = [sameMiss, nextMiss].filter((m): m is Miss => m !== null);
-  const askedCount = (plan.askSame && (sameMiss === null || sameMiss.asked) ? 1 : 0) + (plan.askNext && (nextMiss === null || nextMiss.asked) ? 1 : 0);
-  if (misses.length === wanted) {
-    const first = misses[0] as Miss;
-    const jevDecisionId = misses.map((m) => m.decisionId).find((id) => id !== null) ?? null;
-    return rules(first.code, askedCount > 0 ? { asked: true, askedCount, jevDecisionId } : { jevDecisionId });
-  }
+  const sameMiss: Miss | null = same === 'late' ? miss('REPEATED_FAILURE_DEADLINE', true) : same === 'failed' ? miss('REPEATED_FAILURE_ERROR', true) : same.ok ? null : miss(`REPEATED_FAILURE_JEV_${same.reasonCode}`, !refusedBeforeSending(same.reasonCode), same.decisionId);
+  if (sameMiss !== null) return rules(sameMiss.code, sameMiss.asked ? { asked: true, askedCount: 1, jevDecisionId: sameMiss.decisionId } : { jevDecisionId: sameMiss.decisionId });
 
-  const sameAnswers = same !== null && typeof same === 'object' && same.ok ? same : null;
-  const sufficiencyResult: SufficiencyResult | null = sufficiency !== null && typeof sufficiency === 'object' && nextMiss === null ? sufficiency : null;
-  const decisionIds = [sameAnswers?.decisionId ?? null, sufficiencyResult?.decisionId ?? null].filter((id): id is string => id !== null);
+  const answers = typeof same === 'object' && same.ok ? same : null;
+  const decisionIds = answers === null ? [] : [answers.decisionId];
   const hits = await Promise.all(decisionIds.map((id) => cacheHitOf(engine, id)));
   const cacheHit = decisionIds.length === 0 ? null : hits.every((h) => h === true) ? true : hits.some((h) => h === null) ? null : false;
-  let used = 0;
-  let answered = 0;
-  let next = plan.next;
-  let step = plan.step;
-  let silent = false;
-  let sameByJev = false;
-  let notSame = false;
-  let sufficientByJev = false;
-  let confidentUnusable = false;
-  if (sameAnswers !== null) {
-    const p = noulProbability(sameAnswers.answers, 'same');
-    if (p !== null) {
-      answered += 1;
-      if (Math.max(p, 1 - p) >= FAILURE_MIN_CONFIDENCE) {
-        used += 1;
-        if (p >= 0.5) sameByJev = true;
-        else notSame = true;
-      }
-    }
-  }
-  if (sufficiencyResult !== null && !notSame) {
-    if (sufficiencyResult.outcome === 'request-artifact') {
-      answered += 1;
-      used += 1;
-      if ((plan.candidates as readonly string[]).includes(sufficiencyResult.artifact.id)) next = sufficiencyResult.artifact.id as FailureArtifactId;
-    } else if (sufficiencyResult.outcome === 'sufficient') {
-      // Jev says the evidence so far is enough to choose a fix: naming more to collect would contradict it.
-      answered += 1;
-      used += 1;
-      step = 'none';
-      next = null;
-      silent = true;
-      sufficientByJev = true;
-    } else if (sufficiencyResult.reasonCode !== 'NO_ANSWER') {
-      answered += 1;
-      if (sufficiencyResult.jevSaid === 'none') {
-        // Jev says no listed kind of evidence would help: say nothing rather than name one.
-        used += 1;
-        step = 'none';
-        next = null;
-        silent = true;
-      } else if (sufficiencyResult.reasonCode !== 'LOW_CONFIDENCE') {
-        // Sure of a choice that names no listed kind of evidence (for example "unknown"): nothing to name.
-        confidentUnusable = true;
-      }
-    }
-  }
-  const base = { asked: true, askedCount, cacheHit, jevDecisionId: decisionIds[0] ?? null, usedCount: used, sameByJev, sufficientByJev };
-  if (notSame) return rules('REPEATED_FAILURE_NOT_SAME', { ...base, source: 'jev', silent: true });
-  if (used === 0) return rules(answered === 0 ? 'REPEATED_FAILURE_JEV_NO_ANSWER' : confidentUnusable ? 'REPEATED_FAILURE_JEV_UNUSABLE' : 'REPEATED_FAILURE_JEV_LOW_CONFIDENCE', base);
-  return finish(make({ step, next, source: 'jev', reasonCode: used === askedCount ? 'REPEATED_FAILURE_JEV' : 'REPEATED_FAILURE_JEV_PARTIAL', ...base, silent }));
+  const p = answers === null ? null : noulProbability(answers.answers, 'same');
+  const base = { asked: true, askedCount: 1, cacheHit, jevDecisionId: decisionIds[0] ?? null };
+  if (p === null) return rules('REPEATED_FAILURE_JEV_NO_ANSWER', { ...base, usedCount: 0 });
+  if (Math.max(p, 1 - p) < FAILURE_MIN_CONFIDENCE) return rules('REPEATED_FAILURE_JEV_LOW_CONFIDENCE', { ...base, usedCount: 0 });
+  // Jev says it is a different failure: nothing to say, and the question stays on the record.
+  if (p < 0.5) return rules('REPEATED_FAILURE_NOT_SAME', { ...base, usedCount: 1, source: 'jev', silent: true });
+  return finish(make({ step: plan.step, next: plan.next, source: 'jev', reasonCode: 'REPEATED_FAILURE_JEV', ...base, usedCount: 1, sameByJev: true }));
 }

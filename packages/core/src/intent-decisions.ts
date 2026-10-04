@@ -2,8 +2,8 @@
  * Intent and planning decisions (INT-01..INT-07, §12.1 C01..C07).
  *
  * Each capability runs deterministic checks first and asks Jev only the bounded question the
- * catalogue names: a Choice for triage and template selection, a Noul for ambiguity, evidence
- * sufficiency and scope change, a Score for the decomposition audit and plan ranking. Question
+ * catalogue names: a Choice for triage and template selection, a Noul for ambiguity and scope change,
+ * a Score for the decomposition audit and plan ranking. C05 (evidence sufficiency) is rules only. Question
  * text and rubric anchors are fixed templates; untrusted text (the objective, requirements,
  * diffs) travels only as packet evidence, never as a question or an option key.
  *
@@ -11,7 +11,7 @@
  * change, marks unavailable evidence as absent behaviour, or calls a Score feasibility.
  */
 import { isAbsoluteOnAnyPlatform } from '@jevris/platform';
-import { FAILURE_ARTIFACT_IDS, type JevQuestions, type TaskNode } from '@jevris/contracts';
+import { type JevQuestions, type TaskNode } from '@jevris/contracts';
 import { JEV_TARIFF, decide, type DecideOptions, type DecideOutcome, type DecideRequest, type DecisionEngine } from './decision-engine.js';
 import { jevCostMicroUsd } from './decision-budget.js';
 import { DecisionRescheduler } from './decision-reschedule.js';
@@ -19,7 +19,6 @@ import { estimateRequest } from './decision-tokens.js';
 import { compileDecisionSpec } from './decision-question-lint.js';
 import { planTaskGraph } from './decision-plan.js';
 import type { PacketEvidence, PacketInput } from './packet.js';
-import { FAILURE_ARTIFACT_TEXT } from './failure-artifacts.js';
 import { EFFECT_CLASS_TEXT } from './intent-fixed.js';
 
 /**
@@ -321,13 +320,7 @@ export interface RequiredArtifact {
 }
 
 export type SufficiencyResult =
-  | { readonly outcome: 'sufficient'; readonly notObserved: readonly string[]; readonly escalate: false; readonly reasonCode: string; readonly decisionId: string | null }
-  /**
-   * Not assessed (no provider, egress not approved, abstention) or no artifact named: never claimed sufficient.
-   * `jevSaid` is `none` when Jev answered, at the confidence floor, that no listed artifact would reduce the
-   * uncertainty (the caller may say nothing rather than name one); otherwise null.
-   */
-  | { readonly outcome: 'undetermined'; readonly notObserved: readonly string[]; readonly escalate: false; readonly reasonCode: string; readonly decisionId: string | null; readonly jevSaid?: 'none' | null }
+  /** A missing or stale required artifact, named by rule. Nothing about it is judged by Jev. */
   | {
       readonly outcome: 'request-artifact';
       readonly artifact: { readonly id: string; readonly description: string; readonly location: string | null };
@@ -335,9 +328,10 @@ export type SufficiencyResult =
       readonly notObserved: readonly string[];
       /** Always false: the artifact comes before stronger reasoning. */
       readonly escalate: false;
-      readonly reasonCode: string;
-      readonly decisionId: string | null;
-    };
+      readonly reasonCode: 'MISSING_REQUIRED_ARTIFACT' | 'STALE_ARTIFACT';
+    }
+  /** Nothing is missing or stale: no artifact to request. This is never a claim that the evidence is sufficient. */
+  | { readonly outcome: 'undetermined'; readonly notObserved: readonly string[]; readonly escalate: false; readonly reasonCode: 'NOTHING_MISSING' };
 
 function normalizePath(path: string): string {
   return path.replace(/\\/g, '/').replace(/\/+$/, '');
@@ -375,78 +369,23 @@ export function withinApprovedRoots(location: string, roots: readonly string[]):
   });
 }
 
-const FACT_CODE = /^[A-Za-z0-9_.:,+-]{0,200}$/;
-
 /**
- * The caller's content-free facts of a decision (counts, flags and codes): a number or a boolean, or a short
- * string of code characters only. Anything else is dropped, so a fact can never carry a sentence.
+ * C05, by rule only: a missing or stale required artifact is requested first, with no call. A location
+ * outside the approved roots is never suggested, and evidence that could not be read is reported as not
+ * observed, never as absent behaviour. This does not judge whether the evidence is enough: nothing asks
+ * Jev that (measured live on 2026-10-04, jev-1.13.0: "which artifact next" cleared the confidence floors
+ * in 2 of 24 answers even with the failure's first line as evidence, and never on content-free facts, so
+ * the repeated-failure advice names the next kind of evidence from its fixed priority list).
  */
-function codeFacts(facts: Readonly<Record<string, string | number | boolean>> | undefined): Record<string, string | number | boolean> {
-  const out: Record<string, string | number | boolean> = {};
-  for (const [key, value] of Object.entries(facts ?? {})) {
-    if (!EVIDENCE_ID.test(key)) continue;
-    if (typeof value === 'number' ? Number.isFinite(value) : typeof value === 'boolean' || (typeof value === 'string' && FACT_CODE.test(value))) out[key] = value;
-  }
-  return out;
-}
-
-/**
- * C05: missing or stale required artifacts are requested first, by rule, with no call. When all
- * are present, a Noul asks whether the evidence suffices; if not, a Choice names the obtainable
- * artifact to fetch next. A location outside the approved roots is never suggested.
- *
- * An artifact of the fixed vocabulary (`failing-test-output`, `stack-trace`, ...) is named by its id alone
- * and goes into the request as a fact (a code), never as text; its option in the Choice is the vocabulary's
- * own fixed description. So a question over the fixed vocabulary alone carries no free text and is asked
- * with source egress denied. A free-text description of any other artifact, and every diagnostic, is the
- * caller's text: it is read into the request as evidence only with source egress approved (without it
- * `EGRESS_NOT_APPROVED`), and it never appears in a question. `facts` are the caller's content-free codes,
- * counts and flags about the failure (a value that is not a number, a boolean or a short string of code
- * characters is dropped). Jev's answers are used at the floors every other decision applies (a Noul
- * certainty of 0.6, a Choice confidence of 0.6 and margin of 0.15).
- */
-export async function checkEvidenceSufficiency(
-  engine: DecisionEngine | null,
-  input: { readonly objective: string; /** True when `objective` is Jevris's own fixed text (not the person's words), so it may go out with egress denied. */ readonly objectiveIsFixed?: boolean; readonly required: readonly RequiredArtifact[]; readonly obtainable?: readonly RequiredArtifact[]; readonly diagnostics?: readonly { readonly id: string; readonly text: string }[]; readonly approvedRoots: readonly string[]; readonly threshold?: number; readonly facts?: Readonly<Record<string, string | number | boolean>> },
-  ctx: IntentContext,
-): Promise<SufficiencyResult> {
+export function checkEvidenceSufficiency(input: { readonly required: readonly RequiredArtifact[]; readonly approvedRoots: readonly string[] }): SufficiencyResult {
   const notObserved = input.required.filter((a) => !a.available).map((a) => a.id);
   const locate = (a: RequiredArtifact) => (a.location !== undefined && withinApprovedRoots(a.location, input.approvedRoots) ? a.location : null);
-  const request = (a: RequiredArtifact, reasonCode: string, decisionId: string | null): SufficiencyResult => ({ outcome: 'request-artifact', artifact: { id: a.id, description: a.description, location: locate(a) }, notObserved, escalate: false, reasonCode, decisionId });
+  const request = (a: RequiredArtifact, reasonCode: 'MISSING_REQUIRED_ARTIFACT' | 'STALE_ARTIFACT'): SufficiencyResult => ({ outcome: 'request-artifact', artifact: { id: a.id, description: a.description, location: locate(a) }, notObserved, escalate: false, reasonCode });
   const missing = input.required.find((a) => !a.available);
-  if (missing !== undefined) return request(missing, 'MISSING_REQUIRED_ARTIFACT', null);
+  if (missing !== undefined) return request(missing, 'MISSING_REQUIRED_ARTIFACT');
   const stale = input.required.find((a) => a.fresh === false);
-  if (stale !== undefined) return request(stale, 'STALE_ARTIFACT', null);
-  const obtainable = (input.obtainable ?? []).slice(0, 10);
-  const known = new Set<string>(FAILURE_ARTIFACT_IDS);
-  const approved = (engine?.sourceEgress?.() ?? 'denied') === 'approved';
-  const required = input.required.slice(0, 32);
-  const evidence: PacketEvidence[] = [
-    ...required.flatMap((a, i) => (known.has(a.id) ? [] : [{ id: safeId(a.id, `artifact-${i}`), text: clip(a.description, 1000), sourceKind: 'tool' as const, priority: 'mandatory' as const }])),
-    ...(input.diagnostics ?? []).slice(0, 16).map((d, i) => ({ id: safeId(d.id, `diagnostic-${i}`), text: clip(d.text, 2000), sourceKind: 'tool' as const, priority: 'high' as const })),
-  ];
-  const have = required.filter((a) => known.has(a.id)).map((a) => a.id);
-  const questions: Record<string, unknown> = {
-    sufficient: { type: 'noul', instructions: 'Do the facts and evidence items supplied so far identify the cause well enough to choose a fix?', criteria: { true: 'The evidence points to one cause and a fix can be chosen.', false: 'More evidence is needed before a fix can be chosen.' } },
-  };
-  if (obtainable.length > 0) {
-    const criteria: Record<string, string> = {};
-    obtainable.forEach((a, i) => (criteria[`a${i}`] = clip(known.has(a.id) ? FAILURE_ARTIFACT_TEXT[a.id as keyof typeof FAILURE_ARTIFACT_TEXT].option : approved ? `Artifact ${a.id}: ${a.description}` : `Artifact number ${i + 1} in the list`, 300)));
-    criteria['none'] = 'None of the listed artifacts would reduce the uncertainty.';
-    criteria['unknown'] = 'The evidence is insufficient to tell which artifact helps.';
-    questions['nextArtifact'] = { type: 'choice', instructions: 'Which listed artifact would most reduce the uncertainty about the cause?', criteria };
-  }
-  const facts: Record<string, string | number | boolean> = { ...codeFacts(input.facts), required: input.required.length, obtainable: obtainable.length, have: have.length === 0 ? 'none' : have.join(',') };
-  const asked = await ask(engine, 'c05-evidence', questions as unknown as JevQuestions, { objective: approved || input.objectiveIsFixed === true ? clip(input.objective, 2000) : 'Judge whether the failure evidence supplied so far is enough to choose a fix (advice only).', trustedPolicy: { grantsAuthority: false }, facts, evidence }, ctx);
-  if (!asked.ok) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: asked.reasonCode, decisionId: asked.decisionId, jevSaid: null };
-  const p = noulOf(asked.answers, 'sufficient');
-  if (p !== null && p >= (input.threshold ?? INTENT_MIN_CONFIDENCE)) return { outcome: 'sufficient', notObserved, escalate: false, reasonCode: 'EVIDENCE_SUFFICIENT', decisionId: asked.decisionId };
-  const next = obtainable.length === 0 ? null : choiceOf(asked.answers, 'nextArtifact');
-  if (next === null) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: obtainable.length === 0 ? 'INSUFFICIENT_NO_ARTIFACT_NAMED' : 'NO_ANSWER', decisionId: asked.decisionId, jevSaid: null };
-  if (next.confidence < INTENT_MIN_CONFIDENCE || next.margin < INTENT_MIN_MARGIN) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: 'LOW_CONFIDENCE', decisionId: asked.decisionId, jevSaid: null };
-  const pick = /^a\d+$/.test(next.choice) ? obtainable[Number(next.choice.slice(1))] : undefined;
-  if (pick === undefined) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: next.choice === 'none' ? 'NO_ARTIFACT_HELPS' : 'INSUFFICIENT_NO_ARTIFACT_NAMED', decisionId: asked.decisionId, jevSaid: next.choice === 'none' ? 'none' : null };
-  return request(pick, 'REQUEST_BEFORE_ESCALATION', asked.decisionId);
+  if (stale !== undefined) return request(stale, 'STALE_ARTIFACT');
+  return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: 'NOTHING_MISSING' };
 }
 
 // -------------------------------------------------------------- INT-05 scope change (C06)

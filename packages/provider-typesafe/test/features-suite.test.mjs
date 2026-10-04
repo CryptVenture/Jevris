@@ -68,6 +68,27 @@ test('the whole suite runs offline: Jev-asking cases repeat cold and cached, ref
   for (const r of record.rows.filter((x) => x.group === 'check-ranking' && x.calls > 0)) assert.equal(r.detail.permutation, true, r.id);
 });
 
+test('the repeated-failure cases: which artifact comes next is never asked, with source egress denied or approved; only the same-failure Noul reaches Jev', async (t) => {
+  const { meter, createEngine } = harness(t);
+  const record = await runFeatureSuite({ meter, createEngine, cold: 2, cached: 1, groups: ['repeated-failure'] });
+  assert.equal(record.passed, true, JSON.stringify(record.failures));
+  const rowsOf = (id) => record.rows.filter((r) => r.id === id);
+  assert.ok(provider.FAILURE_NO_REQUEST_IDS.includes('failure-equal-2-nothing-known') && provider.FAILURE_NO_REQUEST_IDS.includes('failure-equal-2-nothing-known-egress'), 'the same failure with egress denied and with egress approved');
+  assert.equal(provider.FAILURE_NO_REQUEST_IDS.includes('failure-unequal-3-same-call'), false);
+  for (const id of provider.FAILURE_NO_REQUEST_IDS) {
+    assert.deepEqual(rowsOf(id).map((r) => [r.phase, r.calls, r.asked]), [['gate', 0, false]], `${id} makes no request`);
+    assert.equal(rowsOf(id)[0].agree, true, `${id} names the rules' artifact`);
+  }
+  assert.equal(rowsOf('failure-equal-2-nothing-known')[0].reasonCode, 'REPEATED_FAILURE_NEXT_RULES');
+  // The one question: the content-free same-failure Noul. Two cold runs that each made a request, then a cached run.
+  const same = rowsOf('failure-unequal-3-same-call');
+  assert.deepEqual(same.map((r) => [r.phase, r.calls > 0]), [['cold', true], ['cold', true], ['cached', false]]);
+  assert.ok(same.every((r) => r.answers.every((a) => a.type === 'noul')), 'only Noul answers: no Choice is asked');
+  // A failure case that sends a request is a failed run.
+  assert.deepEqual(suiteFailures([{ id: 'failure-equal-2-nothing-known', leaks: 0, calls: 1, failureKind: null, failedCalls: 0 }], null), ['REFUSED_CASE_SENT_A_REQUEST']);
+  assert.deepEqual(suiteFailures([{ id: 'failure-unequal-3-same-call', leaks: 0, calls: 1, failureKind: null, failedCalls: 0 }], null), []);
+});
+
 test('groups and cases can be selected, and a case that needs no model is a gate row', async (t) => {
   const { meter, createEngine } = harness(t);
   const record = await runFeatureSuite({ meter, createEngine, cold: 1, cached: 0, groups: ['security'], cases: ['c51-benign', 'c51-plain-text', 'c49-npm-install'] });

@@ -7,7 +7,7 @@
 // is the one place egress screens and, while source egress is not approved, withholds.
 //
 // The builders: the slice classifier, the plan slice labels, the check ranking, the repeated-failure
-// adviser and the new-task adviser. A stub engine captures each request exactly as the engine would
+// adviser (its one question, whether the latest failure is the same as the previous one) and the new-task adviser. A stub engine captures each request exactly as the engine would
 // receive it; nothing is sent anywhere.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -97,7 +97,8 @@ const BUILDERS = {
     // The adapter's features are parsed to a closed shape: free text under any key is dropped before a request is built.
     const features = provider.parseFailureFeatures({ ...F(), text: HOSTILE.error, path: HOSTILE.path, output: HOSTILE.error, command: HOSTILE.command, description: HOSTILE.title, message: HOSTILE.error });
     assert.notEqual(features, null);
-    const context = provider.failureContextOf(features, OBS, 5);
+    // The signatures differ but the same call ran again with nothing edited: the one case that asks Jev (which artifact comes next is never asked).
+    const context = provider.failureContextOf(features, { ...OBS, unsure: true, sameSignature: false, previous: { exitClass: 'nonzero', environmental: false, elapsed: 'lt10s', present: [] } }, 5);
     await provider.adviseRepeatedFailure(engine, context, { mode: 'advise', assist: 'classify', deadlineMs: 30_000, ids: { workspaceId: 'w-free-text', sessionId: 'sess-free-text' }, record: false });
   },
   'new task': async (engine) => {

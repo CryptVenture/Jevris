@@ -112,7 +112,9 @@ export function createRepeatedFailureHandler(options: LiveHandlerOptions = {}): 
     const ids = { workspaceId: input.envelope.workspaceId, sessionId: input.envelope.sessionId, ...(input.envelope.taskId === undefined ? {} : { taskId: input.envelope.taskId }) };
     const common = { mode, assist: assistOf(input), killSwitchStopped: input.ctx.killSwitchStopped === true, deadlineMs, ids, ...(options.now === undefined ? {} : { now: options.now }), ...(options.lateGraceMs === undefined ? {} : { lateGraceMs: options.lateGraceMs }) };
     const plan = planFailureAdvice(context);
-    const asks = (plan.askSame || plan.askNext) && failureAskGate({ ...common, engine }) === null;
+    // Only the same-failure question is ever asked: which artifact comes next is the rules' pick (see failure-advice.ts), so a
+    // failure that raises no same-failure question is answered at once, with no detached run.
+    const asks = plan.askSame && failureAskGate({ ...common, engine }) === null;
     const show = modeAllows(mode, 'show-advice');
     if (!asks) {
       // Nothing to wait for: the rules (or the gate's fallback) answer at once. Recording the advice is

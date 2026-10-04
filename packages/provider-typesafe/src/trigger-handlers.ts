@@ -25,7 +25,6 @@ import {
   readPins,
   registryModel,
   harnessModelRef,
-  type IntentContext,
   type RequiredArtifact,
   type ModelOffer,
   type SeenSpelling,
@@ -168,20 +167,6 @@ function list(value: unknown, maxItems: number): Record<string, unknown>[] {
   return Array.isArray(value) ? value.slice(0, maxItems).filter(plain) : [];
 }
 
-function intentContext(input: TriggerHandlerInput): IntentContext {
-  const remaining = input.ctx.deadline.remainingMs();
-  return {
-    workspaceId: input.envelope.workspaceId,
-    evidenceRevision: input.revision ?? input.envelope.expectedRevision,
-    sessionId: input.envelope.sessionId,
-    ...(input.currentRevision === undefined ? {} : { currentRevision: input.currentRevision }),
-    ...(input.stillUseful === undefined ? {} : { stillUseful: input.stillUseful }),
-    ...(input.envelope.taskId === undefined ? {} : { taskId: input.envelope.taskId }),
-    deadlineMs: Math.max(1, Math.min(2000, remaining)),
-    options: { signal: input.ctx.signal, deadline: input.ctx.deadline },
-  };
-}
-
 function bodyPart(input: TriggerHandlerInput, key: string): Record<string, unknown> | null {
   const body = plain(input.ctx.body) ? input.ctx.body : {};
   const part = body[key];
@@ -203,14 +188,13 @@ function artifactsOf(value: unknown): RequiredArtifact[] {
 }
 
 /**
- * INT-04 (C05), the rules part: after a failure that carries `evidence: { required, obtainable? }`, ask for
- * one specific artifact that is missing or stale before escalating. Only the workspace root is an approved
- * location; nothing outside it is suggested.
+ * INT-04 (C05), by rule: after a failure that carries `evidence: { required }`, ask for one specific artifact
+ * that is missing or stale before escalating. Only the workspace root is an approved location; nothing outside
+ * it is suggested.
  *
  * This runs on the hook path with no engine, so it never waits on Jev and sends nothing: a failure's
- * diagnostics are the error's own text, which stays in the harness. C05's Jev questions (is the evidence
- * enough, which listed artifact next) are asked by the repeated-failure adviser, over the fixed vocabulary of
- * artifacts only (`failure-advice.ts`), where a failure has come back and the question is worth a call.
+ * diagnostics are the error's own text, which stays in the harness. Nothing asks Jev about C05: which kind of
+ * evidence comes next is the repeated-failure adviser's fixed priority list (`failure-advice.ts`).
  */
 export async function evidenceAdvice(input: TriggerHandlerInput): Promise<HookProposal | null> {
   const evidence = bodyPart(input, 'evidence');
@@ -218,19 +202,10 @@ export async function evidenceAdvice(input: TriggerHandlerInput): Promise<HookPr
   const required = artifactsOf(evidence['required']);
   if (required.length === 0) return null;
   const root = input.ctx.workspace.root;
-  const result = await checkEvidenceSufficiency(
-    null,
-    {
-      objective: 'Choose a fix for the current failure.',
-      required,
-      obtainable: artifactsOf(evidence['obtainable']),
-      approvedRoots: root === null ? [] : [root],
-    },
-    intentContext(input),
-  );
+  const result = checkEvidenceSufficiency({ required, approvedRoots: root === null ? [] : [root] });
   if (result.outcome !== 'request-artifact') return null;
   const where = result.artifact.location === null ? '' : ` (${result.artifact.location})`;
-  return { hookOutcome: { kind: 'explain', text: `Jevris: before escalating, get ${result.artifact.id}: ${result.artifact.description}${where}.` }, reasonCode: result.reasonCode, ...(result.decisionId === null ? {} : { decisionId: result.decisionId }) };
+  return { hookOutcome: { kind: 'explain', text: `Jevris: before escalating, get ${result.artifact.id}: ${result.artifact.description}${where}.` }, reasonCode: result.reasonCode };
 }
 
 /**

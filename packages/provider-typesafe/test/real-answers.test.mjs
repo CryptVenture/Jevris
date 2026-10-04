@@ -174,3 +174,15 @@ test('a real defect-fix answer (issue-fix at 0.84 over the rules test-fix) is us
   const r = await core.classifyTaskSlice(engine, { title: 'Fix crash when parsing empty input', paths: ['src/parse.ts', 'test/parse.test.ts'], checkIds: ['unit-tests'] }, { workspaceId: 'w-real', evidenceRevision: 'r1', deadlineMs: 30_000 }, { assist: 'classify' });
   assert.deepEqual([r.sliceId, r.source, r.reasonCode, r.rulesAlternative], ['issue-fix', 'jev', 'SLICE_JEV_OVER_RULES', 'test-fix']);
 });
+
+test('repeated failure from a real same-failure answer: a Noul of 0.73 is used, and the artifact stays the rules\' pick', async (t) => {
+  // fail-unsure-3 is the live answer to the same-failure question (0.73) asked beside the "which artifact next" Choice of the first
+  // design; only the Noul is replayed, because that Choice was measured and removed (failure-next-artifact-measured.test.mjs).
+  const real = REAL.failure['fail-unsure-3'].answers;
+  const { engine, requests } = await setup(t, (id) => (id === 'same' ? { noul: real.same.noul } : null), () => ({ provenance: 'administrator', sourceEgress: 'deny-until-approved' }));
+  const features = provider.parseFailureFeatures({ toolClass: 'shell', exitClass: 'nonzero', family: 'shell:nonzero', signature: 'bbbbbbbbbbbbbbbb', commandDigest: 'cccccccccccccccc', environmental: false, elapsed: 'lt10s', present: [] });
+  const context = provider.failureContextOf(features, { attempts: 3, sameCommand: true, editsSince: 0, unsure: true, previous: { environmental: false, elapsed: 'lt10s', present: [] } }, 9);
+  const advice = await provider.adviseRepeatedFailure(engine, context, { assist: 'classify', deadlineMs: 30_000, ids: IDS });
+  assert.deepEqual([advice.source, advice.reasonCode, advice.sameByJev, advice.next, advice.askedCount], ['jev', 'REPEATED_FAILURE_JEV', true, 'failing-test-output', 1]);
+  assert.deepEqual(Object.keys(requests[0].questions), ['same'], 'the one question');
+});

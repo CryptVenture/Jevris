@@ -88,11 +88,12 @@ test('the inventory says what is true after the wiring: nothing is dormant and n
   assert.equal(counts.dormant, 0);
   assert.equal(counts['not-asked'], 0);
   assert.equal(counts.hot, 6, 'route and plan slices, check ranking, the probe, the PostCompact audit, the capsule choice and the project memory at a restore');
-  assert.equal(counts.detached, 11, 'repeated failure, new task and its three decisions, C05, C06, the two security decisions, worker readiness and the output spans');
-  assert.equal(counts['on-demand'], FEATURE_INVENTORY.length - 17);
+  assert.equal(counts.detached, 10, 'repeated failure, new task and its three decisions, C06, the two security decisions, worker readiness and the output spans');
+  assert.equal(counts['on-demand'], FEATURE_INVENTORY.length - 16);
   assert.equal(Object.values(counts).reduce((a, b) => a + b, 0), FEATURE_INVENTORY.length);
-  // The decisions that were dormant (C01, C02, C04, C05, C06, C19 to C24 and the worker-readiness question) are all live now.
-  const was = ['c01-task-family', 'c02-ambiguity', 'c04-template', 'c05-evidence', 'c06-scope', 'd-c19', 'd-c20', 'd-c21', 'd-c22', 'd-c23', 'd-c24', 'worker-readiness'];
+  // The decisions that were dormant (C01, C02, C04, C06, C19 to C24 and the worker-readiness question) are all live now. C05 asks Jev nothing: its question was measured and removed.
+  assert.equal(FEATURE_INVENTORY.some((e) => e.spec === 'c05-evidence'), false, 'C05 is rules only: no inventory entry for a question nothing asks');
+  const was = ['c01-task-family', 'c02-ambiguity', 'c04-template', 'c06-scope', 'd-c19', 'd-c20', 'd-c21', 'd-c22', 'd-c23', 'd-c24', 'worker-readiness'];
   assert.deepEqual(was.filter((spec) => !FEATURE_INVENTORY.some((e) => e.spec === spec && e.wiring !== 'dormant' && e.wiring !== 'not-asked')), []);
 });
 
