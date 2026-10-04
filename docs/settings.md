@@ -294,6 +294,14 @@ effort per task slice, has its own commands (`jevris route learning`). Both are 
 
 It follows the rest of the controls: below `observe` mode, with the kill switch on, with the Jev circuit open, billing or access disabled, or with no budget left (`BUDGET_MACHINE_LIMIT`, `BUDGET_WORKSPACE_CAP`), the decision runs rules-only and says why. A repository's `.jevris/config.json` can only set it to `off`. `jevris status` and `jevris configure` show it.
 
+### Confidence floors
+
+An answer from Jev is used only above a floor, and the floors are fixed, conservative defaults, not learned from your use. A Score or a Choice is used at a provider confidence of 0.6 or more, a Choice also at 0.15 or more between its best two options, and a Noul at a certainty of 0.6 (the one open point of a new task at 0.75). Below a floor the rules answer, with the reason code: that is the designed safe answer, not a failure.
+
+What the floors meet in practice was measured over the live runs of 3 and 4 October 2026 (jev-1.13.0, 564 answers to the product's own synthetic questions). A Score's confidence has a median of 0.54 and 48 percent of Score answers are at or above 0.6, because on a scale of four or five levels the probability sits on adjacent levels, not on one; the Score answers at or above 0.6 were in the expected range in 22 of 22 cases. A Choice's confidence has a median of 0.77. A Noul's certainty has a median of 0.83, and 89 percent are at or above 0.6.
+
+The specification says why a floor is not tuned from numbers like these. Choice and Score confidence is not the probability of being right, and a threshold belongs to one question, rubric, evidence format, model and population (section 2.2); a per-question threshold is selected on a calibration set under an error budget, reported on a separate holdout and shipped in a signed release that names the question and the model (sections 18.4 and 18.5), and a single live label tunes nothing. The numbers above are the starting point for that calibration, not a replacement for it. Nothing in 1.2.0 changes a floor.
+
 ## Raising what Jevris may do
 
 A `jevris configure set` that raises `mode`, `routing.managedWorkers`, `routing.mainSession`,
