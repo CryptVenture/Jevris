@@ -151,7 +151,7 @@ Files in the runtime folder, all owner-only, recreated at each start and removed
 | --- | --- |
 | `endpoint.json` | Where the sidecar listens, its pid, version and boot id. |
 | `key-cli`, `key-hook`, `key-mcp` | The per-surface keys that sign requests. A hook key cannot administer Jevris. |
-| `sidecar.pid`, `sidecar.lock`, `spawn.lock` | One sidecar per user; a stale lock from a crashed sidecar is recovered. |
+| `sidecar.pid`, `sidecar.lock`, `spawn.lock` | One sidecar per user; a stale lock from a crashed sidecar is recovered. Several processes read and remove these files at the same moment, and on Windows an unlink meets EPERM, EBUSY or EACCES while another process has the file open, so removing a lock is retried four times (waits of 5, 10, 20 and 40 ms) before it counts as held. A removal that works the first time waits for nothing. |
 | `s` (macOS, Linux) | The Unix socket. A socket left by a sidecar that is gone is detected with a connect probe and removed at the next start. Anything at that path that is not a socket is never removed. |
 
 **Hook events.** The sidecar records each hook event, then asks its subscribers (the decision engine, the orchestrator and the security triage) for advice. It waits for each one for at most 700 ms, and never longer than 80% of the hook's remaining deadline, so the hook still answers in time. A subscriber that has not answered by then is queued: the event is answered without its advice, and the hook's reason is `SUBSCRIBER_QUEUED` (see [mcp.md](mcp.md#troubleshooting-with-the-reason-code)).
