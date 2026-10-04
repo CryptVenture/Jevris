@@ -189,10 +189,15 @@ The question to Jev is one request with one 0 to 4 score per open check, at most
 the rules order). It carries features only: the number of changed files, a size bucket, counts per
 role (source, test, docs, config, CI, other), the top six extensions, protected-path class codes,
 and for each check its kind and last result (passing, failing, missing or stale). It carries no
-path name, no diff, no check output, no check name and no task or objective text. A repeat of the
-same features is answered from the decision cache. A score counts only at a confidence of 0.6 or
-more; a lower one, an error, an open Jev circuit, an exhausted Jev budget or a missed deadline
-keeps the rules order, with a reason code.
+path name, no diff, no check output, no check name and no task or objective text. The request also
+carries one fixed line per kind of check saying what that kind covers (a test run covers the
+behaviour of changed source and test files, a docs check only changed documentation), because a
+kind name alone was not enough: live, a test run for a source change was scored 1.07 of 4. A repeat
+of the same features is answered from the decision cache. A score counts only at a confidence of
+0.6 or more; a lower one, an error, an open Jev circuit, an exhausted Jev budget or a missed
+deadline keeps the rules order, with a reason code. Checks are ordered by Jev's expected score,
+to half a level; checks Jev rates alike, or did not rate with confidence, keep the rules' order
+between them.
 
 Jev never holds a Stop or a verify up. The wait is at most 700 ms, and shorter when the request
 has little time left (under 150 ms, Jev is not asked); a call still going then is dropped, the

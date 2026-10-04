@@ -50,7 +50,7 @@ All workspaces are private and bundled into the one published package.
 | `@jevris/platform` | Per-OS paths, process spawning, atomic writes, path identity and owner-only permissions. |
 | `@jevris/core` | Rules, egress, the decision engine's pure parts, packets and redaction, advice, the model registry, the router and route learning, checkpoint, shortlist. No store or native addon at load. |
 | `@jevris/store` | SQLite store (better-sqlite3): migrations, decisions, tasks, receipts, audit, backups. |
-| `@jevris/provider-typesafe` | The only production Jev transport (`@typesafe-ai/sdk`), budgets and the sidecar decision engine. The transport owns each call's total deadline: connect, headers and the body read all end at it, even when the network or the SDK stalls, and a late call is `DEADLINE`. |
+| `@jevris/provider-typesafe` | The only production Jev transport (`@typesafe-ai/sdk`), budgets and the sidecar decision engine. The transport owns each call's total deadline: connect, headers and the body read all end at it, even when the network or the SDK stalls, and a late call is `DEADLINE`. It sends over `node:https` with a small keep-alive pool, one socket per concurrent request, not over Node's global `fetch`: measured live, the global fetch ran four parallel requests to the API one after another (201, 389, 573 and 776 ms) where separate sockets all took about 240 ms. |
 | `@jevris/orchestrator` | Task graphs, leases, reservations, owned workers and their harness and auth choice, verification runner and receipts, settings, memory capsules. |
 | `@jevris/evals` | Evaluation protocol, corpus, holdout and review records. |
 | `@jevris/languages` | Manifest-based workspace profiling and check proposals. |
