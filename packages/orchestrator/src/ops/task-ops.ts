@@ -24,6 +24,7 @@ import { sliceVolume } from '../orchestration/estimates.js';
 import { drainIntegrationReverts } from '../orchestration/integration-reverts.js';
 import { attachHandOffLease, closeUnhandled, firstTryHistory, handOffPlan, keepFirstTryRoute, noteHandOff } from '../orchestration/first-try.js';
 import { drainRouteLearning, keepEscalatedRoute, keepLearningNote, recordRouteOutcome, runAccessLimited, runIncomplete } from '../orchestration/learning.js';
+import { LAUNCH_READINESS_COLLECTION, launchReadiness } from '../orchestration/launch-readiness.js';
 import { PROVIDER_HARNESSES, harnessAuthMode, readWorkerAuthSettings, signedInSource, workerProvider, type WorkerAuthMode, type WorkerHarness } from '../orchestration/worker-auth.js';
 import { isCertified } from '../hooks/certification.js';
 import { accessPausedModels } from '../orchestration/access-limits.js';
@@ -64,6 +65,7 @@ export function taskView(ws: WorkspaceServices, taskId: string) {
           },
     receipts,
     worker: workerView(ws, taskId),
+    ...readinessView(ws, taskId),
     // Worker runs that ended after a newer lease owned the task: history only (W04).
     lateResults: workerRuns(ws, taskId).filter((r) => r.stale === true).length,
     // A cancel that was delivered but whose run has not published its end yet.
@@ -72,6 +74,14 @@ export function taskView(ws: WorkspaceServices, taskId: string) {
 }
 
 const MODEL = new RegExp(MODEL_ID_PATTERN);
+
+/** The worker-readiness advice recorded at the task's latest launch, for `task.get` (the decision to `jevris explain`). */
+function readinessView(ws: WorkspaceServices, taskId: string): { readonly readiness?: { readonly decisionId: string; readonly state: 'ready' | 'not-ready' | 'unsure' | 'none' } } {
+  const row = ws.state.get<{ readonly decisionId?: unknown; readonly state?: unknown }>(LAUNCH_READINESS_COLLECTION, recordKey(ws.workspaceId, taskId));
+  if (row === undefined || typeof row.decisionId !== 'string' || !CONTRACT_ID.test(row.decisionId)) return {};
+  const state = row.state === 'ready' || row.state === 'not-ready' || row.state === 'unsure' ? row.state : 'none';
+  return { readiness: { decisionId: row.decisionId, state } };
+}
 
 /** The latest owned run of the task (W01): requested and actual model kept apart, reported cost only. */
 function workerView(ws: WorkspaceServices, taskId: string) {
@@ -240,9 +250,15 @@ function routerOf(engine: unknown): RouteManagedWorker | null {
 async function recordCounterfactuals(ctx: SidecarOpContext, ws: WorkspaceServices, mode: 'observe' | 'advise', ids: readonly string[], why?: string): Promise<void> {
   const route = routerOf(ctx.engine);
   if (route === null || ctx.killSwitchStopped) return;
+  let readinessAsked = 0;
   for (const id of ids.slice(0, 32)) {
     const task = getTask(ws, id);
     if (task === undefined) continue;
+    // Worker-readiness advice for the launch this would have been: recorded in the background (never waited for in the submitting op), for at most 8 tasks.
+    if (readinessAsked < 8) {
+      readinessAsked += 1;
+      void launchReadiness(ctx, ws, task, { counterfactual: true });
+    }
     try {
       const result = await route({
         taskId: id,
@@ -815,6 +831,9 @@ async function routedRun(
     // The dispatching port answers the mode the run will use (on OpenCode and Kilo, from what the
     // harness holds for the provider); another port falls back to the declared or environment mode.
     const authMode = port.authFor !== undefined ? ((await port.authFor(baseline, host?.servingHost))?.mode ?? undefined) : settings.ok && provider !== null ? harnessAuthMode(harness, provider, settings.auth[harness], process.env) : undefined;
+    // Worker-readiness advice (Jev, advice only): recorded with the launch and shown by `jevris explain`. The launch below is
+    // decided by the rules, the budget and the permissions whatever it says; this waits for Jev at most LAUNCH_READINESS_WAIT_MS.
+    await launchReadiness(ctx, ws, task);
     const result = await route({
       taskId: task.node.id,
       workspaceId: ws.workspaceId,
