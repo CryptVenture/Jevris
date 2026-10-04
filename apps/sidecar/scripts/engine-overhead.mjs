@@ -120,7 +120,8 @@ export async function measure({ n = 60, seedReservations = 0 } = {}) {
       writeFileSync(join(paths.data, 'decision-budget.json'), `${JSON.stringify({ schemaVersion: 'jevris-decision-budget-1', reservations })}\n`);
     }
     const fetch = provider.createMockFetch({ scenario: 'valid' });
-    const engine = await provider.createSidecarEngine({ home, credential: 'stub-credential-not-a-secret', fetch, budgetLimitMicroUsd: 50_000_000, sourceEgress: () => ({ provenance: 'administrator', sourceEgress: 'deny-until-approved' }) });
+    // A long lock wait: four decisions at once reserve under the budget file's lock, and a slow disk must not turn that into a fall back to the rules.
+    const engine = await provider.createSidecarEngine({ home, credential: 'stub-credential-not-a-secret', fetch, budgetLimitMicroUsd: 50_000_000, budgetLockTimeoutMs: 120_000, sourceEgress: () => ({ provenance: 'administrator', sourceEgress: 'deny-until-approved' }) });
     const ctx = { workspaceId: 'w-bench', evidenceRevision: 'r1', deadlineMs: 30_000 };
     const classify = (hints) => core.classifyTaskSlice(engine, hints, ctx, { assist: 'classify', record: true });
     // Warm the code paths (the first call compiles them and builds the first client).

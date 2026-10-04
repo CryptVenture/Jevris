@@ -68,6 +68,7 @@ story('US32', async ({ t, then, sandbox, evidence }) => {
   hung.stopSidecar();
   const hungBudget = core.DecisionBudget.open(await budgetFile(hung), { limitMicroUsd: LIMIT });
   const afterHang = await hungBudget.snapshot();
+  const hungRows = JSON.parse(readFileSync(await budgetFile(hung), 'utf8')).reservations;
   evidence({ perDecision, afterRace, afterHang, calls: stub.requests().length });
 
   await then('At most the affordable set is admitted transactionally', () => {
@@ -85,7 +86,12 @@ story('US32', async ({ t, then, sandbox, evidence }) => {
     assert.equal(lost.code, 0, lost.stderr);
     assert.ok(hangStub.requests().length >= 1, 'the hung call was never sent');
     // The call may have been billed, so its whole reservation stays held, not released.
-    assert.ok(afterHang.heldMicroUsd >= perDecision, JSON.stringify(afterHang));
+    // The reservation is estimated from the request's text, which carries salted digests (random hex), so two runs of the same call can differ by a
+    // micro-USD when the estimate sits on a rounding edge (67 against 68, seen when the question text moved the estimate onto one). What must hold is the
+    // hung call's own reservation, whole, and that it is one decision's worth; not that it is at least what another run happened to reserve.
+    assert.deepEqual(hungRows.map((row) => row.state), ['held'], JSON.stringify(hungRows));
+    assert.equal(afterHang.heldMicroUsd, hungRows[0].reservedMicroUsd, `the whole reservation stays held: ${JSON.stringify(afterHang)}`);
+    assert.ok(Math.abs(afterHang.heldMicroUsd - perDecision) <= 1, `one decision's worth (${perDecision}): ${JSON.stringify(afterHang)}`);
     assert.equal(afterHang.availableMicroUsd, LIMIT - afterHang.committedMicroUsd - afterHang.reservedMicroUsd - afterHang.heldMicroUsd);
   });
 });

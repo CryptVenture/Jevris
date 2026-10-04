@@ -58,7 +58,8 @@ function build(t, { scenario = 'valid', onRequest, breaker = null, killSwitch, l
   const mock = createMockFetch({ scenario, ...(onRequest === undefined ? {} : { onRequest }) });
   const port = createSdkTransport({ apiKey: KEY, fetch: mock });
   const budgetFile = join(dir, 'budget.json');
-  const budget = DecisionBudget.open(budgetFile, { limitMicroUsd: limit });
+  // Several decisions at once reserve under the budget file's lock, which a call waits for at most 2 s by default before it falls back to the rules without sending: on a slow disk the last of four passed that. These tests are not about the lock.
+  const budget = DecisionBudget.open(budgetFile, { limitMicroUsd: limit, lockTimeoutMs: 120_000 });
   const engine = createDecisionEngine({ transport: port, journalDir: join(dir, 'decisions'), budget, ...(breaker === null ? {} : { breaker }), ...(killSwitch === undefined ? {} : { killSwitch }) });
   return { engine, dir, mock, port, budget, budgetFile, journalDir: join(dir, 'decisions') };
 }
