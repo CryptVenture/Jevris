@@ -16,6 +16,7 @@
  *   permission decision.
  */
 import type {
+  HarnessCompactionIntent,
   HarnessEffectIntent,
   HarnessEvidenceIntent,
   HarnessFailureIntent,
@@ -412,6 +413,15 @@ function clipText(value: unknown, max: number): string | null {
   return last >= 0xd800 && last <= 0xdbff ? cut.slice(0, -1) : cut;
 }
 
+/** The longest compaction summary kept for the omission audit (C20), in characters. */
+export const COMPACTION_SUMMARY_CAP = 16_384;
+
+/** C20: the summary a finished compaction produced, verbatim and clipped; null when the harness sent none. */
+export function compactionIntent(text: unknown): HarnessCompactionIntent | null {
+  const summary = clipText(text, COMPACTION_SUMMARY_CAP);
+  return summary === null ? null : { summary };
+}
+
 /** The user's request as the harness delivered it, verbatim and clipped. */
 export function taskIntent(text: unknown): HarnessTaskIntent | null {
   const objective = clipText(text, OBJECTIVE_CAP);
@@ -770,6 +780,7 @@ export function intentOf(parts: {
   failure?: HarnessFailureIntent | null;
   untrusted?: HarnessUntrustedIntent | null;
   effect?: HarnessEffectIntent | null;
+  compaction?: HarnessCompactionIntent | null;
 }): HarnessIntent {
   return {
     ...(parts.task ? { task: parts.task } : {}),
@@ -778,6 +789,7 @@ export function intentOf(parts: {
     ...(parts.failure ? { failure: parts.failure } : {}),
     ...(parts.untrusted ? { untrusted: parts.untrusted } : {}),
     ...(parts.effect ? { effect: parts.effect } : {}),
+    ...(parts.compaction ? { compaction: parts.compaction } : {}),
   };
 }
 
@@ -955,6 +967,7 @@ export function commandHookParts(
           ? untrustedIntent(toolName, field(own(native, 'tool_use_id')), own(native, 'error'))
           : null,
     effect: spec.kind === 'tool.proposed' ? effectIntent(toolName, input) : null,
+    compaction: spec.kind === 'context.compacted' ? compactionIntent(own(native, 'compact_summary')) : null,
   });
   return buildEvent({
     harness,

@@ -11,8 +11,8 @@
  * What it does. Every Jev decision the product makes runs once through its real handler, the real
  * engine and the real packet builders: route slice classification, plan slice labels, check ranking,
  * repeated-failure advice, new-task advice, the intent decisions C01 to C07, the security decisions C51
- * and C49, and the worker-readiness question. The capability catalogue (C18 to C72) runs through a real
- * sidecar, one case per Jev consult site. The hot path (route and plan at the product's 900 ms budget,
+ * and C49, and the worker-readiness advice. The capability catalogue (C18 to C72) runs through a real
+ * sidecar, one case per Jev consult site, each reached through its real entry point (an op or a hook event). The hot path (route and plan at the product's 900 ms budget,
  * a concurrent burst, a repeat sequence for the cache hit rate) runs through the same sidecar, and the
  * check ranking and the repeated-failure advice run at their production waits in this process.
  *
@@ -165,7 +165,8 @@ try {
   const needsSidecar = !skip.has('caps') || !skip.has('hot');
   if (needsSidecar) {
     const { DEFAULT_CONFIG } = await repoModule('packages', 'orchestrator', 'dist', 'index.js');
-    const { lookupDecision } = await repoModule('packages', 'core', 'dist', 'index.js');
+    const coreModule = await repoModule('packages', 'core', 'dist', 'index.js');
+    const { lookupDecision } = coreModule;
     // The capabilities read installed skills, agents and settings from the home they run in, and from these folders when they
     // are set: the run must never see the person's own, so they are unset (HOME itself stays: the keystore needs it).
     for (const name of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME', 'XDG_CACHE_HOME', 'CODEX_HOME', 'CLAUDE_CONFIG_DIR']) delete process.env[name];
@@ -218,7 +219,7 @@ try {
               return 0;
             }
           };
-          const rows = await driver.runCases({ sidecar: part.wrapSidecar(sidecar), home: dir, work: workspace, cases: part.CASES, requestCount, lookup: (id) => lookupDecision(id, { home: dir }), timeoutMs: 20_000 });
+          const rows = await driver.runCases({ sidecar: part.wrapSidecar(sidecar), home: dir, work: workspace, cases: part.CASES, requestCount, lookup: (id) => lookupDecision(id, { home: dir }), latestDecision: (specId) => driver.latestDecisionOf(coreModule, dir, specId), timeoutMs: 20_000 });
           for (const r of rows) say(`[caps ${part.id} ${egress}] ${r.id.padEnd(14)} ok=${r.ok} requests=${r.requests} source=${r.source} reason=${r.reasonCode} ms=${r.elapsedMs}${r.failure === null ? '' : ` failure=${r.failure}`}`);
           sidecarSpent += await spentOf(dir, workspace);
           await sidecar.stopSidecarProcess(dir);

@@ -57,6 +57,8 @@ export interface AuditResult {
   /** Optional items Jev flagged as likely omitted (advice only). */
   readonly flagged: readonly AuditFinding[];
   readonly source: 'rules' | 'jev';
+  /** The Jev decisions that judged the optional decisions (C20), for `jevris explain`. */
+  readonly decisionIds: readonly string[];
 }
 
 function exactMatch(item: CapsuleItem, summary: string, summaryHashes: ReadonlySet<string>, normalisedSummary: string): AuditFinding['matchedBy'] {
@@ -94,30 +96,39 @@ export async function auditOmissions(ws: WorkspaceServices, capsule: CapsuleV2, 
   }
   const flagged: AuditFinding[] = [];
   let source: 'rules' | 'jev' = 'rules';
+  const decisionIds: string[] = [];
   if (input.engine !== undefined && input.egressApproved === true) {
-    for (const item of capsule.items.filter((i) => !i.mandatory && i.kind === 'decision').slice(0, 6)) {
-      if (exactMatch(item, input.summary, summaryHashes, normalisedSummary) !== null) continue;
-      const r = await consultNoul(input.engine, {
-        capabilityId: 'C20',
-        specVersion: '1',
-        objective: 'Flag a decision that a compaction summary likely dropped.',
-        instructions: 'Does the summary omit or contradict this accepted decision?',
-        whenTrue: 'The decision is missing from or contradicted by the summary.',
-        whenFalse: 'The summary keeps the decision, possibly in other words.',
-        evidence: [
-          { id: 'decision', text: item.text, sourceKind: 'user', priority: 'mandatory' },
-          { id: 'summary', text: input.summary.slice(0, 6000), sourceKind: 'tool', priority: 'high' },
-        ],
-        workspaceId: ws.workspaceId,
-        evidenceRevision: capsule.id,
-        ...(input.remainingMs === undefined ? {} : { remainingMs: input.remainingMs }),
-        rules: () => ({ value: false, reasonCode: 'RULES_NO_FLAG' }),
-      });
+    // The optional decisions the summary does not plainly keep, judged side by side (at most 6): the wait is one request. The
+    // summary and a decision are workspace text, so they go only with the administrator's approval too (`sendsWorkspaceText`).
+    const unmatched = capsule.items.filter((i) => !i.mandatory && i.kind === 'decision').slice(0, 6).filter((item) => exactMatch(item, input.summary, summaryHashes, normalisedSummary) === null);
+    const judged = await Promise.all(
+      unmatched.map((item) =>
+        consultNoul(input.engine, {
+          capabilityId: 'C20',
+          specVersion: '1',
+          sendsWorkspaceText: true,
+          objective: 'Flag a decision that a compaction summary likely dropped.',
+          instructions: 'Does the summary omit or contradict this accepted decision?',
+          whenTrue: 'The decision is missing from or contradicted by the summary.',
+          whenFalse: 'The summary keeps the decision, possibly in other words.',
+          evidence: [
+            { id: 'decision', text: item.text, sourceKind: 'user', priority: 'mandatory' },
+            { id: 'summary', text: input.summary.slice(0, 6000), sourceKind: 'tool', priority: 'high' },
+          ],
+          workspaceId: ws.workspaceId,
+          evidenceRevision: capsule.id,
+          ...(input.remainingMs === undefined ? {} : { remainingMs: input.remainingMs }),
+          rules: () => ({ value: false, reasonCode: 'RULES_NO_FLAG' }),
+        }).then((r) => ({ item, r })),
+      ),
+    );
+    for (const { item, r } of judged) {
       if (r.source === 'jev') source = 'jev';
+      if (r.decisionId !== null) decisionIds.push(r.decisionId);
       if (r.value) flagged.push({ itemId: item.id, kind: item.kind, text: item.text, matchedBy: null });
     }
   }
-  return { checked: mandatory.length, present, missing, flagged, source };
+  return { checked: mandatory.length, present, missing, flagged, source, decisionIds };
 }
 
 // ------------------------------------------------------------------------- restore-once
@@ -129,6 +140,9 @@ interface PendingRestore {
   readonly itemIds: readonly string[];
   readonly createdAtMs: number;
   readonly taken: boolean;
+  /** What the compaction summary left out (exact mandatory items, by rules) and what Jev flagged as a likely dropped decision (C20). */
+  readonly omittedItemIds?: readonly string[];
+  readonly flaggedItemIds?: readonly string[];
 }
 
 /** Queues the missing items for one restore at the next boundary of this session. */
@@ -141,6 +155,28 @@ export async function queueRestore(ws: WorkspaceServices, capsuleId: string, ses
     tx.put('restores', key, { workspaceId: ws.workspaceId, capsuleId, sessionId, itemIds: [...itemIds].slice(0, 128), createdAtMs: nowMs, taken: false } satisfies PendingRestore);
     return true;
   });
+}
+
+/**
+ * Notes what a compaction summary left out, on the restore that is still pending for the session (C20): the exact
+ * mandatory items the summary no longer names (by rules) and the optional decisions Jev flagged as likely dropped
+ * (advice). The restore that follows puts them first and says why. A restore already taken, or none queued, is
+ * left as it is: a restore is delivered once. Returns whether the pending restore now carries them.
+ */
+export async function noteCompactionAudit(ws: WorkspaceServices, capsuleId: string, sessionId: string, found: { readonly omitted: readonly string[]; readonly flagged: readonly string[] }): Promise<boolean> {
+  const key = recordKey(ws.workspaceId, capsuleId, sessionId);
+  return ws.hook.transact((tx) => {
+    const prior = tx.get<PendingRestore>('restores', key);
+    if (prior === undefined || prior.taken) return false;
+    tx.put('restores', key, { ...prior, omittedItemIds: [...new Set(found.omitted)].slice(0, 128), flaggedItemIds: [...new Set(found.flagged)].slice(0, 32) });
+    return true;
+  });
+}
+
+/** What the audit found for this capsule and session (empty when none ran or the restore was taken). */
+export function pendingCompactionAudit(ws: WorkspaceServices, capsuleId: string, sessionId: string): { readonly omitted: readonly string[]; readonly flagged: readonly string[] } {
+  const row = ws.state.get<PendingRestore>('restores', recordKey(ws.workspaceId, capsuleId, sessionId));
+  return row === undefined || row.taken ? { omitted: [], flagged: [] } : { omitted: row.omittedItemIds ?? [], flagged: row.flaggedItemIds ?? [] };
 }
 
 export type RestoreCommit =

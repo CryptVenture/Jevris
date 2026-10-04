@@ -118,6 +118,7 @@ may do also depends on your `mode` (see [settings.md](../settings.md#modes)):
   and `bounded-auto`). On a fresh session start the SessionStart context is one orientation line
   (the mode, "advice only; permissions unchanged", and a pointer to `jevris_status`); a compaction
   or resume sends the capsule alone.
+- **Compaction, resume and project memory (Jev, advice only).** As in Claude Code, a `PostCompact` event that carries a `compact_summary` is checked in memory against the saved objective, constraints and decisions (C20), and what it left out is restored first at the next session start; an event with no summary is only recorded. A resume with more than one saved capsule is judged from counts and an age bucket, never text (C21), as in Claude Code. See [claude-code.md](claude-code.md#what-the-hooks-do) and [privacy.md](../privacy.md).
 - **Stop reminder.** With approved checks whose passing evidence is missing, a Stop is blocked
   once for the same missing evidence, naming the checks, the most relevant to the change first
   (needs `hooks.context`; the order is advice, see

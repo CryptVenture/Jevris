@@ -98,6 +98,7 @@ export * from './capabilities/consult.js';
 export * from './memory/capsule.js';
 export * from './memory/audit.js';
 export * from './memory/readiness.js';
+export * from './memory/consult-gate.js';
 export * from './memory/distill.js';
 export * from './memory/evidence-usage.js';
 export * from './memory/restore-outcomes.js';

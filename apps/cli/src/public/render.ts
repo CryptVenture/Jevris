@@ -565,6 +565,10 @@ function body(result: SurfaceResult): string[] {
         line('open checks', p.retained.openChecks),
         line('compaction triggered', 'no'),
       ];
+      if (p.compaction !== undefined) {
+        const say = p.compaction.boundary === 'recommend-boundary' ? 'a good boundary to compact' : p.compaction.boundary === 'prepare' ? 'getting full; compact at the next clean boundary' : 'no need to compact yet';
+        lines.push(line('context in use', `${String(p.compaction.usedPercent)} percent: ${say} (advice from ${p.compaction.source === 'jev' ? 'Jev' : 'the rules'}; native compaction is never deferred or started)`));
+      }
       for (const item of p.items.slice(0, 40)) lines.push(`${item.kind}: ${item.text}`);
       if (p.items.length > 40) lines.push(`and ${p.items.length - 40} more items`);
       return [...lines, ...decisionLine(p.decisionId)];
@@ -643,6 +647,8 @@ function body(result: SurfaceResult): string[] {
         const cost = w.costMicroUsd === null || w.costBasis === 'unknown' ? 'unknown' : `$${(w.costMicroUsd / 1_000_000).toFixed(4)}, reported by the worker (${dollarLabel(w.authMode)})`;
         lines.push(line('worker run', w.status), line('requested model', w.requestedModel ?? 'unknown'), line('observed model', observed), line('cost', cost), line('duration ms', w.durationMs));
       }
+      // Jev's advice at the launch (advice only: the launch never depended on it); `jevris explain` shows what was asked.
+      if (p.readiness !== undefined) lines.push(line('launch advice', `${p.readiness.state === 'none' ? 'nothing stated' : p.readiness.state === 'ready' ? 'looked bounded for a worker' : p.readiness.state === 'not-ready' ? 'did not look bounded for a worker' : 'not sure'}; jevris explain ${p.readiness.decisionId}`));
       // A run that ended after a newer lease owned the task is history; it changed nothing.
       if ((p.lateResults ?? 0) > 0) lines.push(line('late results kept', p.lateResults ?? 0));
       return lines;

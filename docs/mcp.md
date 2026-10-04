@@ -310,13 +310,16 @@ These tools write only under the Jevris data directory, never in your repository
 
 #### `jevris_checkpoint`
 
-Saves a memory capsule of the objective, your constraints and the changed files. It never triggers or replaces the harness's own compaction.
+Saves a memory capsule of the objective, your constraints, the decisions made so far and the changed files. It never triggers or replaces the harness's own compaction.
 
 - **Arguments:**
   - `objective` (up to 4000 characters);
   - `constraints` (up to 64, each up to 1000 characters);
-  - `taskId`.
-- **Result:** includes the `capsuleId`, a `capsule:` handle, the items kept, and `compactionTriggered: false`.
+  - `decisions` (up to 64, each up to 1000 characters): decisions made so far that are worth keeping after a compaction. After a compaction, one that the harness's summary left out is restored first, and the same list is what Jev's omission check (C20) judges when egress is approved;
+  - `taskId`;
+  - `contextPercent` (an integer, 0 to 100): how much of the context window is in use, if you know it. No harness hook reports it, so only the caller can say. It gives compaction-readiness advice (C19): from the rules, and from Jev when the use is between 70 and 90 percent and Jev is on. It never defers or starts a compaction.
+- **Result:** includes the `capsuleId`, a `capsule:` handle, the items kept, and `compactionTriggered: false`. With `contextPercent` it also has `compaction`: `{ usedPercent, boundary, source, decisionId }`, where `boundary` is `none`, `prepare` or `recommend-boundary`, and `source` is `rules` or `jev`.
+- **Constraints.** A constraint you add is also compared with the ones already held, only when source egress is approved by the administrator and by your own preference. A pair Jev finds contradictory is listed as a hypothesis, "may contradict each other (Jev's advice, not a finding)", and nothing is removed or changed (C23).
 
 #### `jevris_record_verification`
 

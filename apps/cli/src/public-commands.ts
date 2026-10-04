@@ -48,7 +48,7 @@ const FLAGS: { readonly [K in PublicCommandName]: FlagSpec } = {
     boolean: [...COMMON.boolean, '--cold-cache', '--mid-step'],
   },
   plan: { value: [...COMMON.value, '--graph'], repeat: [], boolean: COMMON.boolean },
-  checkpoint: { value: [...COMMON.value, '--objective', '--task'], repeat: ['--constraint'], boolean: COMMON.boolean },
+  checkpoint: { value: [...COMMON.value, '--objective', '--task', '--context-percent'], repeat: ['--constraint', '--decision'], boolean: COMMON.boolean },
   recover: { value: [...COMMON.value, '--task'], repeat: ['--failure', '--env-failure', '--rejected'], boolean: COMMON.boolean },
   verify: { value: [...COMMON.value, '--task'], repeat: ['--check'], boolean: COMMON.boolean },
   configure: { value: COMMON.value, repeat: [], boolean: [...COMMON.boolean, '--dry-run', '--yes'] },
@@ -253,15 +253,20 @@ Examples:
   jevris plan --graph tasks.json --json
   jevris plan --submit --graph tasks.json --budget sprint-1 --limit-micro-usd 5000000
   jevris plan --submit --graph tasks.json --budget sprint-1 --limit-micro-usd 5000000 --authorization auth-0123 --yes`,
-  checkpoint: `Usage: jevris checkpoint [--objective <text>] [--constraint <text>]... [--task <id>] [--json]
+  checkpoint: `Usage: jevris checkpoint [--objective <text>] [--constraint <text>]... [--decision <text>]... [--task <id>] [--context-percent <n>] [--json]
 
-Writes a memory capsule (objective, constraints, changed-file hashes) under the Jevris data
-directory and prints what it kept. It never triggers compaction.
+Writes a memory capsule (objective, constraints, decisions, changed-file hashes) under the Jevris
+data directory and prints what it kept. It never triggers compaction. With --context-percent it also
+says whether this looks like a good boundary to compact: advice only, from the rules, and from
+Jev when the use is between 70 and 90 percent and Jev is on (jev.assist). Native compaction is
+never deferred or started by it.
 
 Options:
   --objective <text>  The current objective (default: none)
   --constraint <text> A constraint to keep; repeat for more
+  --decision <text>   A decision made so far, worth keeping after a compaction; repeat for more
   --task <id>         The task the capsule belongs to
+  --context-percent <n>  How much of the context window is in use, 0 to 100 (default: not said)
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line (the command's contract)
@@ -563,7 +568,9 @@ async function rawInputFor(name: PublicCommandName, parsed: Extract<Parsed, { ok
           input: {
             ...(value('--objective') !== undefined ? { objective: value('--objective') } : {}),
             constraints: many('--constraint'),
+            decisions: many('--decision'),
             ...(value('--task') !== undefined ? { taskId: value('--task') } : {}),
+            ...(value('--context-percent') !== undefined ? { contextPercent: tokens(value('--context-percent')) } : {}),
           },
         }
       );

@@ -369,15 +369,20 @@ Examples:
 ## jevris checkpoint
 
 ```text
-Usage: jevris checkpoint [--objective <text>] [--constraint <text>]... [--task <id>] [--json]
+Usage: jevris checkpoint [--objective <text>] [--constraint <text>]... [--decision <text>]... [--task <id>] [--context-percent <n>] [--json]
 
-Writes a memory capsule (objective, constraints, changed-file hashes) under the Jevris data
-directory and prints what it kept. It never triggers compaction.
+Writes a memory capsule (objective, constraints, decisions, changed-file hashes) under the Jevris
+data directory and prints what it kept. It never triggers compaction. With --context-percent it also
+says whether this looks like a good boundary to compact: advice only, from the rules, and from
+Jev when the use is between 70 and 90 percent and Jev is on (jev.assist). Native compaction is
+never deferred or started by it.
 
 Options:
   --objective <text>  The current objective (default: none)
   --constraint <text> A constraint to keep; repeat for more
+  --decision <text>   A decision made so far, worth keeping after a compaction; repeat for more
   --task <id>         The task the capsule belongs to
+  --context-percent <n>  How much of the context window is in use, 0 to 100 (default: not said)
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line (the command's contract)

@@ -132,11 +132,13 @@ export const TOOLS: readonly ToolSpec[] = [
     op: 'checkpoint',
     title: 'Checkpoint',
     description:
-      'Saves a memory capsule of the objective, declared constraints and changed files under the Jevris data directory. It never triggers or replaces compaction.',
+      'Saves a memory capsule of the objective, declared constraints and changed files under the Jevris data directory. It never triggers or replaces compaction. With contextPercent it also advises whether now is a good boundary to compact.',
     inputSchema: input({
       objective: text(4000, 'The current objective in one or two sentences.'),
       constraints: { type: 'array', items: text(1000, 'One constraint to keep.'), maxItems: 64, description: 'Constraints that must survive compaction.' },
+      decisions: { type: 'array', items: text(1000, 'One decision made so far.'), maxItems: 64, description: 'Decisions made so far that are worth keeping after a compaction.' },
       taskId: id('The task this checkpoint belongs to, if any.'),
+      contextPercent: { type: 'integer', minimum: 0, maximum: 100, description: 'How much of the context window is in use, in percent, if you know. Gives compaction-readiness advice; it never compacts or defers compaction.' },
     }),
     effect: 'write-local',
   },

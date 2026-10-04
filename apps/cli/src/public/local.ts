@@ -312,6 +312,8 @@ export async function localCheckpoint(ctx: SurfaceContext, input: OpInputs['chec
       revision: rev,
     };
   });
+  // A decision is shown with what was kept; the v1 capsule has no field for it, so only the running sidecar keeps it in the capsule.
+  for (const decision of input.decisions) items.push({ kind: 'decision', text: decision.slice(0, 1000) });
   const files = changedFiles(ctx);
   const optional: MemoryCapsule['optionalEvidence'][number][] = [];
   files.forEach((file, index) => {

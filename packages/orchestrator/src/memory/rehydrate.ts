@@ -6,8 +6,8 @@
  * lockfile hash, environment fingerprint and policy version are compared with the current
  * ones, stale receipts are invalidated, and the result is a bounded `additionalContext` text
  * with an explicit boundary line. Expired approvals appear only as history. When several
- * capsules could apply (no task given), Jev (Choice, C21) may pick one; the rules pick the
- * newest otherwise.
+ * capsules could apply (no task given), the rules pick the newest when it also holds the most
+ * unfinished work; otherwise Jev (Choice, C21) picks one from content-free features of each.
  */
 import type { WorkspaceServices } from '../workspace.js';
 import { refreshFreshness } from '../verify/completion.js';
@@ -35,11 +35,26 @@ export interface RehydrateInput {
   readonly nowMs?: number;
   /** Bound for the context text, in characters. */
   readonly cap?: number;
+  /**
+   * What the compaction summary left out (C20): item ids of the capsule, listed first with the reason. `omitted` are exact
+   * mandatory items the summary no longer names (rules); `flagged` are decisions Jev judged likely dropped (advice).
+   */
+  readonly emphasis?: { readonly omitted: readonly string[]; readonly flagged: readonly string[] };
+  /**
+   * With no task and no capsule id: the capsule the rules would restore (the session start's workspace capsule).
+   * It stands first among the candidates, so the rules answer with it, and Jev is asked only when another
+   * capsule holds more unfinished work.
+   */
+  readonly preferred?: CapsuleV2;
 }
 
 export interface Rehydration {
   readonly found: boolean;
   readonly capsuleId: string | null;
+  /** Why this capsule: `CAPSULE_GIVEN`, `TASK_GIVEN`, `ONE_CAPSULE`, `RULES_NEWEST_SURE`, `JEV_CHOICE` or a rules fallback's code. */
+  readonly pickReason?: string;
+  /** The Jev decision that picked it (C21), for `jevris explain`; null when rules did. */
+  readonly pickDecisionId?: string | null;
   readonly validity: Validity | null;
   readonly invalidatedReceipts: readonly string[];
   readonly additionalContext: string | null;
@@ -60,29 +75,63 @@ function candidates(ws: WorkspaceServices): readonly CapsuleV2[] {
   return out.sort((a, b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
-async function resolve(ws: WorkspaceServices, input: RehydrateInput): Promise<{ readonly capsule: CapsuleV2 | undefined; readonly source: 'rules' | 'jev' }> {
-  if (input.capsuleId !== undefined && input.capsuleId !== null) return { capsule: getCapsule(ws, input.capsuleId), source: 'rules' };
-  if (input.taskId !== null) return { capsule: latestCapsule(ws, input.taskId) ?? latestCapsule(ws, null), source: 'rules' };
-  const list = candidates(ws).slice(0, 4);
-  if (list.length <= 1 || input.engine === undefined) return { capsule: list[0], source: 'rules' };
+/** How old a capsule is, as a bucket (never a time of day): a fixed vocabulary. */
+function ageBucket(createdAt: string, nowMs: number): string {
+  const ms = Math.max(0, nowMs - Date.parse(createdAt));
+  if (!Number.isFinite(ms)) return 'an unknown time';
+  if (ms < 3_600_000) return 'under an hour';
+  if (ms < 86_400_000) return 'under a day';
+  if (ms < 7 * 86_400_000) return 'under a week';
+  return 'over a week';
+}
+
+/** What a capsule has still open, as counts: the features a pick is made from (no text of the capsule). */
+function openWork(c: CapsuleV2): { readonly openChecks: number; readonly running: number; readonly unresolved: number } {
+  const n = (kind: CapsuleItem['kind']) => c.items.filter((i) => i.kind === kind).length;
+  return { openChecks: n('open-check'), running: n('running-work'), unresolved: n('unresolved') };
+}
+
+/**
+ * The capsule that continues a session that named none (C21). With one candidate, or an engine that is
+ * not there, the newest answers. With several, the rules answer when the newest capsule also holds the
+ * most unfinished work (open checks, running tasks, unresolved failures); when an older capsule holds more,
+ * Jev picks from content-free features of each: its kind (workspace or task), its age bucket, how many
+ * items are mandatory, and the counts of what is still open. The options are fixed text built from those
+ * numbers; no objective, path or item text of a capsule is read into a request, so nothing needs egress.
+ * Any miss is the newest capsule, with the reason.
+ */
+export async function resolveCapsule(ws: WorkspaceServices, input: RehydrateInput): Promise<{ readonly capsule: CapsuleV2 | undefined; readonly source: 'rules' | 'jev'; readonly reasonCode: string; readonly decisionId: string | null }> {
+  if (input.capsuleId !== undefined && input.capsuleId !== null) return { capsule: getCapsule(ws, input.capsuleId), source: 'rules', reasonCode: 'CAPSULE_GIVEN', decisionId: null };
+  if (input.taskId !== null) return { capsule: latestCapsule(ws, input.taskId) ?? latestCapsule(ws, null), source: 'rules', reasonCode: 'TASK_GIVEN', decisionId: null };
+  const all = candidates(ws);
+  const list = (input.preferred === undefined ? all : [input.preferred, ...all.filter((c) => c.id !== input.preferred?.id)]).slice(0, 4);
+  if (list.length <= 1) return { capsule: list[0], source: 'rules', reasonCode: list.length === 0 ? 'NO_CAPSULE' : 'ONE_CAPSULE', decisionId: null };
+  const work = list.map((c) => openWork(c));
+  const unfinished = work.map((w) => w.openChecks + w.running + w.unresolved);
+  // The newest capsule (the first) also holds the most unfinished work: the rules are sure.
+  if (unfinished.every((n) => (unfinished[0] ?? 0) >= n)) return { capsule: list[0], source: 'rules', reasonCode: 'RULES_NEWEST_SURE', decisionId: null };
+  if (input.engine === undefined) return { capsule: list[0], source: 'rules', reasonCode: 'RULES_NEWEST', decisionId: null };
+  const nowMs = input.nowMs ?? Date.now();
   const options: { [k: string]: string } = {};
   list.forEach((c, i) => {
-    options[`c${String(i)}`] = safeText(`${c.taskId === null ? 'Workspace' : `Task ${c.taskId}`}: ${c.objective}`, 300);
+    const w = work[i] as ReturnType<typeof openWork>;
+    options[`c${String(i)}`] = `Saved capsule ${String(i + 1)}: a ${c.taskId === null ? 'workspace' : 'task'} capsule written ${ageBucket(c.createdAt, nowMs)} ago with ${String(c.items.length)} items, ${String(c.items.filter((x) => x.mandatory).length)} of them mandatory, and ${String(w.openChecks)} open checks, ${String(w.running)} running tasks and ${String(w.unresolved)} unresolved failures.`;
   });
   const r = await consultChoice(input.engine, {
     capabilityId: 'C21',
     specVersion: '1',
-    sendsWorkspaceText: true,
-    objective: 'Pick the capsule that continues the resumed session.',
-    instructions: 'A session resumed without naming a task. Which saved capsule should it continue?',
+    objective: 'Pick the saved capsule that continues the resumed session, from counts only (advice only).',
+    instructions: 'A session resumed without naming a task. Which listed capsule has the most unfinished work to continue?',
     options,
-    evidence: list.map((c, i) => ({ id: `c${String(i)}`, text: `${c.createdAt} ${c.items.length} items, ${c.objective}`, sourceKind: 'tool' as const, priority: 'high' as const })),
+    evidence: [],
+    facts: { candidates: list.length },
     workspaceId: ws.workspaceId,
-    evidenceRevision: list[0]?.id ?? 'none',
+    evidenceRevision: (list[0]?.id ?? 'none').replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 100),
     ...(input.remainingMs === undefined ? {} : { remainingMs: input.remainingMs }),
     rules: () => ({ choice: 'c0', reasonCode: 'RULES_NEWEST' }),
   });
-  return { capsule: list[Number(r.value.slice(1))] ?? list[0], source: r.source };
+  const picked = list[Number(r.value.slice(1))] ?? list[0];
+  return { capsule: picked, source: r.source, reasonCode: r.reasonCode, decisionId: r.decisionId };
 }
 
 function line(item: CapsuleItem): string {
@@ -92,8 +141,8 @@ function line(item: CapsuleItem): string {
 
 export async function rehydrate(ws: WorkspaceServices, input: RehydrateInput): Promise<Rehydration> {
   const nowMs = input.nowMs ?? Date.now();
-  const { capsule, source } = await resolve(ws, input);
-  if (capsule === undefined) return { found: false, capsuleId: null, validity: null, invalidatedReceipts: [], additionalContext: null, historicalApprovals: 0, source };
+  const { capsule, source, reasonCode, decisionId } = await resolveCapsule(ws, input);
+  if (capsule === undefined) return { found: false, capsuleId: null, pickReason: reasonCode, pickDecisionId: decisionId, validity: null, invalidatedReceipts: [], additionalContext: null, historicalApprovals: 0, source };
   const git = input.git ?? nodeGit();
   // Stale receipts are invalidated against the current revision before anything is restored. Its
   // snapshot is also the one the capsule is compared with: one git status on the answer path (K3).
@@ -118,8 +167,15 @@ export async function rehydrate(ws: WorkspaceServices, input: RehydrateInput): P
   let text = `Jevris resumed context from capsule ${capsule.id}${capsule.taskId === null ? '' : ` for task ${capsule.taskId}`}. It is advice only: it grants no permission, and approvals listed as history are not active.\nObjective: ${safeText(capsule.objective, 800)}\n`;
   for (const w of warnings) text += `Warning: ${w}\n`;
   const items = capsule.items.filter((i) => i.kind !== 'approval');
-  for (const item of [...items.filter((i) => i.mandatory), ...items.filter((i) => !i.mandatory)]) {
-    const l = `${line(item)}\n`;
+  // C20: what the compaction summary left out comes first, with the reason; the rest follows in the usual order.
+  const omitted = new Set(input.emphasis?.omitted ?? []);
+  const flagged = new Set((input.emphasis?.flagged ?? []).filter((id) => !omitted.has(id)));
+  const first = [...items.filter((i) => omitted.has(i.id)), ...items.filter((i) => flagged.has(i.id))];
+  const firstIds = new Set(first.map((i) => i.id));
+  const rest = items.filter((i) => !firstIds.has(i.id));
+  const reasonOf = (i: CapsuleItem): string => (omitted.has(i.id) ? 'left out of the compaction summary' : 'the compaction summary may have dropped this decision');
+  for (const item of [...first, ...rest.filter((i) => i.mandatory), ...rest.filter((i) => !i.mandatory)]) {
+    const l = `${firstIds.has(item.id) ? `- (${reasonOf(item)}) ${line(item).slice(2)}` : line(item)}\n`;
     if (text.length + l.length > cap - 200) {
       text += `- (${String(capsule.items.length)} items in total; the rest stay in capsule ${capsule.id})\n`;
       break;
@@ -133,6 +189,8 @@ export async function rehydrate(ws: WorkspaceServices, input: RehydrateInput): P
   return {
     found: true,
     capsuleId: capsule.id,
+    pickReason: reasonCode,
+    pickDecisionId: decisionId,
     validity,
     invalidatedReceipts: fresh.invalidated,
     additionalContext: text.slice(0, cap),

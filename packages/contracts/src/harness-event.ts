@@ -91,6 +91,16 @@ export interface HarnessTaskIntent {
 }
 
 /**
+ * C20: the summary a compaction produced (Claude Code's and Codex's PostCompact `compact_summary`), clipped to 16 KiB.
+ * The sidecar audits it against the session's capsule in memory only (which exact constraints, checks and tasks it
+ * dropped) and records none of it. It leaves the machine only as one screened span, and only with source egress
+ * approved, to judge whether an optional decision was dropped. A harness that sends no summary leaves it out.
+ */
+export interface HarnessCompactionIntent {
+  readonly summary: string;
+}
+
+/**
  * INT-05: the paths this tool call wrote (relative to the session cwd when inside it). The
  * approved scope is not the harness's to say: the sidecar adds it from the task's plan.
  */
@@ -190,6 +200,8 @@ export interface HarnessIntent {
   readonly failure?: HarnessFailureIntent;
   /** On a finished or failed tool call (GOV-12). */
   readonly untrusted?: HarnessUntrustedIntent;
+  /** On a finished compaction (C20): the summary it produced. */
+  readonly compaction?: HarnessCompactionIntent;
   /** On a proposed tool call (GOV-13). */
   readonly effect?: HarnessEffectIntent;
 }

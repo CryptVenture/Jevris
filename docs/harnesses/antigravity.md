@@ -286,7 +286,7 @@ after the fact. See [routing.md](../routing.md#what-certification-covers-for-own
 `jevris doctor` prints these on the `harness antigravity parity:` line:
 
 - **PreToolUse.** Antigravity treats a PreToolUse `decision: "allow"` as auto-approving the tool call, which would override your native permissions. So Jevris never registers PreToolUse, a deliberate difference from the other harnesses. If a PreToolUse event reaches the adapter anyway, it prints nothing, so it makes no decision.
-- **Compaction context.** Antigravity has no compaction events. A session saves its capsule with `jevris_checkpoint` and gets it back through the `jevris_handoff_export` tool.
+- **Compaction context.** Antigravity has no compaction events. A session saves its capsule with `jevris_checkpoint` and gets it back through the `jevris_handoff_export` tool. For the same reason there is no compaction omission check (C20) here; `jevris_checkpoint` with `contextPercent` still gives compaction-readiness advice (C19) when the caller says how full the context is.
 - **Subagent routing (`hooks.route`).** No Antigravity hook can change a subagent's model. Jevris owned workers choose the model when the run starts instead (see Owned workers). For advice, use `jevris route`.
 - **Status line.** Antigravity has no plugin status line. Run `jevris status`.
 - **Permission decisions and the stop gate in a subagent.** Jevris makes no permission decision in a subagent, so Antigravity's own permissions govern it. The verification gate holds only the parent's Stop: Antigravity has no SubagentStop hook, and it does not document whether its hooks run inside a subagent.

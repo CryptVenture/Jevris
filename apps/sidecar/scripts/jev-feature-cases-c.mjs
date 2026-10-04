@@ -21,6 +21,11 @@
  *   or its caller never passes the engine). The call is the op the capability registry points that
  *   capability at (or the nearest one), with `expectAsked: false`: it proves that op stays rules-only.
  *   The offline test checks the consult site itself by calling the function with a recording engine.
+ *   No case is marked so now: C19 to C24 are reached through their real entry points (the checkpoint op,
+ *   the PostCompact and SessionStart events, the verify op), and the offline test fails on a new one.
+ * - `spec`: the decision spec the case's consult records under (`d-c20`), for a case whose answer does not name its
+ *   Jev decision (a hook event, an op that answers before its check has run): the driver reads the newest decision of
+ *   that spec from the journal. `settle: true` waits for the requests to stop before counting them.
  * - `setup.*` pseudo-ops in `steps` (`setup.approve-checks`, `setup.revoke-checks`): changes only a
  *   person makes (approving a check manifest needs a person at a terminal; there is no sidecar op for
  *   it). `runSetupOp` performs them in process, exactly as the CLI does after a person answers y,
@@ -37,7 +42,7 @@
  * `preparePart({ home, work, egress, mode })` before the sidecar starts, then run `CASES` through the driver
  * with `wrapSidecar(sidecar)` as the client.
  */
-import { createHash } from 'node:crypto';
+import { createHash, generateKeyPairSync } from 'node:crypto';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 
@@ -114,6 +119,15 @@ export async function runSetupOp(request) {
   if (request.op === 'setup.revoke-checks') {
     return { ok: true, result: { revoked: await orchestrator.revokeApproval(ws, []) } };
   }
+  if (request.op === 'setup.admit-memory') {
+    // Project memory is admitted by a named person or by passing receipts; no command does it yet, so a person's admission is done in process (C24).
+    const entries = request.body?.entries ?? [];
+    for (const [i, text] of entries.entries()) {
+      const admitted = await orchestrator.admitProjectMemory(ws, { scope: `workspace:${ws.workspaceId}`, kind: 'decision', text, revision: `r${String(i)}`, approvedBy: 'the owner' });
+      if (!admitted.ok) throw new Error(`setup.admit-memory refused: ${admitted.reasonCode}`);
+    }
+    return { ok: true, result: { admitted: entries.length } };
+  }
   throw new Error(`unknown setup op ${request.op}`);
 }
 
@@ -176,7 +190,46 @@ export async function preparePart({ home, work, egress, mode }) {
     writeFileSync(file, `${JSON.stringify({ ...current, privacy: { ...current.privacy, sourceEgress: 'approved-scoped' } }, null, 2)}\n`, { mode: 0o600 });
     preference = true;
   }
+  await certifyHooks(home);
   return { hostPolicy: join(config, 'host.json'), egress, mode: mode ?? 'advise', preference };
+}
+
+/** The harness version the events below claim (the hook body carries it) and the record certifies. */
+export const CASE_HARNESS_VERSION = '2.1.278';
+
+/**
+ * Certifies this sandbox's Claude hooks the way `jevris certify` leaves them: a record signed by a local key in the
+ * sandbox home, so a restore (SessionStart) is delivered as context. A restore the harness could not show is never
+ * chosen for, so C21 and C24 ask only on a certified harness. Inside `home` only; the real home is never touched.
+ */
+export async function certifyHooks(home) {
+  const { jevrisPaths } = await import('@jevris/platform');
+  const { signRecord } = await import('@jevris/contracts');
+  const { localKeyId } = await import('@jevris/cli/certifications');
+  const pair = generateKeyPairSync('ed25519');
+  const publicPem = pair.publicKey.export({ type: 'spki', format: 'pem' });
+  const dir = join(jevrisPaths({ home }).data, 'certifications');
+  mkdirSync(join(dir, 'keys'), { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, 'keys', 'local.pub.pem'), publicPem, { mode: 0o600 });
+  const [major, minor] = CASE_HARNESS_VERSION.split('.').map(Number);
+  const day = 86_400_000;
+  const now = Date.now();
+  const record = {
+    id: 'cert-claude-jev-features',
+    schemaVersion: '1.0',
+    harness: 'claude',
+    actuatorId: 'claude.hooks',
+    harnessVersionRange: { minimum: `${major}.${minor}.0`, maximumExclusive: `${major}.${minor + 1}.0` },
+    operatingSystems: [process.platform],
+    models: [],
+    tools: [],
+    limitations: [],
+    fixtureSuiteHash: `sha256:${'a'.repeat(64)}`,
+    features: ['hooks.observe', 'hooks.context'].map((featureId) => ({ featureId, status: 'certified', reasonCode: null })),
+    certifiedAt: new Date(now - day).toISOString(),
+    expiresAt: new Date(now + 30 * day).toISOString(),
+  };
+  writeFileSync(join(dir, 'claude.json'), `${JSON.stringify(signRecord(record, pair.privateKey.export({ type: 'pkcs8', format: 'pem' }), localKeyId(publicPem)), null, 2)}\n`, { mode: 0o600 });
 }
 
 const approve = (...checks) => ({ op: 'setup.approve-checks', scope: 'cli', optional: true, body: { checks } });
@@ -192,6 +245,22 @@ const summarizeRecover = (r) => ({ source: null, reasonCode: null, decisionId: i
 const summarizeExport = (r) => ({ source: null, reasonCode: r?.found === true ? 'EXPORTED' : 'NOT_FOUND', decisionId: null, verb: 'handoff.export', recommendation: null });
 const summarizeVerify = (r) => ({ source: null, reasonCode: typeof r?.readiness === 'string' ? r.readiness : null, decisionId: null, verb: 'verify', recommendation: null });
 const summarizeSelect = (r) => ({ source: null, reasonCode: null, decisionId: null, verb: 'evidence.select', recommendation: Array.isArray(r?.items) && r.items.length > 0 ? String(r.items[0].id) : null });
+
+/** A hook event (scope `hook`): the harness's normalized envelope next to the launcher's own fields, as the launcher sends it. */
+let eventSerial = 0;
+const event = (kind, { trigger = null, sessionId = 's-case-c', body = {} } = {}) => {
+  eventSerial += 1;
+  const dedupKey = createHash('sha256').update(`jev-features-${kind}-${String(eventSerial)}`).digest('hex');
+  return {
+    op: 'event',
+    scope: 'hook',
+    body: { envelope: { schemaVersion: '1.0', harness: 'claude', nativeEventName: 'Hook', kind, sessionId, turnId: null, toolUseId: null, toolName: null, agentId: null, model: null, permissionMode: null, cwd: null, trigger, blocking: false, responseRequired: false, payload: {}, dedupKey }, deliveryKey: dedupKey, harnessVersion: CASE_HARNESS_VERSION, ...body },
+  };
+};
+/** An event answer: what the orchestrator subscriber said (a reason code); its Jev decision is read from the journal by `spec`. */
+const summarizeEvent = (r) => ({ source: null, reasonCode: typeof r?.results?.orchestrator?.reasonCode === 'string' ? r.results.orchestrator.reasonCode : null, decisionId: null, verb: 'event', recommendation: null });
+/** checkpoint with compaction advice: the Jev decision that judged the boundary (null when the rules did). */
+const summarizeCompaction = (r) => ({ source: r?.compaction?.source ?? null, reasonCode: typeof r?.compaction?.boundary === 'string' ? `BOUNDARY_${r.compaction.boundary.toUpperCase().replace(/-/g, '_')}` : null, decisionId: typeof r?.compaction?.decisionId === 'string' ? r.compaction.decisionId : null, verb: 'checkpoint', recommendation: null });
 
 /**
  * Why an unreachable case calls evidence.select: the registry points C19, C20, C23 and C24 at checkpoint,
@@ -225,76 +294,98 @@ export const CASES = [
     id: 'C19-readiness',
     capability: 'C19',
     title: 'Compaction readiness boundary',
-    site: 'packages/orchestrator/src/memory/readiness.ts:84',
+    site: 'packages/orchestrator/src/memory/readiness.ts:96',
     steps: [{ files: DIRTY, commit: true }],
-    call: { op: 'evidence.select', scope: 'mcp', body: { intent: 'compaction readiness boundary ZZMARKER-C19' } },
-    expectAsked: false,
-    unreachable: true,
-    summarize: summarizeSelect,
-    notes: NO_CALLER + 'compactionReadiness has no caller in the product: no op or hook reads context use and asks it (the compaction hook only writes a capsule). The call is the nearest read-only memory op.',
+    call: { op: 'checkpoint', scope: 'mcp', body: { taskId: null, objective: 'Keep the invoice totals exact ZZMARKER-C19', contextPercent: 80 } },
+    expectAsked: true,
+    summarize: summarizeCompaction,
+    notes:
+      'The checkpoint op, when the caller says how much of the context is in use (contextPercent, jevris checkpoint --context-percent): below 70 or above 90 percent the rules are sure and nothing is asked; between, Jev is asked one Noul from counts and flags (use as a percent, running tasks, open checks, unresolved failures, whether the capsule is current), with no evidence text, so it needs no egress approval. The advice never defers or starts native compaction. The first step commits the file the C18 case left uncommitted.',
   },
   {
     id: 'C20-audit',
     capability: 'C20',
     title: 'Omission audit of a compaction summary',
-    site: 'packages/orchestrator/src/memory/audit.ts:100',
-    steps: [],
-    call: { op: 'evidence.select', scope: 'mcp', body: { intent: 'decisions a compaction summary dropped ZZMARKER-C20' } },
-    expectAsked: false,
-    unreachable: true,
-    summarize: summarizeSelect,
-    notes: NO_CALLER + 'auditOmissions has no caller outside tests (the SessionStart restore path uses queueRestore and commitRestore, not the audit). The call is the nearest read-only memory op.',
+    site: 'packages/orchestrator/src/memory/audit.ts:107',
+    steps: [
+      { op: 'checkpoint', scope: 'mcp', body: { taskId: null, objective: 'Keep the invoice totals exact ZZMARKER-C20', constraints: ['C1: do not change the public API ZZMARKER-C20'], decisions: ['Store the totals in sqlite ZZMARKER-C20', 'Log at debug level only ZZMARKER-C20'] } },
+      event('context.compacting', { trigger: 'auto', sessionId: 's-c20' }),
+    ],
+    call: event('context.compacted', { trigger: 'auto', sessionId: 's-c20', body: { compaction: { summary: 'The summary keeps nothing of the earlier decisions ZZMARKER-C20' } } }),
+    spec: 'd-c20',
+    expectAsked: true,
+    egressNeeded: true,
+    egressVia: 'host',
+    summarize: summarizeEvent,
+    notes:
+      'The PostCompact event (Claude Code and Codex send the compaction summary; the adapter forwards it as a bounded decision input, in memory only). Exact mandatory items are matched by rules; each optional decision the summary does not plainly keep is one Jev Noul, side by side, at most 6, only with source egress approved by the administrator (host policy) and by the person (the preference). The summary goes as one screened evidence span. What was left out is restored first at the next SessionStart.',
   },
   {
     id: 'C21-rehydrate',
     capability: 'C21',
     title: 'Pick the capsule that continues a resumed session',
-    site: 'packages/orchestrator/src/memory/rehydrate.ts:72',
+    site: 'packages/orchestrator/src/memory/rehydrate.ts:121',
     steps: [
-      { op: 'checkpoint', scope: 'mcp', body: { taskId: 'T-c21-a', objective: 'First task objective ZZMARKER-C21' } },
-      { op: 'checkpoint', scope: 'mcp', body: { taskId: 'T-c21-b', objective: 'Second task objective ZZMARKER-C21' } },
+      { op: 'checkpoint', scope: 'mcp', body: { taskId: null, objective: 'The workspace objective ZZMARKER-C21' } },
+      approve({ id: 'c21-open', argv: ['node', '-e', 'process.exit(1)'], mandatory: true, timeoutMs: 30000 }),
+      { op: 'checkpoint', scope: 'mcp', body: { taskId: 'T-c21-b', objective: 'The task objective ZZMARKER-C21' } },
     ],
-    call: { op: 'handoff.export', scope: 'mcp', body: { capsuleId: null, taskId: null, harness: 'claude' } },
-    expectAsked: false,
-    unreachable: true,
-    summarize: summarizeExport,
-    notes: 'The consult needs rehydrate() called with no task and no capsule id and two or more capsules; the only caller (the SessionStart subscriber) passes the capsule id, so the Choice is never asked. The registry points C21 at handoff.import, which has no consult. Two capsules exist after the steps; handoff.export of the latest answers without Jev. The consult is flagged sendsWorkspaceText (the capsule objectives are the option texts): asked only with egress approved, which the offline test checks by calling the function with a denied and an approved engine.',
+    call: event('session.started', { trigger: 'resume', sessionId: 's-c21' }),
+    spec: 'd-c21',
+    expectAsked: true,
+    summarize: summarizeEvent,
+    notes:
+      'The SessionStart(resume) event, on a harness whose hooks are certified (the sandbox certifies its own, locally signed), when two saved capsules could continue the session and the newest holds no more unfinished work than the other. Jev picks from counts and an age bucket of each capsule (its kind, items, mandatory items, open checks, running tasks, unresolved failures); no objective, constraint or path of a capsule is in the request, so it needs no egress approval. The approved check is revoked by the next case that approves checks.',
   },
   {
     id: 'C22-distill',
     capability: 'C22',
     title: 'Rank spans of long tool output',
-    site: 'packages/orchestrator/src/memory/distill.ts:301',
-    steps: [approve({ id: 'c22-noisy', ...CHECK_NODE, argv: ['node', '-e', NOISY] })],
+    site: 'packages/orchestrator/src/memory/distill.ts:305',
+    steps: [revoke(), approve({ id: 'c22-noisy', ...CHECK_NODE, argv: ['node', '-e', NOISY] })],
     call: { op: 'verify', scope: 'cli', body: { taskId: null, checkIds: [] } },
-    expectAsked: false,
-    unreachable: true,
+    spec: 'd-c22',
+    settle: true,
+    expectAsked: true,
+    egressNeeded: true,
+    egressVia: 'host',
     summarize: summarizeVerify,
-    notes: 'The verify op runs the approved check and builds a distilled view of its long output (the 1,500 line output exceeds the view budget), but verify/service.ts:251 passes no engine, so the span scores (Jev Score, max 8 per output) are never asked, with or without egress. The only other caller, distillOutput in apps/cli/src/trial-jevris.ts, passes no engine either. The step approves the check as a person would.',
+    notes:
+      'The verify op runs the approved check and builds a distilled view of its long output (1,500 lines exceed the view budget); the optional spans (at most 8) are scored by one Jev Score each, side by side, only with source egress approved by the administrator and the person. The check result is the runner\'s and is untouched; the scoring runs in the check run, after the op has answered, so the case waits for its requests to stop.',
   },
   {
     id: 'C23-facts',
     capability: 'C23',
-    title: 'Semantic contradiction between remembered facts',
-    site: 'packages/orchestrator/src/memory/facts.ts:141',
-    steps: [],
-    call: { op: 'evidence.select', scope: 'mcp', body: { intent: 'contradicting facts about the timeout ZZMARKER-C23' } },
-    expectAsked: false,
-    unreachable: true,
-    summarize: summarizeSelect,
-    notes: NO_CALLER + 'triageContradictions has no caller outside tests; nothing records a fact (recordFact is called only by resolveContradiction). The call is the nearest read-only memory op.',
+    title: 'Contradiction between declared constraints',
+    site: 'packages/orchestrator/src/memory/facts.ts:204',
+    steps: [revoke(), { op: 'checkpoint', scope: 'mcp', body: { taskId: 'T-c23', objective: 'Storage ZZMARKER-C23', constraints: ['Use only sqlite for storage ZZMARKER-C23'] } }],
+    call: { op: 'checkpoint', scope: 'mcp', body: { taskId: 'T-c23', constraints: ['Store everything in postgres ZZMARKER-C23'] } },
+    spec: 'd-c23',
+    expectAsked: true,
+    egressNeeded: true,
+    egressVia: 'host',
+    summarize: summarizeCheckpoint,
+    notes:
+      'The checkpoint op with a newly declared constraint: it is recorded as an accepted-requirement fact and put against the constraints already held (at most 8 pairs, side by side), one Jev Noul each, only with egress approved by both halves. A pair Jev finds contradictory becomes a hypothesis line in the capsule, never a finding. The first step declares the constraint it contradicts.',
   },
   {
     id: 'C24-memory',
     capability: 'C24',
-    title: 'Rescore project memory for a query',
-    site: 'packages/orchestrator/src/memory/facts.ts:269',
-    steps: [],
-    call: { op: 'evidence.select', scope: 'mcp', body: { intent: 'sqlite storage decision ZZMARKER-C24' } },
-    expectAsked: false,
-    unreachable: true,
-    summarize: summarizeSelect,
-    notes: NO_CALLER + 'retrieveProjectMemory has no caller outside tests and nothing admits project memory (admitProjectMemory has no caller). The nearest product retrieval is evidence.select, which ranks by rules only.',
+    title: 'Rescore project memory at a restore',
+    site: 'packages/orchestrator/src/memory/facts.ts:341',
+    steps: [
+      { op: 'checkpoint', scope: 'mcp', body: { taskId: null, objective: 'Fix the sqlite storage decision ZZMARKER-C24' } },
+      { op: 'setup.admit-memory', scope: 'cli', optional: true, body: { entries: Array.from({ length: 8 }, (_, i) => `Storage choice ${String(i)} is sqlite for the storage decision ZZMARKER-C24`) } },
+      event('context.compacting', { trigger: 'auto', sessionId: 's-c24' }),
+    ],
+    call: event('session.started', { trigger: 'compact', sessionId: 's-c24' }),
+    spec: 'd-c24',
+    expectAsked: true,
+    egressNeeded: true,
+    egressVia: 'host',
+    summarize: summarizeEvent,
+    notes:
+      'The SessionStart restore on a certified harness: the project memory this workspace holds (admitted by passing receipts or a named person; no command admits any yet, so the step admits eight in process as a person would) that shares words with the capsule objective is ranked lexically; with more than five, one Jev Score each (at most 10, side by side) only with egress approved by both halves. A restore after a compaction writes its own capsule first (the compacting step).',
   },
   {
     id: 'C29',
@@ -490,5 +581,4 @@ export const KNOWN_DEFECTS = {};
  */
 export const WORKSPACE_TEXT = {
   C70: '/questions/q/criteria',
-  'C21-rehydrate': '/questions/q/criteria',
 };

@@ -6,8 +6,11 @@
 import { CAPSULE_ITEM_KINDS, ID_PATTERN, HARNESS_IDS, modeAllows, type HarnessId, type SidecarOpContext, type SidecarOpOutcome, type SurfaceOperation } from '@jevris/contracts';
 import type { WorkspaceServices } from '../workspace.js';
 import { readEffectiveConfig } from '../settings/config.js';
-import { declare, latestCapsule, writeCapsuleDecided, type CapsuleItem } from '../memory/capsule.js';
+import { consultEngine, egressPreferenceApproved } from '../memory/consult-gate.js';
+import { declare, declaredState, latestCapsule, writeCapsuleDecided, type CapsuleItem } from '../memory/capsule.js';
+import { checkConstraintConflicts } from '../memory/facts.js';
 import { exportPortable, importPortable, type PortableCapability } from '../memory/handoff.js';
+import { compactionReadiness } from '../memory/readiness.js';
 import { assessLoop, DEFAULT_LOOP_BUDGETS, recordRejectedApproach } from '../orchestration/loops.js';
 import { approvedManifests } from '../verify/service.js';
 import { CONTEXT_FEATURE, isCertified } from '../hooks/certification.js';
@@ -59,7 +62,7 @@ const PAYLOAD_KIND: { readonly [K in CapsuleItem['kind']]?: (typeof CAPSULE_ITEM
 };
 
 function egressApproved(ctx: SidecarOpContext, ws: WorkspaceServices): boolean {
-  return readEffectiveConfig({ home: ctx.home, workspaceRoot: ws.workspaceRoot }).config.privacy.sourceEgress === 'approved-scoped';
+  return egressPreferenceApproved(ctx, ws);
 }
 
 async function handleCheckpoint(ctx: SidecarOpContext, respond: Respond, ws: WorkspaceServices): Promise<SidecarOpOutcome> {
@@ -67,8 +70,14 @@ async function handleCheckpoint(ctx: SidecarOpContext, respond: Respond, ws: Wor
   if (taskId === undefined) return { ok: false, reasonCode: 'INVALID_REQUEST' };
   const objective = str(ctx.body, 'objective');
   const constraints = strings(ctx.body, 'constraints', 64, 1000);
-  await declare(ws, taskId, { ...(objective === null || objective.trim() === '' ? {} : { objective: objective.slice(0, 4000) }), constraints });
-  const { capsule, decisionId } = await writeCapsuleDecided(ws, { taskId, engine: ctx.engine, egressApproved: egressApproved(ctx, ws), remainingMs: ctx.deadline.remainingMs() - 200 });
+  const decisions = strings(ctx.body, 'decisions', 64, 1000);
+  const declared = await declare(ws, taskId, { ...(objective === null || objective.trim() === '' ? {} : { objective: objective.slice(0, 4000) }), constraints, ...(decisions.length === 0 ? {} : { decisions: decisions.map((text) => ({ text })) }) });
+  const engine = consultEngine(ctx);
+  // C23: a newly declared constraint is put against the ones already held; a pair Jev finds contradictory becomes a hypothesis line (advice, never a finding).
+  await noteConstraintConflicts(ctx, ws, taskId, declared, constraints, engine);
+  const { capsule, decisionId } = await writeCapsuleDecided(ws, { taskId, engine, egressApproved: egressApproved(ctx, ws), remainingMs: ctx.deadline.remainingMs() - 200 });
+  // C19: when the caller says how much of the context is in use, advice on whether now is a good boundary to compact.
+  const compaction = await compactionAdvice(ctx, ws, taskId, capsule.id, engine);
   const count = (k: CapsuleItem['kind']) => capsule.items.filter((i) => i.kind === k).length;
   const items = capsule.items
     .filter((i) => PAYLOAD_KIND[i.kind] !== undefined)
@@ -89,7 +98,49 @@ async function handleCheckpoint(ctx: SidecarOpContext, respond: Respond, ws: Wor
     items,
     compactionTriggered: false,
     decisionId,
+    ...(compaction === null ? {} : { compaction }),
   });
+}
+
+/**
+ * C23 on a checkpoint: the constraints just declared, against the task's and the workspace's others. Every miss (no engine, egress
+ * not approved, a deadline, an abstention) leaves the capsule as it was.
+ */
+async function noteConstraintConflicts(ctx: SidecarOpContext, ws: WorkspaceServices, taskId: string | null, declared: Awaited<ReturnType<typeof declare>>, newTexts: readonly string[], engine: unknown): Promise<void> {
+  if (engine === undefined || newTexts.length === 0) return;
+  try {
+    const all = [...declaredState(ws, null).constraints, ...(taskId === null ? [] : declared.constraints)];
+    const unique = [...new Map(all.map((c) => [c.id, c] as const)).values()];
+    const clipped = new Set(newTexts.map((t) => t.slice(0, 1000)));
+    const conflicts = await checkConstraintConflicts(ws, { constraints: unique, newIds: unique.filter((c) => clipped.has(c.text)).map((c) => c.id), engine, egressApproved: egressApproved(ctx, ws), remainingMs: ctx.deadline.remainingMs() - 400 });
+    if (conflicts.length === 0) return;
+    await declare(ws, taskId, { hypotheses: conflicts.map((c) => ({ text: `Constraints ${c.a} and ${c.b} may contradict each other (Jev's advice, not a finding): ask the person which one holds.` })) });
+    ctx.trace({ event: 'orchestrator.constraint-conflicts', reasonCode: 'CONFLICTS_FOUND', conflicts: conflicts.length, ...(conflicts[0]?.decisionId == null ? {} : { decisionId: conflicts[0].decisionId }) });
+  } catch {
+    // Advice only: a failed check changes nothing about the checkpoint.
+  }
+}
+
+/** The context in use that the caller named, as a whole percent, or null when it named none (or something unusable). */
+function contextPercentOf(body: unknown): number | null {
+  const raw = isPlain(body) ? own(body, 'contextPercent') : undefined;
+  return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 100 ? raw : null;
+}
+
+/** Percent of a window: a working budget of 1000 units with nothing reserved, so `usedTokens` is ten times the percent. */
+const PERCENT_BUDGET = { capacityTokens: 1000, outputReservationTokens: 0, overheadTokens: 0, marginFraction: 0 } as const;
+
+async function compactionAdvice(ctx: SidecarOpContext, ws: WorkspaceServices, taskId: string | null, capsuleId: string, engine: unknown): Promise<{ readonly usedPercent: number; readonly boundary: 'none' | 'prepare' | 'recommend-boundary'; readonly source: 'rules' | 'jev'; readonly decisionId: string | null } | null> {
+  const percent = contextPercentOf(ctx.body);
+  if (percent === null) return null;
+  try {
+    const readiness = await compactionReadiness(ws, { taskId, facts: PERCENT_BUDGET, usedTokens: percent * 10, episodeId: capsuleId, ...(engine === undefined ? {} : { engine }), remainingMs: ctx.deadline.remainingMs() - 200 });
+    ctx.trace({ event: 'orchestrator.compaction-readiness', reasonCode: `BOUNDARY_${readiness.boundary.toUpperCase().replace(/-/g, '_')}`, ...(readiness.decisionId === null ? {} : { decisionId: readiness.decisionId }) });
+    return { usedPercent: percent, boundary: readiness.boundary, source: readiness.source, decisionId: readiness.decisionId };
+  } catch {
+    // Advice only: a failure here changes nothing about the checkpoint.
+    return null;
+  }
 }
 
 async function handleRecover(ctx: SidecarOpContext, respond: Respond, ws: WorkspaceServices): Promise<SidecarOpOutcome> {
@@ -108,7 +159,7 @@ async function handleRecover(ctx: SidecarOpContext, respond: Respond, ws: Worksp
     taskId,
     fingerprints,
     artifacts,
-    engine: ctx.engine,
+    engine: consultEngine(ctx),
     remainingMs: ctx.deadline.remainingMs() - 200,
     budgets: { ...DEFAULT_LOOP_BUDGETS, perTask: config.orchestration.maxRepairAttempts + 1 },
   });

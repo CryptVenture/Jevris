@@ -15,6 +15,7 @@ import { parseManifestFile, type CheckManifest } from './manifest.js';
 import { noteRestoreCheckStarted } from '../memory/restore-outcomes.js';
 import { evaluateCompletion, lastStopReport, noteReminderCheckStarted, type CompletionReport, type StopReport } from './completion.js';
 import { RUNNER_STDERR_SEPARATOR, runChecks, type CheckRun } from './runner.js';
+import { OFF_LOOP_OUTPUT_BYTES } from './output-work.js';
 import { distillStoredOutput, recordStoredView } from '../memory/distill.js';
 import { receiptScopeOf } from './receipt-scope.js';
 import type { StoredReceipt } from './receipts.js';
@@ -204,6 +205,13 @@ export interface VerifyRequest {
    * waived, and ids it does not name run after the named ones in the usual order.
    */
   readonly order?: readonly string[];
+  /**
+   * C22 (owner decision 2026-10-01): the engine and the person's egress preference for scoring the spans of a long
+   * check output with Jev (advice about which lines the view keeps, never about the result). Only for an output
+   * small enough to view on the request loop; a large one keeps its rules view (it is built off the loop, P6).
+   * Absent: the rules view.
+   */
+  readonly distill?: { readonly engine: unknown; readonly egressApproved: boolean };
 }
 
 export interface VerifyOutcome {
@@ -248,7 +256,10 @@ export async function runVerification(ws: WorkspaceServices, request: VerifyRequ
     if (run.exec === null || handle === null) continue;
     try {
       const stored = { handle, command: `check ${run.receipt.checkId}`, exitCode: run.exec.exitCode, stdout: run.exec.stdout, stderr: run.exec.stderr, stderrOffset: run.exec.stdout.length + sepBytes };
-      if (run.view === undefined || run.view === null) await distillStoredOutput(ws, stored);
+      // C22: a distilled view of a smallish output may have its optional spans scored by Jev; the rest keep the rules view.
+      const scoreWithJev = request.distill !== undefined && request.distill.egressApproved && run.view?.result.mode === 'distilled' && run.view.result.omittedLines > 0 && run.exec.stdout.length + run.exec.stderr.length < OFF_LOOP_OUTPUT_BYTES;
+      if (scoreWithJev && request.distill !== undefined) await distillStoredOutput(ws, { ...stored, engine: request.distill.engine, egressApproved: true });
+      else if (run.view === undefined || run.view === null) await distillStoredOutput(ws, stored);
       else await recordStoredView(ws, stored, run.view);
     } catch {
       // A view record is an aid; the receipt and the stored original already stand.

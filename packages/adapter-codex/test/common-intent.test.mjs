@@ -224,3 +224,26 @@ for (const { name, core } of cores) {
     await answering['experimental.session.compacting']({ sessionID: 's' }, trap);
   });
 }
+
+// C20 (omission audit): the summary a finished compaction produced rides next to the envelope as `intent.compaction`,
+// clipped, only on PostCompact, and never inside the envelope's payload. A harness that sends none leaves it out.
+for (const { name, core } of cores) {
+  test(`${name}: the compaction summary is kept clipped as a decision input, only on a finished compaction, and never in the envelope`, async () => {
+    assert.equal(core.compactionIntent(7), null);
+    assert.equal(core.compactionIntent('   '), null);
+    assert.deepEqual(core.compactionIntent('  C7 holds.  '), { summary: 'C7 holds.' });
+    assert.equal(core.compactionIntent('a'.repeat(core.COMPACTION_SUMMARY_CAP + 50)).summary.length, core.COMPACTION_SUMMARY_CAP);
+    assert.equal(core.COMPACTION_SUMMARY_CAP, 16_384);
+    const adapter = await import(pathToFileURL(join(root, name, 'dist', 'index.js')).href);
+    const base = { session_id: 'ses_1', transcript_path: '/work/ses_1.jsonl', cwd: '/work', trigger: 'auto' };
+    // Claude Code and Codex name their hook events; Kilo, OpenCode and Antigravity have no PostCompact hook, so this input is not theirs.
+    const post = adapter.normalize({ ...base, hook_event_name: 'PostCompact', compact_summary: 'The summary SUMMARY-MARKER keeps C7.' });
+    if (!post.ok) return;
+    assert.deepEqual(post.intent?.compaction, { summary: 'The summary SUMMARY-MARKER keeps C7.' });
+    assert.equal(JSON.stringify(post.event).includes('SUMMARY-MARKER'), false, 'not in the envelope: the payload is sizes and names');
+    const none = adapter.normalize({ ...base, hook_event_name: 'PostCompact' });
+    assert.equal(none.ok && none.intent?.compaction === undefined, true, 'no summary, no input');
+    const pre = adapter.normalize({ ...base, hook_event_name: 'PreCompact', compact_summary: 'ignored' });
+    assert.equal(pre.ok && pre.intent?.compaction === undefined, true, 'only a finished compaction carries one');
+  });
+}

@@ -40,7 +40,8 @@ export interface OpInputs {
     readonly session: RouteSession | null;
   };
   readonly plan: { readonly tasks: readonly unknown[] };
-  readonly checkpoint: { readonly objective: string | null; readonly constraints: readonly string[]; readonly taskId: string | null };
+  /** `contextPercent`: how much of the context window is in use, 0 to 100, for compaction-readiness advice; null says nothing. */
+  readonly checkpoint: { readonly objective: string | null; readonly constraints: readonly string[]; readonly decisions: readonly string[]; readonly taskId: string | null; readonly contextPercent: number | null };
   readonly recover: {
     readonly taskId: string | null;
     readonly signals: { readonly fingerprints: readonly string[]; readonly environment: readonly boolean[] };
@@ -406,11 +407,13 @@ const PARSERS: { readonly [K in SurfaceOperation]: (raw: Raw) => OpInputs[K] } =
     return { tasks: bounded(tasks, '"tasks"', 1_048_576) as readonly unknown[] };
   },
   checkpoint(raw) {
-    onlyKeys(raw, ['objective', 'constraints', 'taskId']);
+    onlyKeys(raw, ['objective', 'constraints', 'decisions', 'taskId', 'contextPercent']);
     return {
       objective: text(raw, 'objective', 4000, false),
       constraints: list(raw, 'constraints', 64, textItem('constraints', 1000)),
+      decisions: list(raw, 'decisions', 64, textItem('decisions', 1000)),
       taskId: pattern(raw, 'taskId', ID, 'a task id', false),
+      contextPercent: raw['contextPercent'] === undefined || raw['contextPercent'] === null ? null : count(raw['contextPercent'], '"contextPercent"', 100),
     };
   },
   recover(raw) {

@@ -11,6 +11,7 @@
  *   `{ integrationId, actor? }` is the user's explicit approval. It fast-forwards the main
  *   checkout to a `ready` integration commit and never pushes.
  */
+import { consultEngine } from '../memory/consult-gate.js';
 import { ID_PATTERN, type SidecarOpContext, type SidecarOpOutcome } from '@jevris/contracts';
 import type { WorkspaceServices } from '../workspace.js';
 import { isPlain, own } from '../util.js';
@@ -62,7 +63,7 @@ export function integrationOps(workspaceOf: WorkspaceOf) {
         if (ws === undefined) return { ok: false, reasonCode: 'WORKSPACE_ROOT_UNKNOWN' };
         const egressApproved = readEffectiveConfig({ home: ctx.home, workspaceRoot: ws.workspaceRoot }).config.privacy.sourceEgress === 'approved-scoped';
         // The run is not tied to this request: it goes on after the answer (see startIntegration).
-        const started = await startIntegration(ws, raw, { ...(ctx.killSwitchStopped ? {} : { engine: ctx.engine }), egressApproved });
+        const started = await startIntegration(ws, raw, { ...(consultEngine(ctx) === undefined ? {} : { engine: consultEngine(ctx) }), egressApproved });
         const report: IntegrationReport = (await within(started.done, ctx.deadline.remainingMs() - ANSWER_MARGIN_MS)) ?? started.running;
         ctx.trace({ event: 'orchestrator.integration-run', reasonCode: report.reasonCode.slice(0, 64) });
         return { ok: true, body: report };

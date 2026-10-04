@@ -121,12 +121,16 @@ test('engine paths: C18 ranking, C20 flags, C19 boundary and C21 capsule choice 
     const readiness = await compactionReadiness(f.ws, { taskId: null, facts: budgetFromRegistry({ entries: [{ modelId: 'm', contextTokens: 100000, maxOutputTokens: 10000 }] }, 'm'), usedTokens: 50000, episodeId: 'ep', engine: e });
     assert.equal(readiness.boundary, 'recommend-boundary');
     assert.equal(readiness.source, 'jev');
-    await writeCapsule(f.ws, { taskId: null });
+    const older = await writeCapsule(f.ws, { taskId: null });
     await declare(f.ws, 'T2', { objective: 'second task' });
     await writeCapsule(f.ws, { taskId: 'T2' });
+    // The newest capsule holds no unfinished work and the older one holds some: the rules are not sure, so Jev picks from counts (C21).
+    await f.ws.state.transact((tx) => tx.put('capsules', older.id, { ...older, items: [...older.items, { id: 'fail-x', kind: 'unresolved', text: 'Check x failed', epistemic: 'fact', mandatory: true, refs: [], source: 'receipt', textHash: 'h' }] }));
     const r = await rehydrate(f.ws, { taskId: null, engine: e });
     assert.equal(r.source, 'jev');
     assert.equal(r.found, true);
+    assert.equal(r.capsuleId, older.id, 'Jev picked the capsule with the unfinished work');
+    assert.equal(r.pickReason, 'JEV_CHOICE');
     assert.match(restoreText(ranked.items, ranked.id, 600), /more items remain|advice only/);
   } finally {
     f.done();

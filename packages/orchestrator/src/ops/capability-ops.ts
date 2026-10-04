@@ -6,6 +6,7 @@
  * values only. While the kill switch is stopped no engine is consulted (rules only). Advice
  * grants nothing: every guard flag in the envelope is false.
  */
+import { consultEngine } from '../memory/consult-gate.js';
 import { ID_PATTERN, type SidecarOpContext, type SidecarOpOutcome } from '@jevris/contracts';
 import type { WorkspaceServices } from '../workspace.js';
 import { readEffectiveConfig } from '../settings/config.js';
@@ -44,7 +45,7 @@ export function capabilityOps(workspaceOf: WorkspaceOf) {
           capabilityId,
           input: input ?? {},
           taskId: typeof taskRaw === 'string' ? taskRaw : null,
-          engine: ctx.killSwitchStopped ? undefined : ctx.engine,
+          engine: consultEngine(ctx),
           egressApproved: config.privacy.sourceEgress === 'approved-scoped',
           remainingMs: ctx.deadline.remainingMs() - 250,
           home: ctx.home,

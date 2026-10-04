@@ -26,6 +26,7 @@ import { approvedManifests, runVerification, stopReportFor, verificationStatus }
 import { orderIsInformed, rankForRun } from './verify/relevance.js';
 import { refreshFreshness, type CompletionReport } from './verify/completion.js';
 import { outputRecordOf } from './memory/distill.js';
+import { consultEngine, egressPreferenceApproved } from './memory/consult-gate.js';
 import { recordEvidenceRead } from './memory/evidence-usage.js';
 import { detectIntegrationRevertsInBackground } from './orchestration/integration-reverts.js';
 import { receiptScopeOf } from './verify/receipt-scope.js';
@@ -375,7 +376,9 @@ async function handleVerify(ctx: SidecarOpContext): Promise<Outcome> {
           // the rules or by Jev's advice. It only orders; the same checks run, and receipts decide done.
           ranking = await rankForRun(ctx, ws, { ids, taskId, sessionId: null, ...(store === undefined ? {} : { store }) }).catch(() => null);
           if (ranking !== null) ctx.trace({ event: 'orchestrator.checks-ranked', reasonCode: ranking.reasonCode, checks: ranking.order.length, source: ranking.source, ...(ranking.decisionId === null ? {} : { decisionId: ranking.decisionId }) });
-          const outcome = await runVerification(ws, { ...request, checkIds: ids, ...(ranking === null ? {} : { order: ranking.order }) });
+          // C22: the spans of a long check output may be scored by Jev (egress approved, assist and mode allowing); the result is untouched.
+          const distillEngine = consultEngine(ctx);
+          const outcome = await runVerification(ws, { ...request, checkIds: ids, ...(ranking === null ? {} : { order: ranking.order }), ...(distillEngine === undefined ? {} : { distill: { engine: distillEngine, egressApproved: egressPreferenceApproved(ctx, ws) } }) });
           // P2: a verification run follows new work, so a reverted integrated task is looked for (off the answer path).
           detectIntegrationRevertsInBackground(ws, { nowMs: engineNow(ctx.engine) });
           return outcome;

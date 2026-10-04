@@ -10,6 +10,7 @@
  */
 import type { ModelRegistry } from '@jevris/contracts';
 import type { WorkspaceServices } from '../workspace.js';
+import { listTasks } from '../orchestration/tasks.js';
 import { consultNoul } from '../capabilities/consult.js';
 import { recordKey } from '../util.js';
 import { latestCapsule, writeCapsule, type AssembleInput, type CapsuleV2 } from './capsule.js';
@@ -69,6 +70,8 @@ export interface Readiness {
   readonly capsuleId: string | null;
   readonly capsuleFresh: boolean;
   readonly source: 'rules' | 'jev';
+  /** The Jev decision that said so (C19), for `jevris explain`; null when rules did or Jev was not asked. */
+  readonly decisionId: string | null;
 }
 
 /** Readiness from the budget; with a certified signal, may defer a non-manual compaction once. */
@@ -79,26 +82,34 @@ export async function compactionReadiness(ws: WorkspaceServices, input: Readines
   let boundary: Boundary = 'none';
   if (used !== null) boundary = used >= 0.9 ? 'recommend-boundary' : used >= 0.7 ? 'prepare' : 'none';
   let source: 'rules' | 'jev' = 'rules';
-  // C19: in the grey zone Jev may recommend a boundary earlier; it never forbids compaction.
+  let decisionId: string | null = null;
+  const capsule = latestCapsule(ws, input.taskId);
+  const capsuleFresh = capsule !== undefined && nowMs - Date.parse(capsule.createdAt) < 15 * 60_000;
+  // C19: in the grey zone Jev may recommend a boundary earlier; it never forbids compaction. The question is
+  // asked over local facts only (the use as a percent, how many tasks are running, how many checks are open
+  // and unresolved, whether the capsule is current): counts and flags, so it needs no egress approval.
   if (boundary === 'prepare' && input.engine !== undefined) {
+    const items = capsule?.items ?? [];
+    const count = (kind: string): number => items.filter((i) => i.kind === kind).length;
+    const running = listTasks(ws).filter((t) => ['leased', 'running', 'awaiting-evidence', 'verifying'].includes(t.node.state)).length;
     const r = await consultNoul(input.engine, {
       capabilityId: 'C19',
       specVersion: '1',
-      objective: 'Recommend whether this is a good boundary to compact context.',
-      instructions: 'Is now a good boundary to compact (a task just finished or no work is mid-flight)?',
-      whenTrue: 'A clean boundary: compaction now loses little.',
-      whenFalse: 'Work is mid-flight: wait for the next boundary.',
-      evidence: [{ id: 'usage', text: `Context use ${Math.round((used ?? 0) * 100)}% of the working budget.`, sourceKind: 'tool', priority: 'high' }],
+      objective: 'Recommend whether this is a good boundary to compact context, from counts only (advice only).',
+      instructions: 'Using only the facts (the percent of the working context in use, the running tasks, the open checks, the unresolved failures and whether the saved capsule is current), is now a good boundary to compact: a task just finished and no work is mid-flight?',
+      whenTrue: 'A clean boundary: nothing is running, no check or failure is open, and the capsule is current, so compaction now loses little.',
+      whenFalse: 'Work is mid-flight, a check or failure is open, or the capsule is out of date: wait for the next boundary.',
+      evidence: [],
+      facts: { usedPercent: Math.round((used ?? 0) * 100), runningTasks: Math.min(running, 99), openChecks: Math.min(count('open-check'), 99), unresolved: Math.min(count('unresolved'), 99), capsuleCurrent: capsuleFresh },
       workspaceId: ws.workspaceId,
       evidenceRevision: input.episodeId.replace(/[^A-Za-z0-9._-]/g, '-').slice(0, 100) || 'episode',
       ...(input.remainingMs === undefined ? {} : { remainingMs: input.remainingMs }),
       rules: () => ({ value: false, reasonCode: 'RULES' }),
     });
     if (r.source === 'jev') source = 'jev';
+    decisionId = r.decisionId;
     if (r.value) boundary = 'recommend-boundary';
   }
-  const capsule = latestCapsule(ws, input.taskId);
-  const capsuleFresh = capsule !== undefined && nowMs - Date.parse(capsule.createdAt) < 15 * 60_000;
   let deferred = false;
   let deferReason: string | null = null;
   if (input.trigger === 'manual') deferReason = 'MANUAL_NEVER_DEFERRED';
@@ -122,6 +133,7 @@ export async function compactionReadiness(ws: WorkspaceServices, input: Readines
     capsuleId: capsule?.id ?? null,
     capsuleFresh,
     source,
+    decisionId,
   };
 }
 

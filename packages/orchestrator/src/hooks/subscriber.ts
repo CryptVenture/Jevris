@@ -30,8 +30,10 @@ import type { WorkspaceServices } from '../workspace.js';
 import { openWorkspace } from '../workspace.js';
 import { assessLoop, recordSignals, signalsFrom } from '../orchestration/loops.js';
 import { latestCapsule, writeCapsule } from '../memory/capsule.js';
-import { commitRestore, queueRestore, restoreState } from '../memory/audit.js';
-import { rehydrate } from '../memory/rehydrate.js';
+import { auditOmissions, commitRestore, noteCompactionAudit, pendingCompactionAudit, queueRestore, restoreState } from '../memory/audit.js';
+import { rehydrate, resolveCapsule } from '../memory/rehydrate.js';
+import { consultEngine, egressPreferenceApproved } from '../memory/consult-gate.js';
+import { projectMemoryForRestore } from '../memory/facts.js';
 import { noteRestoreFailure, noteRestoreReask, noteRestoreVerified, recordRestore, restoreInBackground } from '../memory/restore-outcomes.js';
 import { learnSubagentOutcomes, noteSubagentModel, noteSubagentParentVerified, noteSubagentStart, noteSubagentStop, subagentInBackground, type SubagentVerdict } from '../orchestration/subagent-runs.js';
 import { CONTEXT_FEATURE, isCertified } from './certification.js';
@@ -255,6 +257,31 @@ async function onCompacting(ctx: SidecarOpContext, ws: WorkspaceServices, env: E
   return delivered.reasonCode === 'CAPSULE_RESTORED' ? delivered : { ...delivered, reasonCode: `CAPSULE_WRITTEN_${delivered.reasonCode}`.slice(0, 64) };
 }
 
+/** The bound on a compaction summary read for the audit, in characters (the adapter clips it too). */
+const COMPACTION_SUMMARY_MAX = 16_384;
+/** The most characters a restore's context holds, the capsule and the project memory together. */
+const RESTORE_CONTEXT_MAX = 8_000;
+
+/**
+ * C20: a finished compaction (PostCompact) that carried its summary. The mandatory items the summary no longer names are
+ * found by rules (declared ids by token, constraint text by hash); with source egress approved Jev may flag a decision it
+ * judges likely dropped (advice only, never clearing an exact item). What was left out goes on the session's pending
+ * restore, so the restore at the next session start lists it first and says why. The summary is read in memory only and
+ * recorded nowhere; a capsule line or a summary is never consent.
+ */
+async function onCompacted(ctx: SidecarOpContext, ws: WorkspaceServices, env: Envelope, nowMs: number): Promise<HookOutcomeResult> {
+  const raw = isPlain(ctx.body) ? own(ctx.body, 'compaction') : undefined;
+  const summary = isPlain(raw) && typeof own(raw, 'summary') === 'string' ? (own(raw, 'summary') as string).slice(0, COMPACTION_SUMMARY_MAX) : null;
+  if (summary === null || summary.trim().length === 0) return observe('NO_SUMMARY');
+  if (env.sessionId === null) return observe('NO_SESSION');
+  const capsule = latestCapsule(ws, null);
+  if (capsule === undefined) return observe('NO_CAPSULE');
+  const audit = await auditOmissions(ws, capsule, { summary, engine: consultEngine(ctx), egressApproved: egressPreferenceApproved(ctx, ws), remainingMs: ctx.deadline.remainingMs() - 250 });
+  const noted = await noteCompactionAudit(ws, capsule.id, env.sessionId, { omitted: audit.missing.map((m) => m.itemId), flagged: audit.flagged.map((f) => f.itemId) });
+  ctx.trace({ event: 'orchestrator.compaction-audit', reasonCode: noted ? 'AUDIT_NOTED' : 'NO_PENDING_RESTORE', checked: audit.checked, omitted: audit.missing.length, flagged: audit.flagged.length, source: audit.source, ...(audit.decisionIds[0] === undefined ? {} : { decisionId: audit.decisionIds[0] }) });
+  return observe(audit.missing.length + audit.flagged.length > 0 ? 'COMPACTION_OMISSIONS' : 'COMPACTION_AUDITED');
+}
+
 const sessionModelWrites = new Set<Promise<unknown>>();
 /** `harness|model` recorded lately, so a model seen on every message is written once in a while. */
 const recentSessionModels = new Map<string, number>();
@@ -307,14 +334,35 @@ async function onSessionStart(ctx: SidecarOpContext, ws: WorkspaceServices, env:
     return line.kind === 'context' ? { hookOutcome: { kind: 'context', text: line.text }, certified: true, reasonCode: 'ORIENTATION' } : observe(line.reasonCode);
   }
   if (env.sessionId === null) return observe('NO_SESSION');
-  const capsule = latestCapsule(ws, null);
-  if (capsule === undefined) return observe('NO_CAPSULE');
+  const workspaceCapsule = latestCapsule(ws, null);
+  if (workspaceCapsule === undefined) return observe('NO_CAPSULE');
+  // A resumed session may continue another saved capsule (C21): the workspace capsule stands unless a task capsule holds more
+  // unfinished work and Jev, asked from counts alone, picks it. A compaction restores the capsule it just wrote: never asked.
+  const capsule = env.trigger === 'resume' && (await restoreIsCertified(ctx, env, nowMs)) ? await capsuleForResume(ctx, ws, workspaceCapsule, nowMs) : workspaceCapsule;
   if (restoreState(ws, capsule.id, env.sessionId) === 'taken') {
     // P9: the session asks again after its restore went out.
     restoreInBackground(noteRestoreReask(ws, env.sessionId, capsule.id));
     return observe('ALREADY_RESTORED');
   }
   return deliverRestore(ctx, ws, env, env.sessionId, capsule, nowMs);
+}
+
+/** Whether a restore could be delivered on this event at all: an uncertified harness gets no context, so no Jev call is spent choosing one. */
+async function restoreIsCertified(ctx: SidecarOpContext, env: Envelope, nowMs: number): Promise<boolean> {
+  const forwarded = isPlain(ctx.body) ? own(ctx.body, 'harnessVersion') : undefined;
+  const answer = await isCertified({ home: ctx.home, harness: env.harness as Parameters<typeof isCertified>[0]['harness'], featureId: CONTEXT_FEATURE, nowMs, ...(typeof forwarded === 'string' ? { harnessVersion: forwarded } : {}) });
+  return answer.certified;
+}
+
+/** The capsule a resumed session continues (C21), with the pick traced. Never throws: any miss is the workspace capsule. */
+async function capsuleForResume(ctx: SidecarOpContext, ws: WorkspaceServices, workspaceCapsule: NonNullable<ReturnType<typeof latestCapsule>>, nowMs: number): Promise<NonNullable<ReturnType<typeof latestCapsule>>> {
+  try {
+    const picked = await resolveCapsule(ws, { taskId: null, preferred: workspaceCapsule, nowMs, engine: consultEngine(ctx), remainingMs: ctx.deadline.remainingMs() - 250 });
+    if (picked.reasonCode !== 'ONE_CAPSULE') ctx.trace({ event: 'orchestrator.capsule-pick', reasonCode: picked.reasonCode.slice(0, 64), ...(picked.decisionId === null ? {} : { decisionId: picked.decisionId }) });
+    return picked.capsule ?? workspaceCapsule;
+  } catch {
+    return workspaceCapsule;
+  }
 }
 
 /**
@@ -338,11 +386,15 @@ async function deliverRestore(ctx: SidecarOpContext, ws: WorkspaceServices, env:
   if (restoreState(ws, capsule.id, sessionId) !== 'pending') return observe('ALREADY_RESTORED', true);
   // The context is built first; the restore is taken last, and only while the sidecar still
   // wants this answer. A missed slice leaves it pending for the next SessionStart (US14).
-  const restored = await rehydrate(ws, { taskId: null, capsuleId: capsule.id, nowMs, ...(gitPort === undefined ? {} : { git: gitPort }), remainingMs: ctx.deadline.remainingMs() });
+  const audited = pendingCompactionAudit(ws, capsule.id, sessionId);
+  const restored = await rehydrate(ws, { taskId: null, capsuleId: capsule.id, nowMs, ...(gitPort === undefined ? {} : { git: gitPort }), remainingMs: ctx.deadline.remainingMs(), ...(audited.omitted.length + audited.flagged.length === 0 ? {} : { emphasis: audited }) });
   if (restored.additionalContext === null) {
     note('NO_CAPSULE', false, restored);
     return observe('NO_CAPSULE', true);
   }
+  // C24: the project knowledge this workspace holds that bears on the objective, after the capsule and within the same bound.
+  const memory = await projectMemoryForRestore(ws, { objective: capsule.objective, engine: consultEngine(ctx), egressApproved: egressPreferenceApproved(ctx, ws), remainingMs: ctx.deadline.remainingMs() - 300, room: RESTORE_CONTEXT_MAX - restored.additionalContext.length - 1, onDecision: (decisionId) => ctx.trace({ event: 'orchestrator.project-memory', reasonCode: 'JEV_RESCORED', decisionId }) }).catch(() => ({ text: '', count: 0 }));
+  const context = memory.count === 0 ? restored.additionalContext : `${restored.additionalContext}\n${memory.text}`.trimEnd();
   const taken = await commitRestore(ws, capsule, sessionId, answerWanted(ctx));
   if (taken.state === 'not-wanted') {
     note('ANSWER_NOT_WANTED', false, restored);
@@ -350,7 +402,7 @@ async function deliverRestore(ctx: SidecarOpContext, ws: WorkspaceServices, env:
   }
   if (taken.state !== 'taken') return observe('ALREADY_RESTORED', true);
   note('CAPSULE_RESTORED', true, restored);
-  return { hookOutcome: { kind: 'context', text: restored.additionalContext }, certified: true, reasonCode: 'CAPSULE_RESTORED' };
+  return { hookOutcome: { kind: 'context', text: context }, certified: true, reasonCode: 'CAPSULE_RESTORED' };
 }
 
 /**
@@ -580,6 +632,8 @@ async function handleEnvelope(ctx: SidecarOpContext, ws: WorkspaceServices, env:
         return await onTool(ctx, ws, env, nowMs);
       case 'context.compacting':
         return await onCompacting(ctx, ws, env, nowMs);
+      case 'context.compacted':
+        return await onCompacted(ctx, ws, env, nowMs);
       case 'session.started':
         noteSessionModel(ctx, env, nowMs);
         return await onSessionStart(ctx, ws, env, nowMs);

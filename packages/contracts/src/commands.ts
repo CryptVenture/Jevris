@@ -758,6 +758,18 @@ export const CheckpointPayloadSchema = S.object(
   {
     /** The decision this checkpoint was recorded as, for `jevris explain`; absent or null when none was. */
     decisionId: S.nullable(Id),
+    /**
+     * Compaction readiness (C19), only when the caller said how much of the context is in use (`contextPercent`).
+     * Advice about when to compact; native compaction stays allowed and is never deferred or triggered by it.
+     * `source` is `jev` when Jev judged a grey-zone use (70 to 90 percent) from counts and flags; `decisionId`
+     * is that decision, or null when the rules answered.
+     */
+    compaction: S.object({
+      usedPercent: Count,
+      boundary: S.enumOf(['none', 'prepare', 'recommend-boundary'] as const),
+      source: S.enumOf(['rules', 'jev'] as const),
+      decisionId: S.nullable(Id),
+    }),
   },
 );
 export type CheckpointPayload = S.Static<typeof CheckpointPayloadSchema>;
@@ -982,6 +994,11 @@ export const TaskGetPayloadSchema = S.object(
   {
     /** The latest managed-worker run of this task; absent or null when none ran. */
     worker: S.nullable(TaskWorkerRunSchema),
+    /**
+     * The worker-readiness advice recorded at the task's latest launch (Jev, advice only; the launch never depends on it):
+     * the decision `jevris explain` renders, and what it said. Absent when none was recorded.
+     */
+    readiness: S.object({ decisionId: Id, state: S.enumOf(['ready', 'not-ready', 'unsure', 'none'] as const) }),
     /** Worker runs that ended after a newer lease owned the task; kept as history, they changed nothing. */
     lateResults: Count,
     /**

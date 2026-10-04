@@ -297,18 +297,25 @@ async function buildView(ws: WorkspaceServices, input: ViewInput): Promise<Built
   let source: 'rules' | 'jev' = 'rules';
   const scores = new Map<number, number>();
   if (input.engine !== undefined && input.egressApproved === true && (input.remainingMs === undefined || input.remainingMs > 1_500)) {
-    for (const b of prepared.blocks.slice(0, 8)) {
-      const r = await consultScore(input.engine, {
-        capabilityId: 'C22',
-        specVersion: '1',
-        objective: 'Keep the output spans that help diagnose the result.',
-        instructions: 'How useful is this span of tool output for diagnosing the command result?',
-        anchors: ['Noise: nothing in this span helps with the task.', 'Background: context that rarely matters.', 'Useful: it helps with part of the task.', 'Essential: the task cannot be done without it.'],
-        evidence: [{ id: `span-${String(b.start)}`, text: b.text, sourceKind: 'tool', priority: 'optional' }],
-        workspaceId: ws.workspaceId,
-        evidenceRevision: input.handle.slice(3, 40),
-        rules: () => ({ score: 0, reasonCode: 'RULES' }),
-      });
+    // The spans are scored side by side (at most 8): the wait is one request, not eight. A span is workspace text, so it is
+    // sent only with the administrator's approval as well (`sendsWorkspaceText`): the person's preference alone sends nothing.
+    const results = await Promise.all(
+      prepared.blocks.slice(0, 8).map((b) =>
+        consultScore(input.engine, {
+          capabilityId: 'C22',
+          specVersion: '1',
+          sendsWorkspaceText: true,
+          objective: 'Keep the output spans that help diagnose the result.',
+          instructions: 'How useful is this span of tool output for diagnosing the command result?',
+          anchors: ['Noise: nothing in this span helps with the task.', 'Background: context that rarely matters.', 'Useful: it helps with part of the task.', 'Essential: the task cannot be done without it.'],
+          evidence: [{ id: `span-${String(b.start)}`, text: b.text, sourceKind: 'tool', priority: 'optional' }],
+          workspaceId: ws.workspaceId,
+          evidenceRevision: input.handle.slice(3, 40),
+          rules: () => ({ score: 0, reasonCode: 'RULES' }),
+        }).then((r) => ({ b, r })),
+      ),
+    );
+    for (const { b, r } of results) {
       if (r.source === 'jev') source = 'jev';
       scores.set(b.start, r.value);
     }

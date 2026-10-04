@@ -51,6 +51,38 @@ function pick(result, keys) {
   return null;
 }
 
+/** Waits until `requestCount` stops changing for 1.5 s, at most `maxMs`. */
+async function settleRequests(requestCount, maxMs) {
+  const stop = performance.now() + maxMs;
+  let last = requestCount();
+  let stableSince = performance.now();
+  while (performance.now() < stop && performance.now() - stableSince < 1_500) {
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    const now = requestCount();
+    if (now !== last) {
+      last = now;
+      stableSince = performance.now();
+    }
+  }
+}
+
+/**
+ * The id of the newest decision record of `specId` in a home's journal, or null: for a consult that runs on a hook event
+ * or after an op has answered, where the answer does not carry the decision. `core` is `@jevris/core`.
+ */
+export async function latestDecisionOf(core, home, specId) {
+  const journal = new core.DecisionJournal(core.decisionJournalDir(home));
+  let best = null;
+  for (const id of await journal.list()) {
+    const entry = await journal.read(id);
+    const record = entry?.record;
+    if (record === undefined || record === null || record.specId !== specId) continue;
+    const at = Date.parse(record.timestamps?.receivedAt ?? '') || 0;
+    if (best === null || at >= best.at) best = { id, at };
+  }
+  return best === null ? null : best.id;
+}
+
 /** The default summary of an op answer: the fields the capability advice and the memory ops share. */
 export function summarizeResult(result) {
   const body = result !== null && typeof result === 'object' && result.advice !== null && typeof result.advice === 'object' ? result.advice : result;
@@ -73,6 +105,7 @@ export function summarizeResult(result) {
  * @param {readonly object[]} input.cases the cases
  * @param {() => number} input.requestCount Jev requests that have left (or reached the stub) so far
  * @param {(decisionId: string) => Promise<object|null>} [input.lookup] reads a decision record
+ * @param {(specId: string) => Promise<string|null>} [input.latestDecision] the newest decision of a spec, for a case that names `spec`
  * @param {(id: string) => boolean} [input.only] selects cases by id
  * @param {number} [input.timeoutMs] per-op timeout (default 20 s: these are measurements, not the hot path)
  */
@@ -109,6 +142,9 @@ export async function runCases(input) {
         const started = performance.now();
         const answer = await sidecar.sidecarRequest({ home, op: c.call.op, scope: c.call.scope ?? 'cli', workspace: work, body: c.call.body ?? {}, timeoutMs });
         row.elapsedMs = Math.round(performance.now() - started);
+        // A case whose Jev call runs after the op has answered (the spans of a check's output) waits for its requests to
+        // stop: the answer's time is `elapsedMs`; this wait is only to count them.
+        if (c.settle === true) await settleRequests(requestCount, input.settleMs ?? 20_000);
         row.requests = requestCount() - before;
         if (answer.ok) {
           row.ok = true;
@@ -119,6 +155,14 @@ export async function runCases(input) {
       }
     } catch (error) {
       row.failure = `threw: ${String(error?.message ?? error).slice(0, 120)}`;
+    }
+    // A case on a hook event or an op that does not name its Jev decision: the newest decision of its spec in the journal.
+    if (row.decisionId === null && row.requests > 0 && typeof c.spec === 'string' && input.latestDecision !== undefined) {
+      try {
+        row.decisionId = await input.latestDecision(c.spec);
+      } catch {
+        // The decision id is a measurement aid; its absence changes nothing.
+      }
     }
     if (typeof row.decisionId === 'string' && input.lookup !== undefined) {
       try {

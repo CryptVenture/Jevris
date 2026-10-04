@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path';
 import { sandbox } from '../../../test/acceptance/lib.mjs';
 import { startJevStub } from '../../../test/acceptance/jev-stub.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
-import { MARKER, runCases, writeWorkspace } from '../scripts/jev-feature-driver.mjs';
+import { MARKER, latestDecisionOf, runCases, writeWorkspace } from '../scripts/jev-feature-driver.mjs';
 import { CASES, FILES, KNOWN_DEFECTS, KNOWN_LEAKS, LAB, LAB_HANDLE, LEAK_FIELDS, PATH_MARK, WORKSPACE_TEXT, preparePart, wrapSidecar } from '../scripts/jev-feature-cases-c.mjs';
 
 // The offline proof of the part C capability cases (research, memory and loop advice): each case's
@@ -120,7 +120,7 @@ async function runPass({ stub, box, work }, cases) {
   const results = [];
   for (const c of cases) {
     const before = stub.requests().length;
-    const [row] = await runCases({ sidecar: client, home: box.home, work, cases: [c], requestCount: () => stub.requests().length, lookup });
+    const [row] = await runCases({ sidecar: client, home: box.home, work, cases: [c], requestCount: () => stub.requests().length, lookup, latestDecision: (specId) => latestDecisionOf(core, box.home, specId) });
     results.push({ c, row, sent: stub.requests().slice(before) });
   }
   return results;
@@ -145,7 +145,10 @@ function checkPass(t, results, mode) {
     t.diagnostic(`${mode} ${c.id}: ${what}, requests ${row.requests} (all ${sent.length}), source ${String(row.source)}, decision codes ${row.jevReasonCodes.join('+') || '-'}`);
     if (what === 'quiet') {
       assert.equal(row.requests, 0, `${c.id}: asked Jev (${mode}) but should stay rules-only`);
-      assert.equal(sent.length, 0, `${c.id}: a setup step asked Jev (${mode})`);
+      if (mode === 'preference-only') {
+        // The preference alone opens the capsule ranking (C18) of a setup step that declares optional items: it asks with its text withheld, never with text.
+        for (const entry of sent) assert.deepEqual(JSON.parse(entry.body).state.untrustedEvidence, [], `${c.id}: a setup step sent evidence text with the preference alone`);
+      } else assert.equal(sent.length, 0, `${c.id}: a setup step asked Jev (${mode})`);
       assert.notEqual(row.source, 'jev', `${c.id}: answered from Jev without a request`);
       if (c.noDecision === true) assert.equal(row.decisionId, null, `${c.id}: a decision was built for a question that is not asked`);
     } else if (what === 'refused-by-lint') {
@@ -200,6 +203,9 @@ test('the case table covers every assigned capability once or more, with a site 
     assert.equal(typeof c.call.op, 'string', `${c.id}: call`);
     assert.equal(c.expectAsked === true || c.expectAsked === false, true, `${c.id}: expectAsked`);
     if (c.unreachable === true) assert.equal(c.expectAsked, false, `${c.id}: an unreachable consult cannot be expected to ask`);
+    // Every consult has a real entry point now: a case that cannot reach its consult from a hook, an op, a command or a tool fails here.
+    assert.notEqual(c.unreachable, true, `${c.id}: the consult at ${c.site} has no product caller; wire it or give a written reason it must stay manual`);
+    if (c.spec !== undefined) assert.match(c.spec, /^d-c\d{2}$/, `${c.id}: spec`);
     if (c.egressNeeded === true) assert.ok(c.egressVia === 'host' || c.egressVia === 'preference', `${c.id}: egressNeeded names which switch opens it`);
     for (const step of c.steps) assert.equal(step.files !== undefined || typeof step.op === 'string', true, `${c.id}: a step is neither files nor an op`);
   }
@@ -283,112 +289,33 @@ test('with only the user preference approving egress, the capsule asks with its 
   await finish(box, work);
 });
 
-// ---------------------------------------------------------------- consult sites no op reaches
+// ---------------------------------------------------------------- the memory cases reach Jev through their entry points
 
-/** An engine that records every decide request, answers each question validly and states its source-egress setting. */
-function recorder(egress = 'denied') {
-  const calls = [];
-  return {
-    calls,
-    engine: {
-      sourceEgress: () => egress,
-      async decide(request) {
-        calls.push(request);
-        const q = request.questions.q;
-        // Confident answers (the consult floors are confidence 0.6 and a 0.15 margin): the engine always gives a Choice or a Score its confidence.
-        const first = Object.keys(q.criteria)[0];
-        const answer = q.type === 'choice' ? { choice: first, confidence: 0.9, probabilities: { [first]: 0.9 } } : q.type === 'score' ? { score: 1, confidence: 0.9 } : { noul: 0.9 };
-        return { abstained: false, decisionId: `d-recorded-${calls.length}`, result: { answers: { q: answer } } };
-      },
-    },
-  };
-}
-
-/**
- * What every decide request of one consult site must satisfy; the question lint result must match the known
- * defects. `workspaceText` names the question field that may hold workspace text (the site is flagged to be
- * asked only with egress approved).
- */
-function checkSite(t, id, rec, workspaceText) {
-  assert.ok(rec.calls.length >= 1, `${id}: the function asked nothing`);
-  const lintErrors = new Set();
-  for (const request of rec.calls) {
-    assertQuestions(request.questions, id);
-    assert.equal(contracts.DecisionSpecContract.validate(request.spec).ok, true, `${id}: the decision spec is invalid`);
-    assert.equal(request.spec.questionHash, contracts.questionHash(request.questions), `${id}: the spec does not match its question`);
-    for (const error of core.lintQuestions(request.questions).errors) lintErrors.add(error.code);
-    // What leaves whatever the egress setting: the question, the objective, the facts and the policy.
-    const pointers = markedPointers({ questions: request.questions, objective: request.packet.objective, facts: request.packet.facts, trustedPolicy: request.packet.trustedPolicy });
-    if (Object.hasOwn(KNOWN_LEAKS, id)) {
-      t.diagnostic(`KNOWN LEAK ${id} at ${[...new Set(pointers)].join(', ')}: ${KNOWN_LEAKS[id]}`);
-      assert.ok(pointers.length > 0, `${id}: the known leak is gone; delete KNOWN_LEAKS.${id}`);
-      for (const pointer of pointers) assert.ok(pointer.startsWith(LEAK_FIELDS[id]), `${id}: a marker is in ${pointer}, outside the known leak ${LEAK_FIELDS[id]}`);
-    } else if (workspaceText !== undefined) {
-      assert.ok(pointers.length > 0, `${id}: the declared carrier ${workspaceText} holds no workspace text`);
-      for (const pointer of pointers) assert.ok(pointer.startsWith(workspaceText), `${id}: a marker is in ${pointer}, outside ${workspaceText}`);
-    } else assert.deepEqual(pointers, [], `${id}: the question, objective or facts carry planted text`);
-    // The evidence is where text belongs; with egress denied the packet builder withholds all of it.
-    const denied = core.buildPacket(request.packet, core.DEFAULT_PACKET_LIMITS, { sourceEgress: 'denied', salt: 'test-salt' });
-    assert.equal(denied.ok, true, `${id}: the packet is refused with egress denied`);
-    assert.deepEqual(denied.state.untrustedEvidence, [], `${id}: evidence text stays in the denied packet`);
-    assert.equal(marked(JSON.stringify(denied.state)), false, `${id}: the denied packet carries planted text`);
+test('C19 to C24 each reach Jev through the entry point their case names, and with egress denied only the consults that carry no text ask', { skip }, async (t) => {
+  const approved = await startBox(t, { egress: 'approved' });
+  const results = await runPass(approved, CASES.filter((c) => ['C19', 'C20', 'C21', 'C22', 'C23', 'C24'].includes(c.capability)));
+  const by = new Map(results.map(({ c, row }) => [c.capability, { c, row }]));
+  for (const id of ['C19', 'C20', 'C21', 'C22', 'C23', 'C24']) {
+    const { c, row } = by.get(id);
+    assert.ok(row.requests >= 1, `${id}: no Jev request through ${c.call.op}`);
+    assert.equal(typeof row.decisionId, 'string', `${id}: no Jev decision found for its spec ${String(c.spec)}`);
+    assert.ok(row.jevReasonCodes.includes('DECISION_ADVISORY'), `${id}: the decision was not answered by Jev`);
   }
-  const known = Object.hasOwn(KNOWN_DEFECTS, id) ? KNOWN_DEFECTS[id].codes : [];
-  assert.deepEqual([...lintErrors].sort(), [...known].sort(), `${id}: the question lint result changed; update or delete KNOWN_DEFECTS.${id}`);
-  t.diagnostic(`${id}: ${rec.calls.length} request(s), ${rec.calls[0].questions.q.type}, lint ${lintErrors.size === 0 ? 'ok' : [...lintErrors].join('+')}`);
-}
-
-test('the consult sites no op reaches (C19 to C24) build valid questions and keep text out of the question and facts', { skip }, async (t) => {
-  const box = await sandbox(t, {});
-  const work = join(box.dir, 'case-c-work');
-  writeWorkspace(work, FILES);
-  const ws = orchestrator.openWorkspace({ home: box.home, workspaceRoot: work, platform: process.platform });
-
-  let rec = recorder();
-  const readiness = await orchestrator.compactionReadiness(ws, { taskId: null, facts: { capacityTokens: 100_000, outputReservationTokens: 4_000, overheadTokens: 12_000, marginFraction: 0.1 }, usedTokens: 60_000, episodeId: 'episode-ZZMARKER-C19', engine: rec.engine });
-  assert.equal(readiness.source, 'jev');
-  checkSite(t, 'C19-readiness', rec);
-
-  await orchestrator.declare(ws, null, { objective: 'Keep the totals exact ZZMARKER-C20', decisions: [{ text: 'Store the totals in sqlite ZZMARKER-C20' }] });
-  const capsule = await orchestrator.writeCapsule(ws, { taskId: null });
-  rec = recorder();
-  const audit = await orchestrator.auditOmissions(ws, capsule, { summary: 'The summary keeps nothing of the decisions ZZMARKER-C20', engine: rec.engine, egressApproved: true });
-  assert.equal(audit.source, 'jev');
-  assert.equal(audit.flagged.length, 1);
-  checkSite(t, 'C20-audit', rec);
-
-  // C21: the capsule objectives are the option texts, so the Choice is asked only while the engine's egress is approved.
-  await orchestrator.declare(ws, 'T-c21-a', { objective: 'First task objective ZZMARKER-C21' });
-  await orchestrator.declare(ws, 'T-c21-b', { objective: 'Second task objective ZZMARKER-C21' });
-  await orchestrator.writeCapsule(ws, { taskId: 'T-c21-a' });
-  await orchestrator.writeCapsule(ws, { taskId: 'T-c21-b' });
-  rec = recorder('denied');
-  const withheld = await orchestrator.rehydrate(ws, { taskId: null, engine: rec.engine });
-  assert.equal(withheld.found, true);
-  assert.equal(withheld.source, 'rules');
-  assert.equal(rec.calls.length, 0, 'C21 sent the saved objectives with egress denied');
-  rec = recorder('approved');
-  const rehydrated = await orchestrator.rehydrate(ws, { taskId: null, engine: rec.engine });
-  assert.equal(rehydrated.source, 'jev');
-  checkSite(t, 'C21-rehydrate', rec, WORKSPACE_TEXT['C21-rehydrate']);
-
-  rec = recorder();
-  const noisy = Array.from({ length: 1500 }, (_, i) => `line ${i} of the noisy output ZZMARKER-C22`).join('\n');
-  const view = await orchestrator.distillOutput(ws, { command: 'check', exitCode: 1, stdout: noisy, stderr: '', engine: rec.engine, egressApproved: true });
-  assert.equal(view.mode, 'distilled');
-  assert.ok(rec.calls.length <= 8, `C22 asked ${rec.calls.length} questions for one output`);
-  checkSite(t, 'C22-distill', rec);
-
-  await orchestrator.recordFact(ws, { subject: 'api.timeout-ms', value: '30 ZZMARKER-C23', revision: 'r1', status: 'observed', source: 'test' });
-  await orchestrator.recordFact(ws, { subject: 'api.retry-count', value: 'never retry ZZMARKER-C23', revision: 'r1', status: 'observed', source: 'test' });
-  rec = recorder();
-  const contradictions = await orchestrator.triageContradictions(ws, { engine: rec.engine, semantic: [{ a: 'api.timeout-ms', b: 'api.retry-count' }] });
-  assert.equal(contradictions.length, 1);
-  checkSite(t, 'C23-facts', rec);
-
-  for (let i = 0; i < 4; i += 1) await orchestrator.admitProjectMemory(ws, { scope: 'org', kind: 'decision', text: `Storage choice ${i} is sqlite ZZMARKER-C24`, revision: 'r1', approvedBy: 'owner' });
-  rec = recorder();
-  const memory = await orchestrator.retrieveProjectMemory(ws, { scopes: ['org'], query: 'sqlite storage ZZMARKER-C24', limit: 1, engine: rec.engine, egressApproved: true });
-  assert.equal(memory.length, 1);
-  checkSite(t, 'C24-memory', rec);
+  // C19 and C21 ask from counts alone: the request holds no evidence text at all.
+  for (const [id, own] of [['C19', (wire) => wire.packet === undefined && wire.questions.q?.type === 'noul'], ['C21', (wire) => Object.values(wire.questions.q?.criteria ?? {}).some((text) => text.startsWith('Saved capsule'))]]) {
+    // The case's own request, not the capsule ranking (C18) of a setup step.
+    const own1 = results.find(({ c }) => c.capability === id).sent.map((entry) => ({ entry, wire: JSON.parse(entry.body) })).filter(({ wire }) => own(wire));
+    assert.ok(own1.length >= 1, `${id}: its own request is not among the ones sent`);
+    for (const { entry, wire } of own1) {
+      assert.deepEqual([wire.state.untrustedEvidence, wire.state.withheldEvidence], [[], []], `${id}: evidence text in the request`);
+      assert.equal(marked(entry.body), false, `${id}: planted text in the request`);
+    }
+  }
+  await finish(approved.box, approved.work);
+  // With egress denied, C19 and C21 (counts only) still ask; C20, C22, C23 and C24 carry workspace text and stay on the rules.
+  const denied = await startBox(t, { egress: 'denied' });
+  const quiet = await runPass(denied, CASES.filter((c) => ['C19', 'C20', 'C21', 'C22', 'C23', 'C24'].includes(c.capability)));
+  const askedDenied = quiet.filter(({ row }) => row.requests >= 1).map(({ c }) => c.capability).sort();
+  assert.deepEqual(askedDenied, ['C19', 'C21'], `asked with egress denied: ${askedDenied.join(',')}`);
+  await finish(denied.box, denied.work);
 });
