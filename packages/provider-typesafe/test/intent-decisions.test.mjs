@@ -125,6 +125,19 @@ test('INT-03/INT-04 (paired): without approved egress, evidence-dependent questi
   assert.equal(requests.length, 0);
 });
 
+test('INT-04 (features): over the fixed artifact vocabulary, sufficiency is asked with egress denied and no text of the caller leaves', async (t) => {
+  const { engine, requests } = await engineWith(t, (id) => (id === 'sufficient' ? { noul: 0.1 } : { probabilities: { a0: 0.8 } }), DENIED);
+  const r = await core.checkEvidenceSufficiency(engine, {
+    objective: 'Find out why the nightly job fails, TEXT-MARKER-OBJECTIVE',
+    required: [{ id: 'failing-test-output', description: 'free text TEXT-MARKER-DESCRIPTION', available: true, fresh: true }],
+    obtainable: [{ id: 'stack-trace', description: 'free text TEXT-MARKER-OPTION', available: false, fresh: null }, { id: 'logs', description: 'job logs', available: false, fresh: null }],
+    approvedRoots: [],
+  }, CTX);
+  assert.equal(requests.length, 1, 'the fixed vocabulary needs no egress approval');
+  assert.doesNotMatch(JSON.stringify(requests[0]), /TEXT-MARKER/, 'neither the objective nor a description is sent while egress is denied');
+  assert.deepEqual([r.outcome, r.reasonCode, r.artifact.id], ['request-artifact', 'REQUEST_BEFORE_ESCALATION', 'stack-trace']);
+});
+
 test('INT-04: a specific missing artifact is requested before escalation, only from an approved root', async (t) => {
   let script = { sufficient: { noul: 0.8 } };
   const { engine, requests } = await engineWith(t, (id) => script[id]);
@@ -215,28 +228,8 @@ function handlerInput(engine, body, { root = '/work/repo', trigger = 'new-task',
   };
 }
 
-test('INT-01/INT-02/INT-03 wiring: a new task asks one material question first, else names a trusted family and its shortlisted templates; no structured task, no call', async (t) => {
-  let script = { noul: 0.9 };
-  const answer = (id) => (id.startsWith('material') ? script : id === 'template' ? { choice: 't1', probabilities: { t1: 0.7, t0: 0.2 } } : { choice: 'f0', probabilities: { f0: 0.8 } });
-  const { engine, requests } = await engineWith(t, answer);
-  const unknowns = [{ id: 'u1', topic: 'Should the totals be rounded per line or per order', options: ['per line', 'per order'], consequence: 'the stored invoice amounts' }];
-  const asked = await provider.newTaskIntent(handlerInput(engine, { task: { objective: 'Add invoice totals', unknowns, templates: TEMPLATES } }));
-  assert.equal(asked.reasonCode, 'AMBIGUITY_MATERIAL');
-  assert.equal(asked.hookOutcome.kind, 'explain');
-  assert.match(asked.hookOutcome.text, /rounded per line or per order\? This decides the stored invoice amounts\./);
-  assert.equal(requests.at(-1).questions.material0.type, 'noul');
-  script = { noul: 0.1 };
-  const family = await provider.newTaskIntent(handlerInput(engine, { task: { objective: 'Add invoice totals (second)', unknowns, templates: TEMPLATES } }));
-  assert.equal(family.reasonCode, 'TASK_FAMILY_SELECTED');
-  // INT-02 (C04): the shortlist is ranked by a Choice over metadata only; the external suggestion is named, never installed.
-  assert.match(family.hookOutcome.text, /bugfix task; workflow templates to consider: bugfix-regression, bugfix-basic\. Not installed \(review manually; Jevris never installs them\): deploy-remote\./);
-  assert.equal(requests.at(-1).questions.template.type, 'choice');
-  assert.equal(JSON.stringify(requests.at(-1)).includes('Remote deploy steps'), false, 'an external template is never offered to the choice');
-  const before = requests.length;
-  assert.equal(await provider.newTaskIntent(handlerInput(engine, { prompt: 'no structured task' })), null);
-  assert.equal(requests.length, before);
-  assert.ok(provider.DEFAULT_TRIGGER_HANDLERS['new-task'].includes(provider.newTaskIntent));
-});
+// INT-01, INT-02 and INT-03 on the hook path are `live-new-task-advice.test.mjs`: one handler (`newTaskAdvice`) runs C01, C04 and C02,
+// detached, with egress approved only. The older handler that ran the same decisions on a body's own templates and unknowns is gone.
 
 test('INT-04 wiring: after a failure, a missing artifact is requested before escalation, only inside the workspace root', async (t) => {
   const { engine, requests } = await engineWith(t, () => ({ noul: 0.2 }));
@@ -273,13 +266,6 @@ test('INT-05 wiring: at a diff boundary only the out-of-scope part pauses; an un
   assert.equal(await provider.scopeChangeAdvice(handlerInput(counted, { scope: { diff: product.diff, requestedEffects: [] } }, { trigger: 'diff-boundary' })), null, 'no approved scope yet: nothing is paused');
 });
 
-test('INT wiring: without approved egress a handler that needs workspace text makes no call and shows nothing', async (t) => {
-  const { engine, requests } = await engineWith(t, () => ({ noul: 0.9 }), DENIED);
-  const unknowns = [{ id: 'u1', topic: 'Round per line or per order', options: ['a', 'b'], consequence: 'stored amounts' }];
-  assert.equal(await provider.newTaskIntent(handlerInput(engine, { task: { objective: 'Denied task', unknowns } })), null);
-  assert.equal(requests.length, 0);
-});
-
 test('INT-06/INT-07 wiring: the plan op adds a review block only when asked, inside the plan contract', async (t) => {
   const { engine } = await engineWith(t, (id) => ({ score: id === 'plan1' ? 4 : id === 'coverage0' ? 3 : 1 }));
   const plan = provider.sidecarOps.find((def) => def.op === 'plan');
@@ -307,22 +293,6 @@ test('INT-06/INT-07 wiring: the plan op adds a review block only when asked, ins
 
 // ------------------------------------------------------------------ DEC-12 / US31 late decisions
 
-let hookSerial = 0;
-function hookEvent(kind, extra = {}) {
-  hookSerial += 1;
-  return {
-    schemaVersion: '1.0', harness: 'claude', nativeEventName: 'Hook', kind, sessionId: 'sess-late', turnId: null, toolUseId: `tu-late-${hookSerial}`, toolName: null,
-    agentId: null, model: null, permissionMode: null, cwd: null, trigger: null, blocking: true, responseRequired: false, payload: {}, dedupKey: `${'b'.repeat(56)}${String(hookSerial).padStart(8, '0')}`, ...extra,
-  };
-}
-
-function eventCtx(engine, envelope, extra = {}) {
-  return {
-    op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: 'w-late', root: '/work/repo' }, body: { envelope, deliveryKey: `k-${envelope.toolUseId}`, revision: 'rev-7', harnessVersion: '2.1.0', ...extra },
-    home: '/nonexistent', signal: new AbortController().signal, deadline: { remainingMs: () => 1500, expired: () => false }, store: null, killSwitchStopped: false, engine, trace() {},
-  };
-}
-
 const LATE_UNKNOWNS = [{ id: 'u1', topic: 'Should totals round per line or per order', options: ['per line', 'per order'], consequence: 'the stored invoice amounts' }];
 
 /** An engine whose first provider request runs `during()` before it is answered. */
@@ -346,29 +316,36 @@ async function records(engine) {
   return (await Promise.all(ids.map((id) => engine.lookup(id)))).filter((r) => r !== null);
 }
 
-test('DEC-12/US31: a result that arrives after the revision moved is kept as stale, never shown; a fresh decision runs once when still useful', async (t) => {
-  const sub = provider.createDecisionSubscriber({ handlers: provider.DEFAULT_TRIGGER_HANDLERS });
+test('DEC-12/US31: a result that arrives after the revision moved is kept as stale, never used; a fresh decision runs once when still useful', async (t) => {
+  const revisions = new core.WorkspaceRevisions();
+  revisions.observe('w-late', { revision: 'rev-7', wrote: false });
   const { engine, requests, hold } = await lateEngine(t);
   // While the first request is evaluated, the agent writes a file: the revision moves.
-  hold.during = () => sub.handle(eventCtx(engine, hookEvent('tool.finished', { toolName: 'Edit' })));
-  const result = await sub.handle(eventCtx(engine, hookEvent('task.requested'), { task: { objective: 'Add invoice totals (late)', unknowns: LATE_UNKNOWNS } }));
+  hold.during = () => revisions.observe('w-late', { wrote: true });
+  const ctx = { workspaceId: 'w-late', evidenceRevision: revisions.current('w-late'), deadlineMs: 30_000, currentRevision: () => revisions.current('w-late'), stillUseful: () => true };
+  const result = await core.detectAmbiguity(engine, { objective: 'Add invoice totals (late)', unknowns: LATE_UNKNOWNS }, ctx);
   assert.equal(requests.length, 2, 'the late result was not used; one fresh decision ran');
-  assert.equal(result.reasonCode, 'AMBIGUITY_MATERIAL');
+  assert.equal(result.outcome, 'ask');
   const all = await records(engine);
   const late = all.find((r) => r.outcome === 'stale');
   assert.deepEqual([late.reasonCodes[0], late.evidenceRevision, late.proposedAction.kind], ['STALE_REVISION', 'rev-7', 'abstain'], 'stored for analysis, cannot actuate');
-  const fresh = all.find((r) => r.decisionId === result.decisionIds[0]);
+  const fresh = all.find((r) => r.decisionId === result.decisionId);
   assert.deepEqual([fresh.outcome, fresh.evidenceRevision], ['advisory', 'rev-7.w1'], 'the fresh decision is on the new revision');
 });
 
 test('DEC-12/US31: no fresh decision when a newer event superseded the stale one', async (t) => {
-  const sub = provider.createDecisionSubscriber({ handlers: provider.DEFAULT_TRIGGER_HANDLERS });
+  const revisions = new core.WorkspaceRevisions();
+  revisions.observe('w-late', { revision: 'rev-7', wrote: false });
   const { engine, requests, hold } = await lateEngine(t);
-  // The repository moves to a new revision and a newer task request arrives, and is answered,
-  // while the first is evaluated. (A same-revision repeat would be coalesced into the first.)
-  hold.during = () => sub.handle(eventCtx(engine, hookEvent('task.requested'), { revision: 'rev-8', task: { objective: 'Add invoice totals (newer)', unknowns: LATE_UNKNOWNS } }));
-  const old = await sub.handle(eventCtx(engine, hookEvent('task.requested'), { task: { objective: 'Add invoice totals (superseded)', unknowns: LATE_UNKNOWNS } }));
-  assert.deepEqual(old.hookOutcome, { kind: 'observe' }, 'the superseded late result is not shown');
-  assert.deepEqual(requests.map((r) => r.state.objective).sort(), ['Add invoice totals (newer)', 'Add invoice totals (superseded)'], 'the old one was not rescheduled');
+  // The repository moves to a new revision, and a newer request supersedes this one, while it is evaluated.
+  let superseded = false;
+  hold.during = () => {
+    revisions.observe('w-late', { revision: 'rev-8', wrote: false });
+    superseded = true;
+  };
+  const ctx = { workspaceId: 'w-late', evidenceRevision: revisions.current('w-late'), deadlineMs: 30_000, currentRevision: () => revisions.current('w-late'), stillUseful: () => !superseded };
+  const old = await core.detectAmbiguity(engine, { objective: 'Add invoice totals (superseded)', unknowns: LATE_UNKNOWNS }, ctx);
+  assert.deepEqual([old.outcome, old.reasonCode], ['proceed', 'STALE_REVISION'], 'the superseded late result is not used');
+  assert.equal(requests.length, 1, 'and it was not rescheduled');
   assert.equal((await records(engine)).filter((r) => r.outcome === 'stale').length, 1);
 });

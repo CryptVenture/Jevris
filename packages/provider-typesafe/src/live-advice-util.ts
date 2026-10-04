@@ -62,6 +62,11 @@ export function refusedBeforeSending(reasonCode: string): boolean {
  * cache is warm for the same question next time. A request that throws is `'failed'`.
  */
 export async function raceDeadline(run: Promise<Asked>, deadlineMs: number): Promise<Asked | 'late' | 'failed'> {
+  return raceDeadlineOf(run, deadlineMs);
+}
+
+/** `raceDeadline` for any request: the core handlers (C01, C02, C04, C05) that ask Jev through the engine. */
+export async function raceDeadlineOf<T>(run: Promise<T>, deadlineMs: number): Promise<T | 'late' | 'failed'> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<'late'>((resolve) => {
     timer = setTimeout(() => resolve('late'), Math.max(1, Math.floor(deadlineMs)));

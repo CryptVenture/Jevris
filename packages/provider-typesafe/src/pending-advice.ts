@@ -1,7 +1,7 @@
 /**
  * Detached advice waiting for the next event of its session.
  *
- * A hook never waits on Jev. When a live adviser (repeated failure, new task) has to ask, it answers
+ * A hook never waits on Jev. When a live adviser (repeated failure, new task, scope change) has to ask, it answers
  * the hook at once with nothing, runs the question after the hook has gone, and puts the finished
  * advice here. The decision subscriber hands it to the harness at the session's next event that can
  * show it, and only then marks it delivered (the commit of its proposal), so an event that cannot
@@ -16,7 +16,7 @@
  */
 import { UNKNOWN_SESSION_ID } from '@jevris/core';
 
-export type PendingKind = 'repeated-failure' | 'new-task';
+export type PendingKind = 'repeated-failure' | 'new-task' | 'scope-change';
 
 export interface PendingAdvice {
   readonly kind: PendingKind;
@@ -24,7 +24,7 @@ export interface PendingAdvice {
   readonly text: string;
   /** The advisory decision this advice was recorded under, when one was recorded. */
   readonly decisionId: string | null;
-  /** The reason code of the source (`REPEATED_FAILURE_*` or `NEW_TASK_*`). */
+  /** The reason code of the source (`REPEATED_FAILURE_*`, `NEW_TASK_*` or `SCOPE_*`). */
   readonly reasonCode: string;
   readonly atMs: number;
 }

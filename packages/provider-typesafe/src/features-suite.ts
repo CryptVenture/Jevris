@@ -20,12 +20,10 @@
  * recorded is numbers and codes: never a key, a request body or a response body.
  */
 import {
-  WORKER_READINESS_QUESTIONS,
-  WORKER_READINESS_SPEC,
+  WORKER_READINESS_ADVICE_SPEC_ID,
+  adviseWorkerReadiness,
   auditDecomposition,
   classifyTaskSlice,
-  compileDecisionSpec,
-  decide,
   detectAmbiguity,
   detectScopeChange,
   checkEvidenceSufficiency,
@@ -569,6 +567,23 @@ function intentCases(waitMs: number): CaseDef[] {
       },
     },
     {
+      // The fixed artifact vocabulary only (ids and their fixed texts): nothing of the failure or the person is text, so this runs with egress denied.
+      group: 'intent', id: 'c05-evidence-denied', egress: false, probes: ['nightly job'],
+      async run(engine) {
+        const r = await checkEvidenceSufficiency(engine, { objective: 'Find out why the nightly job fails.', required: [{ id: 'failing-test-output', description: 'The failing run output', available: true, fresh: true }], obtainable: [{ id: 'stack-trace', description: 'The stack trace', available: false, fresh: null }, { id: 'logs', description: 'Job logs', available: false, fresh: null }], diagnostics: [], approvedRoots: [] }, ctx);
+        return { spec: 'c05-evidence', got: r.outcome, source: r.decisionId === null ? 'rules' : 'jev', reasonCode: r.reasonCode, asked: r.decisionId !== null, answered: r.decisionId !== null && !r.reasonCode.startsWith('EGRESS') && r.reasonCode !== 'DEADLINE', decisionId: r.decisionId };
+      },
+    },
+    {
+      // An effect the permission triage saw, as a class code: judged against the approved scope with no text, so it runs with egress denied.
+      group: 'intent', id: 'c06-scope-effect-class-denied', expected: '1-continue-1-paused', egress: false,
+      async run(engine) {
+        // The scope a task has in the product: write paths and no approved effect. The class is outside it.
+        const r = await detectScopeChange(engine, { approvedScope: { paths: ['src'], effects: [] }, diff: [{ path: 'src/a.ts' }], requestedEffects: [], effectClasses: ['network-egress'] }, ctx);
+        return { spec: 'c06-scope', got: `${r.continue.length}-continue-${r.paused.length}-paused`, source: r.decisionId === null ? 'rules' : 'jev', reasonCode: r.decisionId === null ? 'RULES' : 'JEV', asked: r.decisionId !== null, answered: r.decisionId !== null, decisionId: r.decisionId };
+      },
+    },
+    {
       group: 'intent', id: 'c06-scope', egress: true,
       async run(engine) {
         const r = await detectScopeChange(engine, { approvedScope: { paths: ['src'], effects: ['edit-source'] }, diff: [{ path: 'src/a.ts' }], requestedEffects: ['publish the package to the registry'] }, ctx);
@@ -630,27 +645,41 @@ function securityCases(waitMs: number): CaseDef[] {
   ];
 }
 
+/** A path set of `count` source files under one folder, for a task that names many. */
+function manyFiles(count: number): string[] {
+  return Array.from({ length: count }, (_, i) => `src/module-${String(i)}.ts`);
+}
+
 function workerReadinessCases(waitMs: number): CaseDef[] {
-  const compiled = compileDecisionSpec({ id: WORKER_READINESS_SPEC.id, version: WORKER_READINESS_SPEC.version, questions: WORKER_READINESS_QUESTIONS, evidenceRequirements: [], deadlineMs: waitMs, fallback: 'rules-only' });
-  const shapes = [
-    // The facts of a real launch (`workerReadinessFacts`: every key, so the question is judged on what a launch sends).
-    // Measured live (2026-10-04): with the five-key subset this suite used before, the bounded shape was answered 0.23
-    // (not ready); with every key it is answered 0.84 (ready). The missing role and check-kind keys were the cause.
-    { id: 'worker-ready-bounded', expected: 'ready', facts: { files: 2, checks: 2, protectedClasses: 'none', verb: 'fix', titleSize: 'short', roleSource: 1, roleTest: 1, roleDocs: 0, roleConfig: 0, roleCi: 0, checkKinds: 'test,lint' } },
-    { id: 'worker-ready-open-ended', expected: 'not-ready', facts: { files: 0, checks: 0, protectedClasses: 'none', verb: 'none', titleSize: 'short', roleSource: 0, roleTest: 0, roleDocs: 0, roleConfig: 0, roleCi: 0, checkKinds: 'none' } },
-    { id: 'worker-ready-security-scope', expected: 'not-ready', facts: { files: 3, checks: 1, protectedClasses: 'PROTECTED_AUTH', verb: 'fix', titleSize: 'short', roleSource: 3, roleTest: 0, roleDocs: 0, roleConfig: 0, roleCi: 0, checkKinds: 'test' } },
+  // The shapes are task hints, as a launch has them; `adviseWorkerReadiness` (core, the one implementation the launch uses)
+  // reduces them to the facts, answers by rules where a fact decides (no file and no check; a protected path class: those two
+  // make no request) and asks Jev the rest.
+  const shapes: { id: string; expected: string; hints: { title: string; paths: string[]; checkIds: string[] } }[] = [
+    { id: 'worker-ready-bounded', expected: 'ready', hints: { title: 'fix the failing parser test', paths: ['src/parser.ts', 'test/parser.test.ts'], checkIds: ['unit-tests', 'lint'] } },
+    { id: 'worker-ready-no-check', expected: 'not-ready', hints: { title: 'fix the parser', paths: ['src/parser.ts', 'src/lexer.ts'], checkIds: [] } },
+    { id: 'worker-ready-sprawling', expected: 'not-ready', hints: { title: 'refactor the importer', paths: manyFiles(40), checkIds: ['unit-tests'] } },
+    { id: 'worker-ready-open-ended', expected: 'not-ready', hints: { title: 'improve the product', paths: [], checkIds: [] } },
+    { id: 'worker-ready-security-scope', expected: 'not-ready', hints: { title: 'fix the login check', paths: ['src/auth/login.ts', 'src/auth/session.ts', 'src/auth/token.ts'], checkIds: ['unit-tests'] } },
   ];
   return shapes.map((s) => ({
     group: 'worker-readiness' as const,
     id: s.id,
     expected: s.expected,
     async run(engine: DecisionEngine): Promise<CaseOutcome> {
-      if (!compiled.ok) return { spec: WORKER_READINESS_SPEC.id, got: null, source: 'none', reasonCode: 'QUESTION_LINT', asked: false, answered: false };
-      const outcome = await decide({ spec: compiled.spec, questions: WORKER_READINESS_QUESTIONS, packet: { objective: 'Judge whether a proposed worker model can finish a bounded task from structured features (advice only).', trustedPolicy: { grantsAuthority: false }, facts: s.facts, evidence: [] }, workspaceId: WORKSPACE, evidenceRevision: REVISION, lane: 'background' }, engine);
-      if (outcome.abstained) return { spec: WORKER_READINESS_SPEC.id, got: null, source: 'none', reasonCode: outcome.reasonCode, asked: true, answered: false, decisionId: outcome.decisionId };
-      const answer = outcome.result.answers['workerReady'];
-      const p = answer !== undefined && answer.type === 'noul' ? answer.noul : null;
-      return { spec: WORKER_READINESS_SPEC.id, got: p === null ? null : p >= 0.5 ? 'ready' : 'not-ready', jevGot: p === null ? null : String(p), source: 'jev', reasonCode: 'JEV_NOUL', asked: true, answered: p !== null, decisionId: outcome.decisionId, detail: { probability: p } };
+      const r = await adviseWorkerReadiness(engine, s.hints, { workspaceId: WORKSPACE, evidenceRevision: REVISION, sessionId: 'features-session' }, { assist: 'classify', mode: 'bounded-auto', deadlineMs: waitMs });
+      return {
+        spec: WORKER_READINESS_ADVICE_SPEC_ID,
+        got: r.state ?? 'none',
+        rulesGot: r.source === 'rules' ? r.state : null,
+        jevGot: r.probability === null ? null : String(r.probability),
+        source: r.source,
+        reasonCode: r.reasonCode,
+        asked: r.asked,
+        answered: r.probability !== null,
+        cacheHit: r.cacheHit,
+        decisionId: r.jevDecisionId ?? r.decisionId,
+        detail: { probability: r.probability, recorded: r.decisionId !== null },
+      };
     },
   }));
 }

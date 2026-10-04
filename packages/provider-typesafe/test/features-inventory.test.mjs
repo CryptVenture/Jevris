@@ -6,7 +6,9 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const { FEATURE_INVENTORY, inventoryByWiring } = await import('../dist/index.js');
+const { FEATURE_INVENTORY, OP_ONLY_ENTRY, inventoryByWiring } = await import('../dist/index.js');
+const orchestrator = await import('@jevris/orchestrator');
+const contracts = await import('@jevris/contracts');
 const root = fileURLToPath(new URL('../../..', import.meta.url));
 
 function sources(dir) {
@@ -26,7 +28,8 @@ test('every inventory entry names a source file that holds its spec', () => {
     const path = join(root, entry.file);
     assert.ok(existsSync(path), `${entry.spec}: ${entry.file} exists`);
     assert.ok(readFileSync(path, 'utf8').includes(entry.needle), `${entry.spec}: ${entry.file} holds ${entry.needle}`);
-    assert.ok(entry.note.length > 10, `${entry.spec} says what reaches it`);
+    assert.ok(entry.note.length > 10, `${entry.spec} says what it does`);
+    assert.ok(entry.entry.length > 10, `${entry.spec} names the real entry that reaches it`);
   }
 });
 
@@ -52,16 +55,58 @@ test('no file that asks Jev is missing from the inventory', () => {
     'packages/core/src/route-switch.ts', // an unrelated `decide` of its own
     'packages/core/src/intent-decisions.ts', // listed per spec
     'packages/core/src/security-advice.ts',
+    'packages/core/src/intent-fixed.ts', // the fixed vocabulary of the new-task decisions
   ]);
   const missing = asking.filter((file) => !listed.has(file) && !infrastructure.has(file));
   assert.deepEqual(missing, [], 'a file asks Jev but is not in the inventory: add it to features-inventory.ts');
 });
 
-test('the inventory counts what is live, on demand, dormant and never asked', () => {
+/** The files a pattern is found in, under the source folders the product asks Jev from. */
+function sourceTexts() {
+  const out = [];
+  for (const dir of ['packages/core/src', 'packages/provider-typesafe/src', 'packages/orchestrator/src', 'apps/sidecar/src']) {
+    for (const file of sources(dir)) out.push([file, readFileSync(join(root, file), 'utf8')]);
+  }
+  return out;
+}
+
+test('no consult site is missing from the inventory: every capability a consult names, and every decision spec a handler asks, is listed', () => {
+  const specs = new Set(FEATURE_INVENTORY.map((e) => e.spec));
+  const unlisted = [];
+  for (const [file, text] of sourceTexts()) {
+    // A capability consult: `capabilityId: 'C19'`. (A capability that never consults Jev, such as C65, is not an ask.)
+    for (const m of text.matchAll(/capabilityId: '(C\d{2})'/g)) if (!specs.has(`d-${m[1].toLowerCase()}`)) unlisted.push(`${file}: ${m[1]}`);
+    // A decision spec a handler asks through the bounded-question helper: `ask(engine, 'c01-task-family', ...)`.
+    for (const m of text.matchAll(/\b(?:ask|askBoundedDecision)\(\s*(?:engine|input\.engine|e),\s*'([a-z][a-z0-9-]*)'/g)) if (!specs.has(m[1])) unlisted.push(`${file}: ${m[1]}`);
+  }
+  assert.deepEqual([...new Set(unlisted)], [], 'a consult site or decision spec asks Jev and is not in the inventory: add it to features-inventory.ts');
+});
+
+test('the inventory says what is true after the wiring: nothing is dormant and nothing is defined and never asked; a new such entry fails here', () => {
   const counts = inventoryByWiring();
-  assert.ok(counts.hot >= 3, 'route, check ranking and the probe are on a hot path');
-  assert.ok(counts.detached >= 4, 'repeated failure, new task and the two security decisions run after the hook has answered');
-  assert.ok(counts.dormant >= 6, 'the older intent decisions and the memory functions no op reaches');
-  assert.equal(counts['not-asked'], 1, 'worker-readiness is defined and never asked');
+  assert.deepEqual(FEATURE_INVENTORY.filter((e) => e.wiring === 'dormant' || e.wiring === 'not-asked').map((e) => e.spec), [], 'a decision with no caller from a hook, an op, a command or a tool');
+  assert.equal(counts.dormant, 0);
+  assert.equal(counts['not-asked'], 0);
+  assert.equal(counts.hot, 6, 'route and plan slices, check ranking, the probe, the PostCompact audit, the capsule choice and the project memory at a restore');
+  assert.equal(counts.detached, 11, 'repeated failure, new task and its three decisions, C05, C06, the two security decisions, worker readiness and the output spans');
+  assert.equal(counts['on-demand'], FEATURE_INVENTORY.length - 17);
   assert.equal(Object.values(counts).reduce((a, b) => a + b, 0), FEATURE_INVENTORY.length);
+  // The decisions that were dormant (C01, C02, C04, C05, C06, C19 to C24 and the worker-readiness question) are all live now.
+  const was = ['c01-task-family', 'c02-ambiguity', 'c04-template', 'c05-evidence', 'c06-scope', 'd-c19', 'd-c20', 'd-c21', 'd-c22', 'd-c23', 'd-c24', 'worker-readiness'];
+  assert.deepEqual(was.filter((spec) => !FEATURE_INVENTORY.some((e) => e.spec === spec && e.wiring !== 'dormant' && e.wiring !== 'not-asked')), []);
+});
+
+test('every capability the inventory lists is reachable: through a command and a tool, or through the capability.advise op only, and the ones the op alone reaches are named', () => {
+  const capabilities = FEATURE_INVENTORY.filter((e) => /^d-c\d{2}$/.test(e.spec) && e.file.includes('/capabilities/'));
+  const named = new Set([...contracts.ADVISE_CAPABILITY_IDS, ...Object.values(contracts.DELIVERY_REPORTS)]);
+  const opOnly = capabilities.filter((e) => e.entry === OP_ONLY_ENTRY).map((e) => e.spec.slice(2).toUpperCase());
+  for (const e of capabilities) {
+    const id = e.spec.slice(2).toUpperCase();
+    assert.equal(e.entry === OP_ONLY_ENTRY, !named.has(id), `${id}: the entry says what a command, a tool or only the op reaches`);
+    assert.ok(orchestrator.CAPABILITIES.has(id) || id in orchestrator.CAPABILITY_OPS, `${id} is defined in the capability registry the op serves`);
+  }
+  // The capabilities that only the op reaches: a decision for the owner whether to give each a command or a tool. A new one fails here.
+  assert.deepEqual(opOnly, ['C32', 'C33', 'C34', 'C35', 'C36', 'C37', 'C38', 'C40', 'C62', 'C67', 'C68', 'C69', 'C70', 'C72']);
+  // The memory capabilities and C29 have their own product op (checkpoint, recover, a hook event) rather than capability.advise.
+  for (const id of ['C18', 'C19', 'C20', 'C21', 'C22', 'C23', 'C24', 'C29']) assert.ok(id in orchestrator.CAPABILITY_OPS || ['C19', 'C20', 'C21', 'C22', 'C23', 'C24'].includes(id), id);
 });

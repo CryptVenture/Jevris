@@ -17,7 +17,7 @@
  * features (signal families, source kinds, effect classes, counts); its answer is a decision
  * record for explain and can only raise a flag, never lower one.
  */
-import { injectionSuspicion, permissionRiskTriage, UNTRUSTED_SOURCE_KINDS, type InjectionSignal, type UntrustedSourceKind, type UntrustedSpan } from '@jevris/core';
+import { EFFECT_LEDGER, injectionSuspicion, permissionRiskTriage, UNTRUSTED_SOURCE_KINDS, type InjectionSignal, type UntrustedSourceKind, type UntrustedSpan } from '@jevris/core';
 import type { SidecarEventSubscriber, SidecarOpContext } from '@jevris/contracts';
 
 /** Launcher bounds (the adapters clip; anything past these is cut here as well). */
@@ -182,6 +182,8 @@ export function createSecuritySubscriber(options: SecuritySubscriberOptions = {}
         };
         const triage = await permissionRiskTriage(null, input, intent);
         ctx.trace({ event: 'security.triage', reasonCode: `LEVEL_${triage.rulesLevel.toUpperCase()}` });
+        // C06: the effect classes a session with an approved task scope has asked for, held (codes only, in memory) for its next diff boundary.
+        if (approved !== undefined && sessionId !== null) EFFECT_LEDGER.note(ctx.workspace.id, sessionId, triage.classes);
         // Jev can only raise a level: at review (the top) asking it would change nothing.
         if (engine !== null && triage.classes.length > 0 && triage.rulesLevel !== 'review') {
           detach(permissionRiskTriage(engine, input, intent).then((jev) => ctx.trace({ event: 'security.triage-jev', reasonCode: jev.reasonCode, ...(jev.decisionId === null ? {} : { decisionId: jev.decisionId }) })));

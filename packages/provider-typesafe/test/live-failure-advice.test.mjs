@@ -90,7 +90,14 @@ const context = (features = {}, observation = {}, maxRepairAttempts = 2) => prov
 const IDS = { workspaceId: 'w-fail', sessionId: 's-1', taskId: 'task-1' };
 const ASK = { assist: 'classify', deadlineMs: 30_000, ids: IDS };
 const ALL = ['failing-test-output', 'stack-trace', 'config-file', 'environment-info', 'repro-steps', 'recent-diff', 'logs'];
-const NEXT = (choice, confidence = 0.9) => (id) => (id === 'next' ? { choice, confidence } : { noul: 0.5 });
+// C05 offers the candidate artifacts as a0, a1 and so on (each one's fixed option text), so an artifact is found by its text.
+const optionKey = (q, artifact) => Object.entries(q.criteria).find(([, text]) => text === provider.FAILURE_ARTIFACT_TEXT[artifact]?.option)?.[0] ?? artifact;
+/** Jev finds the evidence so far not enough and names `artifact` next (`none` and `unknown` are answers too). */
+const NEXT = (artifact, confidence = 0.9) => (id, q) => {
+  if (id === 'nextArtifact') return { choice: optionKey(q, artifact), confidence };
+  if (id === 'sufficient') return { noul: 0.2 };
+  return { noul: 0.5 };
+};
 
 // ------------------------------------------------------------------ features
 
@@ -200,10 +207,11 @@ test('Jev picks the next artifact: one request, fixed questions, an advisory rec
   assert.equal(first.text, 'Jevris: this failure has come back 2 times; the next most useful evidence is the full stack trace.');
   assert.equal(requests.length, 1, 'one request');
   const questions = requests[0].questions;
-  assert.deepEqual(Object.keys(questions), ['next'], 'equal signatures are the same failure: only the Choice is asked');
-  assert.equal(questions.next.type, 'choice');
-  assert.deepEqual(Object.keys(questions.next.criteria), [...provider.planFailureAdvice(context()).candidates, 'none', 'unknown'], 'the candidates in the rules order, then none and unknown');
-  for (const id of ALL) assert.equal(questions.next.criteria[id], provider.FAILURE_ARTIFACT_TEXT[id].option, 'the option text is the fixed template');
+  assert.deepEqual(Object.keys(questions), ['sufficient', 'nextArtifact'], 'equal signatures are the same failure: no same-failure Noul; C05 asks whether the evidence suffices and which artifact next');
+  assert.equal(questions.nextArtifact.type, 'choice');
+  const candidates = provider.planFailureAdvice(context()).candidates;
+  assert.deepEqual(Object.keys(questions.nextArtifact.criteria), [...candidates.map((_, i) => `a${i}`), 'none', 'unknown'], 'the candidates in the rules order, then none and unknown');
+  candidates.forEach((id, i) => assert.equal(questions.nextArtifact.criteria[`a${i}`], provider.FAILURE_ARTIFACT_TEXT[id].option, 'the option text is the fixed template'));
   assert.ok(Object.keys(questions).length <= contracts.MAX_QUESTIONS);
   const record = await engine.lookup(first.decisionId);
   assert.deepEqual([record.specId, record.outcome, record.taskId, record.sessionId], ['repeated-failure', 'advisory', 'task-1', 's-1']);
@@ -224,7 +232,8 @@ test('Jev picks the next artifact: one request, fixed questions, an advisory rec
 test('the Choice names an artifact the failure does not already show: the options are the candidates only', async (t) => {
   const { engine, requests } = await setup(t, NEXT('logs'));
   const advice = await provider.adviseRepeatedFailure(engine, context({ present: ['failing-test-output', 'stack-trace'] }), ASK);
-  assert.deepEqual(Object.keys(requests[0].questions.next.criteria), ['recent-diff', 'repro-steps', 'logs', 'config-file', 'environment-info', 'none', 'unknown']);
+  assert.deepEqual(Object.values(requests[0].questions.nextArtifact.criteria).slice(0, 5), ['recent-diff', 'repro-steps', 'logs', 'config-file', 'environment-info'].map((id) => provider.FAILURE_ARTIFACT_TEXT[id].option));
+  assert.deepEqual(Object.keys(requests[0].questions.nextArtifact.criteria), ['a0', 'a1', 'a2', 'a3', 'a4', 'none', 'unknown']);
   assert.equal(advice.next, 'logs');
   assert.deepEqual((await engine.lookup(advice.decisionId)).proposedAction.evidenceIds, ['feature-family', 'feature-attempts', 'feature-environmental', 'feature-elapsed', 'feature-artifacts']);
   assert.equal(requests[0].state.facts.present, 'failing-test-output,stack-trace');
@@ -233,21 +242,24 @@ test('the Choice names an artifact the failure does not already show: the option
 test('the same-failure Noul is asked only when the signatures differ but the same call ran again with nothing edited', async (t) => {
   const unsure = { signature: 'bbbbbbbbbbbbbbbb' };
   const observation = { sameSignature: false, unsure: true, previous: { exitClass: 'nonzero', environmental: false, elapsed: 'lt10s', present: [] } };
-  let script = (id) => (id === 'same' ? { noul: 0.92 } : { choice: 'recent-diff', confidence: 0.85 });
+  let script = (id, q) => (id === 'same' ? { noul: 0.92 } : NEXT('recent-diff', 0.85)(id, q));
   const { engine, requests } = await setup(t, (id, q, body) => script(id, q, body));
   const yes = await provider.adviseRepeatedFailure(engine, context(unsure, observation), ASK);
-  assert.deepEqual(Object.keys(requests[0].questions), ['same', 'next'], 'one request, two fixed questions');
-  assert.equal(requests[0].questions.same.type, 'noul');
+  assert.equal(requests.length, 2, 'two decisions, side by side: the same-failure Noul and C05');
+  const sameRequest = requests.find((r) => 'same' in r.questions);
+  assert.deepEqual(Object.keys(sameRequest.questions), ['same']);
+  assert.equal(sameRequest.questions.same.type, 'noul');
+  assert.deepEqual(Object.keys(requests.find((r) => 'nextArtifact' in r.questions).questions), ['sufficient', 'nextArtifact']);
   assert.deepEqual([yes.source, yes.reasonCode, yes.askedCount, yes.usedCount, yes.sameByJev, yes.next], ['jev', 'REPEATED_FAILURE_JEV', 2, 2, true, 'recent-diff']);
   assert.ok((await engine.lookup(yes.decisionId)).reasonCodes.includes('FAIL_SAME_JEV'));
   // Jev says it is a different failure: nothing to say, and the question is still on the record.
-  script = (id) => (id === 'same' ? { noul: 0.05 } : { choice: 'logs' });
+  script = (id, q) => (id === 'same' ? { noul: 0.05 } : NEXT('logs')(id, q));
   // Each case is its own question (its own count bucket), so the decision cache never serves an earlier answer.
   const no = await provider.adviseRepeatedFailure(engine, context({ signature: 'dddddddddddddddd' }, { ...observation, attempts: 4 }, 10), ASK);
   assert.deepEqual([no.text, no.reasonCode, no.source, no.asked], [null, 'REPEATED_FAILURE_NOT_SAME', 'jev', true]);
   assert.equal(typeof no.decisionId, 'string', 'the miss is recorded');
   // An unsure Noul (below 0.6 either way) is not used; the Choice still is.
-  script = (id) => (id === 'same' ? { noul: 0.55 } : { choice: 'config-file', confidence: 0.9 });
+  script = (id, q) => (id === 'same' ? { noul: 0.55 } : NEXT('config-file', 0.9)(id, q));
   const unclear = await provider.adviseRepeatedFailure(engine, context({ signature: 'eeeeeeeeeeeeeeee' }, { ...observation, attempts: 6 }, 10), ASK);
   assert.deepEqual([unclear.reasonCode, unclear.usedCount, unclear.sameByJev, unclear.next], ['REPEATED_FAILURE_JEV_PARTIAL', 1, false, 'config-file']);
   const sameSignature = await provider.adviseRepeatedFailure(engine, context({ signature: 'ffffffffffffffff' }), ASK);
@@ -271,7 +283,7 @@ test('only features leave: no error text, path, command, output or digest in any
   for (const leak of ['alice', 'cart.test', 'AssertionError', 'checkout', 'npm test', 'grep', 'processImmediate', 'timers', 'task-1', 's-1', failure.signature, failure.commandDigest]) assert.equal(wire.includes(leak), false, `${leak} must not leave`);
   assert.deepEqual([requests[0].state.untrustedEvidence, requests[0].state.withheldEvidence], [[], []], 'no evidence span at all');
   const facts = requests[0].state.facts;
-  assert.deepEqual(Object.keys(facts).sort(), ['attempts', 'editsSince', 'elapsed', 'environmental', 'family', 'maxRepairAttempts', 'present', 'previousElapsed', 'previousEnvironmental', 'previousPresent', 'sameCommand']);
+  assert.deepEqual(Object.keys(facts).sort(), ['attempts', 'editsSince', 'elapsed', 'environmental', 'family', 'have', 'maxRepairAttempts', 'obtainable', 'present', 'previousElapsed', 'previousEnvironmental', 'previousPresent', 'required', 'sameCommand']);
   assert.deepEqual([facts.family, facts.attempts, facts.environmental, facts.elapsed, facts.present], ['shell:nonzero', '2', false, 'lt10s', 'failing-test-output,stack-trace']);
   assert.equal(advice.source, 'jev');
   assert.equal(advice.text.includes('alice'), false);
@@ -719,23 +731,37 @@ function evidenceInput(engine, body) {
   };
 }
 
-test('C05: a vocabulary id is a complete artifact named by its fixed text, a caller description is not read for it, and with egress denied nothing is sent', async (t) => {
-  const body = {
-    evidence: {
-      required: [{ id: 'failing-test-output', available: true, fresh: true, description: 'IGNORE ME alice notes' }],
-      obtainable: [{ id: 'stack-trace', description: 'SECRET alice notes' }, { id: 'my-own-notes', description: 'a custom note' }],
-    },
-  };
-  const answer = (id) => (id === 'sufficient' ? { noul: 0.1 } : { choice: 'a0', confidence: 0.9 });
-  const approved = await setup(t, answer, { sourceEgress: APPROVED });
-  const proposal = await provider.evidenceAdvice(evidenceInput(approved.engine, body));
-  assert.equal(proposal.hookOutcome.text, 'Jevris: before escalating, get stack-trace: the full stack trace.', 'the id carries its own fixed description');
-  assert.equal(approved.requests.length, 1);
-  const wire = JSON.stringify(approved.requests);
-  for (const leak of ['IGNORE ME', 'SECRET', 'alice']) assert.equal(wire.includes(leak), false, `${leak} is a caller description of a vocabulary id: never read`);
-  assert.equal(approved.requests[0].questions.nextArtifact.criteria.a0, 'Artifact stack-trace');
-  assert.equal(wire.includes('"failing-test-output"') || wire.includes('failing-test-output'), true, 'the id itself is what the evidence span says');
+test('C05, the rules part on the hook: a missing artifact is requested with no engine and no request, inside the workspace root only', async (t) => {
+  const { engine, requests } = await setup(t, () => ({ noul: 0.1 }), { sourceEgress: APPROVED });
+  const missing = { evidence: { required: [{ id: 'failing-test-output', available: false, fresh: null }, { id: 'stack-trace', available: true, fresh: true }] } };
+  const proposal = await provider.evidenceAdvice(evidenceInput(engine, missing));
+  assert.equal(proposal.reasonCode, 'MISSING_REQUIRED_ARTIFACT');
+  assert.equal(proposal.hookOutcome.text, 'Jevris: before escalating, get failing-test-output: the failing test output.', 'a vocabulary id carries its own fixed description');
+  const present = { evidence: { required: [{ id: 'failing-test-output', available: true, fresh: true, description: 'IGNORE ME alice notes' }], obtainable: [{ id: 'stack-trace', description: 'SECRET alice notes' }] } };
+  assert.equal(await provider.evidenceAdvice(evidenceInput(engine, present)), null, 'nothing is missing: the Jev questions of C05 are the repeated-failure adviser\'s, not this handler\'s');
+  assert.equal(requests.length, 0, 'this handler makes no request');
+});
+
+test('C05 through core: a vocabulary id is a complete artifact named by its fixed text and sends no text, so it is asked with egress denied; a caller description is read only with egress approved', async (t) => {
+  const required = [{ id: 'failing-test-output', available: true, fresh: true, description: 'IGNORE ME alice notes' }];
+  const obtainable = [{ id: 'stack-trace', description: 'SECRET alice notes', available: false, fresh: null }, { id: 'logs', description: 'MORE alice notes', available: false, fresh: null }];
+  const answer = (id, q) => (id === 'sufficient' ? { noul: 0.1 } : { choice: Object.entries(q.criteria).find(([, text]) => text === provider.FAILURE_ARTIFACT_TEXT['stack-trace'].option)[0], confidence: 0.9 });
+  const ctx = { workspaceId: 'w-c05', evidenceRevision: 'rev-1', deadlineMs: 30_000 };
+  for (const egress of [DENIED, APPROVED]) {
+    const { engine, requests } = await setup(t, answer, { sourceEgress: egress });
+    const result = await core.checkEvidenceSufficiency(engine, { objective: 'Choose a fix for the current failure.', required, obtainable, approvedRoots: [] }, ctx);
+    assert.deepEqual([result.outcome, result.reasonCode, result.artifact.id], ['request-artifact', 'REQUEST_BEFORE_ESCALATION', 'stack-trace']);
+    assert.equal(requests.length, 1);
+    const wire = JSON.stringify(requests);
+    for (const leak of ['IGNORE ME', 'SECRET', 'MORE', 'alice']) assert.equal(wire.includes(leak), false, `${leak} is a caller description of a vocabulary id: never read`);
+    assert.deepEqual([requests[0].state.untrustedEvidence, requests[0].state.withheldEvidence], [[], []], 'no evidence text at all');
+    assert.equal(requests[0].state.facts.have, 'failing-test-output');
+    assert.equal(requests[0].questions.nextArtifact.criteria.a0, provider.FAILURE_ARTIFACT_TEXT['stack-trace'].option);
+  }
+  // A caller's own artifact is text: with egress denied it is not asked, and the option for it names only its number in the list.
+  const body = { objective: 'Choose a fix for the current failure.', required: [{ id: 'my-notes', description: 'a custom note by alice', available: true, fresh: true }], obtainable: [{ id: 'my-other', description: 'another custom note', available: false, fresh: null }, { id: 'stack-trace', description: 'x', available: false, fresh: null }], approvedRoots: [] };
   const denied = await setup(t, answer, { sourceEgress: DENIED });
-  assert.equal(await provider.evidenceAdvice(evidenceInput(denied.engine, body)), null, 'egress denied: no advice from this handler');
-  assert.equal(denied.requests.length, 0, 'and no request at all');
+  const out = await core.checkEvidenceSufficiency(denied.engine, body, ctx);
+  assert.deepEqual([out.outcome, out.reasonCode], ['undetermined', 'EGRESS_NOT_APPROVED']);
+  assert.equal(denied.requests.length, 0);
 });

@@ -58,29 +58,54 @@ async function setup(t, pick, sourceEgress = APPROVED) {
 
 const IDS = { workspaceId: 'w-real', sessionId: 'sess-real' };
 
-test('a tie in one Choice does not throw away the other answers of the request (a tied family-less secondary question beside a confident one)', async (t) => {
-  // new-task asks a family Choice and an open-question Choice in one request. Live, the open question's two best
-  // options came back 0.35 and 0.35 (confidence 0.24) beside a family answer of 1.0; the whole decision was
-  // abstained as CHOICE_TIE and the paid-for family answer was lost.
+const FAMILIES = [...core.TASK_FAMILIES].sort();
+const TIED = { type: 'choice', choice: 'scope', confidence: 0.24, probabilities: { scope: 0.35, acceptance: 0.35, target: 0.1, 'edge-cases': 0.1, compatibility: 0.05, none: 0.03, unknown: 0.02 } };
+
+/** A real family answer (keyed by family name, as the first live run asked it) in C01's option keys (f0, f1, ...). */
+function inOptionKeys(real) {
+  const key = (name) => (name === 'none' || name === 'unknown' ? name : `f${FAMILIES.indexOf(name)}`);
+  return { ...real, choice: key(real.choice), probabilities: Object.fromEntries(Object.entries(real.probabilities).map(([name, p]) => [key(name), p])) };
+}
+
+test('new-task from a real family answer: C01 selects the family at confidence 1.0, C02 asks nothing it is not sure of, and the line names the family', async (t) => {
   const real = REAL.newTask['newtask-clear'].answers;
-  const tied = { type: 'choice', choice: 'scope', confidence: 0.24, probabilities: { scope: 0.35, acceptance: 0.35, target: 0.1, 'edge-cases': 0.1, compatibility: 0.05, none: 0.03, unknown: 0.02 } };
-  const { engine } = await setup(t, (id) => (id === 'family' ? real.family : tied));
+  const { engine } = await setup(t, (id) => (id === 'taskFamily' ? inOptionKeys(real.family) : { noul: 0.1 }));
   const advice = await provider.adviseNewTask(engine, 'Fix the failing unit test in the date parser: parse("2026-02-30") should throw an error instead of returning March 2.', { assist: 'classify', mode: 'bounded-auto', deadlineMs: 30_000, ids: IDS });
-  assert.equal(advice.family, 'bugfix', 'the confident family answer is used');
-  assert.equal(advice.open, null, 'the tied question names no open question');
-  assert.equal(advice.text, 'Jevris: This looks like a bugfix task.');
-  assert.notEqual(advice.reasonCode, 'NEW_TASK_JEV_CHOICE_TIE');
-  const record = await engine.lookup(advice.jevDecisionId);
+  assert.deepEqual([advice.family, advice.open, advice.text, advice.reasonCode], ['bugfix', null, 'Jevris: This looks like a bugfix task.', 'NEW_TASK_JEV']);
+});
+
+test('a tie in one Choice does not throw away the other answers of the request (a tied family-less secondary question beside a confident one)', async (t) => {
+  // Live (the first design asked a family Choice and an open-question Choice in one request), the open question's two best
+  // options came back 0.35 and 0.35 (confidence 0.24) beside a family answer of 1.0; the whole decision was abstained as
+  // CHOICE_TIE and the paid-for family answer was lost. The engine's rule is general: it holds for any request of two Choices.
+  const real = REAL.newTask['newtask-clear'].answers;
+  const { engine } = await setup(t, (id) => (id === 'family' ? real.family : TIED));
+  const questions = {
+    family: { type: 'choice', instructions: 'Which listed workflow family fits the request in the evidence item request?', criteria: Object.fromEntries([...core.TASK_FAMILIES, 'none', 'unknown'].map((f) => [f, core.TASK_FAMILY_TEXT[f] ?? `No family (${f}).`])) },
+    open: { type: 'choice', instructions: 'Which one open question about the request in the evidence item request would most change the implementation?', criteria: Object.fromEntries(['scope', 'acceptance', 'target', 'edge-cases', 'compatibility', 'none', 'unknown'].map((k) => [k, `The request leaves ${k} open.`])) },
+  };
+  const packet = { objective: 'Read the one request in the evidence (advice only).', trustedPolicy: { grantsAuthority: false }, facts: {}, evidence: [{ id: 'request', text: 'Fix the failing unit test in the date parser.', sourceKind: 'user', priority: 'mandatory' }] };
+  const asked = await core.askBoundedDecision(engine, 'tie-regression', questions, packet, { ...IDS, evidenceRevision: 'rev-1', deadlineMs: 30_000 }, true);
+  assert.equal(asked.ok, true, 'the decision still answers');
+  assert.equal(asked.answers.family.choice, 'bugfix', 'the confident family answer is used');
+  assert.equal(asked.answers.open, undefined, 'the tied question is dropped');
+  const record = await engine.lookup(asked.decisionId);
   assert.equal(record.outcome, 'advisory');
   assert.ok(record.reasonCodes.includes('CHOICE_TIE_DROPPED'), record.reasonCodes.join(','));
 });
 
 test('when every answer of a request ties, or the only question ties, the decision still abstains as CHOICE_TIE', async (t) => {
-  const tied = { type: 'choice', choice: 'scope', confidence: 0.24, probabilities: { scope: 0.35, acceptance: 0.35, target: 0.1, 'edge-cases': 0.1, compatibility: 0.05, none: 0.03, unknown: 0.02 } };
-  const { engine } = await setup(t, (id) => (id === 'open' ? tied : { type: 'choice', choice: 'bugfix', confidence: 0.5, probabilities: { bugfix: 0.25, feature: 0.25, refactor: 0.2, tests: 0.1, docs: 0.1, investigation: 0.05, config: 0.03, dependency: 0.01, none: 0.01, unknown: 0 } }));
-  const advice = await provider.adviseNewTask(engine, 'Fix the failing unit test in the date parser: parse("2026-02-30") should throw an error.', { assist: 'classify', mode: 'bounded-auto', deadlineMs: 30_000, ids: IDS });
-  assert.equal(advice.reasonCode, 'NEW_TASK_JEV_CHOICE_TIE', 'both Choices tied: nothing usable');
+  const { engine } = await setup(t, () => TIED);
+  const questions = { open: { type: 'choice', instructions: 'Which one open question about the request in the evidence item request would most change the implementation?', criteria: Object.fromEntries(['scope', 'acceptance', 'target', 'edge-cases', 'compatibility', 'none', 'unknown'].map((k) => [k, `The request leaves ${k} open.`])) } };
+  const packet = { objective: 'Read the one request in the evidence (advice only).', trustedPolicy: { grantsAuthority: false }, facts: {}, evidence: [{ id: 'request', text: 'Fix the failing unit test in the date parser.', sourceKind: 'user', priority: 'mandatory' }] };
+  const asked = await core.askBoundedDecision(engine, 'tie-regression-2', questions, packet, { ...IDS, evidenceRevision: 'rev-1', deadlineMs: 30_000 }, true);
+  assert.deepEqual([asked.ok, asked.reasonCode], [false, 'CHOICE_TIE'], 'the only Choice tied: nothing usable');
+  // And through the adviser: C01 tied, C02 sure of nothing, so there is nothing to say and the reason says why.
+  const tiedFamily = { type: 'choice', choice: 'f0', confidence: 0.5, probabilities: { f0: 0.25, f1: 0.25, f2: 0.2, f3: 0.1, f4: 0.1, f5: 0.05, f6: 0.03, f7: 0.01, none: 0.01, unknown: 0 } };
+  const adviser = await setup(t, (id) => (id === 'taskFamily' ? tiedFamily : { noul: 0.5 }));
+  const advice = await provider.adviseNewTask(adviser.engine, 'Fix the failing unit test in the date parser: parse("2026-02-30") should throw an error.', { assist: 'classify', mode: 'bounded-auto', deadlineMs: 30_000, ids: IDS });
   assert.equal(advice.text, null);
+  assert.notEqual(advice.family, 'bugfix');
 });
 
 test('check ranking from real answers: Jev orders by its expected score, to half a level, and a flat answer keeps the rules order, not the input order', async (t) => {

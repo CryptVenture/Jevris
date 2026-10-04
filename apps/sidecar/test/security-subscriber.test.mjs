@@ -175,3 +175,17 @@ test('the security subscriber answers other events at once and yields before it 
   await Promise.all([scan, other]);
   assert.deepEqual(order, ['restore', 'security']);
 });
+
+test('C06: the effect classes of a proposed call are held, as codes only, for the session\'s next diff boundary, and only when the session has an approved task scope', async () => {
+  const { EFFECT_LEDGER } = await import('@jevris/core');
+  const sub = createSecuritySubscriber();
+  const propose = (effect, sessionId, scope) => context({ envelope: envelope('tool.proposed', sessionId, effect.tool), effect, ...(scope === undefined ? {} : { scope }) }, { workspace: 'ws-ledger' });
+  const scope = { approvedScope: { taskId: 'T1', paths: ['src/cart'], effects: [] } };
+  await sub.handle(propose({ tool: 'Bash', command: 'npm install left-pad' }, 'sess-ledger', scope).ctx);
+  await sub.handle(propose({ tool: 'Bash', command: 'rm -rf build' }, 'sess-ledger', scope).ctx);
+  await sub.handle(propose({ tool: 'Bash', command: 'npm test' }, 'sess-ledger', scope).ctx);
+  assert.deepEqual(EFFECT_LEDGER.take('ws-ledger', 'sess-ledger'), ['destructive', 'package-install'], 'codes, sorted, with no command in them');
+  // A session with no approved scope has nothing to judge an effect against: nothing is held.
+  await sub.handle(propose({ tool: 'Bash', command: 'npm install left-pad' }, 'sess-free').ctx);
+  assert.deepEqual(EFFECT_LEDGER.take('ws-ledger', 'sess-free'), []);
+});

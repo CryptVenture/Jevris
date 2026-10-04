@@ -495,14 +495,22 @@ export async function runManagedWorker(input: ManagedWorkerInput): Promise<Manag
 /** The worker-readiness decision a routing calibration is released for (RTE-04, RTE-13). */
 export const WORKER_READINESS_SPEC = Object.freeze({ id: 'worker-readiness', version: 'v1' });
 
+/**
+ * The question, as fixed text (no user text, only a description of the facts it is shown). The facts are
+ * counts and categories: the files a task may change and the kind of each, its acceptance checks, any protected
+ * path class and the kind of work. The anchors say what a bounded task looks like in those terms, so a small
+ * task with a check reads as ready and an open-ended or security-sensitive one does not. A change to this
+ * text changes its hash, and a signed calibration release is bound to that hash (US34): a release made for
+ * an older text is refused until a new one is signed for this one.
+ */
 export const WORKER_READINESS_QUESTIONS: JevQuestions = Object.freeze({
   workerReady: {
     type: 'noul',
     instructions:
-      'Using only the task evidence provided, judge whether the proposed worker model can complete this bounded task and pass its stated acceptance checks without escalation.',
+      'The facts describe a coding task by counts and categories only: how many files it may change and what kind each is, how many acceptance checks it has, any protected path class, and the kind of work. Using only those facts, is this a bounded task that a worker model can finish and pass its acceptance checks without escalating to a stronger model?',
     criteria: {
-      true: 'The task is bounded, its acceptance checks are complete, and the evidence shows nothing the worker is likely to miss.',
-      false: 'The task is open-ended, its checks are incomplete, or the evidence shows ambiguity, missing context or security-sensitive scope.',
+      true: 'The task is bounded: it changes a small, known set of files, none in a protected path class, and it has at least one acceptance check, so a worker can finish it and show that it is done.',
+      false: 'The task is not bounded: it names no files or very many, it has no acceptance check, or it touches a protected path class such as security, secrets, CI or a data migration.',
     },
   },
 }) as JevQuestions;

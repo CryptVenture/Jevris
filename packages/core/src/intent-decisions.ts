@@ -19,6 +19,16 @@ import { estimateRequest } from './decision-tokens.js';
 import { compileDecisionSpec } from './decision-question-lint.js';
 import { planTaskGraph } from './decision-plan.js';
 import type { PacketEvidence, PacketInput } from './packet.js';
+import { FAILURE_ARTIFACT_TEXT } from './failure-artifacts.js';
+import { EFFECT_CLASS_TEXT } from './intent-fixed.js';
+
+/**
+ * The floors every Jev answer is used at (the same as the route slice classifier, the new-task
+ * adviser, the check ranking and the failure advice): a provider confidence of 0.6 or more, and a
+ * Choice also needs its best option 0.15 ahead of the next. Below a floor the rules answer.
+ */
+export const INTENT_MIN_CONFIDENCE = 0.6;
+export const INTENT_MIN_MARGIN = 0.15;
 
 const EVIDENCE_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
 const MAX_ITEMS = 12;
@@ -144,7 +154,15 @@ function usable(templates: readonly TemplateMeta[]): readonly TemplateMeta[] {
 
 /**
  * C01: a Choice over the families of trusted installed templates, plus `none` and `unknown`.
- * `none`, `unknown`, low confidence or a thin margin abstain; the request is always preserved.
+ * `none`, `unknown`, low confidence or a thin margin abstain; the request is always preserved. The
+ * request is the person's own words: it travels as ONE screened evidence span (never in the packet's
+ * objective), so with source egress not approved `ask` abstains (`EGRESS_NOT_APPROVED`) before
+ * anything is built or sent. The question and its options are fixed text built from the families.
+ *
+ * Reason codes of an abstention: `NO_TRUSTED_TEMPLATES` (no call), `NO_ANSWER` and `LOW_CONFIDENCE`
+ * (Jev answered and the answer was not used), `NO_TEMPLATE_FITS` and `FAMILY_UNKNOWN` (Jev answered
+ * with confidence that nothing fits), `UNKNOWN_OPTION`, or the engine's own code (a refusal or a
+ * deadline).
  */
 export async function triageTaskFamily(engine: DecisionEngine | null, input: { readonly objective: string; readonly templates: readonly TemplateMeta[]; readonly minConfidence?: number; readonly minMargin?: number }, ctx: IntentContext): Promise<TriageResult> {
   const originalRequest = input.objective;
@@ -157,14 +175,11 @@ export async function triageTaskFamily(engine: DecisionEngine | null, input: { r
     criteria[`f${i}`] = clip(`Workflow family ${family}: ${summaries.join('; ')}`, 400);
   });
   criteria['none'] = 'No listed workflow family fits this request.';
-  criteria['unknown'] = 'The evidence is insufficient to choose a family.';
-  const questions = { taskFamily: { type: 'choice', instructions: 'Which listed workflow family fits the objective?', criteria } } as unknown as JevQuestions;
-  // The request is the person's own words: it travels as ONE screened evidence span, never in the
-  // packet's objective, which is caller-authored and not screened. With source egress not approved
-  // `ask` abstains (`EGRESS_NOT_APPROVED`) before anything is built or sent.
+  criteria['unknown'] = 'The request is too short or unclear to choose a family.';
+  const questions = { taskFamily: { type: 'choice', instructions: 'Which listed workflow family fits the request in evidence item request?', criteria } } as unknown as JevQuestions;
   const packet: PacketInput = {
-    objective: 'Choose the workflow family that fits the request in the evidence item request.',
-    trustedPolicy: { templateFamilies: families },
+    objective: 'Choose the workflow family that fits the request in the evidence item request (advice only).',
+    trustedPolicy: { grantsAuthority: false, templateFamilies: families },
     facts: { templates: templates.length },
     evidence: [{ id: 'request', text: clip(input.objective, 2000), sourceKind: 'user', priority: 'mandatory' }],
   };
@@ -172,9 +187,9 @@ export async function triageTaskFamily(engine: DecisionEngine | null, input: { r
   if (!asked.ok) return { outcome: 'abstain', reasonCode: asked.reasonCode, family: null, originalRequest, decisionId: asked.decisionId };
   const c = choiceOf(asked.answers, 'taskFamily');
   if (c === null) return { outcome: 'abstain', reasonCode: 'NO_ANSWER', family: null, originalRequest, decisionId: asked.decisionId };
+  if (c.confidence < (input.minConfidence ?? INTENT_MIN_CONFIDENCE) || c.margin < (input.minMargin ?? INTENT_MIN_MARGIN)) return { outcome: 'abstain', reasonCode: 'LOW_CONFIDENCE', family: null, originalRequest, decisionId: asked.decisionId };
   if (c.choice === 'none') return { outcome: 'abstain', reasonCode: 'NO_TEMPLATE_FITS', family: null, originalRequest, decisionId: asked.decisionId };
   if (c.choice === 'unknown') return { outcome: 'abstain', reasonCode: 'FAMILY_UNKNOWN', family: null, originalRequest, decisionId: asked.decisionId };
-  if (c.confidence < (input.minConfidence ?? 0.5) || c.margin < (input.minMargin ?? 0.15)) return { outcome: 'abstain', reasonCode: 'LOW_CONFIDENCE', family: null, originalRequest, decisionId: asked.decisionId };
   const family = families[Number(c.choice.slice(1))];
   if (family === undefined) return { outcome: 'abstain', reasonCode: 'UNKNOWN_OPTION', family: null, originalRequest, decisionId: asked.decisionId };
   return { outcome: 'selected', family, templateIds: templates.filter((t) => t.family === family).map((t) => t.id), confidence: c.confidence, originalRequest, decisionId: asked.decisionId };
@@ -243,38 +258,52 @@ export type AmbiguityResult =
   | { readonly outcome: 'proceed'; readonly question: null; readonly answer: null; readonly reasonCode: string; readonly decisionId: string | null };
 
 /**
- * C02: one Noul per explicit unknown ("does it materially change the implementation?"). At most
- * one consequence-focused question is asked, for the most material unknown above the threshold.
- * The answer is always left to the person.
+ * C02: one Noul per explicit unknown ("does the request leave this undecided, in a way that would change
+ * the implementation?"). At most one consequence-focused question is asked, for the most material unknown
+ * at or above the threshold. The answer is always left to the person.
+ *
+ * The request is the person's own words: it travels as ONE screened evidence span (`request`), never in
+ * the packet's objective, which is not screened. An explicit unknown (a topic, its options and what it
+ * decides) is evidence too, so the question is asked only with source egress approved; the questions
+ * themselves are fixed templates that point at the evidence. A Noul is used at a certainty of 0.6 or
+ * more: an answer between 0.4 and 0.6 proceeds with `UNCERTAIN`, one at or under 0.4 with `NOT_MATERIAL`.
  */
 export async function detectAmbiguity(engine: DecisionEngine | null, input: { readonly objective: string; readonly unknowns: readonly ExplicitUnknown[]; readonly acceptanceCriteria?: readonly string[]; readonly interfaceContracts?: readonly string[]; readonly threshold?: number }, ctx: IntentContext): Promise<AmbiguityResult> {
   const unknowns = input.unknowns.filter((u) => u.topic.trim().length > 0).slice(0, MAX_ITEMS);
   if (unknowns.length === 0) return { outcome: 'proceed', question: null, answer: null, reasonCode: 'NO_EXPLICIT_UNKNOWNS', decisionId: null };
-  const evidence: PacketEvidence[] = unknowns.map((u, i) => ({ id: `unknown-${i}`, text: clip(`${u.topic}. Options: ${u.options.join(' | ')}. Decides: ${u.consequence}.`, 1000), sourceKind: 'user', priority: 'mandatory' }));
+  const evidence: PacketEvidence[] = [{ id: 'request', text: clip(input.objective, 2000), sourceKind: 'user', priority: 'mandatory' }];
+  unknowns.forEach((u, i) => evidence.push({ id: `unknown-${i}`, text: clip(`${u.topic}.${u.options.length === 0 ? '' : ` Options: ${u.options.join(' | ')}.`} Decides: ${u.consequence}.`, 1000), sourceKind: 'user', priority: 'mandatory' }));
   (input.acceptanceCriteria ?? []).slice(0, 16).forEach((text, i) => evidence.push({ id: `acceptance-${i}`, text: clip(text, 1000), sourceKind: 'user', priority: 'high' }));
   (input.interfaceContracts ?? []).slice(0, 8).forEach((text, i) => evidence.push({ id: `contract-${i}`, text: clip(text, 2000), sourceKind: 'file', priority: 'optional' }));
   const questions: Record<string, unknown> = {};
   unknowns.forEach((_, i) => {
     questions[`material${i}`] = {
       type: 'noul',
-      instructions: `Would the options in evidence item unknown-${i} lead to different implementations?`,
-      criteria: { true: 'The options lead to different code, interfaces or stored data.', false: 'Every listed option leads to the same implementation.' },
+      instructions: `Does the request in evidence item request leave the point in evidence item unknown-${i} undecided, so that its options would lead to different implementations?`,
+      criteria: { true: 'The request does not settle the point, and the options lead to different code, interfaces or stored data.', false: 'The request settles the point, or every listed option leads to the same implementation.' },
     };
   });
-  const asked = await ask(engine, 'c02-ambiguity', questions as unknown as JevQuestions, { objective: clip(input.objective, 2000), trustedPolicy: {}, facts: { unknowns: unknowns.length }, evidence }, ctx);
+  const asked = await ask(engine, 'c02-ambiguity', questions as unknown as JevQuestions, { objective: 'Check whether the request in the evidence item request leaves a point open that would change the implementation (advice only).', trustedPolicy: { grantsAuthority: false }, facts: { unknowns: unknowns.length }, evidence }, ctx);
   if (!asked.ok) return { outcome: 'proceed', question: null, answer: null, reasonCode: asked.reasonCode, decisionId: asked.decisionId };
   let best = -1;
   let bestP = -1;
+  let answered = 0;
   unknowns.forEach((_, i) => {
-    const p = noulOf(asked.answers, `material${i}`) ?? -1;
+    const p = noulOf(asked.answers, `material${i}`);
+    if (p === null) return;
+    answered += 1;
     if (p > bestP) {
       bestP = p;
       best = i;
     }
   });
-  const threshold = input.threshold ?? 0.6;
+  if (answered === 0) return { outcome: 'proceed', question: null, answer: null, reasonCode: 'NO_ANSWER', decisionId: asked.decisionId };
+  const threshold = input.threshold ?? INTENT_MIN_CONFIDENCE;
   const chosen = unknowns[best];
-  if (chosen === undefined || bestP < threshold) return { outcome: 'proceed', question: null, answer: null, reasonCode: 'NOT_MATERIAL', decisionId: asked.decisionId };
+  if (chosen === undefined || bestP < threshold) {
+    // Jev sure that nothing is material (every probability at or under 0.4) is an answer; anything in between is not one the floor lets through.
+    return { outcome: 'proceed', question: null, answer: null, reasonCode: bestP <= 1 - threshold ? 'NOT_MATERIAL' : 'UNCERTAIN', decisionId: asked.decisionId };
+  }
   const text = clip(`${chosen.topic.replace(/[?.\s]+$/, '')}? This decides ${chosen.consequence.replace(/[.\s]+$/, '')}.${chosen.options.length > 0 ? ` Options: ${chosen.options.join(', ')}.` : ''}`, 500);
   return { outcome: 'ask', question: { unknownId: chosen.id, text, options: [...chosen.options] }, answer: null, materiality: bestP, decisionId: asked.decisionId };
 }
@@ -293,8 +322,12 @@ export interface RequiredArtifact {
 
 export type SufficiencyResult =
   | { readonly outcome: 'sufficient'; readonly notObserved: readonly string[]; readonly escalate: false; readonly reasonCode: string; readonly decisionId: string | null }
-  /** Not assessed (no provider, egress not approved, abstention) or no artifact named: never claimed sufficient. */
-  | { readonly outcome: 'undetermined'; readonly notObserved: readonly string[]; readonly escalate: false; readonly reasonCode: string; readonly decisionId: string | null }
+  /**
+   * Not assessed (no provider, egress not approved, abstention) or no artifact named: never claimed sufficient.
+   * `jevSaid` is `none` when Jev answered, at the confidence floor, that no listed artifact would reduce the
+   * uncertainty (the caller may say nothing rather than name one); otherwise null.
+   */
+  | { readonly outcome: 'undetermined'; readonly notObserved: readonly string[]; readonly escalate: false; readonly reasonCode: string; readonly decisionId: string | null; readonly jevSaid?: 'none' | null }
   | {
       readonly outcome: 'request-artifact';
       readonly artifact: { readonly id: string; readonly description: string; readonly location: string | null };
@@ -342,14 +375,39 @@ export function withinApprovedRoots(location: string, roots: readonly string[]):
   });
 }
 
+const FACT_CODE = /^[A-Za-z0-9_.:,+-]{0,200}$/;
+
+/**
+ * The caller's content-free facts of a decision (counts, flags and codes): a number or a boolean, or a short
+ * string of code characters only. Anything else is dropped, so a fact can never carry a sentence.
+ */
+function codeFacts(facts: Readonly<Record<string, string | number | boolean>> | undefined): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const [key, value] of Object.entries(facts ?? {})) {
+    if (!EVIDENCE_ID.test(key)) continue;
+    if (typeof value === 'number' ? Number.isFinite(value) : typeof value === 'boolean' || (typeof value === 'string' && FACT_CODE.test(value))) out[key] = value;
+  }
+  return out;
+}
+
 /**
  * C05: missing or stale required artifacts are requested first, by rule, with no call. When all
  * are present, a Noul asks whether the evidence suffices; if not, a Choice names the obtainable
  * artifact to fetch next. A location outside the approved roots is never suggested.
+ *
+ * An artifact of the fixed vocabulary (`failing-test-output`, `stack-trace`, ...) is named by its id alone
+ * and goes into the request as a fact (a code), never as text; its option in the Choice is the vocabulary's
+ * own fixed description. So a question over the fixed vocabulary alone carries no free text and is asked
+ * with source egress denied. A free-text description of any other artifact, and every diagnostic, is the
+ * caller's text: it is read into the request as evidence only with source egress approved (without it
+ * `EGRESS_NOT_APPROVED`), and it never appears in a question. `facts` are the caller's content-free codes,
+ * counts and flags about the failure (a value that is not a number, a boolean or a short string of code
+ * characters is dropped). Jev's answers are used at the floors every other decision applies (a Noul
+ * certainty of 0.6, a Choice confidence of 0.6 and margin of 0.15).
  */
 export async function checkEvidenceSufficiency(
   engine: DecisionEngine | null,
-  input: { readonly objective: string; readonly required: readonly RequiredArtifact[]; readonly obtainable?: readonly RequiredArtifact[]; readonly diagnostics?: readonly { readonly id: string; readonly text: string }[]; readonly approvedRoots: readonly string[]; readonly threshold?: number },
+  input: { readonly objective: string; /** True when `objective` is Jevris's own fixed text (not the person's words), so it may go out with egress denied. */ readonly objectiveIsFixed?: boolean; readonly required: readonly RequiredArtifact[]; readonly obtainable?: readonly RequiredArtifact[]; readonly diagnostics?: readonly { readonly id: string; readonly text: string }[]; readonly approvedRoots: readonly string[]; readonly threshold?: number; readonly facts?: Readonly<Record<string, string | number | boolean>> },
   ctx: IntentContext,
 ): Promise<SufficiencyResult> {
   const notObserved = input.required.filter((a) => !a.available).map((a) => a.id);
@@ -360,32 +418,34 @@ export async function checkEvidenceSufficiency(
   const stale = input.required.find((a) => a.fresh === false);
   if (stale !== undefined) return request(stale, 'STALE_ARTIFACT', null);
   const obtainable = (input.obtainable ?? []).slice(0, 10);
-  // An artifact of the fixed vocabulary (failing-test-output, stack-trace, ...) is named by its id
-  // alone. A free-text description of any other artifact is the caller's text: it is read into a
-  // request only with source egress approved, and is never put in a question.
   const known = new Set<string>(FAILURE_ARTIFACT_IDS);
   const approved = (engine?.sourceEgress?.() ?? 'denied') === 'approved';
+  const required = input.required.slice(0, 32);
   const evidence: PacketEvidence[] = [
-    ...input.required.slice(0, 32).map((a, i) => ({ id: safeId(a.id, `artifact-${i}`), text: clip(known.has(a.id) ? a.id : a.description, 1000), sourceKind: 'tool' as const, priority: 'mandatory' as const })),
+    ...required.flatMap((a, i) => (known.has(a.id) ? [] : [{ id: safeId(a.id, `artifact-${i}`), text: clip(a.description, 1000), sourceKind: 'tool' as const, priority: 'mandatory' as const }])),
     ...(input.diagnostics ?? []).slice(0, 16).map((d, i) => ({ id: safeId(d.id, `diagnostic-${i}`), text: clip(d.text, 2000), sourceKind: 'tool' as const, priority: 'high' as const })),
   ];
+  const have = required.filter((a) => known.has(a.id)).map((a) => a.id);
   const questions: Record<string, unknown> = {
-    sufficient: { type: 'noul', instructions: 'Does the supplied evidence identify the cause well enough to choose a fix?', criteria: { true: 'The evidence points to one cause and a fix can be chosen.', false: 'More evidence is needed before a fix can be chosen.' } },
+    sufficient: { type: 'noul', instructions: 'Do the facts and evidence items supplied so far identify the cause well enough to choose a fix?', criteria: { true: 'The evidence points to one cause and a fix can be chosen.', false: 'More evidence is needed before a fix can be chosen.' } },
   };
   if (obtainable.length > 0) {
     const criteria: Record<string, string> = {};
-    obtainable.forEach((a, i) => (criteria[`a${i}`] = clip(known.has(a.id) ? `Artifact ${a.id}` : approved ? `Artifact ${a.id}: ${a.description}` : `Artifact number ${i + 1} in the list`, 300)));
+    obtainable.forEach((a, i) => (criteria[`a${i}`] = clip(known.has(a.id) ? FAILURE_ARTIFACT_TEXT[a.id as keyof typeof FAILURE_ARTIFACT_TEXT].option : approved ? `Artifact ${a.id}: ${a.description}` : `Artifact number ${i + 1} in the list`, 300)));
     criteria['none'] = 'None of the listed artifacts would reduce the uncertainty.';
     criteria['unknown'] = 'The evidence is insufficient to tell which artifact helps.';
     questions['nextArtifact'] = { type: 'choice', instructions: 'Which listed artifact would most reduce the uncertainty about the cause?', criteria };
   }
-  const asked = await ask(engine, 'c05-evidence', questions as unknown as JevQuestions, { objective: clip(input.objective, 2000), trustedPolicy: {}, facts: { required: input.required.length, obtainable: obtainable.length }, evidence }, ctx);
-  if (!asked.ok) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: asked.reasonCode, decisionId: asked.decisionId };
+  const facts: Record<string, string | number | boolean> = { ...codeFacts(input.facts), required: input.required.length, obtainable: obtainable.length, have: have.length === 0 ? 'none' : have.join(',') };
+  const asked = await ask(engine, 'c05-evidence', questions as unknown as JevQuestions, { objective: approved || input.objectiveIsFixed === true ? clip(input.objective, 2000) : 'Judge whether the failure evidence supplied so far is enough to choose a fix (advice only).', trustedPolicy: { grantsAuthority: false }, facts, evidence }, ctx);
+  if (!asked.ok) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: asked.reasonCode, decisionId: asked.decisionId, jevSaid: null };
   const p = noulOf(asked.answers, 'sufficient');
-  if (p !== null && p >= (input.threshold ?? 0.5)) return { outcome: 'sufficient', notObserved, escalate: false, reasonCode: 'EVIDENCE_SUFFICIENT', decisionId: asked.decisionId };
+  if (p !== null && p >= (input.threshold ?? INTENT_MIN_CONFIDENCE)) return { outcome: 'sufficient', notObserved, escalate: false, reasonCode: 'EVIDENCE_SUFFICIENT', decisionId: asked.decisionId };
   const next = obtainable.length === 0 ? null : choiceOf(asked.answers, 'nextArtifact');
-  const pick = next === null || !/^a\d+$/.test(next.choice) ? undefined : obtainable[Number(next.choice.slice(1))];
-  if (pick === undefined) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: 'INSUFFICIENT_NO_ARTIFACT_NAMED', decisionId: asked.decisionId };
+  if (next === null) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: obtainable.length === 0 ? 'INSUFFICIENT_NO_ARTIFACT_NAMED' : 'NO_ANSWER', decisionId: asked.decisionId, jevSaid: null };
+  if (next.confidence < INTENT_MIN_CONFIDENCE || next.margin < INTENT_MIN_MARGIN) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: 'LOW_CONFIDENCE', decisionId: asked.decisionId, jevSaid: null };
+  const pick = /^a\d+$/.test(next.choice) ? obtainable[Number(next.choice.slice(1))] : undefined;
+  if (pick === undefined) return { outcome: 'undetermined', notObserved, escalate: false, reasonCode: next.choice === 'none' ? 'NO_ARTIFACT_HELPS' : 'INSUFFICIENT_NO_ARTIFACT_NAMED', decisionId: asked.decisionId, jevSaid: next.choice === 'none' ? 'none' : null };
   return request(pick, 'REQUEST_BEFORE_ESCALATION', asked.decisionId);
 }
 
@@ -401,7 +461,14 @@ export interface ScopeItem {
 
 export interface ScopeResult {
   readonly continue: readonly ScopeItem[];
-  readonly paused: readonly (ScopeItem & { readonly explanation: string })[];
+  /**
+   * What pauses. `assessed` is false for an effect that pauses only because it was not approved and Jev could
+   * not (or was not asked to) judge it: the explanation says so, and a caller that shows only judged
+   * findings leaves it out.
+   */
+  readonly paused: readonly (ScopeItem & { readonly explanation: string; readonly assessed: boolean })[];
+  /** How many requested effects Jev gave an answer for (those that continue and those that pause). */
+  readonly assessedCount: number;
   readonly ignoredApprovals: readonly { readonly effect: string; readonly channel: string; readonly reasonCode: 'UNTRUSTED_APPROVAL_CHANNEL' }[];
   readonly decisionId: string | null;
 }
@@ -410,6 +477,12 @@ export interface ScopeResult {
  * C06: a changed path outside the approved paths pauses by rule. A new requested effect that is
  * neither approved nor approved later through a trusted channel gets a Noul; above the threshold
  * it pauses, with an explanation. Only the out-of-scope portion pauses; the rest continues.
+ *
+ * A requested effect is either a caller's free text (read into the request as evidence, so only while
+ * source egress is approved) or a class of the fixed vocabulary (`effectClasses`: the effect classes the
+ * permission triage recognises, each with one fixed phrase). A class goes into the request as a fact (a
+ * code), never as text, so it is judged with source egress denied too. The question is a fixed template
+ * that points at the evidence item or the fact. At most 12 effects are judged; the rest pause unjudged.
  */
 export async function detectScopeChange(
   engine: DecisionEngine | null,
@@ -417,6 +490,7 @@ export async function detectScopeChange(
     readonly approvedScope: { readonly paths: readonly string[]; readonly effects: readonly string[] };
     readonly diff: readonly { readonly path: string }[];
     readonly requestedEffects: readonly string[];
+    readonly effectClasses?: readonly string[];
     readonly approvals?: readonly { readonly effect: string; readonly channel: string }[];
     readonly threshold?: number;
   },
@@ -426,38 +500,64 @@ export async function detectScopeChange(
   const ignoredApprovals = (input.approvals ?? []).filter((a) => !trusted.has(a.channel)).map((a) => ({ effect: clip(a.effect, 200), channel: clip(a.channel, 64), reasonCode: 'UNTRUSTED_APPROVAL_CHANNEL' as const }));
   const approvedEffects = new Set([...input.approvedScope.effects, ...(input.approvals ?? []).filter((a) => trusted.has(a.channel)).map((a) => a.effect)].map((e) => e.trim().toLowerCase()));
   const cont: ScopeItem[] = [];
-  const paused: (ScopeItem & { explanation: string })[] = [];
+  const paused: (ScopeItem & { explanation: string; assessed: boolean })[] = [];
   for (const change of input.diff) {
     if (withinWriteScopes(change.path, input.approvedScope.paths)) cont.push({ kind: 'path', item: change.path });
-    else paused.push({ kind: 'path', item: change.path, explanation: `${change.path} is outside the approved paths (${input.approvedScope.paths.join(', ')}); approve it in the session to continue this part.` });
+    else paused.push({ kind: 'path', item: change.path, explanation: `${change.path} is outside the approved paths (${input.approvedScope.paths.join(', ')}); approve it in the session to continue this part.`, assessed: true });
   }
   const open: string[] = [];
   for (const effect of input.requestedEffects) {
     if (approvedEffects.has(effect.trim().toLowerCase())) cont.push({ kind: 'effect', item: effect });
     else open.push(effect);
   }
-  const judged = open.slice(0, MAX_ITEMS);
+  // A class of the fixed vocabulary stands for its fixed phrase; one a person approved (by its phrase) continues.
+  const classes: string[] = [];
+  for (const code of [...new Set(input.effectClasses ?? [])]) {
+    const phrase = Object.hasOwn(EFFECT_CLASS_TEXT, code) ? EFFECT_CLASS_TEXT[code as keyof typeof EFFECT_CLASS_TEXT] : undefined;
+    if (phrase === undefined) continue;
+    if (approvedEffects.has(phrase.toLowerCase()) || approvedEffects.has(code)) cont.push({ kind: 'effect', item: phrase });
+    else classes.push(code);
+  }
+  const judgedClasses = classes.slice(0, MAX_ITEMS);
+  const judged = open.slice(0, MAX_ITEMS - judgedClasses.length);
   // Beyond the question limit, an unjudged new effect pauses: it was never approved.
-  for (const effect of open.slice(MAX_ITEMS)) paused.push({ kind: 'effect', item: effect, explanation: 'This new effect was not approved and was not assessed; approve it in the session to continue.' });
-  if (judged.length === 0) return { continue: cont, paused, ignoredApprovals, decisionId: null };
+  for (const effect of open.slice(judged.length)) paused.push({ kind: 'effect', item: effect, explanation: 'This new effect was not approved and was not assessed; approve it in the session to continue.', assessed: false });
+  for (const code of classes.slice(judgedClasses.length)) paused.push({ kind: 'effect', item: EFFECT_CLASS_TEXT[code as keyof typeof EFFECT_CLASS_TEXT], explanation: 'This new effect was not approved and was not assessed; approve it in the session to continue.', assessed: false });
+  if (judged.length + judgedClasses.length === 0) return { continue: cont, paused, ignoredApprovals, decisionId: null, assessedCount: 0 };
   const evidence: PacketEvidence[] = judged.map((effect, i) => ({ id: `effect-${i}`, text: clip(effect, 1000), sourceKind: 'user', priority: 'mandatory' }));
   const questions: Record<string, unknown> = {};
+  const criteria = { true: 'The effect adds behaviour, data or access the approved scope does not cover.', false: 'The effect is part of what the approved scope already covers.' };
   judged.forEach((_, i) => {
-    questions[`outside${i}`] = {
-      type: 'noul',
-      instructions: `Does the requested effect in evidence item effect-${i} go beyond the approved scope?`,
-      criteria: { true: 'The effect adds behaviour, data or access the approved scope does not cover.', false: 'The effect is part of what the approved scope already covers.' },
-    };
+    questions[`outside${i}`] = { type: 'noul', instructions: `Does the requested effect in evidence item effect-${i} go beyond the approved scope?`, criteria };
   });
-  const asked = await ask(engine, 'c06-scope', questions as unknown as JevQuestions, { objective: 'Check new requested effects against the approved scope.', trustedPolicy: { approvedEffects: input.approvedScope.effects.slice(0, 32), approvedPaths: input.approvedScope.paths.slice(0, 32) }, facts: { newEffects: judged.length }, evidence }, ctx);
+  const facts: Record<string, string | number | boolean> = { newEffects: judged.length + judgedClasses.length, approvedPaths: input.approvedScope.paths.length, approvedEffects: input.approvedScope.effects.length };
+  judgedClasses.forEach((code, i) => {
+    facts[`effectClass${i}`] = code;
+    // The class's own fixed phrase is part of the fixed template (it is Jevris's text, not the person's), so Jev knows what the code means.
+    const phrase = EFFECT_CLASS_TEXT[code as keyof typeof EFFECT_CLASS_TEXT];
+    questions[`class${i}`] = { type: 'noul', instructions: `The requested effect in fact effectClass${i} is: ${phrase}. Does it go beyond the approved scope, which is editing the files under the approved paths and the approved effects counted in the facts?`, criteria };
+  });
+  // The approved scope's own text (path patterns, effect phrases) goes only with an effect that is itself text, or, for a class, when egress is approved.
+  const scopeTextMaySend = evidence.length > 0 || (judgedClasses.length > 0 && (engine?.sourceEgress?.() ?? 'denied') === 'approved');
+  const policy = scopeTextMaySend ? { grantsAuthority: false, approvedEffects: input.approvedScope.effects.slice(0, 32), approvedPaths: input.approvedScope.paths.slice(0, 32) } : { grantsAuthority: false };
+  const asked = await ask(engine, 'c06-scope', questions as unknown as JevQuestions, { objective: 'Check new requested effects against the approved scope (advice only).', trustedPolicy: policy, facts, evidence }, ctx);
   const threshold = input.threshold ?? 0.5;
+  let assessedCount = 0;
   judged.forEach((effect, i) => {
     const p = asked.ok ? noulOf(asked.answers, `outside${i}`) : null;
+    if (p !== null) assessedCount += 1;
     // Without an answer the effect is still unapproved, so it pauses rather than proceeding.
-    if (p === null || p >= threshold) paused.push({ kind: 'effect', item: effect, explanation: p === null ? `"${clip(effect, 120)}" was not approved and could not be assessed; approve it in the session to continue.` : `"${clip(effect, 120)}" goes beyond the approved scope; approve it in the session to continue this part.` });
+    if (p === null || p >= threshold) paused.push({ kind: 'effect', item: effect, explanation: p === null ? `"${clip(effect, 120)}" was not approved and could not be assessed; approve it in the session to continue.` : `"${clip(effect, 120)}" goes beyond the approved scope; approve it in the session to continue this part.`, assessed: p !== null });
     else cont.push({ kind: 'effect', item: effect });
   });
-  return { continue: cont, paused, ignoredApprovals, decisionId: asked.decisionId };
+  judgedClasses.forEach((code, i) => {
+    const phrase = EFFECT_CLASS_TEXT[code as keyof typeof EFFECT_CLASS_TEXT];
+    const p = asked.ok ? noulOf(asked.answers, `class${i}`) : null;
+    if (p !== null) assessedCount += 1;
+    if (p === null || p >= threshold) paused.push({ kind: 'effect', item: phrase, explanation: p === null ? `"${phrase}" was not approved and could not be assessed; approve it in the session to continue.` : `"${phrase}" goes beyond the approved scope; approve it in the session to continue this part.`, assessed: p !== null });
+    else cont.push({ kind: 'effect', item: phrase });
+  });
+  return { continue: cont, paused, ignoredApprovals, decisionId: asked.decisionId, assessedCount };
 }
 
 // ------------------------------------------------------- INT-06 decomposition audit (C03)

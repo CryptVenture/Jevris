@@ -1,18 +1,23 @@
+import { ADVISE_CAPABILITY_IDS, DELIVERY_REPORTS } from '@jevris/contracts';
+
 /**
- * The inventory of every place the product asks Jev (read from the source on 2026-10-03, checked
- * against it by `features-inventory.test.mjs`). The feature suite covers each entry once; the report
- * says which entries are live on a hook or an op, which run only when a caller asks, and which no code
- * path reaches.
+ * The inventory of every place the product asks Jev (read from the source on 2026-10-03 and rewired on 2026-10-04, checked
+ * against it by `features-inventory.test.mjs`). The feature suite covers each entry once; the report says which entries
+ * are live on a hook or an op, which run only when a caller asks, and which no code path reaches. The test fails on any entry
+ * that is `dormant` or `not-asked`, on any file or consult site that asks Jev and is not listed, and on a capability that no
+ * command, tool or op can reach.
  *
  * `wiring`:
  *  - `hot`: runs inside a hook or op a person waits for, with a Jev wait of at most 700 ms;
- *  - `detached`: runs after the hook has answered; its line waits for the session's next event;
- *  - `on-demand`: runs only when an agent or a person calls the op or the tool (`capability.advise`,
- *    `checkpoint`, `recover`, `plan` with requirements or candidates);
- *  - `dormant`: the code exists and is tested, but no hook or op supplies what it needs, so it never runs;
+ *  - `detached`: runs after the hook or op has answered (a line waits for the session's next event, or the work goes on in
+ *    the background); nothing waits on it;
+ *  - `on-demand`: runs only when an agent or a person calls the op or the tool (`capability.advise`, `checkpoint`, `recover`,
+ *    `plan` with requirements or candidates);
+ *  - `dormant`: the code exists and is tested, but no hook, op, command or tool supplies what it needs, so it never runs;
  *  - `not-asked`: a question is defined and nothing asks it.
- * `egress`: `features` (counts, categories and codes only: allowed with egress denied) or `text`
- * (the question carries workspace text: asked only with source egress approved).
+ * `egress`: `features` (counts, categories and codes only: allowed with egress denied) or `text` (the question carries
+ * workspace text: asked only with source egress approved, by the administrator and by the person's own preference).
+ * `entry`: where in the product it is reached (a hook event, an op, a command or a tool), named so a reader can find it.
  */
 export type InventoryWiring = 'hot' | 'detached' | 'on-demand' | 'dormant' | 'not-asked';
 
@@ -25,6 +30,8 @@ export interface InventoryEntry {
   readonly needle: string;
   readonly wiring: InventoryWiring;
   readonly egress: 'features' | 'text';
+  /** The real entry that reaches it: a hook event, an op, a command or a tool. */
+  readonly entry: string;
   readonly note: string;
 }
 
@@ -32,26 +39,34 @@ const CORE = 'packages/core/src/';
 const PROV = 'packages/provider-typesafe/src/';
 const ORCH = 'packages/orchestrator/src/';
 
-function capability(id: string, kind: string, file: string, note: string, egress: 'features' | 'text' = 'features', wiring: InventoryWiring = 'on-demand'): InventoryEntry {
-  return { spec: `d-${id.toLowerCase()}`, kind, file: `${ORCH}${file}`, needle: `id: '${id}'`, wiring, egress, note };
+/** The capability ids a command and a tool name: `jevris advise <id>` with `jevris_advise`, and `jevris delivery <name>` with `jevris_delivery_report`. */
+const ADVISE_IDS: readonly string[] = ADVISE_CAPABILITY_IDS;
+const REPORT_IDS: readonly string[] = Object.values(DELIVERY_REPORTS);
+
+/** The entry of a capability that no command or tool names: only the `capability.advise` op reaches it. */
+export const OP_ONLY_ENTRY = 'the capability.advise op (no command or tool names this id)';
+
+function capability(id: string, kind: string, file: string, note: string, egress: 'features' | 'text' = 'features', wiring: InventoryWiring = 'on-demand', entryOverride?: string): InventoryEntry {
+  const entry = entryOverride ?? (ADVISE_IDS.includes(id) ? `jevris advise ${id} and the jevris_advise tool (the capability.advise op)` : REPORT_IDS.includes(id) ? `jevris delivery and the jevris_delivery_report tool (the capability.advise op)` : OP_ONLY_ENTRY);
+  return { spec: `d-${id.toLowerCase()}`, kind, file: `${ORCH}${file}`, needle: `id: '${id}'`, wiring, egress, entry, note };
 }
 
 export const FEATURE_INVENTORY: readonly InventoryEntry[] = [
-  { spec: 'slice-classify', kind: 'Choice (11 slices + unknown) and Score (risk, 5 anchors)', file: `${CORE}slice-classifier.ts`, needle: 'sliceQuestions', wiring: 'hot', egress: 'features', note: 'route op, plan op, plan submit; rules first, Jev only when they are not sure and no protected path is touched' },
-  { spec: 'check-relevance', kind: 'N Score (one per open check, at most 12)', file: `${CORE}check-relevance.ts`, needle: 'CHECK_RELEVANCE_SPEC_ID', wiring: 'hot', egress: 'features', note: 'Stop hook and verify; the Jev wait is the time left minus 450 ms, at most 700 ms' },
-  { spec: 'repeated-failure', kind: 'Noul (same failure) and Choice (next artifact)', file: `${PROV}failure-advice.ts`, needle: 'REPEATED_FAILURE_SPEC_ID', wiring: 'detached', egress: 'features', note: 'repeated-failure trigger; one line for the next event; 1500 ms detached deadline' },
-  { spec: 'new-task', kind: 'two Choices (workflow family, open question)', file: `${PROV}new-task-advice.ts`, needle: 'NEW_TASK_SPEC_ID', wiring: 'detached', egress: 'text', note: 'reads the prompt as one screened span: asked only with source egress approved' },
-  { spec: 'c01-task-family', kind: 'Choice', file: `${CORE}intent-decisions.ts`, needle: "'c01-task-family'", wiring: 'dormant', egress: 'text', note: 'triageTaskFamily: reached only by the older new-task handler when the event body carries task templates; no adapter supplies them' },
-  { spec: 'c02-ambiguity', kind: 'Noul per explicit unknown', file: `${CORE}intent-decisions.ts`, needle: "'c02-ambiguity'", wiring: 'dormant', egress: 'text', note: 'detectAmbiguity: needs explicit unknowns in the event body; no adapter supplies them' },
-  { spec: 'c03-decomposition', kind: 'Score per requirement', file: `${CORE}intent-decisions.ts`, needle: "'c03-decomposition'", wiring: 'on-demand', egress: 'text', note: 'plan op with requirements' },
-  { spec: 'c04-template', kind: 'Choice', file: `${CORE}intent-decisions.ts`, needle: "'c04-template'", wiring: 'dormant', egress: 'features', note: 'shortlistTemplates: needs trusted installed templates; none ship' },
-  { spec: 'c05-evidence', kind: 'Noul + Choice', file: `${CORE}intent-decisions.ts`, needle: "'c05-evidence'", wiring: 'dormant', egress: 'text', note: 'checkEvidenceSufficiency: needs a required-artifact list from the event body; no adapter supplies it' },
-  { spec: 'c06-scope', kind: 'Noul per requested effect', file: `${CORE}intent-decisions.ts`, needle: "'c06-scope'", wiring: 'dormant', egress: 'text', note: 'detectScopeChange: needs a scope object in the event body; no adapter supplies it' },
-  { spec: 'c07-plan-rank', kind: 'Score per candidate plan', file: `${CORE}intent-decisions.ts`, needle: "'c07-plan-rank'", wiring: 'on-demand', egress: 'text', note: 'plan op with candidates' },
-  { spec: 'c51-injection-suspicion', kind: 'Noul', file: `${CORE}security-advice.ts`, needle: "'c51-injection-suspicion'", wiring: 'detached', egress: 'features', note: 'security subscriber on every tool result; asked only when the rules found a partial signal' },
-  { spec: 'c49-permission-triage', kind: 'Score', file: `${CORE}security-advice.ts`, needle: "'c49-permission-triage'", wiring: 'detached', egress: 'features', note: 'security subscriber before a tool call; Jev can only raise the rules level' },
-  { spec: 'worker-readiness', kind: 'Noul', file: `${CORE}route-worker.ts`, needle: 'WORKER_READINESS_QUESTIONS', wiring: 'not-asked', egress: 'features', note: 'defined as the calibration key of worker routing; no code path asks it' },
-  { spec: 'health-probe', kind: 'Noul (fixed question, no content)', file: `${CORE}decision-engine.ts`, needle: 'PROBE_QUESTIONS', wiring: 'hot', egress: 'features', note: 'one bounded probe while the circuit is half-open' },
+  { spec: 'slice-classify', kind: 'Choice (11 slices + unknown) and Score (risk, 5 anchors)', file: `${CORE}slice-classifier.ts`, needle: 'sliceQuestions', wiring: 'hot', egress: 'features', entry: 'the route op (jevris route), the plan op and plan submit', note: 'rules first; Jev only when they are not sure and no protected path is touched' },
+  { spec: 'check-relevance', kind: 'N Score (one per open check, at most 12)', file: `${CORE}check-relevance.ts`, needle: 'CHECK_RELEVANCE_SPEC_ID', wiring: 'hot', egress: 'features', entry: 'the Stop hook and the verify op (jevris verify)', note: 'the Jev wait is the time left minus 450 ms, at most 700 ms' },
+  { spec: 'repeated-failure', kind: 'Noul (same failure), then C05 (Noul and Choice)', file: `${PROV}failure-advice.ts`, needle: 'REPEATED_FAILURE_SPEC_ID', wiring: 'detached', egress: 'features', entry: 'the repeated-failure trigger on a failed tool call (PostToolUseFailure and its equivalents)', note: 'one line for the next event; 1500 ms detached deadline; the Choice and the sufficiency Noul are core\'s C05 handler over the fixed artifact vocabulary' },
+  { spec: 'new-task', kind: 'C01, C04 and C02 over the request, one line', file: `${PROV}new-task-advice.ts`, needle: 'NEW_TASK_SPEC_ID', wiring: 'detached', egress: 'text', entry: 'the new-task trigger on a prompt (UserPromptSubmit and its equivalents)', note: 'reads the prompt as one screened span: asked only with source egress approved; the trigger and the line, the decisions are the three below' },
+  { spec: 'c01-task-family', kind: 'Choice over the trusted workflow families', file: `${CORE}intent-decisions.ts`, needle: "'c01-task-family'", wiring: 'detached', egress: 'text', entry: 'the new-task trigger (newTaskAdvice runs triageTaskFamily)', note: 'the eight families that ship with Jevris, one built-in template each, unless the caller names installed templates; the request is one screened span' },
+  { spec: 'c02-ambiguity', kind: 'Noul per open point', file: `${CORE}intent-decisions.ts`, needle: "'c02-ambiguity'", wiring: 'detached', egress: 'text', entry: 'the new-task trigger (newTaskAdvice runs detectAmbiguity)', note: 'five fixed open points (scope, acceptance, target, edge cases, compatibility), or the caller\'s own unknowns; at most one becomes the question' },
+  { spec: 'c03-decomposition', kind: 'Score per requirement', file: `${CORE}intent-decisions.ts`, needle: "'c03-decomposition'", wiring: 'on-demand', egress: 'text', entry: 'the plan op with requirements (jevris plan --graph with a requirements list, and the jevris_plan tool)', note: 'one Score per requirement; the requirement text is evidence, so only with source egress approved; the result is a review score, never a feasibility verdict' },
+  { spec: 'c04-template', kind: 'Choice over the matching trusted templates', file: `${CORE}intent-decisions.ts`, needle: "'c04-template'", wiring: 'detached', egress: 'features', entry: 'the new-task trigger (newTaskAdvice runs shortlistTemplates for the chosen family)', note: 'asked only when more than one trusted installed template matches the family; the built-in set has one per family, so it settles by rules' },
+  { spec: 'c05-evidence', kind: 'Noul (sufficient) and Choice (next artifact)', file: `${CORE}intent-decisions.ts`, needle: "'c05-evidence'", wiring: 'detached', egress: 'features', entry: 'the repeated-failure trigger (repeatedFailureAdvice runs checkEvidenceSufficiency)', note: 'over the fixed artifact vocabulary only: ids and their fixed texts, no text of the failure; a caller\'s own artifact is text and needs egress approved' },
+  { spec: 'c06-scope', kind: 'Noul per requested effect', file: `${CORE}intent-decisions.ts`, needle: "'c06-scope'", wiring: 'detached', egress: 'features', entry: 'the diff-boundary trigger (scopeChangeAdvice runs detectScopeChange)', note: 'a path outside the approved paths pauses by rule at once; the effect classes the permission triage saw (codes only) are the Jev question; a caller\'s free-text effect is text and needs egress approved' },
+  { spec: 'c07-plan-rank', kind: 'Score per candidate plan', file: `${CORE}intent-decisions.ts`, needle: "'c07-plan-rank'", wiring: 'on-demand', egress: 'text', entry: 'the plan op with candidates (jevris plan --graph with a candidates list, and the jevris_plan tool)', note: 'one Score per candidate plan; the summaries are evidence, so only with source egress approved; the result is a review score, never a feasibility verdict' },
+  { spec: 'c51-injection-suspicion', kind: 'Noul', file: `${CORE}security-advice.ts`, needle: "'c51-injection-suspicion'", wiring: 'detached', egress: 'features', entry: 'the security subscriber on every tool result', note: 'asked only when the rules found a partial signal' },
+  { spec: 'c49-permission-triage', kind: 'Score', file: `${CORE}security-advice.ts`, needle: "'c49-permission-triage'", wiring: 'detached', egress: 'features', entry: 'the security subscriber before a tool call', note: 'Jev can only raise the rules level' },
+  { spec: 'worker-readiness', kind: 'Noul', file: `${CORE}worker-readiness.ts`, needle: 'WORKER_READINESS_ADVICE_SPEC_ID', wiring: 'detached', egress: 'features', entry: 'the owned-worker launch (plan.submit, task.submit) and its counterfactual in observe and advise', note: 'advice recorded with the launch and shown by jevris explain and task.get; the launch never depends on it; the question is route-worker.ts WORKER_READINESS_QUESTIONS' },
+  { spec: 'health-probe', kind: 'Noul (fixed question, no content)', file: `${CORE}decision-engine.ts`, needle: 'PROBE_QUESTIONS', wiring: 'hot', egress: 'features', entry: 'the decision engine while the circuit is half-open', note: 'one bounded probe while the circuit is half-open' },
   capability('C25', 'Choice per task pair', 'capabilities/orchestration.ts', 'dependency suggestion for a plan', 'text'),
   { ...capability('C26', 'Choice', 'capabilities/orchestration.ts', 'worker-role allocation; option texts quote installed agent descriptions', 'text'), wiring: 'on-demand' },
   capability('C28', 'Noul per active task pair', 'capabilities/orchestration.ts', 'duplicate work; needs two active owned tasks', 'text'),
@@ -83,14 +98,14 @@ export const FEATURE_INVENTORY: readonly InventoryEntry[] = [
   capability('C69', 'Score', 'capabilities/research.ts', 'evidence-conflict materiality', 'text'),
   capability('C70', 'Choice', 'capabilities/research.ts', 'canary module for a staged migration; option texts are module paths', 'text'),
   capability('C72', 'Choice', 'capabilities/research.ts', 'host-triage recommendation'),
-  { spec: 'd-c18', kind: 'Score per optional capsule item', file: `${ORCH}memory/capsule.ts`, needle: "capabilityId: 'C18'", wiring: 'on-demand', egress: 'text', note: 'checkpoint op; needs the user preference privacy.sourceEgress approved-scoped and 1.5 s left' },
-  { spec: 'd-c19', kind: 'Noul', file: `${ORCH}memory/readiness.ts`, needle: "capabilityId: 'C19'", wiring: 'dormant', egress: 'text', note: 'compactionReadiness has no caller' },
-  { spec: 'd-c20', kind: 'Noul', file: `${ORCH}memory/audit.ts`, needle: "capabilityId: 'C20'", wiring: 'dormant', egress: 'text', note: 'auditOmissions has no caller outside tests' },
-  { spec: 'd-c21', kind: 'Choice', file: `${ORCH}memory/rehydrate.ts`, needle: "capabilityId: 'C21'", wiring: 'dormant', egress: 'text', note: 'the only caller passes a capsule id, so the Choice never fires' },
-  { spec: 'd-c22', kind: 'Score per span', file: `${ORCH}memory/distill.ts`, needle: "capabilityId: 'C22'", wiring: 'dormant', egress: 'text', note: 'verify passes no engine to the distiller' },
-  { spec: 'd-c23', kind: 'Noul', file: `${ORCH}memory/facts.ts`, needle: "capabilityId: 'C23'", wiring: 'dormant', egress: 'text', note: 'triageContradictions has no caller' },
-  { spec: 'd-c24', kind: 'Score per memory item', file: `${ORCH}memory/facts.ts`, needle: "capabilityId: 'C24'", wiring: 'dormant', egress: 'text', note: 'retrieveProjectMemory has no caller' },
-  { spec: 'd-c29', kind: 'Choice', file: `${ORCH}orchestration/loops.ts`, needle: "capabilityId: 'C29'", wiring: 'on-demand', egress: 'text', note: 'recover op: loop advice when two different failures were each seen once' },
+  { spec: 'd-c18', kind: 'Score per optional capsule item', file: `${ORCH}memory/capsule.ts`, needle: "capabilityId: 'C18'", wiring: 'on-demand', egress: 'text', entry: 'the checkpoint op (jevris checkpoint, jevris_checkpoint)', note: 'needs the person\'s preference privacy.sourceEgress approved-scoped and the administrator\'s approval, and 1.5 s left' },
+  { spec: 'd-c19', kind: 'Noul', file: `${ORCH}memory/readiness.ts`, needle: "capabilityId: 'C19'", wiring: 'on-demand', egress: 'features', entry: 'the checkpoint op with contextPercent (jevris checkpoint --context-percent, jevris_checkpoint)', note: 'asked only between 70 and 90 percent of the context, from counts and flags; native compaction is never deferred or started. No harness hook reports context use, so a caller says it' },
+  { spec: 'd-c20', kind: 'Noul per unmatched optional decision', file: `${ORCH}memory/audit.ts`, needle: "capabilityId: 'C20'", wiring: 'hot', egress: 'text', entry: 'the PostCompact event, where the harness sends the compaction summary (Claude Code does; Codex when its event carries one)', note: 'exact items are matched by rules; a decision is judged by Jev only with egress approved; what was left out is restored first at the next SessionStart' },
+  { spec: 'd-c21', kind: 'Choice over saved capsules', file: `${ORCH}memory/rehydrate.ts`, needle: "capabilityId: 'C21'", wiring: 'hot', egress: 'features', entry: 'the SessionStart(resume) event, when more than one capsule could continue the session', note: 'rules are sure when the newest capsule holds the most unfinished work; otherwise Jev picks from counts and an age bucket, with no text of any capsule' },
+  { spec: 'd-c22', kind: 'Score per span of a long check output', file: `${ORCH}memory/distill.ts`, needle: "capabilityId: 'C22'", wiring: 'detached', egress: 'text', entry: 'the verify op (jevris verify), in the check run', note: 'at most 8 spans, only with egress approved by the administrator and the person; the check result is the runner\'s and is untouched' },
+  { spec: 'd-c23', kind: 'Noul per constraint pair', file: `${ORCH}memory/facts.ts`, needle: "capabilityId: 'C23'", wiring: 'on-demand', egress: 'text', entry: 'the checkpoint op with new constraints (jevris checkpoint --constraint)', note: 'a new constraint against the held ones, at most 8 pairs, only with egress approved by both; a pair found contradictory becomes a hypothesis line, never a finding' },
+  { spec: 'd-c24', kind: 'Score per project-memory entry', file: `${ORCH}memory/facts.ts`, needle: "capabilityId: 'C24'", wiring: 'hot', egress: 'text', entry: 'the SessionStart restore (compact and resume)', note: 'entries are only those admitted by passing receipts or a named person (admitProjectMemory, which no command calls yet), so nothing is asked until some exist; Jev rescores only more than 5 entries with egress approved' },
+  { spec: 'd-c29', kind: 'Choice', file: `${ORCH}orchestration/loops.ts`, needle: "capabilityId: 'C29'", wiring: 'on-demand', egress: 'text', entry: 'the recover op (jevris recover, jevris_recover)', note: 'loop advice when two different failures were each seen once' },
 ];
 
 /** The count by wiring, for the report. */

@@ -18,6 +18,7 @@ import { UNKNOWN_SESSION_ID, type DecisionEngine } from '@jevris/core';
 import type { HookProposal, TriggerHandler, TriggerHandlerInput } from './sidecar-subscribers.js';
 import { DEFAULT_MAX_REPAIR_ATTEMPTS, adviseRepeatedFailure, failureAskGate, failureContextOf, parseFailureFeatures, planFailureAdvice } from './failure-advice.js';
 import { adviseNewTask, newTaskAskGate } from './new-task-advice.js';
+import { templatesOf, unknownsOf } from './intent-body.js';
 import { PENDING_ADVICE, type PendingAdviceStore } from './pending-advice.js';
 
 export interface LiveHandlerOptions {
@@ -45,11 +46,11 @@ const RECORD_MARGIN_MS = 150;
 const RECORD_WAIT_MAX_MS = 250;
 const MAX_TEXT = 4000;
 
-function plain(value: unknown): value is Record<string, unknown> {
+export function plain(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
 
-function bodyOf(input: TriggerHandlerInput): Record<string, unknown> {
+export function bodyOf(input: TriggerHandlerInput): Record<string, unknown> {
   return plain(input.ctx.body) ? input.ctx.body : {};
 }
 
@@ -61,24 +62,24 @@ function repairBound(body: Record<string, unknown>): number {
 }
 
 /** Whether the harness shows an explain on this event (the launcher's `showsExplain`); absent reads as yes. */
-function showsHere(input: TriggerHandlerInput): boolean {
+export function showsHere(input: TriggerHandlerInput): boolean {
   return bodyOf(input)['showsExplain'] !== false;
 }
 
-function assistOf(input: TriggerHandlerInput): 'off' | 'classify' {
+export function assistOf(input: TriggerHandlerInput): 'off' | 'classify' {
   return input.ctx.jevAssist === 'off' ? 'off' : 'classify';
 }
 
-function modeOf(input: TriggerHandlerInput): Mode {
+export function modeOf(input: TriggerHandlerInput): Mode {
   return input.ctx.mode ?? 'bounded-auto';
 }
 
-function engineLike(input: TriggerHandlerInput): DecisionEngine | null {
+export function engineLike(input: TriggerHandlerInput): DecisionEngine | null {
   return input.engine;
 }
 
 /** A live read of the kill switch for a run that outlives its request; a read that fails counts as stopped. */
-async function stoppedNow(input: TriggerHandlerInput): Promise<boolean> {
+export async function stoppedNow(input: TriggerHandlerInput): Promise<boolean> {
   const read = input.ctx.killSwitchNow;
   if (read === undefined) return input.ctx.killSwitchStopped === true;
   try {
@@ -156,19 +157,20 @@ export function createRepeatedFailureHandler(options: LiveHandlerOptions = {}): 
   };
 }
 
-/** New-task advice (C01, C02): see `new-task-advice.ts`. */
+/** New-task advice (C01, C04, C02): see `new-task-advice.ts`. */
 export function createNewTaskHandler(options: LiveHandlerOptions = {}): TriggerHandler {
   const store = options.store ?? PENDING_ADVICE;
   const detach = options.background ?? ((work: Promise<unknown>) => void work.catch(() => undefined));
   const deadlineMs = options.deadlineMs ?? DETACHED_DEADLINE_MS;
   return async (input: TriggerHandlerInput): Promise<HookProposal | null> => {
     const task = bodyOf(input)['task'];
-    // A caller that brings its own question set (workflow templates or explicit unknowns) is served by the
-    // older new-task handler (`newTaskIntent`), which asks about exactly those; this adviser reads the prompt alone.
-    if (plain(task) && ((Array.isArray(task['templates']) && task['templates'].length > 0) || (Array.isArray(task['unknowns']) && task['unknowns'].length > 0))) return null;
     const raw = plain(task) ? task['objective'] : undefined;
     const objective = typeof raw === 'string' && raw.trim().length > 0 ? raw.slice(0, MAX_TEXT) : null;
     if (objective === null) return null;
+    // A caller that holds installed workflow templates or explicit unknowns names them in the body; the same
+    // decisions then ask about those. Without them the templates that ship with Jevris and the fixed open points stand.
+    const templates = plain(task) ? templatesOf(task['templates']) : [];
+    const unknowns = plain(task) ? unknownsOf(task['unknowns']) : [];
     // No usable session id: the line could not be queued for a session, so the request is not read.
     if (input.envelope.sessionId === UNKNOWN_SESSION_ID) {
       input.ctx.trace({ event: 'new-task-advice', reasonCode: 'NEW_TASK_NO_SESSION' });
@@ -183,6 +185,10 @@ export function createNewTaskHandler(options: LiveHandlerOptions = {}): TriggerH
       deadlineMs,
       evidenceRevision: input.revision ?? input.envelope.expectedRevision,
       ids: { workspaceId: input.envelope.workspaceId, sessionId: input.envelope.sessionId, ...(input.envelope.taskId === undefined ? {} : { taskId: input.envelope.taskId }) },
+      ...(templates.length === 0 ? {} : { templates }),
+      ...(unknowns.length === 0 ? {} : { unknowns }),
+      ...(input.currentRevision === undefined ? {} : { currentRevision: input.currentRevision }),
+      ...(input.stillUseful === undefined ? {} : { stillUseful: input.stillUseful }),
       ...(options.now === undefined ? {} : { now: options.now }),
       ...(options.lateGraceMs === undefined ? {} : { lateGraceMs: options.lateGraceMs }),
     };

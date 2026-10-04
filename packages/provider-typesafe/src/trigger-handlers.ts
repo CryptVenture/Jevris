@@ -21,18 +21,12 @@ import {
   sessionSignedInProviders,
   unavailableModels,
   checkEvidenceSufficiency,
-  detectAmbiguity,
-  detectScopeChange,
   loadModelRegistry,
   readPins,
   registryModel,
   harnessModelRef,
-  shortlistTemplates,
-  triageTaskFamily,
-  type ExplicitUnknown,
   type IntentContext,
   type RequiredArtifact,
-  type TemplateMeta,
   type ModelOffer,
   type SeenSpelling,
   type TriggerKind,
@@ -46,6 +40,7 @@ import { FAILURE_ARTIFACT_IDS, HARNESS_MODEL_ID_PATTERN, type FailureArtifactId 
 import type { HookProposal, TriggerHandler, TriggerHandlerInput } from './sidecar-subscribers.js';
 import { FAILURE_ARTIFACT_TEXT } from './failure-advice.js';
 import { newTaskAdvice, repeatedFailureAdvice } from './live-handlers.js';
+import { scopeChangeAdvice } from './scope-handler.js';
 import { bundledCalibrationPath, trustedCalibrationKeys } from './calibration-trust.js';
 import { adviceIgnored, openAdvice } from './advice-adherence.js';
 import { consentReaderOf } from './engine-of.js';
@@ -193,25 +188,6 @@ function bodyPart(input: TriggerHandlerInput, key: string): Record<string, unkno
   return plain(part) ? part : null;
 }
 
-function templatesOf(value: unknown): TemplateMeta[] {
-  return list(value, 64).flatMap((t) => {
-    const id = text(t['id'], 128);
-    const family = text(t['family'], 64);
-    const summary = text(t['summary'], 300);
-    if (id === null || family === null || summary === null) return [];
-    return [{ id, family, summary, tags: texts(t['tags'], 16, 64), trusted: t['trusted'] === true, source: t['source'] === 'installed' ? 'installed' : 'external' }];
-  });
-}
-
-function unknownsOf(value: unknown): ExplicitUnknown[] {
-  return list(value, 12).flatMap((u) => {
-    const id = text(u['id'], 64);
-    const topic = text(u['topic'], 300);
-    const consequence = text(u['consequence'], 300);
-    return id === null || topic === null || consequence === null ? [] : [{ id, topic, consequence, options: texts(u['options'], 8, 120) }];
-  });
-}
-
 function artifactsOf(value: unknown): RequiredArtifact[] {
   return list(value, 32).flatMap((a) => {
     const id = text(a['id'], 64);
@@ -227,63 +203,14 @@ function artifactsOf(value: unknown): RequiredArtifact[] {
 }
 
 /**
- * INT-01, INT-02, INT-03 (C01, C04, C02): a new task that carries `task: { objective, templates?, tags?, unknowns? }`
- * in the event body. A material ambiguity becomes one question for the person; otherwise a
- * selected workflow family is named. The original request is never rewritten.
- */
-export async function newTaskIntent(input: TriggerHandlerInput): Promise<HookProposal | null> {
-  const task = bodyPart(input, 'task');
-  const objective = task === null ? null : text(task['objective'], 4000);
-  if (task === null || objective === null) return null;
-  const ctx = intentContext(input);
-  const unknowns = unknownsOf(task['unknowns']);
-  if (unknowns.length > 0) {
-    const ambiguity = await detectAmbiguity(input.engine, { objective, unknowns, acceptanceCriteria: texts(task['acceptanceCriteria'], 16, 1000) }, ctx);
-    if (ambiguity.outcome === 'ask') return { hookOutcome: { kind: 'explain', text: `Jevris: one question before implementing: ${ambiguity.question.text}` }, reasonCode: 'AMBIGUITY_MATERIAL', decisionId: ambiguity.decisionId };
-  }
-  const templates = templatesOf(task['templates']);
-  if (templates.length === 0) return null;
-  const triage = await triageTaskFamily(input.engine, { objective, templates }, ctx);
-  if (triage.outcome !== 'selected') return null;
-  // INT-02 (C04): shortlist the installed, trusted templates for the selected family from their
-  // metadata only. An external suggestion is named for manual review and never installed.
-  const shortlist = await shortlistTemplates(input.engine, { taskProfile: { family: triage.family, tags: texts(task['tags'], 16, 64) }, templates }, ctx);
-  const chosen = shortlist.shortlist.length > 0 ? shortlist.shortlist : triage.templateIds;
-  const external = shortlist.external.length === 0 ? '' : ` Not installed (review manually; Jevris never installs them): ${shortlist.external.slice(0, 5).map((e) => e.id).join(', ')}.`;
-  return {
-    hookOutcome: { kind: 'explain', text: `Jevris: this looks like a ${triage.family} task; workflow templates to consider: ${chosen.join(', ')}.${external}`.slice(0, 1000) },
-    reasonCode: 'TASK_FAMILY_SELECTED',
-    decisionId: shortlist.decisionId ?? triage.decisionId,
-  };
-}
-
-/**
- * INT-05 (C06): at a diff boundary that carries `scope: { approvedScope, diff, requestedEffects,
- * approvals? }`, explain the out-of-scope part only. Approvals count only from a trusted channel.
- */
-export async function scopeChangeAdvice(input: TriggerHandlerInput): Promise<HookProposal | null> {
-  const scope = bodyPart(input, 'scope');
-  const approved = scope === null ? null : scope['approvedScope'];
-  if (scope === null || !plain(approved)) return null;
-  const result = await detectScopeChange(
-    input.engine,
-    {
-      approvedScope: { paths: texts(approved['paths'], 64, 500), effects: texts(approved['effects'], 64, 300) },
-      diff: list(scope['diff'], 256).flatMap((d) => (text(d['path'], 1000) === null ? [] : [{ path: text(d['path'], 1000) as string }])),
-      requestedEffects: texts(scope['requestedEffects'], 32, 300),
-      approvals: list(scope['approvals'], 32).flatMap((a) => (text(a['effect'], 300) === null || text(a['channel'], 64) === null ? [] : [{ effect: text(a['effect'], 300) as string, channel: text(a['channel'], 64) as string }])),
-    },
-    intentContext(input),
-  );
-  if (result.paused.length === 0) return null;
-  const lines = result.paused.slice(0, 5).map((p) => p.explanation);
-  return { hookOutcome: { kind: 'explain', text: `Jevris: pause only this out-of-scope part; the rest can continue. ${lines.join(' ')}` }, reasonCode: 'SCOPE_CHANGE', ...(result.decisionId === null ? {} : { decisionId: result.decisionId }) };
-}
-
-/**
- * INT-04 (C05): after a failure that carries `evidence: { required, obtainable?, diagnostics? }`,
- * ask for one specific artifact before stronger reasoning. Only the workspace root is an
- * approved location; nothing outside it is suggested.
+ * INT-04 (C05), the rules part: after a failure that carries `evidence: { required, obtainable? }`, ask for
+ * one specific artifact that is missing or stale before escalating. Only the workspace root is an approved
+ * location; nothing outside it is suggested.
+ *
+ * This runs on the hook path with no engine, so it never waits on Jev and sends nothing: a failure's
+ * diagnostics are the error's own text, which stays in the harness. C05's Jev questions (is the evidence
+ * enough, which listed artifact next) are asked by the repeated-failure adviser, over the fixed vocabulary of
+ * artifacts only (`failure-advice.ts`), where a failure has come back and the question is worth a call.
  */
 export async function evidenceAdvice(input: TriggerHandlerInput): Promise<HookProposal | null> {
   const evidence = bodyPart(input, 'evidence');
@@ -292,12 +219,11 @@ export async function evidenceAdvice(input: TriggerHandlerInput): Promise<HookPr
   if (required.length === 0) return null;
   const root = input.ctx.workspace.root;
   const result = await checkEvidenceSufficiency(
-    input.engine,
+    null,
     {
       objective: 'Choose a fix for the current failure.',
       required,
       obtainable: artifactsOf(evidence['obtainable']),
-      diagnostics: list(evidence['diagnostics'], 16).flatMap((d) => (text(d['id'], 64) === null || text(d['text'], 2000) === null ? [] : [{ id: text(d['id'], 64) as string, text: text(d['text'], 2000) as string }])),
       approvedRoots: root === null ? [] : [root],
     },
     intentContext(input),
@@ -417,12 +343,11 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
 export const DEFAULT_TRIGGER_HANDLERS: Partial<Record<TriggerKind, readonly TriggerHandler[]>> = Object.freeze({
   'model-change-request': [modelChangeAdvice],
   'worker-creation': [subagentRouteAdvice],
-  // The live adviser first (it needs only the prompt the adapter supplies, and only with egress
-  // approved); the older handler runs only when a body also carries `task.templates` or `unknowns`.
-  'new-task': [newTaskAdvice, newTaskIntent],
+  // One handler: C01, C04 and C02 over the request the adapter supplies, only with egress approved.
+  'new-task': [newTaskAdvice],
   'diff-boundary': [scopeChangeAdvice],
   'new-failure-family': [evidenceAdvice],
-  // The live adviser first (it reads the adapter's content-free `failure` features); a body that
-  // also carries `evidence` still gets the older handler's artifact request.
+  // The live adviser first (it reads the adapter's content-free `failure` features and asks C05 over them);
+  // `evidenceAdvice` adds C05's rules request for a missing artifact, with no call.
   'repeated-failure': [repeatedFailureAdvice, evidenceAdvice],
 });
