@@ -9,13 +9,22 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { trackEngine } from './engine-settle.mjs';
 
 const provider = await import('../dist/index.js');
 const core = await import('@jevris/core');
 
 test('all eight questions of a plan are in flight before any is answered', async (t) => {
   const home = mkdtempSync(join(tmpdir(), 'jevris-plan-in-flight-'));
-  t.after(() => rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 }));
+  let tracker = null;
+  // The engine's own tail (settling the budget, ending each journal entry) lands in this home: wait for it, then remove the home.
+  t.after(async () => {
+    try {
+      await tracker?.settled();
+    } finally {
+      rmSync(home, { recursive: true, force: true, maxRetries: 20, retryDelay: 50 });
+    }
+  });
   let arrived = 0;
   let release;
   const allArrived = new Promise((resolve) => {
@@ -40,7 +49,11 @@ test('all eight questions of a plan are in flight before any is answered', async
     }
     return new Response(JSON.stringify({ model: body.model, answers, usage: { input_tokens: 300, output_tokens: 10 } }), { status: 200, headers: { 'content-type': 'application/json' } });
   };
-  const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch, env: {}, sourceEgress: () => ({ provenance: 'administrator', sourceEgress: 'deny-until-approved' }) });
+  // Eight calls start together and each reserves from the budget file under its lock, which a call waits for at most 2 s before it falls
+  // back to rules without sending (BUDGET_LOCKED): on a slow disk the last of eight passed that, and the barrier below then never saw
+  // its eighth request. The wait is lengthened for this test; what the test proves, all eight in flight together, is unchanged.
+  const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch, env: {}, budgetLockTimeoutMs: 120_000, sourceEgress: () => ({ provenance: 'administrator', sourceEgress: 'deny-until-approved' }) });
+  tracker = trackEngine(engine);
   // Eight tasks with eight different feature sets: eight distinct questions, the plan's cap.
   const tasks = Array.from({ length: 8 }, (_, i) => ({ id: `T${i}`, paths: Array.from({ length: i + 1 }, (_, k) => `src/m${i}/f${k}.ts`), checkIds: ['unit-test'] }));
   const list = await core.suggestPlanSlices(engine, tasks, { workspaceId: 'w-in-flight', evidenceRevision: 'r1' }, { assist: 'classify', mode: 'advise', deadlineMs: 60_000, totalMs: 120_000, record: false });

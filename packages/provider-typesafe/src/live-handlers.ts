@@ -29,6 +29,12 @@ export interface LiveHandlerOptions {
   readonly deadlineMs?: number;
   /** How long past the deadline the engine lets a request run to warm the cache (default 1000). */
   readonly lateGraceMs?: number;
+  /**
+   * The longest an answered hook waits for the advisory record, in ms (default 250). It is still cut
+   * to the time the hook has left less a margin. A test seam: a test on a slow disk gives it a long
+   * wait so the record is not what the test races; the product never sets it.
+   */
+  readonly recordWaitMaxMs?: number;
   readonly now?: () => number;
 }
 
@@ -87,6 +93,7 @@ export function createRepeatedFailureHandler(options: LiveHandlerOptions = {}): 
   const store = options.store ?? PENDING_ADVICE;
   const detach = options.background ?? ((work: Promise<unknown>) => void work.catch(() => undefined));
   const deadlineMs = options.deadlineMs ?? DETACHED_DEADLINE_MS;
+  const recordWaitMaxMs = options.recordWaitMaxMs ?? RECORD_WAIT_MAX_MS;
   return async (input: TriggerHandlerInput): Promise<HookProposal | null> => {
     const body = bodyOf(input);
     const features = parseFailureFeatures(body['failure']);
@@ -111,7 +118,7 @@ export function createRepeatedFailureHandler(options: LiveHandlerOptions = {}): 
       // waited for only briefly, and never past the time the hook has left less a margin for the rest of its answer.
       const advice = await adviseRepeatedFailure(engine, context, {
         ...common,
-        recordWaitMs: Math.max(0, Math.min(RECORD_WAIT_MAX_MS, input.ctx.deadline.remainingMs() - RECORD_MARGIN_MS)),
+        recordWaitMs: Math.max(0, Math.min(recordWaitMaxMs, input.ctx.deadline.remainingMs() - RECORD_MARGIN_MS)),
         note: (reasonCode) => input.ctx.trace({ event: 'repeated-failure-advice', reasonCode }),
       });
       input.ctx.trace({ event: 'repeated-failure-advice', reasonCode: advice.reasonCode, ...(advice.decisionId === null ? {} : { decisionId: advice.decisionId }) });

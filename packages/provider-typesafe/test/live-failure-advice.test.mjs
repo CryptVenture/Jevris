@@ -424,19 +424,19 @@ function harnessEvent(kind, { toolName = null, session = 'sess-1' } = {}) {
   return { schemaVersion: '1.0', harness: 'claude', nativeEventName: 'Hook', kind, sessionId: session, turnId: null, toolUseId: `tu-${n}`, toolName, agentId: null, model: null, permissionMode: null, cwd: null, trigger: null, blocking: true, responseRequired: false, payload: {}, dedupKey: sha(`failure-event-${n}`) };
 }
 
-function hookCtx(kind, { toolName = kind === 'tool.finished' ? 'Edit' : 'Bash', session, failure, engine, mode = 'bounded-auto', jevAssist = 'classify', repair = { maxAttempts: 2 }, showsExplain, killSwitchStopped = false, signal, revision = 'rev-1' } = {}) {
+function hookCtx(kind, { toolName = kind === 'tool.finished' ? 'Edit' : 'Bash', session, failure, engine, mode = 'bounded-auto', jevAssist = 'classify', repair = { maxAttempts: 2 }, showsExplain, killSwitchStopped = false, signal, revision = 'rev-1', remainingMs = 500 } = {}) {
   const body = { envelope: harnessEvent(kind, { toolName, session }), deliveryKey: `k-${n}`, revision, taskId: 'task-1' };
   if (failure !== undefined) body.failure = failure;
   if (repair !== null) body.repair = repair;
   if (showsExplain !== undefined) body.showsExplain = showsExplain;
-  return { op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: 'w-hook', root: '/nowhere' }, body, home: '/nonexistent-home', signal: signal ?? new AbortController().signal, deadline: { remainingMs: () => 500, expired: () => false }, store: null, killSwitchStopped, engine, mode, jevAssist, trace: () => {} };
+  return { op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: 'w-hook', root: '/nowhere' }, body, home: '/nonexistent-home', signal: signal ?? new AbortController().signal, deadline: { remainingMs: () => remainingMs, expired: () => false }, store: null, killSwitchStopped, engine, mode, jevAssist, trace: () => {} };
 }
 
-function liveSubscriber(t, { engine, deadlineMs = 30_000, lateGraceMs, now } = {}) {
+function liveSubscriber(t, { engine, deadlineMs = 30_000, lateGraceMs, now, recordWaitMaxMs } = {}) {
   const store = new provider.PendingAdviceStore(now === undefined ? {} : { now });
   const background = [];
   const traces = [];
-  const handler = provider.createRepeatedFailureHandler({ store, background: (work) => background.push(work), deadlineMs, ...(lateGraceMs === undefined ? {} : { lateGraceMs }) });
+  const handler = provider.createRepeatedFailureHandler({ store, background: (work) => background.push(work), deadlineMs, ...(lateGraceMs === undefined ? {} : { lateGraceMs }), ...(recordWaitMaxMs === undefined ? {} : { recordWaitMaxMs }) });
   const subscriber = provider.createDecisionSubscriber({ handlers: { 'repeated-failure': [handler] }, certifications: provider.recordsCertificationSource(async () => []), now: () => Date.parse('2026-10-03T10:00:00Z'), operatingSystem: 'linux', pending: store });
   const send = (ctx) => subscriber.handle({ ...ctx, trace: (entry) => traces.push(entry) });
   return { subscriber, send, store, background, traces, engine };
@@ -444,9 +444,12 @@ function liveSubscriber(t, { engine, deadlineMs = 30_000, lateGraceMs, now } = {
 
 test('the count escalates across a session: the same failure at attempt 2 names evidence at the next event, at attempt 4 the cap says stop; two different failures are not merged', async (t) => {
   const { engine, requests } = await setup(t, NEXT('failing-test-output'));
-  const live = liveSubscriber(t, { engine });
+  // The hook waits at most 250 ms for the advisory record and then answers without its decision id (the product is right to stop
+  // waiting; live-handler-record-deadline.test.mjs proves that bound). This test reads the record, so it gives the wait a long bound and
+  // the hook plenty of time: a slow disk then cannot turn the record into what the test races.
+  const live = liveSubscriber(t, { engine, recordWaitMaxMs: 120_000 });
   const a = F();
-  const fail = (failure, options = {}) => live.send(hookCtx('tool.failed', { failure, engine, ...options }));
+  const fail = (failure, options = {}) => live.send(hookCtx('tool.failed', { failure, engine, remainingMs: 300_000, ...options }));
   // Attempt 1: a new family, no handler registered for it. Attempt 2: the same failure again.
   assert.equal((await fail(a)).hookOutcome.kind, 'observe');
   const second = await fail(a);

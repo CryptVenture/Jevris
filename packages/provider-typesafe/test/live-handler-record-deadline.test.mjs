@@ -98,6 +98,66 @@ test('a recording held past the hook\'s own time does not hold the line: it come
   await until(() => engine.finished.length === 1);
 });
 
+/** A handler whose record is held at a closed gate; the hook has `remainingMs` left. Returns what the hook was given and whether the safety had to open the gate. */
+async function answerWhileHeld({ remainingMs, handlerOptions = {} }) {
+  const gate = deferred();
+  const engine = holdingEngine(gate);
+  const traces = [];
+  const store = new provider.PendingAdviceStore();
+  const handler = provider.createRepeatedFailureHandler({ store, background: () => undefined, ...handlerOptions });
+  let forced = false;
+  const safety = setTimeout(() => {
+    forced = true;
+    gate.resolve();
+  }, SAFETY_MS);
+  let proposal;
+  try {
+    proposal = await handler(handlerInput(engine, { remainingMs, traces }));
+  } finally {
+    clearTimeout(safety);
+  }
+  return { proposal, forced: () => forced, traces, engine, gate };
+}
+
+test('the 250 ms bound is the handler\'s own: with plenty of hook time left, a record that never arrives still does not hold the line', async () => {
+  // 60 s left of the hook, so the time the hook has left is not what cuts the wait: only the default bound can.
+  const held = await answerWhileHeld({ remainingMs: 60_000 });
+  assert.equal(held.forced(), false, 'the handler answered while the record was still held, long before the safety');
+  assert.ok(held.proposal !== null);
+  assert.equal(held.proposal.hookOutcome.kind, 'explain');
+  assert.equal(held.proposal.decisionId, undefined, 'no decision id: the record had not arrived inside the bound');
+  assert.equal(held.traces.filter((t) => t.event === 'repeated-failure-advice' && t.reasonCode === 'REPEATED_FAILURE_RECORD_LATE').length, 1);
+  held.gate.resolve();
+  await until(() => held.engine.finished.length === 1);
+});
+
+test('the test seam lengthens the wait and nothing else: the record is waited for past 250 ms, and the hook\'s remaining time still cuts it', async () => {
+  // A long bound and a hook with time: the handler is still waiting well past 250 ms and takes the record when it arrives.
+  const gate = deferred();
+  const engine = holdingEngine(gate);
+  const traces = [];
+  const handler = provider.createRepeatedFailureHandler({ store: new provider.PendingAdviceStore(), background: () => undefined, recordWaitMaxMs: 120_000 });
+  let answered = false;
+  const run = handler(handlerInput(engine, { remainingMs: 300_000, traces })).then((proposal) => {
+    answered = true;
+    return proposal;
+  });
+  await until(() => engine.entered.length === 1);
+  await new Promise((resolve) => setTimeout(resolve, 500));
+  assert.equal(answered, false, 'past the default 250 ms the handler is still waiting for the record');
+  gate.resolve();
+  const proposal = await run;
+  assert.equal(proposal.decisionId, 'd-held-1', 'the record arrived and rides on the proposal');
+  assert.deepEqual(traces.map((t) => t.reasonCode).filter((code) => code === 'REPEATED_FAILURE_RECORD_LATE'), []);
+  // The same long bound with only 400 ms left of the hook: the hook's time less the margin (250 ms) cuts the wait.
+  const held = await answerWhileHeld({ remainingMs: 400, handlerOptions: { recordWaitMaxMs: 120_000 } });
+  assert.equal(held.forced(), false, 'the handler answered at what the hook had left, not at the long bound');
+  assert.equal(held.proposal.decisionId, undefined);
+  assert.equal(held.traces.filter((t) => t.reasonCode === 'REPEATED_FAILURE_RECORD_LATE').length, 1);
+  held.gate.resolve();
+  await until(() => held.engine.finished.length === 1);
+});
+
 test('a recording that finishes in time is as before: the decision id rides on the proposal and nothing is called late', async () => {
   const gate = deferred();
   gate.resolve();

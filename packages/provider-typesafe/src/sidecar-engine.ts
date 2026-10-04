@@ -46,6 +46,12 @@ export interface SidecarEngineOptions {
   /** A workspace's own cap inside the limit, or null for none; read at every reservation. */
   readonly workspaceBudgetLimit?: (workspaceId: string) => number | null;
   readonly budgetPeriod?: BudgetPeriod;
+  /**
+   * How long a reservation or settlement waits for the budget file's lock before the call falls back to
+   * rules with `BUDGET_LOCKED`, in ms (default 2000). A test seam: a test that has many calls at once
+   * on a slow disk gives it a long wait so the lock is not what the test races; the sidecar never sets it.
+   */
+  readonly budgetLockTimeoutMs?: number;
   /** Test seam: the fetch the SDK transport uses. */
   readonly fetch?: FetchLike;
   readonly baseURL?: string;
@@ -71,6 +77,7 @@ export async function createSidecarEngine(options: SidecarEngineOptions): Promis
     limitMicroUsd: options.budgetLimitMicroUsd ?? DEFAULT_DECISION_BUDGET_MICRO_USD,
     period: options.budgetPeriod ?? 'month',
     now: () => clock.now(),
+    ...(options.budgetLockTimeoutMs === undefined ? {} : { lockTimeoutMs: options.budgetLockTimeoutMs }),
     ...(options.budgetLimit === undefined ? {} : { currentLimit: options.budgetLimit }),
     ...(options.workspaceBudgetLimit === undefined ? {} : { workspaceLimit: options.workspaceBudgetLimit }),
   });

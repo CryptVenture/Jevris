@@ -4,6 +4,7 @@ import { mkdtempSync, readFileSync, readdirSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { scanRead } from '../../../test/live-files.mjs';
+import { trackEngine } from './engine-settle.mjs';
 
 const provider = await import('../dist/index.js');
 const core = await import('@jevris/core');
@@ -314,17 +315,62 @@ test('DEC-11: createSidecarEngine with a key uses the production SDK port; the k
   scan(home);
 });
 
+// The ops read the request's own deadline: the plan labels and records within it, and cost.report stops scanning the journal at it. What
+// these tests check is the answer's shape and the records' counts, not the 900 ms hot-path budget, which a slow disk can pass.
 function ctx(op, body, e, workspaceId = 'w-test', home = '/nonexistent') {
-  const deadline = createDeadline(900);
+  const deadline = createDeadline(TEST_DEADLINE_MS);
   return {
     op, client: 'cli', scopes: ['status', 'advice'], workspace: { id: workspaceId, root: null }, body, home,
     signal: new AbortController().signal, deadline, store: undefined, killSwitchStopped: false, engine: e, trace() {},
   };
 }
 
+/**
+ * The engine the plan op is given. Its journal, budget and records are the real engine's, so cost.report counts what a real run leaves.
+ * The plan's slice question is answered at once: the op waits at most 700 ms for it, a bound a slow disk can pass (the real engine does
+ * durable journal writes before its request goes out), and then the labels, the hints recorded and the counts depend on the machine. The
+ * same question is also put to the real engine in the background, one question after another and with a long deadline, so the journal
+ * holds the provider call and the cache hit a real run leaves. `settled()` waits for that work before the test's folder is removed.
+ */
+function planOpEngine(real, tracker) {
+  let chain = Promise.resolve();
+  let asked = 0;
+  return {
+    journal: real.journal,
+    budget: real.budget,
+    providerConfigured: real.providerConfigured,
+    route: real.route,
+    sourceEgress: () => real.sourceEgress?.() ?? 'denied',
+    lookup: (id) => real.lookup(id),
+    recordAdvice: (input) => real.recordAdvice(input),
+    async decide(question) {
+      asked += 1;
+      chain = chain.then(() => real.decide(question, { deadline: createDeadline(TEST_DEADLINE_MS) })).then(() => undefined, () => undefined);
+      return {
+        abstained: false,
+        decisionId: `d-plan-answer-${asked}`,
+        automation: true,
+        rulesOnly: false,
+        result: { answers: { slice: { type: 'choice', choice: 'issue-fix', probabilities: { 'issue-fix': 0.9, unknown: 0.1 }, confidence: 0.9 }, risk: { type: 'score', score: 1, probabilities: { 1: 1 }, confidence: 1 } } },
+      };
+    },
+    asked: () => asked,
+    async settled() {
+      await chain;
+      await tracker.settled();
+    },
+  };
+}
+
 test('sidecar ops: explain, decision.get, plan, cost.report and calibration.status answer in contract shape', async (t) => {
-  const { engine: e } = engine(t);
-  const outcome = await decide(request(), e);
+  // Registered before the engine's own folder cleanup, so it runs first: the background work ends before the folder goes.
+  let settle = async () => undefined;
+  t.after(() => settle());
+  const { engine: real } = engine(t);
+  const tracker = trackEngine(real);
+  const e = planOpEngine(real, tracker);
+  settle = () => e.settled();
+  const outcome = await decide(request(), real);
   const ops = Object.fromEntries(sidecarOps.map((def) => [def.op, def]));
   assert.deepEqual(Object.keys(ops).sort(), ['calibration.export', 'calibration.status', 'cost.report', 'decision.feedback', 'decision.get', 'explain', 'plan', 'route']);
   assert.equal(ops.decide, undefined, 'decide is never an IPC op');
@@ -369,8 +415,12 @@ test('sidecar ops: explain, decision.get, plan, cost.report and calibration.stat
   assert.equal(cyclic.body.valid, false);
   assert.ok(cyclic.body.issues.some((issue) => issue.code === 'CYCLE' || issue.code === 'INVALID_TASK'));
   assert.equal((await ops.plan.handle(ctx('plan', { tasks: 'x' }, e))).reasonCode, 'INVALID_REQUEST');
-  // The plans' slice hints are decisions too: one mock Jev slice question (tasks with the same features share it, so a second provider call) and four hints answered with no provider call; a repeat of the same task and result records nothing twice, and the cyclic and the refused plans recorded none.
-  // The hints are recorded after the labels and the plan answers within its own time: on a slow disk the last records finish just after the answer (PLAN_JEV_RECORD_LATE), so wait for the sixth decision, not for a clock.
+  // The plans' slice hints are decisions too. The journal now holds the first decision, the plan's Jev slice question (the one provider call
+  // of the plans: tasks with the same features share it), the second plan's identical question (a cache hit, no provider call) and three
+  // hints, one per task, answered with no provider call; a repeat of the same task and result records nothing twice, and the cyclic and the
+  // refused plans recorded none. That is six decisions, two of them provider calls and four with none.
+  // The question's records come from the real engine running in the background and the hints are recorded after the labels: on a slow disk
+  // they finish after the plan's answer, so wait for the sixth decision, not for a clock.
   let afterPlans = await ops['cost.report'].handle(ctx('cost.report', {}, e));
   const settleBy = Date.now() + 30_000;
   while (afterPlans.body.decisions.total < 6 && Date.now() < settleBy) {
