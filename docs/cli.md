@@ -130,7 +130,13 @@ then add tasks under the returned budget id.
 
 Options:
   --graph <file>             JSON file with the task list, or { tasks, requirementIds?,
-                             availableResources? } (required; at most 1 MiB)
+                             availableResources?, requirements?, candidates? } (required; at
+                             most 1 MiB). requirements is a list of { id, text } (at most 64):
+                             with Jev on, a review score for how well the tasks cover each
+                             one. candidates is a list of { id, summary, constraints?,
+                             tradeoffs? } (at most 12): a review score for each plan. Both
+                             send their text to Jev, so they need source egress approved; they
+                             are advice for you to read, never a feasibility verdict.
   --submit                   Submit the plan instead of only checking it
   --budget <id>              submit: the root budget id (required). Reusing an id needs the
                              budget's current limit (after jevris budget update, the raised

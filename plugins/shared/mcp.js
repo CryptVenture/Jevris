@@ -145,8 +145,12 @@ var TOOLS = [
     name: "jevris_plan",
     op: "plan",
     title: "Validate a plan",
-    description: "Validates a task graph: cycles, unknown dependencies, missing acceptance checks and requirements, and parallel tasks that share a write scope. Returns waves, the critical path and ready tasks, and a slice and risk hint per task (sliceSuggestions, advice only). It changes no plan, file or setting, but it records one advisory decision per labelled task in the local journal and, with Jev on, may ask Jev up to 8 questions.",
-    inputSchema: input({ tasks: { type: "array", items: { type: "object" }, minItems: 1, maxItems: 1024, description: "TaskNode objects (§6.2)." } }, ["tasks"]),
+    description: "Validates a task graph: cycles, unknown dependencies, missing acceptance checks and requirements, and parallel tasks that share a write scope. Returns waves, the critical path and ready tasks, and a slice and risk hint per task (sliceSuggestions, advice only). It changes no plan, file or setting, but it records one advisory decision per labelled task in the local journal and, with Jev on, may ask Jev up to 8 questions. With requirements or candidates it also returns review scores (review.decomposition, review.plans), advice only.",
+    inputSchema: input({
+      tasks: { type: "array", items: { type: "object" }, minItems: 1, maxItems: 1024, description: "TaskNode objects (§6.2)." },
+      requirements: { type: "array", items: { type: "object" }, maxItems: 64, description: "Optional requirements, { id, text }. With Jev on and source egress approved, the result carries a review score for how well the tasks cover each one." },
+      candidates: { type: "array", items: { type: "object" }, maxItems: 12, description: "Optional candidate plans, { id, summary, constraints?, tradeoffs? }. With Jev on and source egress approved, the result ranks them by a review score." }
+    }, ["tasks"]),
     effect: "advise"
   },
   {

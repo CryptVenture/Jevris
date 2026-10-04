@@ -39,7 +39,8 @@ export interface OpInputs {
     /** The running session's switch facts: without a warm prefix a switch cannot be priced. */
     readonly session: RouteSession | null;
   };
-  readonly plan: { readonly tasks: readonly unknown[] };
+  /** `requirements` and `candidates` (optional, checked by the op): what C03 reviews the task list against and the plans C07 ranks. */
+  readonly plan: { readonly tasks: readonly unknown[]; readonly requirements?: readonly unknown[]; readonly candidates?: readonly unknown[] };
   /** `contextPercent`: how much of the context window is in use, 0 to 100, for compaction-readiness advice; null says nothing. */
   readonly checkpoint: { readonly objective: string | null; readonly constraints: readonly string[]; readonly decisions: readonly string[]; readonly taskId: string | null; readonly contextPercent: number | null };
   readonly recover: {
@@ -400,11 +401,18 @@ const PARSERS: { readonly [K in SurfaceOperation]: (raw: Raw) => OpInputs[K] } =
     };
   },
   plan(raw) {
-    onlyKeys(raw, ['tasks']);
+    onlyKeys(raw, ['tasks', 'requirements', 'candidates']);
     const tasks = raw['tasks'];
     if (!Array.isArray(tasks) || tasks.length === 0) refuse('"tasks" must be a non-empty list of task nodes.');
     if (tasks.length > 1024) refuse('"tasks" has more than 1024 nodes.');
-    return { tasks: bounded(tasks, '"tasks"', 1_048_576) as readonly unknown[] };
+    const optionalList = (key: 'requirements' | 'candidates', max: number): { readonly requirements?: readonly unknown[]; readonly candidates?: readonly unknown[] } => {
+      const value = raw[key];
+      if (value === undefined || value === null) return {};
+      if (!Array.isArray(value)) refuse(`"${key}" must be a list.`);
+      if (value.length > max) refuse(`"${key}" has more than ${max} items.`);
+      return { [key]: bounded(value, `"${key}"`, 262_144) as readonly unknown[] };
+    };
+    return { tasks: bounded(tasks, '"tasks"', 1_048_576) as readonly unknown[], ...optionalList('requirements', 64), ...optionalList('candidates', 12) };
   },
   checkpoint(raw) {
     onlyKeys(raw, ['objective', 'constraints', 'decisions', 'taskId', 'contextPercent']);

@@ -203,7 +203,7 @@ Returns one evidence item by handle. The item is bounded, may be truncated, and 
 Returns a task with its state, acceptance checks and runner receipts.
 
 - **Arguments:** `taskId` (required).
-- **Result:** `{ taskId, found, task, receipts }`. A blocked task also carries `task.stateReason`, a reason code such as `DEPENDENCY_CANCELLED` (a task it depended on was cancelled, so it can never start). In reduced mode `found` is `false`. `cancelRequested: true` appears, only while it holds, when a person's `jevris task cancel` was delivered to the task's running worker and the worker has not yet published its end: the task is not cancelled yet, and becomes cancelled shortly. For an owned task, `worker` is its latest worker run: the model requested and the model that did the work, kept apart, the run's status, and the cost only when the worker reported it.
+- **Result:** `{ taskId, found, task, receipts }`. When an owned worker was launched (or, in `observe` and `advise` mode, would have been) and Jev gave worker-readiness advice, it also carries `readiness: { decisionId, state }`, where `state` is `ready`, `not-ready`, `unsure` or `none` and `decisionId` is what `jevris explain` renders. It is advice only: the launch never depended on it. A blocked task also carries `task.stateReason`, a reason code such as `DEPENDENCY_CANCELLED` (a task it depended on was cancelled, so it can never start). In reduced mode `found` is `false`. `cancelRequested: true` appears, only while it holds, when a person's `jevris task cancel` was delivered to the task's running worker and the worker has not yet published its end: the task is not cancelled yet, and becomes cancelled shortly. For an owned task, `worker` is its latest worker run: the model requested and the model that did the work, kept apart, the run's status, and the cost only when the worker reported it.
 
 #### `jevris_handoff_export`
 
@@ -268,6 +268,9 @@ Validates a task graph and labels each task with a slice and risk hint. It finds
 - parallel tasks that write to the same scope.
 
 - **Arguments:** `tasks` (required): 1 to 1024 task objects. Only each task's TaskNode fields are checked; the scheduling fields of a submitted task (`title`, `models`, `expectedOutputs` and so on) are allowed and ignored.
+  - `requirements` (optional, at most 64 of `{ id, text }`): what the task list must cover. With Jev on and source egress approved, the result's `review.decomposition` holds a review score from 0 to 4 for how well the tasks cover each one (C03).
+  - `candidates` (optional, at most 12 of `{ id, summary, constraints?, tradeoffs? }`): plans to compare. With Jev on and source egress approved, `review.plans` ranks them by a review score (C07).
+  - Both send their text to Jev, so with egress not approved they are answered by the rules (`EGRESS_NOT_APPROVED`) and nothing is sent. A score is a review aid, never a feasibility verdict, and a person reviews every plan.
 - **Result:** `{ valid, taskCount, order, waves, criticalPath, ready, issues, advice }`, plus `sliceSuggestions` for a sound graph: one `{ taskId, slice, source, risk, confidencePercent, reasonCode, decisionId }` per task, the slice and risk the route classifier gives it (Jev from structured features, rules as the fallback; see [routing.md](routing.md#slice-hints-for-the-tasks-of-a-plan)). A slice a task declares (`sliceId`) is kept as given, with `suggestedSlice`, `suggestedBy` and `agrees`. Advice for a person: it is not part of the plan, and no path name is sent to Jev.
   - `issues` codes are `DUPLICATE_TASK`, `UNKNOWN_DEPENDENCY`, `SELF_DEPENDENCY`, `CYCLE`, `WORKSPACE_SCOPE`, `INVALID_TASK`, `NO_ACCEPTANCE_CHECK`, `NO_REQUIREMENT` and `WRITE_OVERLAP`.
   - An invalid plan is a normal result with `valid: false`.

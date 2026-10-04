@@ -363,6 +363,29 @@ const PLAN_SLICE_NOTES: { readonly [code: string]: string } = {
 };
 
 /**
+ * The review of a plan (C03 and C07), only when the request carried requirements or plan candidates: a review
+ * score per requirement and a ranking of the candidate plans. A score is a review aid, never a feasibility verdict.
+ */
+export function planReviewLines(review: NonNullable<SurfacePayloads['plan']['review']>): string[] {
+  const lines: string[] = [];
+  const d = review.decomposition;
+  if (d !== null) {
+    lines.push(`review: how the tasks cover each requirement (a review score from 0 to 4, not a feasibility verdict; reason ${d.reasonCode})`);
+    for (const c of d.coverage) lines.push(`requirement ${c.requirementId}: coverage ${c.score} of 4`);
+    for (const issue of d.issues) lines.push(`requirement ${issue.id}: ${issue.code}`);
+    lines.push(...decisionLine(d.decisionId));
+  }
+  const pl = review.plans;
+  if (pl !== null) {
+    lines.push(`review: the candidate plans (a review score from 0 to 4, not a feasibility verdict; reason ${pl.reasonCode})`);
+    for (const r of pl.ranking) lines.push(`plan ${r.planId}: rank ${r.rank}, ${r.score === null ? 'not scored' : `score ${r.score} of 4`}`);
+    lines.push(pl.note);
+    lines.push(...decisionLine(pl.decisionId));
+  }
+  return lines;
+}
+
+/**
  * One line per task of a plan: the slice Jev or the rules suggest, or the plan's own with what the
  * classifier makes of it, and the risk. Advice for a person; it is not part of the plan.
  */
@@ -554,6 +577,7 @@ function body(result: SurfaceResult): string[] {
       for (const issue of p.issues) lines.push(`issue: ${issue.taskId} ${issue.code}`);
       for (const advice of p.advice) lines.push(`advice: ${advice}`);
       if (p.sliceSuggestions !== undefined) lines.push(...planSliceLines(p.sliceSuggestions));
+      if (p.review !== undefined) lines.push(...planReviewLines(p.review));
       return lines;
     }
     case 'checkpoint': {
