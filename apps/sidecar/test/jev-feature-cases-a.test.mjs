@@ -6,6 +6,7 @@ import { sandbox } from '../../../test/acceptance/lib.mjs';
 import { startJevStub } from '../../../test/acceptance/jev-stub.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
 import { MARKER, runCases, writeWorkspace } from '../scripts/jev-feature-driver.mjs';
+import { DEADLINE_ATTEMPTS, askSidecar, askSidecarCounted } from '../scripts/sidecar-ask.mjs';
 import { CASES, FILES, KNOWN_DEFECTS, KNOWN_LEAKS, OWNED_CASES, preparePart, wrapSidecar } from '../scripts/jev-feature-cases-a.mjs';
 
 // The part A capability cases of the live Jev feature suite (C25, C26, C28, C30, C33 to C38), run
@@ -37,7 +38,7 @@ async function startPass(t, { egress, workerRuns, stubOptions }) {
   const started = box.startSidecar();
   assert.equal(started.code, 0, `the sidecar did not start: ${started.stdout} ${started.stderr}`);
   const sidecar = wrapSidecar(await import('../dist/index.js'));
-  return { stub, box, work, sidecar };
+  return { stub, box, work, sidecar, egress };
 }
 
 /** JSON pointers of every string (or key) in `value` that holds the marker. */
@@ -102,18 +103,24 @@ function assertOwnQuestion(c, call) {
  * began (setup and call), and the requests of the call alone. The row carries the decision record's
  * reason codes, usage and cost.
  */
-async function runEach({ stub, box, work, sidecar }, cases) {
+async function runEach({ stub, box, work, sidecar, egress }, cases) {
   const lookup = async (decisionId) => {
-    const answer = await sidecar.sidecarRequest({ home: box.home, op: 'decision.get', scope: 'cli', workspace: work, body: { decisionId }, timeoutMs: 20_000 });
+    const answer = await askSidecar(sidecar, { home: box.home, op: 'decision.get', scope: 'cli', workspace: work, body: { decisionId }, timeoutMs: 20_000 });
     return answer.ok && answer.result?.found === true ? answer.result.record : null;
   };
   const out = [];
   for (const c of cases) {
     const marks = [];
     const begin = stub.requests().length;
-    const [row] = await runCases({ sidecar, home: box.home, work, cases: [c], lookup, requestCount: () => marks[marks.push(stub.requests().length) - 1] });
+    // A call the sidecar cuts short (DEADLINE on a slow host) is asked again, and so is one that came but did not use Jev although this case
+    // must (a handler asks only while enough time is left, and discards a Jev answer that comes after its deadline); `row.requests` then
+    // counts every attempt.
+    const asks = (kase) => kase.expectAsked && !Object.hasOwn(KNOWN_DEFECTS, kase.id) && !(kase.egressNeeded && egress === 'denied');
+    const done = (kase, got) => !asks(kase) || (got.requests >= 1 && got.summary.source === 'jev');
+    const [row] = await runCases({ sidecar, home: box.home, work, cases: [c], lookup, attempts: DEADLINE_ATTEMPTS, done, requestCount: () => marks[marks.push(stub.requests().length) - 1] });
     const all = stub.requests();
-    out.push({ c, row, since: all.slice(begin), call: marks.length === 2 ? all.slice(marks[0], marks[1]) : [] });
+    // The count is read before the call, after each attempt that is judged, and once at the end: the call's requests lie between the first and the last.
+    out.push({ c, row, since: all.slice(begin), call: marks.length >= 2 ? all.slice(marks[0], marks.at(-1)) : [] });
   }
   return out;
 }
@@ -131,7 +138,7 @@ function guarded(problems, label, check) {
 function describe(label, row) {
   const cost = row.costMicroUsd === null ? 'n/a' : String(row.costMicroUsd);
   const usage = row.usage === null ? 'n/a' : `${String(row.usage.inputTokens ?? row.usage.input_tokens)}/${String(row.usage.outputTokens ?? row.usage.output_tokens)}`;
-  return `${label} ok=${String(row.ok)} requests=${String(row.requests)} source=${String(row.source)} reason=${String(row.reasonCode)} verb=${String(row.verb)} codes=${row.jevReasonCodes.join('|')} tokens=${usage} microUsd=${cost} ms=${String(row.elapsedMs)} failure=${String(row.failure)}`;
+  return `${label} ok=${String(row.ok)} attempts=${String(row.attempts)} requests=${String(row.requests)} source=${String(row.source)} reason=${String(row.reasonCode)} verb=${String(row.verb)} codes=${row.jevReasonCodes.join('|')} tokens=${usage} microUsd=${cost} ms=${String(row.elapsedMs)} failure=${String(row.failure)}`;
 }
 
 // ------------------------------------------------------------------ the cases
@@ -182,7 +189,10 @@ test('part A cases with source egress denied: every consult is reached with a va
       } else if (c.expectAsked && !defect) {
         assert.ok(row.requests >= 1, `the call sent no Jev request (reason ${String(row.reasonCode)}, codes ${row.jevReasonCodes.join('|')})`);
         assert.equal(row.source, 'jev', `the answer did not come from Jev (reason ${String(row.reasonCode)})`);
-        assert.ok(typeof row.decisionId === 'string' && row.usage !== null, 'the Jev decision left no record with usage');
+        // A call that was asked again can be answered from the decision the cut-short attempt finished late and the engine cached: that record
+        // is a CACHE_HIT with no usage of its own, and the request that paid for it was sent during the case (asserted above).
+        const cachedAfterRetry = row.attempts > 1 && row.jevReasonCodes.includes('CACHE_HIT');
+        assert.ok(typeof row.decisionId === 'string' && (row.usage !== null || cachedAfterRetry), 'the Jev decision left no record with usage');
       } else if (defect) {
         t.diagnostic(`${c.id}: KNOWN DEFECT: ${KNOWN_DEFECTS[c.id]} (decision codes ${row.jevReasonCodes.join('|')})`);
         assert.equal(row.requests, 0, 'the known defect no longer holds (a request was sent): remove it from KNOWN_DEFECTS');
@@ -242,14 +252,15 @@ async function runOwned(pass, c) {
   const { stub, box, work, sidecar } = pass;
   const begin = stub.requests().length;
   for (const step of c.steps) {
-    const answer = await sidecar.sidecarRequest({ home: box.home, op: step.op, scope: step.scope, workspace: work, body: step.body, timeoutMs: 60_000 });
+    // A plan submission is never asked twice (it records its tasks: a repeat answers DUPLICATE_TASK), so this is one attempt.
+    const answer = await askSidecar(sidecar, { home: box.home, op: step.op, scope: step.scope, workspace: work, body: step.body, timeoutMs: 60_000 });
     assert.equal(answer.ok, true, `${c.id}: ${step.op}: ${JSON.stringify(answer)}`);
     assert.equal(answer.result.accepted, true, `${c.id}: ${step.op} was not accepted: ${JSON.stringify(answer.result)}`);
   }
   const until = Date.now() + 60_000;
   for (const { taskId, state } of c.waitFor) {
     for (;;) {
-      const read = await sidecar.sidecarRequest({ home: box.home, op: 'task.get', scope: 'mcp', workspace: work, body: { taskId }, timeoutMs: 20_000 });
+      const read = await askSidecar(sidecar, { home: box.home, op: 'task.get', scope: 'mcp', workspace: work, body: { taskId }, timeoutMs: 20_000 });
       const now = read.ok ? read.result?.task?.state : read.reasonCode;
       if (now === state) break;
       if (['failed', 'blocked', 'cancelled'].includes(now)) {
@@ -294,12 +305,24 @@ function put(root, rel, text) {
   writeFileSync(file, text);
 }
 
-/** One `capability.advise` call at `workspace`: the answer and the requests it sent. */
-async function adviseAt({ stub, box, sidecar }, workspace, body) {
+/**
+ * One `capability.advise` call at `workspace`: the answer, the requests it sent and how many times it was asked. A call the
+ * sidecar cuts short (DEADLINE on a slow host) is asked again, up to `attempts` times; `sent` covers every attempt.
+ */
+async function adviseAt({ stub, box, sidecar }, workspace, body, { attempts = DEADLINE_ATTEMPTS } = {}) {
   const before = stub.requests().length;
-  const answer = await sidecar.sidecarRequest({ home: box.home, op: 'capability.advise', scope: 'mcp', workspace, body, timeoutMs: 20_000 });
+  const { answer, attempts: asked } = await askSidecarCounted(sidecar, { home: box.home, op: 'capability.advise', scope: 'mcp', workspace, body, timeoutMs: 20_000 }, { attempts });
   assert.equal(answer.ok, true, JSON.stringify(answer));
-  return { advice: answer.result, sent: stub.requests().slice(before) };
+  return { advice: answer.result, sent: stub.requests().slice(before), asked };
+}
+
+/**
+ * A consult that asks once per call sent one request, or, when the sidecar cut an attempt short, at least one and at most one
+ * per attempt (a cut-short attempt may have sent its request before it was abandoned, and its answer is not kept). With a single
+ * attempt this is exactly one.
+ */
+function assertAskedOnce(sent, asked, label) {
+  assert.ok(sent.length >= 1 && sent.length <= asked, `${label}: ${String(sent.length)} request(s) in ${String(asked)} attempt(s), expected one per attempt at most and at least one`);
 }
 
 /** The wire key the conformance mock would pick for a request body (the mock is a pure function of the question). */
@@ -340,13 +363,16 @@ test('probe: an id the question contract refuses is sent under a safe key and ma
   for (let attempt = 0; attempt < 24 && mapped === 0; attempt += 1) {
     // The option text is part of the question, so a new description is a new question and the mock may pick another winner.
     put(probe, '.claude/skills/dotted/SKILL.md', SKILL('casea.dotted:probe', `Zebra quokka probe skill, revision ${String(attempt)}`));
-    const { advice, sent } = await adviseAt(pass, probe, { capabilityId: 'C33', input: { intent: 'zebra quokka' } });
-    assert.equal(sent.length, 1, 'the shortlist was not asked once');
-    assertJevRequest(sent[0], 'C33 with a dotted skill');
-    const keys = wireKeys(sent[0]);
-    assert.equal(keys.length, 3, `the whole list was not asked: ${keys.join(', ')}`);
-    assert.ok(keys.includes('none') && keys.includes('casea-plainskill'), `the plain options changed their keys: ${keys.join(', ')}`);
-    assert.equal(keys.filter((key) => key.startsWith('option_')).length, 1, `the dotted skill is not under a safe key: ${keys.join(', ')}`);
+    const { advice, sent, asked } = await adviseAt(pass, probe, { capabilityId: 'C33', input: { intent: 'zebra quokka' } });
+    assertAskedOnce(sent, asked, 'the shortlist was not asked once');
+    // Every request that was sent is checked, not only the last attempt's.
+    for (const entry of sent) {
+      assertJevRequest(entry, 'C33 with a dotted skill');
+      const keys = wireKeys(entry);
+      assert.equal(keys.length, 3, `the whole list was not asked: ${keys.join(', ')}`);
+      assert.ok(keys.includes('none') && keys.includes('casea-plainskill'), `the plain options changed their keys: ${keys.join(', ')}`);
+      assert.equal(keys.filter((key) => key.startsWith('option_')).length, 1, `the dotted skill is not under a safe key: ${keys.join(', ')}`);
+    }
     const winner = await mockWinner(mock, sent[0]);
     const expected = winner.startsWith('option_') ? 'casea.dotted:probe' : winner;
     assert.equal(advice.source, 'jev');
@@ -359,21 +385,25 @@ test('probe: an id the question contract refuses is sent under a safe key and ma
 
   // C26: both agents are asked, the dotted one under a safe key; the answer is a real agent name.
   const agents = await adviseAt(pass, probe, { capabilityId: 'C26', input: { phase: 'explorer' } });
-  assert.equal(agents.sent.length, 1, 'the agents were not asked once');
-  assertJevRequest(agents.sent[0], 'C26 with a dotted agent');
-  const agentKeys = wireKeys(agents.sent[0]);
-  assert.deepEqual(agentKeys.filter((key) => !key.startsWith('option_')), ['casea-plain'], `wire keys ${agentKeys.join(', ')}`);
-  assert.equal(agentKeys.length, 2);
+  assertAskedOnce(agents.sent, agents.asked, 'the agents were not asked once');
+  for (const entry of agents.sent) {
+    assertJevRequest(entry, 'C26 with a dotted agent');
+    const agentKeys = wireKeys(entry);
+    assert.deepEqual(agentKeys.filter((key) => !key.startsWith('option_')), ['casea-plain'], `wire keys ${agentKeys.join(', ')}`);
+    assert.equal(agentKeys.length, 2);
+  }
   const agentWinner = await mockWinner(mock, agents.sent[0]);
   assert.equal(agents.advice.recommendation, agentWinner.startsWith('option_') ? 'casea.agent:probe' : agentWinner);
 
   // C36: the same for tools.
   const tools = await adviseAt(pass, probe, { capabilityId: 'C36', input: { intent: 'read the file', allowlist: ['mcp.read:file', 'casea-read'], tools: [{ id: 'mcp.read:file', description: 'Read a file' }, { id: 'casea-read', description: 'Read one file' }] } });
-  assert.equal(tools.sent.length, 1, 'the tools were not asked once');
-  assertJevRequest(tools.sent[0], 'C36 with a dotted tool');
-  const toolKeys = wireKeys(tools.sent[0]);
-  assert.deepEqual(toolKeys.filter((key) => !key.startsWith('option_')).sort(), ['casea-read', 'none'], `wire keys ${toolKeys.join(', ')}`);
-  assert.equal(toolKeys.length, 3);
+  assertAskedOnce(tools.sent, tools.asked, 'the tools were not asked once');
+  for (const entry of tools.sent) {
+    assertJevRequest(entry, 'C36 with a dotted tool');
+    const toolKeys = wireKeys(entry);
+    assert.deepEqual(toolKeys.filter((key) => !key.startsWith('option_')).sort(), ['casea-read', 'none'], `wire keys ${toolKeys.join(', ')}`);
+    assert.equal(toolKeys.length, 3);
+  }
   const toolWinner = await mockWinner(mock, tools.sent[0]);
   assert.equal(tools.advice.recommendation, toolWinner.startsWith('option_') ? 'mcp.read:file' : toolWinner);
   assert.equal(pass.box.stopSidecar().code, 0);
@@ -389,7 +419,8 @@ test('probe: C34 with a slow Jev stops asking when time is short and still answe
   const files = {};
   for (let i = 0; i < 10; i += 1) files[`src/retry${String(i)}.ts`] = `export function retryBackoff${String(i)}() { return ${String(i)}; } // retry backoff payment client\n`;
   writeWorkspace(slow, files);
-  const { advice, sent } = await adviseAt(pass, slow, { capabilityId: 'C34', input: { query: 'retry backoff payment client' } });
+  // The subject is the deadline (the loop stops asking when time is short and the op still answers), so this is one attempt.
+  const { advice, sent } = await adviseAt(pass, slow, { capabilityId: 'C34', input: { query: 'retry backoff payment client' } }, { attempts: 1 });
   t.diagnostic(`C34 with a 700 ms Jev and ten candidates: requests=${String(sent.length)} source=${String(advice.source)} ranked=${String(advice.ranked.length)}`);
   assert.ok(sent.length >= 1, 'no span was asked');
   assert.ok(sent.length < 8, `every candidate was asked (${String(sent.length)} requests): the loop did not stop when time ran short`);

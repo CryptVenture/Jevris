@@ -14,6 +14,7 @@
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
+import { askSidecarCounted, waitUntilQuiet } from './sidecar-ask.mjs';
 
 /** Strings the cases put in free-text fields; none may appear in a request while source egress is denied. */
 export const MARKER = 'ZZMARKER';
@@ -96,6 +97,30 @@ export function summarizeResult(result) {
 }
 
 /**
+ * The Jev decision a call made: its id (the answer's own, or for a hook event or an op that does not name it, the newest decision of
+ * the case's `spec` in the journal) and its record, each null when unknown. Both are measurement aids: a miss changes nothing.
+ */
+async function decisionOf(input, c, decisionId, requests) {
+  let id = decisionId;
+  if (id === null && requests > 0 && typeof c.spec === 'string' && input.latestDecision !== undefined) {
+    try {
+      id = await input.latestDecision(c.spec);
+    } catch {
+      // The decision id is a measurement aid; its absence changes nothing.
+    }
+  }
+  let record = null;
+  if (typeof id === 'string' && input.lookup !== undefined) {
+    try {
+      record = (await input.lookup(id)) ?? null;
+    } catch {
+      // The record is a measurement aid; its absence changes nothing.
+    }
+  }
+  return { id, record };
+}
+
+/**
  * Runs the cases in order. Returns one row per case.
  *
  * @param {object} input
@@ -108,14 +133,25 @@ export function summarizeResult(result) {
  * @param {(specId: string) => Promise<string|null>} [input.latestDecision] the newest decision of a spec, for a case that names `spec`
  * @param {(id: string) => boolean} [input.only] selects cases by id
  * @param {number} [input.timeoutMs] per-op timeout (default 20 s: these are measurements, not the hot path)
+ * @param {number} [input.attempts] how many times an op the sidecar cut short (`DEADLINE`, a client timeout) is asked, the first
+ *   included (default 1: the live suite measures, so a cut-short call is a finding and a retry would bill a second request; the
+ *   offline tests and the mock run pass `DEADLINE_ATTEMPTS` from `sidecar-ask.mjs`, because there a slow host is not a finding).
+ *   The row's `requests` and `elapsedMs` then cover every attempt of the call, and `attempts` says how many there were.
+ * @param {(c: object, got: { requests: number, summary: object, record: object|null }) => boolean} [input.done] false when a call that was
+ *   answered ok is not what the case needs, so it is asked again, within `attempts` (a hook event as a fresh delivery). `got.requests` is
+ *   the Jev requests the call has sent so far, `got.summary` the answer's own summary (source, reason code, decision id) and `got.record`
+ *   the Jev decision's record (by `lookup`, null when there is none). For a slow host: a handler asks
+ *   Jev only while enough time is left and answers from rules once it is not, a Jev answer that arrives after the handler's deadline is
+ *   discarded, and a hook subscriber whose answer was no longer wanted skips its consult. Default: every ok answer is taken.
  */
 export async function runCases(input) {
   const { sidecar, home, work, cases, requestCount } = input;
   const timeoutMs = input.timeoutMs ?? 20_000;
+  const attempts = input.attempts ?? 1;
   const rows = [];
   for (const c of cases) {
     if (input.only !== undefined && !input.only(c.id)) continue;
-    const row = { id: c.id, title: c.title, expectAsked: c.expectAsked !== false, egressNeeded: c.egressNeeded === true, ok: false, requests: 0, source: null, reasonCode: null, decisionId: null, verb: null, recommendation: null, elapsedMs: 0, failure: null, usage: null, costMicroUsd: null, durationMs: null, jevReasonCodes: [], answerProbabilities: [] };
+    const row = { id: c.id, title: c.title, expectAsked: c.expectAsked !== false, egressNeeded: c.egressNeeded === true, ok: false, attempts: 1, requests: 0, source: null, reasonCode: null, decisionId: null, verb: null, recommendation: null, elapsedMs: 0, failure: null, usage: null, costMicroUsd: null, durationMs: null, jevReasonCodes: [], answerProbabilities: [] };
     try {
       for (const step of c.steps ?? []) {
         if (step.files !== undefined) {
@@ -131,17 +167,46 @@ export async function runCases(input) {
           }
           continue;
         }
-        const stepResult = await sidecar.sidecarRequest({ home, op: step.op, scope: step.scope ?? 'cli', workspace: work, body: step.body ?? {}, timeoutMs });
+        const { answer: stepResult } = await askSidecarCounted(sidecar, { home, op: step.op, scope: step.scope ?? 'cli', workspace: work, body: step.body ?? {}, timeoutMs }, { attempts });
         if (!stepResult.ok && step.optional !== true) {
           row.failure = `step ${step.op}: ${stepResult.reasonCode ?? stepResult.reason}`;
           break;
         }
+        // A hook event's subscriber that is slow is queued and runs on after the answer: the call must not start beside it.
+        if (step.op === 'event') await waitUntilQuiet(sidecar, { home, workspace: work });
       }
       if (row.failure === null) {
         const before = requestCount();
         const started = performance.now();
-        const answer = await sidecar.sidecarRequest({ home, op: c.call.op, scope: c.call.scope ?? 'cli', workspace: work, body: c.call.body ?? {}, timeoutMs });
-        row.elapsedMs = Math.round(performance.now() - started);
+        const waitsBehind = c.call.op === 'event' || c.settle === true;
+        // The answer's time is the time of the call's own answers; the waits for a quiet sidecar are only to count requests.
+        let answeredAt = started;
+        const timed = {
+          async sidecarRequest(request) {
+            const reply = await sidecar.sidecarRequest(request);
+            if (request.op === c.call.op) answeredAt = performance.now();
+            return reply;
+          },
+        };
+        const { answer, attempts: asked } = await askSidecarCounted(
+          timed,
+          { home, op: c.call.op, scope: c.call.scope ?? 'cli', workspace: work, body: c.call.body ?? {}, timeoutMs },
+          {
+            attempts,
+            // What a queued subscriber asks Jev is asked after the answer, so the requests are counted once the sidecar has nothing
+            // left behind it.
+            satisfied: async (reply) => {
+              if (waitsBehind) await waitUntilQuiet(sidecar, { home, workspace: work });
+              if (input.done === undefined) return true;
+              const requests = requestCount() - before;
+              const summary = (c.summarize ?? summarizeResult)(reply.result);
+              return input.done(c, { requests, summary, record: (await decisionOf(input, c, summary.decisionId ?? null, requests)).record });
+            },
+          },
+        );
+        row.attempts = asked;
+        row.elapsedMs = Math.round(answeredAt - started);
+        if (waitsBehind) await waitUntilQuiet(sidecar, { home, workspace: work });
         // A case whose Jev call runs after the op has answered (the spans of a check's output) waits for its requests to
         // stop: the answer's time is `elapsedMs`; this wait is only to count them.
         if (c.settle === true) await settleRequests(requestCount, input.settleMs ?? 20_000);
@@ -157,27 +222,16 @@ export async function runCases(input) {
       row.failure = `threw: ${String(error?.message ?? error).slice(0, 120)}`;
     }
     // A case on a hook event or an op that does not name its Jev decision: the newest decision of its spec in the journal.
-    if (row.decisionId === null && row.requests > 0 && typeof c.spec === 'string' && input.latestDecision !== undefined) {
-      try {
-        row.decisionId = await input.latestDecision(c.spec);
-      } catch {
-        // The decision id is a measurement aid; its absence changes nothing.
-      }
-    }
-    if (typeof row.decisionId === 'string' && input.lookup !== undefined) {
-      try {
-        const record = await input.lookup(row.decisionId);
-        if (record !== null && record !== undefined) {
-          row.usage = record.usage ?? null;
-          row.costMicroUsd = record.cost?.actualMicroUsd ?? null;
-          row.durationMs = record.durationMs ?? null;
-          row.jevReasonCodes = Array.isArray(record.reasonCodes) ? record.reasonCodes.slice(0, 12) : [];
-          // The provider's own certainty per question (a Noul's probability, a Choice's or Score's confidence): numbers only.
-          row.answerProbabilities = Array.isArray(record.answerProbabilities) ? record.answerProbabilities.slice(0, 12).map((a) => ({ id: a.questionId, type: a.type, probability: a.probability })) : [];
-        }
-      } catch {
-        // The record is a measurement aid; its absence changes nothing.
-      }
+    const decision = await decisionOf(input, c, row.decisionId, row.requests);
+    row.decisionId = decision.id;
+    if (decision.record !== null) {
+      const { record } = decision;
+      row.usage = record.usage ?? null;
+      row.costMicroUsd = record.cost?.actualMicroUsd ?? null;
+      row.durationMs = record.durationMs ?? null;
+      row.jevReasonCodes = Array.isArray(record.reasonCodes) ? record.reasonCodes.slice(0, 12) : [];
+      // The provider's own certainty per question (a Noul's probability, a Choice's or Score's confidence): numbers only.
+      row.answerProbabilities = Array.isArray(record.answerProbabilities) ? record.answerProbabilities.slice(0, 12).map((a) => ({ id: a.questionId, type: a.type, probability: a.probability })) : [];
     }
     rows.push(row);
   }

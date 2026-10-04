@@ -7,6 +7,7 @@ import { sandbox } from '../../../test/acceptance/lib.mjs';
 import { startJevStub } from '../../../test/acceptance/jev-stub.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
 import { MARKER, runCases, writeWorkspace } from '../scripts/jev-feature-driver.mjs';
+import { DEADLINE_ATTEMPTS, askSidecar } from '../scripts/sidecar-ask.mjs';
 import { CASES, FILES, KNOWN_DEFECTS, KNOWN_LEAKS, openTaskIds, preparePart, wrapSidecar } from '../scripts/jev-feature-cases-b.mjs';
 
 // The verification and delivery capabilities (C41 to C47, C57 to C61, C64) of the live Jev feature
@@ -19,6 +20,7 @@ import { CASES, FILES, KNOWN_DEFECTS, KNOWN_LEAKS, openTaskIds, preparePart, wra
 
 const sidecar = await import('../dist/index.js');
 const orchestrator = await import('@jevris/orchestrator');
+const core = await import('@jevris/core');
 const { resolveSourceEgress } = await import('../dist/egress-guard.js');
 const { jevrisPaths } = await import('@jevris/platform');
 
@@ -72,14 +74,28 @@ function validRequest(id, text) {
 /** The decision records of one capability's spec among the sidecar's recent decisions. */
 async function recordsOfSpec(box, specId) {
   const request = { home: box.home, scope: 'cli', workspace: box.work, timeoutMs: OP_TIMEOUT_MS };
-  const status = await sidecar.sidecarRequest({ ...request, op: 'status', body: {} });
+  const status = await askSidecar(sidecar, { ...request, op: 'status', body: {} });
   assert.equal(status.ok, true, JSON.stringify(status));
   const records = [];
   for (const item of status.result.recentDecisions) {
-    const got = await sidecar.sidecarRequest({ ...request, op: 'decision.get', body: { decisionId: item.decisionId } });
+    const got = await askSidecar(sidecar, { ...request, op: 'decision.get', body: { decisionId: item.decisionId } });
     if (got.ok && got.result.record?.specId === specId) records.push(got.result.record);
   }
   return records;
+}
+
+/**
+ * The decisions of one capability's spec that were paid for (a provider call with usage), read from the journal of the sandbox home.
+ * The status lists only the newest five decisions, which a call that was asked twice can push past; the journal holds them all.
+ */
+async function paidDecisionsOf(home, specId) {
+  const journal = new core.DecisionJournal(core.decisionJournalDir(home));
+  const paid = [];
+  for (const id of await journal.list()) {
+    const record = (await journal.read(id))?.record;
+    if (record?.specId === specId && record.providerCalls >= 1 && record.usage?.inputTokens > 0) paid.push(record);
+  }
+  return paid;
 }
 
 /**
@@ -103,36 +119,55 @@ async function runPass(t, { approved }) {
   await orchestrator.approveManifests(ws, [foreign.manifest], { 'foreign-check': foreign.hash }, 'test');
   const started = box.startSidecar();
   assert.equal(started.code, 0, `the sidecar did not start: ${started.stderr}`);
-  const client = wrapSidecar(sidecar);
+  // The sidecar keeps the product's op budgets, so a call it cuts short on a slow host (DEADLINE) is asked again, here and in the
+  // part's own ops (`caseB.*`). `row.requests` then counts every attempt of the call, and `row.attempts` says how many there were.
+  const client = wrapSidecar(sidecar, { attempts: DEADLINE_ATTEMPTS });
   const lookup = async (decisionId) => {
-    const got = await sidecar.sidecarRequest({ home: box.home, op: 'decision.get', scope: 'cli', workspace: box.work, body: { decisionId }, timeoutMs: OP_TIMEOUT_MS });
+    const got = await askSidecar(sidecar, { home: box.home, op: 'decision.get', scope: 'cli', workspace: box.work, body: { decisionId }, timeoutMs: OP_TIMEOUT_MS });
     return got.ok ? got.result.record : null;
   };
   const results = [];
   for (const c of CASES) {
     const before = stub.requests().length;
-    const [row] = await runCases({ sidecar: client, home: box.home, work: box.work, cases: [c], requestCount: () => stub.requests().length, lookup, timeoutMs: OP_TIMEOUT_MS });
+    // A call that came but did not do what this case needs is asked again too: it sent fewer requests than the case asks (the handler asks
+    // only while enough time is left: C43 asks once per candidate, and the first candidate's decision is cached, so each attempt makes
+    // progress) or it answered from rules (a Jev answer that comes after the handler's deadline is discarded).
+    const asks = (kase) => kase.expectAsked && !Object.hasOwn(KNOWN_DEFECTS, kase.id) && !(kase.egressNeeded && !approved);
+    const done = (kase, got) => !asks(kase) || (got.requests >= (REQUESTS_PER_CALL[kase.id] ?? 1) && got.summary.source === 'jev');
+    const [row] = await runCases({ sidecar: client, home: box.home, work: box.work, cases: [c], requestCount: () => stub.requests().length, lookup, timeoutMs: OP_TIMEOUT_MS, attempts: DEADLINE_ATTEMPTS, done });
     const sent = stub.requests().slice(before);
     const spec = `d-${c.id.toLowerCase()}`;
     // Decisions of the capability's spec: the refusals of a known defect, or (egress denied) the proof
     // that a case which needs egress made no decision at all.
     const wantRecords = Object.hasOwn(KNOWN_DEFECTS, c.id) || (c.egressNeeded && !approved);
-    results.push({ c, row, sent, called: sent.slice(sent.length - row.requests), records: wantRecords ? await recordsOfSpec(box, spec) : [] });
+    // A call that was asked again may be answered from a decision the cut-short attempt paid for: the journal then holds that one.
+    results.push({ c, row, sent, called: sent.slice(sent.length - row.requests), records: wantRecords ? await recordsOfSpec(box, spec) : [], paid: row.attempts > 1 ? await paidDecisionsOf(box.home, spec) : [] });
   }
   return { box, stub, results, approved: orchestrator.approvedManifests(ws).map((m) => m.id).sort() };
+}
+
+/**
+ * The requests that left during the call: exactly `expected` when it was asked once. When the sidecar cut an attempt short (a slow
+ * host) and the call was asked again, the late attempt may already have sent some of its requests and its answer is not kept, so
+ * the count is at least `expected` (every question was asked) and at most `expected` per attempt.
+ */
+function assertCallRequests(row, expected, where) {
+  if (row.attempts === 1) assert.equal(row.requests, expected, `${where}: ${String(row.requests)} Jev requests left during the call, expected ${String(expected)} (reason ${String(row.reasonCode)})`);
+  else assert.ok(row.requests >= expected && row.requests <= expected * row.attempts, `${where}: ${String(row.requests)} Jev requests left during ${String(row.attempts)} attempts, expected ${String(expected)} to ${String(expected * row.attempts)} (reason ${String(row.reasonCode)})`);
 }
 
 function assertPass(t, { results, approved: approvedChecks }, { approved }) {
   const diagnostics = [];
   // Approving this part's checks kept the other part's check and left only the last case's own.
   assert.deepEqual(approvedChecks, ['b-unit-ci', 'foreign-check']);
-  for (const { c, row, sent, called, records } of results) {
+  for (const { c, row, sent, called, records, paid } of results) {
     const where = `${c.id} (${c.site})`;
     assert.equal(row.failure, null, `${where}: ${String(row.failure)}`);
     assert.equal(row.ok, true, where);
     // Every request that left during the case, setup included, is a valid Jev request.
     const bodies = sent.map((request) => validRequest(c.id, request.body));
     assert.equal(called.length, row.requests, `${where}: the request count of the call`);
+    if (row.attempts > 1) diagnostics.push(`${c.id}: the sidecar cut an attempt short; the call was asked ${String(row.attempts)} times and ${String(row.requests)} request(s) left in all`);
     if (sent.length > called.length) diagnostics.push(`${c.id}: ${String(sent.length - called.length)} request(s) left during the setup steps, before the call`);
 
     if (Object.hasOwn(KNOWN_DEFECTS, c.id)) {
@@ -155,11 +190,16 @@ function assertPass(t, { results, approved: approvedChecks }, { approved }) {
       assert.equal(sent.length, 0, `${where}: a request left during the case while egress was denied`);
     } else if (c.expectAsked) {
       const expected = REQUESTS_PER_CALL[c.id] ?? 1;
-      assert.equal(row.requests, expected, `${where}: ${String(row.requests)} Jev requests left during the call, expected ${String(expected)} (reason ${String(row.reasonCode)})`);
+      assertCallRequests(row, expected, where);
       assert.equal(row.source, 'jev', `${where}: answered by ${String(row.source)} (reason ${String(row.reasonCode)})`);
       assert.match(String(row.reasonCode), /^JEV_(CHOICE|SCORE|NOUL)$/, where);
       assert.equal(typeof row.decisionId, 'string', where);
-      assert.ok(row.usage !== null && row.usage.inputTokens > 0, `${where}: the decision record holds no usage`);
+      if (row.attempts > 1 && row.jevReasonCodes.includes('CACHE_HIT')) {
+        // The sidecar cut an attempt short, but its decision finished late and the engine cached it: the retry was answered from the
+        // cache (no provider call, so no usage of its own). The usage is on the decision the cut-short attempt paid for, so a paid
+        // record of this capability's spec must exist, and the answer's own record must say it came from the cache.
+        assert.ok(paid.length >= 1, `${where}: answered from the cache after a cut-short attempt, but the journal holds no paid decision of spec d-${c.id.toLowerCase()}`);
+      } else assert.ok(row.usage !== null && row.usage.inputTokens > 0, `${where}: the decision record holds no usage`);
     } else {
       assert.equal(row.requests, 0, `${where}: asked Jev although it is not expected to`);
     }
@@ -257,7 +297,7 @@ test('with source egress approved in the sandbox home every case asks, with its 
     for (const id of ['C42', 'C45', 'C47', 'C58', 'C60']) assert.ok(withText.includes(id), `${id}: no evidence text left although egress was approved`);
     const c42 = pass.results.find(({ c }) => c.id === 'C42');
     assert.equal(c42.row.source, 'jev');
-    assert.equal(c42.row.requests, 1);
+    assertCallRequests(c42.row, 1, 'C42');
     // C59's package name travels as a fact only now.
     const c59 = pass.results.find(({ c }) => c.id === 'C59');
     assert.ok(JSON.parse(c59.called[0].body).state.facts.package.includes(`${MARKER}-C59`), 'the package name is not in the approved request');

@@ -28,6 +28,7 @@ import { spawnSync } from 'node:child_process';
 import { chmodSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { MARKER } from './jev-feature-driver.mjs';
+import { askSidecar } from './sidecar-ask.mjs';
 
 const tag = (id) => `${MARKER}-${id}`;
 
@@ -347,7 +348,7 @@ async function approveChecks({ request, body }) {
  * Imports one failed CI check for the current HEAD: trusts a throwaway issuer key (a person's step,
  * `jevris verify issuer add`), signs a bundle and sends it through the real `verify.import-ci` op.
  */
-async function ciImport({ request, body, sidecar }) {
+async function ciImport({ request, body, sidecar, attempts }) {
   const { signRecord } = await import('@jevris/contracts');
   const { orchestrator, ws } = await openWorkspaceOf(request);
   const keys = generateKeyPairSync('ed25519');
@@ -377,7 +378,7 @@ async function ciImport({ request, body, sidecar }) {
     keys.privateKey.export({ type: 'pkcs8', format: 'pem' }).toString(),
     'k1',
   );
-  const answer = await sidecar.sidecarRequest({ ...request, op: 'verify.import-ci', scope: 'cli', body: { bundle, artifacts: [{ name: 'unit.tap', base64: artifact.toString('base64') }] } });
+  const answer = await askSidecar(sidecar, { ...request, op: 'verify.import-ci', scope: 'cli', body: { bundle, artifacts: [{ name: 'unit.tap', base64: artifact.toString('base64') }] } }, { attempts });
   if (!answer.ok) throw new Error(`verify.import-ci: ${answer.reasonCode ?? answer.reason}`);
   if (answer.result?.accepted !== true || answer.result?.binding !== 'current') throw new Error(`verify.import-ci: ${String(answer.result?.reasonCode)}`);
   return { receipts: answer.result.receiptIds.length };
@@ -394,15 +395,15 @@ export function openTaskIds(advice) {
  * work other cases left. It lists them from a C57 advice that reports an unresolved comment (that
  * blocks readiness, so no Jev question is asked while listing) and cancels each through `task.cancel`.
  */
-async function cancelOpenTasks({ request, sidecar }) {
+async function cancelOpenTasks({ request, sidecar, attempts }) {
   let cancelled = 0;
   for (let pass = 0; pass < 3; pass += 1) {
-    const listing = await sidecar.sidecarRequest({ ...request, op: 'capability.advise', scope: 'cli', body: { capabilityId: 'C57', input: { unresolvedComments: 1 } } });
+    const listing = await askSidecar(sidecar, { ...request, op: 'capability.advise', scope: 'cli', body: { capabilityId: 'C57', input: { unresolvedComments: 1 } } }, { attempts });
     if (!listing.ok) throw new Error(`capability.advise: ${listing.reasonCode ?? listing.reason}`);
     const ids = openTaskIds(listing.result);
     if (ids.length === 0) return { cancelled };
     for (const taskId of ids) {
-      const done = await sidecar.sidecarRequest({ ...request, op: 'task.cancel', scope: 'cli', body: { taskId } });
+      const done = await askSidecar(sidecar, { ...request, op: 'task.cancel', scope: 'cli', body: { taskId } }, { attempts });
       if (done.ok) cancelled += 1;
     }
   }
@@ -419,16 +420,17 @@ export const CASE_B_OPS = Object.freeze({
  * Wraps a sidecar client (`{ sidecarRequest }`) so the `caseB.*` ops of these cases run in process and
  * every other op goes to the sidecar. Answers like the sidecar does: `{ ok: true, result }` or
  * `{ ok: false, reasonCode, reason }`. Only `caseB.*` ops are handled, so it composes with other
- * parts' wrappers in either order.
+ * parts' wrappers in either order. The sidecar calls these ops make themselves are asked up to `attempts`
+ * times while the sidecar cuts them short (see `sidecar-ask.mjs`; default 1, the live suite's single attempt).
  */
-export function withCaseBOps(sidecar) {
+export function withCaseBOps(sidecar, { attempts = 1 } = {}) {
   return {
     ...sidecar,
     async sidecarRequest(request) {
       const run = CASE_B_OPS[request.op];
       if (run === undefined) return sidecar.sidecarRequest(request);
       try {
-        return { ok: true, result: await run({ request, body: request.body ?? {}, sidecar }) };
+        return { ok: true, result: await run({ request, body: request.body ?? {}, sidecar, attempts }) };
       } catch (error) {
         return { ok: false, reasonCode: 'CASE_B_OP_FAILED', reason: String(error?.message ?? error).slice(0, 160) };
       }
@@ -439,8 +441,8 @@ export function withCaseBOps(sidecar) {
 // ------------------------------------------------------------------ the runner's entry points
 
 /** The sidecar client wrapper a runner uses for this part (`caseB.*` ops in process, the rest to the sidecar). */
-export function wrapSidecar(sidecar) {
-  return withCaseBOps(sidecar);
+export function wrapSidecar(sidecar, options) {
+  return withCaseBOps(sidecar, options);
 }
 
 const HOST_MODES = ['off', 'observe', 'advise', 'bounded-auto'];

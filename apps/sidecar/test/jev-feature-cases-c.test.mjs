@@ -7,6 +7,7 @@ import { sandbox } from '../../../test/acceptance/lib.mjs';
 import { startJevStub } from '../../../test/acceptance/jev-stub.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
 import { MARKER, latestDecisionOf, runCases, writeWorkspace } from '../scripts/jev-feature-driver.mjs';
+import { DEADLINE_ATTEMPTS, askSidecar } from '../scripts/sidecar-ask.mjs';
 import { CASES, FILES, KNOWN_DEFECTS, KNOWN_LEAKS, LAB, LAB_HANDLE, LEAK_FIELDS, PATH_MARK, WORKSPACE_TEXT, preparePart, wrapSidecar } from '../scripts/jev-feature-cases-c.mjs';
 
 // The offline proof of the part C capability cases (research, memory and loop advice): each case's
@@ -108,19 +109,23 @@ async function startBox(t, { egress, preference = false }) {
   if (preference) writePreferenceOnly(box.home);
   const started = box.startSidecar();
   assert.equal(started.code, 0, `the sidecar did not start: ${started.stderr}`);
-  const ping = await sidecar.sidecarRequest({ home: box.home, op: 'ping', scope: 'cli', workspace: work, body: {}, timeoutMs: 30_000 });
+  const ping = await askSidecar(sidecar, { home: box.home, op: 'ping', scope: 'cli', workspace: work, body: {}, timeoutMs: 30_000 });
   assert.equal(ping.ok, true, 'the sidecar does not answer');
   return { stub, box, work };
 }
 
-/** Runs the cases one at a time; each result keeps the requests the stub saw during that case. */
-async function runPass({ stub, box, work }, cases) {
-  const lookup = async (decisionId) => (await sidecar.sidecarRequest({ home: box.home, op: 'decision.get', scope: 'cli', workspace: work, body: { decisionId }, timeoutMs: 30_000 })).result?.record ?? null;
+/** Runs the cases one at a time (in the egress `mode` of the pass); each result keeps the requests the stub saw during that case. */
+async function runPass({ stub, box, work }, cases, mode) {
+  const lookup = async (decisionId) => (await askSidecar(sidecar, { home: box.home, op: 'decision.get', scope: 'cli', workspace: work, body: { decisionId }, timeoutMs: 30_000 })).result?.record ?? null;
   const client = wrapSidecar(sidecar);
   const results = [];
   for (const c of cases) {
     const before = stub.requests().length;
-    const [row] = await runCases({ sidecar: client, home: box.home, work, cases: [c], requestCount: () => stub.requests().length, lookup, latestDecision: (specId) => latestDecisionOf(core, box.home, specId) });
+    // A call (or a setup step) the sidecar cuts short on a slow host, DEADLINE, is asked again, and so is a call that came but did not ask Jev
+    // although this case must (a hook subscriber whose answer was no longer wanted skips its consult, and a hook event is then sent as a
+    // fresh delivery; a Jev answer that comes after the handler's deadline is discarded); `row.requests` then counts every attempt.
+    const done = (kase, got) => expectation(kase, mode) !== 'asked' || (got.requests >= 1 && (got.summary.source === null || got.summary.source === 'jev') && Array.isArray(got.record?.reasonCodes) && got.record.reasonCodes.includes('DECISION_ADVISORY'));
+    const [row] = await runCases({ sidecar: client, home: box.home, work, cases: [c], requestCount: () => stub.requests().length, lookup, attempts: DEADLINE_ATTEMPTS, done, latestDecision: (specId) => latestDecisionOf(core, box.home, specId) });
     results.push({ c, row, sent: stub.requests().slice(before) });
   }
   return results;
@@ -142,7 +147,7 @@ function checkPass(t, results, mode) {
     for (const entry of sent) assertValidRequest(entry, c.id);
 
     const what = expectation(c, mode);
-    t.diagnostic(`${mode} ${c.id}: ${what}, requests ${row.requests} (all ${sent.length}), source ${String(row.source)}, decision codes ${row.jevReasonCodes.join('+') || '-'}`);
+    t.diagnostic(`${mode} ${c.id}: ${what}, attempts ${row.attempts}, requests ${row.requests} (all ${sent.length}), source ${String(row.source)}, decision codes ${row.jevReasonCodes.join('+') || '-'}`);
     if (what === 'quiet') {
       assert.equal(row.requests, 0, `${c.id}: asked Jev (${mode}) but should stay rules-only`);
       if (mode === 'preference-only') {
@@ -184,6 +189,7 @@ function checkPass(t, results, mode) {
 
 async function finish(box, work) {
   assert.equal(box.stopSidecar().code, 0, 'the sidecar did not stop');
+  // The one call that must fail: a stopped sidecar is not running (not a cut-short answer), so it is a single raw request.
   const after = await sidecar.sidecarRequest({ home: box.home, op: 'ping', scope: 'cli', workspace: work, body: {}, timeoutMs: 5_000 });
   assert.equal(after.ok, false, 'a sidecar still answers after it was stopped');
 }
@@ -235,14 +241,14 @@ test('preparePart writes the host policy and, for approved egress, the user pref
 test('with source egress denied every case reaches Jev or stays quiet as documented, and no request carries planted text (egress denied)', { skip }, async (t) => {
   const running = await startBox(t, { egress: 'denied' });
   const { box, work } = running;
-  const results = await runPass(running, CASES);
+  const results = await runPass(running, CASES, 'denied');
   checkPass(t, results, 'denied');
   const asked = results.filter(({ row }) => row.requests >= 1).map(({ c }) => c.id);
   t.diagnostic(`asked Jev: ${asked.join(', ')}`);
   // The consults the product answers itself while egress is denied: C18 (needs the preference) and C70 (workspace paths in the question).
   for (const id of ['C18-capsule', 'C70']) assert.equal(asked.includes(id), false, `${id} asked while egress is denied`);
   // C69 cites the report the C71 step stores: the handle this file recomputes is the one the sidecar answers with.
-  const lab = await sidecar.sidecarRequest({ home: box.home, op: 'capability.advise', scope: 'mcp', workspace: work, body: { capabilityId: 'C71', input: LAB }, timeoutMs: 30_000 });
+  const lab = await askSidecar(sidecar, { home: box.home, op: 'capability.advise', scope: 'mcp', workspace: work, body: { capabilityId: 'C71', input: LAB }, timeoutMs: 30_000 });
   assert.equal(lab.ok, true);
   assert.ok(lab.result.evidenceIds.includes(LAB_HANDLE), 'the C71 report is not stored under the handle the C69 case cites');
   // The state the cases leave: nothing of this part is uncommitted.
@@ -255,7 +261,7 @@ test('with source egress denied every case reaches Jev or stays quiet as documen
 test('with host policy and the user preference approving egress every asking case sends a valid request (egress approved)', { skip }, async (t) => {
   const running = await startBox(t, { egress: 'approved' });
   const { box, stub, work } = running;
-  const results = await runPass(running, CASES);
+  const results = await runPass(running, CASES, 'approved');
   checkPass(t, results, 'approved');
   const asked = results.filter(({ row }) => row.requests >= 1).map(({ c }) => c.id);
   t.diagnostic(`asked Jev: ${asked.join(', ')}`);
@@ -274,7 +280,7 @@ test('with only the user preference approving egress, the capsule asks with its 
   const { box, work } = running;
   const wanted = CASES.filter((c) => c.egressNeeded === true);
   assert.ok(wanted.length >= 2);
-  const results = await runPass(running, wanted);
+  const results = await runPass(running, wanted, 'preference-only');
   checkPass(t, results, 'preference-only');
   for (const { c, row, sent } of results) {
     if (c.egressVia === 'host') {
@@ -293,7 +299,7 @@ test('with only the user preference approving egress, the capsule asks with its 
 
 test('C19 to C24 each reach Jev through the entry point their case names, and with egress denied only the consults that carry no text ask', { skip }, async (t) => {
   const approved = await startBox(t, { egress: 'approved' });
-  const results = await runPass(approved, CASES.filter((c) => ['C19', 'C20', 'C21', 'C22', 'C23', 'C24'].includes(c.capability)));
+  const results = await runPass(approved, CASES.filter((c) => ['C19', 'C20', 'C21', 'C22', 'C23', 'C24'].includes(c.capability)), 'approved');
   const by = new Map(results.map(({ c, row }) => [c.capability, { c, row }]));
   for (const id of ['C19', 'C20', 'C21', 'C22', 'C23', 'C24']) {
     const { c, row } = by.get(id);
@@ -314,7 +320,7 @@ test('C19 to C24 each reach Jev through the entry point their case names, and wi
   await finish(approved.box, approved.work);
   // With egress denied, C19 and C21 (counts only) still ask; C20, C22, C23 and C24 carry workspace text and stay on the rules.
   const denied = await startBox(t, { egress: 'denied' });
-  const quiet = await runPass(denied, CASES.filter((c) => ['C19', 'C20', 'C21', 'C22', 'C23', 'C24'].includes(c.capability)));
+  const quiet = await runPass(denied, CASES.filter((c) => ['C19', 'C20', 'C21', 'C22', 'C23', 'C24'].includes(c.capability)), 'denied');
   const askedDenied = quiet.filter(({ row }) => row.requests >= 1).map(({ c }) => c.capability).sort();
   assert.deepEqual(askedDenied, ['C19', 'C21'], `asked with egress denied: ${askedDenied.join(',')}`);
   await finish(denied.box, denied.work);
