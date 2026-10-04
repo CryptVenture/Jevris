@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 // (with a p95 guard, widened for a slower machine) and fails only a regression that repeats when
 // the tripped series are measured again.
 
-const { BENCH_SCHEMA, MAX_SPEED_FACTOR, SERIES, TARGETS, calibrate, compareBench, p95Series, runBench, runGate, speedFactor, statSeries, summarize } = await import('../scripts/bench.mjs');
+const { BENCH_SCHEMA, MAX_SPEED_FACTOR, SERIES, TARGETS, calibrate, compareBench, measureDecisions, outcomeOf, p95Series, runBench, runGate, speedFactor, statSeries, summarize } = await import('../scripts/bench.mjs');
 
 const stat = (p50, p95 = p50) => ({ n: 100, p50, p95, max: p95 });
 const record = (series, extra = {}) => ({ platform: 'linux', arch: 'x64', results: series, ...extra });
@@ -138,6 +138,7 @@ test('a quick benchmark run measures every series against the built product (OBS
   for (const name of ['hotRulesDecisionMs', 'backgroundRulesDecisionMs', 'semanticDecisionMs']) {
     assert.equal(typeof measured.results[name]?.client?.p95, 'number', `${name}.client`);
     assert.equal(typeof measured.results[name]?.service?.p95, 'number', `${name}.service (from the sidecar's traces)`);
+    assert.equal(Number.isInteger(measured.results[name]?.deadlineHits) && measured.results[name].deadlineHits >= 0, true, `${name}.deadlineHits is a count`);
   }
   for (const met of Object.values(measured.targetsMet)) assert.equal(typeof met, 'boolean');
 });
@@ -149,4 +150,87 @@ test('a re-measure runs only the series it is asked for (OBS-04)', async () => {
   assert.equal(typeof measured.results.hotRulesDecisionMs?.client?.p95, 'number');
   for (const name of ['coldStartMs', 'warmStartMs']) assert.equal(measured.results[name], null, name);
   for (const name of ['backgroundRulesDecisionMs', 'semanticDecisionMs']) assert.deepEqual(measured.results[name], { client: null, service: null }, name);
+});
+
+// The quick run is a smoke test of the harness against a built product, and a slow host is not a defect of the harness.
+// A Windows runner took 2 to 7 s for the engine's durable journal and budget writes before a request was sent, so a
+// semantic decision ended `DEADLINE` at its 5 s budget and the quick run failed with ['semantic decision: DEADLINE'].
+// With an injected 1.5 s per fsync of the decision files that failure was reproduced on a development machine; the
+// quick run now counts the deadline as an outcome and the full run and the gate stay strict.
+
+function fakeSidecar(stateDir, answers) {
+  let at = 0;
+  return {
+    async sidecarRequest({ op }) {
+      const answer = answers[Math.min(at, answers.length - 1)];
+      at += 1;
+      // The sidecar's own trace of the request, as the product writes it.
+      const { mkdirSync, appendFileSync } = await import('node:fs');
+      const { join } = await import('node:path');
+      mkdirSync(join(stateDir, 'traces'), { recursive: true });
+      appendFileSync(join(stateDir, 'traces', 'trace.jsonl'), `${JSON.stringify({ event: 'request.outcome', op, ok: answer.ok === true, ms: 5000, ts: new Date().toISOString() })}\n`); // test-hygiene: not product source
+      return answer;
+    },
+  };
+}
+
+async function withStateDir(fn) {
+  const { mkdtempSync, rmSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const dir = mkdtempSync(join(tmpdir(), 'b-decisions-'));
+  try {
+    return await fn(dir);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+}
+
+test('outcomeOf: an answer is ok; a deadline or a timeout is an outcome only in the quick run; every other refusal is a failure (OBS-04)', () => {
+  assert.equal(outcomeOf({ ok: true, result: {} }, true), 'ok');
+  assert.equal(outcomeOf({ ok: true }, false), 'ok');
+  for (const reply of [{ ok: false, reasonCode: 'DEADLINE' }, { ok: false, reason: 'timeout', reasonCode: 'TIMEOUT' }, { ok: false, reason: 'timeout', reasonCode: 'HANDSHAKE_TIMEOUT' }, { ok: false, reason: 'timeout' }]) {
+    assert.equal(outcomeOf(reply, true), 'deadline', JSON.stringify(reply));
+    assert.equal(outcomeOf(reply, false), 'failure', `${JSON.stringify(reply)}: the full run is strict`);
+  }
+  for (const reply of [{ ok: false, reasonCode: 'INVALID_REQUEST' }, { ok: false, reason: 'unavailable', reasonCode: 'NOT_RUNNING' }, { ok: false, reason: 'rejected', reasonCode: 'KILL_SWITCH' }, { ok: false }, null, undefined]) {
+    assert.equal(outcomeOf(reply, true), 'failure', JSON.stringify(reply));
+  }
+});
+
+test('a quick series that hit its deadline records the hits and its times, and reports no failure (OBS-04)', async () => {
+  await withStateDir(async (stateDir) => {
+    const failures = [];
+    const sidecar = fakeSidecar(stateDir, [{ ok: true }, { ok: false, reasonCode: 'DEADLINE' }, { ok: false, reasonCode: 'DEADLINE' }, { ok: true }]);
+    const ports = { sidecar, home: stateDir, work: stateDir, stateDir };
+    const series = await measureDecisions({ ports, label: 'semantic decision', op: 'recover', body: (i) => ({ i }), n: 3, offset: 10, warmup: 1, lenient: true, failures });
+    assert.deepEqual(failures, []);
+    assert.equal(series.deadlineHits, 2);
+    assert.equal(series.client.n, 3, 'a deadline answer is a sample: it is what the caller waited');
+    assert.equal(typeof series.client.p95, 'number');
+    assert.equal(typeof series.service.p95, 'number', 'and the sidecar traced it');
+  });
+});
+
+test('the full run is as strict as before: the same deadlines are failures, and a series with no sample is missing (OBS-04)', async () => {
+  await withStateDir(async (stateDir) => {
+    const failures = [];
+    const sidecar = fakeSidecar(stateDir, [{ ok: false, reasonCode: 'DEADLINE' }]);
+    const ports = { sidecar, home: stateDir, work: stateDir, stateDir };
+    const series = await measureDecisions({ ports, label: 'semantic decision', op: 'recover', body: (i) => ({ i }), n: 2, offset: 10, warmup: 0, lenient: false, failures });
+    assert.deepEqual(failures, ['semantic decision: DEADLINE', 'semantic decision: DEADLINE']);
+    assert.equal(series.deadlineHits, 0);
+    assert.equal(series.client, null, 'nothing was measured: the series is missing, and the run says so');
+  });
+});
+
+test('a quick series whose requests all fail for another reason is a failure and has no sample, so the quick run still fails (OBS-04)', async () => {
+  await withStateDir(async (stateDir) => {
+    const failures = [];
+    const sidecar = fakeSidecar(stateDir, [{ ok: false, reasonCode: 'NOT_RUNNING', reason: 'unavailable' }]);
+    const ports = { sidecar, home: stateDir, work: stateDir, stateDir };
+    const series = await measureDecisions({ ports, label: 'hot rules decision', op: 'route', body: (i) => ({ i }), n: 2, offset: 1000, warmup: 0, lenient: true, failures });
+    assert.deepEqual(failures, ['hot rules decision: NOT_RUNNING', 'hot rules decision: NOT_RUNNING']);
+    assert.equal(series.client, null);
+  });
 });
