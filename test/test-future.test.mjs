@@ -38,7 +38,14 @@ function probe(t, days) {
     "const child = spawnSync(process.execPath, ['-e', 'console.log(Date.now())'], { env: { PATH: process.env.PATH ?? '' }, encoding: 'utf8' });",
     // The real wall clock, which the shift leaves alone (so this test also holds under test:future).
     'const real = performance.timeOrigin + performance.now();',
-    'console.log(JSON.stringify({ real, now: Date.now(), made: new Date().getTime(), fresh, set: set.getTime(), readBack, child: Number(child.stdout), isDate: new Date() instanceof Date, text: typeof Date() }));',
+    // A test may fake a wall-clock jump by assigning Date.now, and put the previous function back.
+    'const before = Date.now;',
+    'Date.now = () => before() + 60_000;',
+    'const jumped = Date.now() - before();',
+    'const constructed = new Date().getTime() - before();',
+    'Date.now = before;',
+    'const restored = Date.now() - before();',
+    'console.log(JSON.stringify({ real, now: Date.now(), made: new Date().getTime(), fresh, set: set.getTime(), readBack, child: Number(child.stdout), isDate: new Date() instanceof Date, text: typeof Date(), jumped, constructed, restored }));',
   ].join('\n');
   const env = {
     ...process.env,
@@ -62,6 +69,15 @@ test('test:future: Date, file times and a child with an explicit env all move th
   }
   assert.equal(Math.round(seen.readBack / 1000), Math.round(seen.set / 1000), 'a time set with utimes reads back as set');
   assert.deepEqual([seen.isDate, seen.text], [true, 'string']);
+});
+
+test('test:future: a test that assigns its own Date.now is honoured, and putting the previous one back restores the shifted clock (QA-05)', (t) => {
+  for (const days of [90, 0]) {
+    const seen = probe(t, days);
+    assert.ok(Math.abs(seen.jumped - 60_000) < 5_000, `${days} days: Date.now follows the assignment (${seen.jumped} ms)`);
+    assert.ok(Math.abs(seen.constructed) < 5_000, `${days} days: new Date() does not read Date.now, as on a real Date (${seen.constructed} ms)`);
+    assert.ok(Math.abs(seen.restored) < 5_000, `${days} days: restored (${seen.restored} ms)`);
+  }
 });
 
 test('test:future: with a shift of 0 days nothing moves (QA-05)', (t) => {

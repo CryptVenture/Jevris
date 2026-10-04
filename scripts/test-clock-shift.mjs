@@ -14,7 +14,11 @@ if (Number.isFinite(days) && days !== 0) {
   const offset = days * 86_400_000;
   const RealDate = Date;
   const realNow = RealDate.now.bind(RealDate);
-  // A Proxy keeps Date's identity for instanceof and its prototype; only "now" moves.
+  // A Proxy keeps Date's identity for instanceof and its prototype; only "now" moves. A test that
+  // assigns its own Date.now (to fake a clock jump) is honoured, as it is on a real Date: the
+  // assignment replaces the shifted clock for Date.now until the test puts the previous function
+  // back. `new Date()` does not read Date.now, on a real Date or here.
+  let nowOverride = null;
   globalThis.Date = new Proxy(RealDate, {
     construct(target, args, newTarget) {
       return Reflect.construct(target, args.length === 0 ? [realNow() + offset] : args, newTarget);
@@ -23,8 +27,15 @@ if (Number.isFinite(days) && days !== 0) {
       return new RealDate(realNow() + offset).toString();
     },
     get(target, key, receiver) {
-      if (key === 'now') return () => realNow() + offset;
+      if (key === 'now') return nowOverride ?? (() => realNow() + offset);
       return Reflect.get(target, key, receiver);
+    },
+    set(target, key, value, receiver) {
+      if (key === 'now') {
+        nowOverride = typeof value === 'function' ? value : null;
+        return true;
+      }
+      return Reflect.set(target, key, value, receiver);
     },
   });
 
