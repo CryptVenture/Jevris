@@ -154,7 +154,8 @@ test('a slow Jev is abandoned at the deadline with no readiness stated; the late
   });
   t.after(() => open());
   const { engine, requests, script } = await setup(t, () => 0.9, { gate });
-  const late = await core.adviseWorkerReadiness(engine, BOUNDED, { ...CTX }, { ...ASK, deadlineMs: 150 });
+  // The caller's wait is the 150 ms under test; the late call gets a generous grace, so a loaded host cannot cut it off before it reaches the endpoint.
+  const late = await core.adviseWorkerReadiness(engine, BOUNDED, { ...CTX }, { ...ASK, deadlineMs: 150, lateGraceMs: 60_000 });
   assert.deepEqual([late.state, late.reasonCode, late.asked], [null, 'WORKER_READINESS_DEADLINE', true], 'the caller did not wait for Jev');
   await until(() => requests.length === 1);
   assert.equal(script.finishedCount(), 0);

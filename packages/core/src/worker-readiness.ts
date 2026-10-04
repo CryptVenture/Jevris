@@ -64,6 +64,11 @@ export interface WorkerReadinessOptions {
   readonly now?: () => number;
   /** Extra reason codes the caller joins to the record (for example the launch's own). */
   readonly extraCodes?: readonly string[];
+  /**
+   * How long the abandoned call may run on after `deadlineMs` so its answer can warm the cache (default 1 s). A test on a
+   * slow host gives a long one, so the engine's own writes cannot cut the call off before it reaches the endpoint.
+   */
+  readonly lateGraceMs?: number;
 }
 
 /** The facts of the request: counts and category codes. Nothing here is text of the task. */
@@ -170,7 +175,7 @@ export async function adviseWorkerReadiness(engine: DecisionEngine | null, hints
     facts: workerReadinessFacts(features),
     evidence: [],
   };
-  const grace = 1_000;
+  const grace = options.lateGraceMs ?? 1_000;
   const run = askBoundedDecision(
     engine,
     WORKER_READINESS_SPEC.id,
