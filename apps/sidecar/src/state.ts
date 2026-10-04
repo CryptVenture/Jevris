@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { ACCESS_USAGE_STATUS_HARNESSES, ACCESS_USAGE_STATUS_MAX_READINGS, ACCESS_USAGE_STATUS_MAX_WINDOWS, HARNESS_IDS, ID_PATTERN, MAIN_SESSION_MODES, MODEL_ID_PATTERN, containsSecret, servingHostOf, SIDECAR_BUDGET_MS, SIDECAR_CLIENT_SCOPES, TURN_HARNESSES, surfacePayloadContract, modeAllows, type JevrisConfig, type Mode } from '@jevris/contracts';
+import { EXPLICIT_BASE_URL, ACCESS_USAGE_STATUS_HARNESSES, ACCESS_USAGE_STATUS_MAX_READINGS, ACCESS_USAGE_STATUS_MAX_WINDOWS, HARNESS_IDS, ID_PATTERN, MAIN_SESSION_MODES, MODEL_ID_PATTERN, containsSecret, servingHostOf, SIDECAR_BUDGET_MS, SIDECAR_CLIENT_SCOPES, TURN_HARNESSES, surfacePayloadContract, modeAllows, type JevrisConfig, type Mode } from '@jevris/contracts';
 import type { OpenedStore } from '@jevris/store';
 import type {
   SidecarAdviceAdherence,
@@ -228,6 +228,61 @@ export interface RuntimeStateInput {
   readonly hostRouteCertified?: (query: HostRouteQuery) => Promise<boolean>;
   /** Access limits R76 (design 9.3): how often access-blocked tasks are checked for resume; 0 turns the tick off (default 60 s). */
   readonly accessResumeMs?: number;
+  /**
+   * The Jev connection opened at start (`prewarmJevConnection`). Absent: the provider package's own, used only when the
+   * sidecar loads its engine itself (a test that passes `engine` opens no connection); false: none.
+   */
+  readonly jevConnection?: JevConnectionPorts | false;
+}
+
+/** What opening the Jev connection ahead of the first request needs from the host. */
+export interface JevConnectionPorts {
+  /** Opens one connection to the origin (no request, no data); true when one is ready. */
+  prewarm(url: string): Promise<boolean>;
+  /** True while a test provider replaces the real one (its loopback address is not worth a connection). */
+  overrideActive(): boolean;
+}
+
+/** The provider package's connection ports, or undefined when it does not offer them. */
+async function providerConnectionPorts(): Promise<JevConnectionPorts | undefined> {
+  try {
+    const provider: unknown = await import('@jevris/provider-typesafe');
+    const prewarm = Reflect.get(provider as object, 'prewarmConnection') as ((url: string) => Promise<boolean>) | undefined;
+    const override = Reflect.get(provider as object, 'readProviderOverride') as ((env?: unknown) => { readonly active: boolean }) | undefined;
+    if (typeof prewarm !== 'function') return undefined;
+    return { prewarm, overrideActive: () => (typeof override === 'function' ? override(process.env).active : false) };
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Opens the Jev connection at start (TCP and TLS, no request and no data), so the first request is not the one that pays for
+ * the handshake: measured live, 50 to 110 ms of a first `route` that took 440 ms where one on an open connection took 300.
+ * Only when Jev could be asked right now: the engine has a key, the mode allows background network work (a mode below
+ * observe has none, SSOT 4.2), `jev.assist` is not off, the kill switch is clear and no test provider stands in. Any other
+ * state opens nothing. The connection is idle until a request takes it, and the pool closes it when none does.
+ */
+export async function prewarmJevConnection(input: {
+  readonly engine: unknown;
+  readonly ports: JevConnectionPorts | undefined;
+  readonly allowed: () => boolean;
+  readonly assist: () => 'off' | 'classify';
+  readonly killSwitchStopped: () => Promise<boolean>;
+}): Promise<{ readonly warmed: boolean; readonly reasonCode: string }> {
+  const no = (reasonCode: string): { readonly warmed: false; readonly reasonCode: string } => ({ warmed: false, reasonCode });
+  if (input.ports === undefined) return no('PREWARM_NO_PORT');
+  if (engineField(input.engine, 'providerConfigured') !== true) return no('PREWARM_RULES_ONLY');
+  if (input.ports.overrideActive()) return no('PREWARM_TEST_PROVIDER');
+  if (!input.allowed()) return no('PREWARM_MODE_OFF');
+  if (input.assist() === 'off') return no('PREWARM_ASSIST_OFF');
+  if (await input.killSwitchStopped()) return no('PREWARM_KILL_SWITCH');
+  try {
+    const warmed = await input.ports.prewarm(EXPLICIT_BASE_URL);
+    return { warmed, reasonCode: warmed ? 'PREWARM_READY' : 'PREWARM_UNAVAILABLE' };
+  } catch {
+    return no('PREWARM_UNAVAILABLE');
+  }
 }
 
 /** Access limits R76 (design 9.3): the resume tick's period. */
@@ -414,7 +469,13 @@ async function loadEngine(
   }
   if (credential === null) log({ level: 'info', event: 'credential', state: 'rules-only' });
   try {
-    const baseFetch = Reflect.get(globalThis, 'fetch') as ((input: unknown, init?: unknown) => Promise<unknown>) | undefined;
+    // Jev's requests go over the provider's own `nodeFetch`: node:https with a keep-alive pool of several
+    // sockets. The global `fetch` negotiates HTTP/2 with api.typesafe.ai and then sends concurrent requests
+    // to it one at a time (measured live: four at once took 201, 389, 573 and 776 ms against 240 ms each
+    // on separate sockets), so several sessions routing together lost their Jev answer to the wait.
+    const pooled = Reflect.get(provider as object, 'nodeFetch') as ((input: string, init?: unknown) => Promise<unknown>) | undefined;
+    const globalFetch = Reflect.get(globalThis, 'fetch') as ((input: unknown, init?: unknown) => Promise<unknown>) | undefined;
+    const baseFetch = typeof pooled === 'function' ? (pooled as (input: unknown, init?: unknown) => Promise<unknown>) : globalFetch;
     return await (factory as (input: object) => unknown)({
       home,
       credential,
@@ -431,7 +492,7 @@ async function loadEngine(
       // egress, and approved text is still secret-screened at the transport boundary.
       ...(baseFetch !== undefined
         ? {
-            fetch: guardEgressFetch(baseFetch.bind(globalThis), () => resolveSourceEgress({ home }), (reasonCode, fields) => {
+            fetch: guardEgressFetch(baseFetch, () => resolveSourceEgress({ home }), (reasonCode, fields) => {
               log({ level: 'warn', event: 'egress-refused', reasonCode, fields: fields.slice(0, 16).join(',') });
               onEgressRefused(reasonCode, fields.length);
             }),
@@ -650,6 +711,17 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
    * live certification re-check. Local work (the store, retention, archive, status line) runs.
    */
   const backgroundNetworkAllowed = (): boolean => modeAllows(effectiveModeFor(home, null), 'record');
+
+  // The Jev connection, opened ahead of the first request (see prewarmJevConnection). Background work: the answer to the
+  // first request is never held for it, and a close waits for it only briefly.
+  const jevPorts = input.jevConnection === false ? undefined : (input.jevConnection ?? (input.engine === undefined ? await providerConnectionPorts() : undefined));
+  const warming = prewarmJevConnection({ engine: loadedEngine, ports: jevPorts, allowed: backgroundNetworkAllowed, assist: () => effectiveJevAssistFor(home, null), killSwitchStopped: () => readKillSwitch(home) })
+    .then((outcome) => {
+      if (outcome.warmed || outcome.reasonCode === 'PREWARM_UNAVAILABLE') log({ level: 'info', event: 'jev-connection', reasonCode: outcome.reasonCode });
+    })
+    .catch(() => undefined);
+  background.add(warming);
+  void warming.finally(() => background.delete(warming));
 
   // The harness model-offer refresh (DOMAINS 3f090fa): only while idle, never concurrently.
   let lastRequestAtMs = Date.now();

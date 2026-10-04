@@ -7,6 +7,7 @@ declare module 'node:http' {
     readonly headers: { readonly [name: string]: string | readonly string[] | undefined };
     readonly rawHeaders: readonly string[];
     on(event: 'error', listener: (error: Error) => void): this;
+    on(event: 'close', listener: () => void): this;
     destroy(error?: Error): this;
   }
   export interface ClientRequest {
@@ -15,6 +16,16 @@ declare module 'node:http' {
     write(chunk: Uint8Array): boolean;
     end(chunk?: Uint8Array): this;
     destroy(error?: Error): this;
+  }
+  /** A socket as the pool sees it: the few members the pre-opened connection uses. */
+  export interface PoolSocket {
+    readonly destroyed: boolean;
+    on(event: 'close' | 'error' | 'timeout' | 'connect' | 'secureConnect', listener: (...args: unknown[]) => void): this;
+    once(event: 'close' | 'error' | 'timeout' | 'connect' | 'secureConnect', listener: (...args: unknown[]) => void): this;
+    off(event: 'close' | 'error' | 'timeout' | 'connect' | 'secureConnect', listener: (...args: unknown[]) => void): this;
+    destroy(error?: Error): this;
+    ref(): this;
+    unref(): this;
   }
   export interface AgentOptions {
     readonly keepAlive?: boolean;
@@ -26,6 +37,10 @@ declare module 'node:http' {
   export class Agent {
     constructor(options?: AgentOptions);
     destroy(): void;
+    /** Opens the connection a request needs. The pre-opened connection is handed out through it. */
+    createConnection: (options: { readonly host?: string; readonly port?: number | string; readonly servername?: string }, callback?: unknown) => PoolSocket;
+    /** The idle sockets waiting for a request, by pool key. Read-only. */
+    readonly freeSockets: { readonly [key: string]: readonly PoolSocket[] | undefined };
   }
   export interface RequestOptions {
     readonly method?: string;

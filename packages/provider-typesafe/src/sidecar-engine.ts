@@ -20,6 +20,7 @@ import { jevrisPaths } from '@jevris/platform';
 import { createSdkTransport, type FetchLike } from './sdk-transport.js';
 import { bundledCalibrationPath, trustedCalibrationKeys } from './calibration-trust.js';
 import { readProviderOverride } from './provider-override.js';
+import { warmDecisionPath } from './warm-up.js';
 
 export const RULES_ONLY_DIAGNOSTIC = 'provider key not configured: run jevris credential set';
 
@@ -71,6 +72,8 @@ export interface SidecarEngineOptions {
 }
 
 export async function createSidecarEngine(options: SidecarEngineOptions): Promise<DecisionEngine> {
+  // The first decision of a process pays for compiling its validators; start-up pays for it instead (see warm-up.ts).
+  const warm = warmDecisionPath();
   const paths = jevrisPaths(options.home === undefined ? {} : { home: options.home });
   const clock = options.clock ?? { now: () => Date.now() };
   const budget = DecisionBudget.open(join(paths.data, 'decision-budget.json'), {
@@ -92,6 +95,7 @@ export async function createSidecarEngine(options: SidecarEngineOptions): Promis
     if (!override.active) options.log?.(RULES_ONLY_DIAGNOSTIC);
     const engine = createDecisionEngine({ transport: null, journalDir: join(paths.data, 'decisions'), budget, clock, ...(options.sourceEgress === undefined ? {} : { sourceEgress: options.sourceEgress }) });
     await engine.recover();
+    await warm;
     return withManagedRoute(engine, paths.home, clock, options.providerConsent);
   }
   const breaker = await CircuitBreaker.load(join(paths.state, 'jev-circuit.json'), { now: () => clock.now() });
@@ -111,6 +115,7 @@ export async function createSidecarEngine(options: SidecarEngineOptions): Promis
   });
   const { recovered } = await engine.recover();
   if (recovered > 0) options.log?.(`recovered ${recovered} interrupted decision(s)`);
+  await warm;
   return withManagedRoute(engine, paths.home, clock, options.providerConsent);
 }
 
