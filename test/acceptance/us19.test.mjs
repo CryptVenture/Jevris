@@ -3,6 +3,7 @@ import { join, relative } from 'node:path';
 import { load, story } from './lib.mjs';
 import { startJevStub } from './jev-stub.mjs';
 import { ownedWorkers, submit, taskNode, taskReader } from './owned.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // Two ready tasks touch disjoint packages but both update the shared lockfile. Jev is reachable
 // and egress is approved, so a semantic answer could be asked for; the resource lock is still
@@ -59,7 +60,7 @@ story('US19', async ({ t, then, sandbox, evidence }) => {
     const waiting = await task('B');
     assert.equal(waiting.task.state, 'validated', 'B ran while A held the lockfile');
     assert.equal(waiting.worker, null);
-    assert.equal(box.jevris(['verify', '--task', 'A'], { json: true }).code, 0, 'verify --task A failed');
+    assert.equal((await verifySettled(box, ['--task', 'A'], { task: 'A' })).code, 0, 'verify --task A failed');
     const b = await task('B', 'awaiting-evidence');
     evidence(b);
     assert.equal(b.task.state, 'awaiting-evidence', `B is ${b.task.state} after A was verified`);

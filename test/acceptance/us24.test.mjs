@@ -5,6 +5,7 @@ import { load, story } from './lib.mjs';
 import { certifyHooks, deliverHook } from './certified-hooks.mjs';
 import { startJevStub } from './jev-stub.mjs';
 import { ownedWorkers, submit, taskNode, taskReader } from './owned.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // An owned worker finishes and says every check passed. It ran none, and its patch does not
 // actually pass. Jev is reachable (egress approved) and the agent ends its turn with the same
@@ -76,7 +77,7 @@ story('US24', async ({ t, then, sandbox, evidence }) => {
     assert.equal(now.task.state, 'awaiting-evidence', 'advice moved the task');
     assert.deepEqual(now.receipts, []);
     // Only the runner decides, and the patch does not pass.
-    const verify = box.jevris(['verify', '--task', 'T1'], { json: true });
+    const verify = await verifySettled(box, ['--task', 'T1'], { task: 'T1' });
     evidence(verify.json);
     assert.equal(verify.code, 1);
     assert.equal(verify.json.result.readiness, 'not-verified');

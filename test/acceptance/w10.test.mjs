@@ -4,6 +4,7 @@ import { mkdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { certifyHooks } from './certified-hooks.mjs';
 import { workflow } from './lib.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 function git(cwd, ...args) {
   const run = spawnSync('git', ['-c', 'user.email=ci@example.invalid', '-c', 'user.name=ci', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
@@ -40,7 +41,7 @@ workflow('W10', 'Moving from Claude Code to another harness', async ({ t, then, 
   git(box.work, 'add', '.');
   git(box.work, 'commit', '-q', '-m', 'report');
   assert.equal((await box.approveChecks()).code, 0);
-  box.jevris(['verify', '--check', 'unit'], { json: true });
+  await verifySettled(box, ['--check', 'unit'], { checks: ['unit'] });
   box.write('work/src/report.js', 'export const total = (rows) => rows.reduce((n, r) => n + r.amount, 0);\n');
   assert.equal(box.startSidecar().code, 0);
   const SECRET = 'AKIAIOSFODNN7EXAMPLE';

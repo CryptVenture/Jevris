@@ -3,6 +3,7 @@ import { spawnSync } from 'node:child_process';
 import { join } from 'node:path';
 import { certifyHooks } from './certified-hooks.mjs';
 import { story } from './lib.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 function git(cwd, ...args) {
   const run = spawnSync('git', ['-c', 'user.email=ci@example.invalid', '-c', 'user.name=ci', '-c', 'commit.gpgsign=false', ...args], { cwd, encoding: 'utf8' });
@@ -39,7 +40,7 @@ story('US39', async ({ t, then, sandbox, evidence }) => {
   // on windows-latest) would leave verify rules-only, with no receipt.
   const up = box.startSidecar();
   assert.equal(up.code, 0, `sidecar start failed: ${up.stdout} ${up.stderr}`);
-  const verified = box.jevris(['verify', '--check', 'unit'], { json: true });
+  const verified = await verifySettled(box, ['--check', 'unit'], { checks: ['unit'] });
   assert.equal(verified.json?.result?.checks?.[0]?.outcome, 'failed', `the failing check did not record a failed receipt: ${JSON.stringify(verified.json) ?? verified.stdout} ${verified.stderr}`);
   const checkpoint = box.jevris(['checkpoint', '--objective', 'Make the parser handle quoted fields', '--constraint', 'C1: keep the public parse() signature'], { json: true });
   assert.equal(checkpoint.code, 0, `checkpoint failed: ${checkpoint.stdout} ${checkpoint.stderr}`);
@@ -82,6 +83,7 @@ story('US39', async ({ t, then, sandbox, evidence }) => {
     assert.equal(items.some((item) => item.kind === 'approval'), false, 'an approval travelled as a control');
     assert.deepEqual(resumed.result.capsule.capsule.authorizationHistoryRefs, [], 'approvals were carried over');
     // The verification check still runs through the target's own runner; nothing marked it passed.
+    // Asked once and read as it comes: a failing check is not verified whether its answer holds the result or says it is still running.
     const verify = box.jevris(['verify', '--check', 'unit'], { json: true });
     assert.notEqual(verify.json?.result?.readiness, 'verified', 'the imported failing check verified');
   });

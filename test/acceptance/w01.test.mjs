@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { workflow } from './lib.mjs';
 import { ownedWorkers } from './owned.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // W01: a small API response-field change done by a bounded owned worker. The worker is D's
 // scripted worker port (test mode plus the sandbox's test-home marker): it writes its patch in
@@ -89,7 +90,7 @@ workflow('W01', 'A routine feature with a bounded worker', async ({ then, sandbo
     const waiting = await taskOf(client, 'T1');
     assert.deepEqual(waiting.receipts, [], 'the finished worker alone produced a receipt');
     assert.notEqual(waiting.task.state, 'verified', 'the worker finishing marked the task verified');
-    const verify = box.jevris(['verify', '--task', 'T1'], { json: true });
+    const verify = await verifySettled(box, ['--task', 'T1'], { task: 'T1' });
     evidence(verify.json);
     assert.equal(verify.code, 0, `verify --task T1: ${verify.stdout} ${verify.stderr}`);
     assert.equal(verify.json.result.readiness, 'verified');
@@ -120,7 +121,7 @@ workflow('W01', 'A routine feature with a bounded worker', async ({ then, sandbo
     const submitted = box.jevris(['plan', '--submit', '--graph', second, '--budget', 'sprint-2', '--limit-micro-usd', '2000000', '--authorization', box.authorizeBudget('sprint-2'), '--yes'], { json: true });
     assert.equal(submitted.json?.leaseIds?.length, 1, `T2 was not leased: ${submitted.stdout}`);
     assert.equal((await taskOf(client, 'T2', 'awaiting-evidence'))?.task?.state, 'awaiting-evidence');
-    const verify = box.jevris(['verify', '--task', 'T2'], { json: true });
+    const verify = await verifySettled(box, ['--task', 'T2'], { task: 'T2' });
     evidence(verify.json);
     assert.equal(verify.code, 1, 'an unmet contract verified');
     assert.equal(verify.json.result.readiness, 'not-verified');

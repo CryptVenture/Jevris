@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { story } from './lib.mjs';
 import { ownedWorkers, submit, taskNode, taskReader } from './owned.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // The same source defect survives the repair budget: the parser still returns the wrong value
 // after the weak worker's attempt. The workers are D's scripted worker port.
@@ -31,7 +32,7 @@ story('US09', async ({ then, sandbox, evidence }) => {
   const task = taskReader(await box.mcp());
   assert.equal((await task('T1', 'failed'))?.task?.state, 'failed', 'the first worker did not fail');
   // The defect is verified by the runner, not only reported by the worker.
-  const verify = box.jevris(['verify', '--check', 'unit'], { json: true });
+  const verify = await verifySettled(box, ['--check', 'unit'], { checks: ['unit'] });
   assert.equal(verify.json.result.checks[0].outcome, 'failed');
 
   await then('One bounded escalation receives the rejected approaches and evidence', async () => {

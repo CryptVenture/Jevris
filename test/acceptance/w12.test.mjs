@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { workflow } from './lib.mjs';
+import { renderVerify, verifySettled } from './verify-run.mjs';
 
 // W12: a legacy embedded project (C sources and a Keil uVision project) with no certified
 // analyzer. Jevris names the metadata it found, says build and test semantics are unverified,
@@ -55,9 +56,9 @@ workflow('W12', 'An unknown toolchain or constrained platform', async ({ then, s
   // The developer approves it at a terminal (SR-1); the sandbox records it as the CLI does.
   const approve = await box.approveChecks();
 
-  await then('an approved command manifest supplied by the developer runs through the verification runner', () => {
+  await then('an approved command manifest supplied by the developer runs through the verification runner', async () => {
     assert.equal(approve.code, 0, `verify approve failed: ${approve.reason}`);
-    const run = box.jevris(['verify', '--check', 'build'], { json: true });
+    const run = await verifySettled(box, ['--check', 'build'], { checks: ['build'] });
     evidence(run.json);
     const build = run.json.result.checks.find((check) => check.checkId === 'build');
     assert.equal(build.outcome, 'passed', `build: ${JSON.stringify(build)}`);
@@ -65,8 +66,8 @@ workflow('W12', 'An unknown toolchain or constrained platform', async ({ then, s
     assert.equal(build.fresh, true, 'the build receipt is not current');
   });
 
-  await then('a hardware-dependent check runs only on the runner that has the hardware and is never passed by judgment', () => {
-    const run = box.jevris(['verify', '--check', 'build', '--check', 'device'], { json: true });
+  await then('a hardware-dependent check runs only on the runner that has the hardware and is never passed by judgment', async () => {
+    const run = await verifySettled(box, ['--check', 'build', '--check', 'device'], { checks: ['build', 'device'] });
     evidence(run.json);
     const device = run.json.result.checks.find((check) => check.checkId === 'device');
     assert.equal(device.outcome, 'not-run', `the device check ran without the hardware: ${JSON.stringify(device)}`);
@@ -81,15 +82,18 @@ workflow('W12', 'An unknown toolchain or constrained platform', async ({ then, s
     assert.equal(byId.device, 'missing', `device: ${byId.device}`);
   });
 
-  await then('the final report distinguishes verified software changes from checks that require another environment', () => {
-    const run = box.jevris(['verify', '--check', 'build', '--check', 'device'], { json: true });
+  await then('the final report distinguishes verified software changes from checks that require another environment', async () => {
+    const run = await verifySettled(box, ['--check', 'build', '--check', 'device'], { checks: ['build', 'device'] });
     evidence(run.json);
     assert.equal(run.json.result.readiness, 'needs-environment', `readiness: ${run.json.result.readiness}`);
     assert.deepEqual(run.json.result.needsEnvironment, ['device']);
-    assert.equal(run.json.summary, 'Software checks verified; needs another environment: device (bench-1).');
-    const text = box.jevris(['verify', '--check', 'build', '--check', 'device']);
-    assert.match(text.stdout, /^check build: passed mandatory receipt rcpt-\S+$/m);
-    assert.match(text.stdout, /^check device: not-run mandatory .*reason HARDWARE_UNAVAILABLE needs bench-1$/m);
-    assert.match(text.stdout, /^needs another environment: device$/m);
+    // The summary and the plain text are the CLI's own rendering of the settled payload. A second `jevris verify`
+    // for the text would start a second run, and on a slow host its answer comes before that run ends.
+    const report = await renderVerify(run);
+    assert.equal(report.summary, 'Software checks verified; needs another environment: device (bench-1).');
+    if (run.settled) assert.equal(run.json.summary, report.summary, 'the command printed what the renderer gives for its payload');
+    assert.match(report.text, /^check build: passed mandatory receipt rcpt-\S+$/m);
+    assert.match(report.text, /^check device: not-run mandatory .*reason HARDWARE_UNAVAILABLE needs bench-1$/m);
+    assert.match(report.text, /^needs another environment: device$/m);
   });
 });

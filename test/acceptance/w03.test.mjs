@@ -5,6 +5,7 @@ import { join } from 'node:path';
 import { certifyHooks, deliverHook } from './certified-hooks.mjs';
 import { workflow } from './lib.mjs';
 import { ownedWorkers } from './owned.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // W03: a multi-module refactor that outlives native compaction. The capsule is kept current at
 // each finished subtask, native compaction goes ahead with it already written, the pinned
@@ -39,7 +40,7 @@ workflow('W03', 'A long refactor across compaction', async ({ then, sandbox, evi
 
   // Subtask 1 finishes: the parser module changes and its check passes.
   box.write('work/pkg/parse.mjs', PARSE_V2);
-  const verified = box.jevris(['verify', '--check', 'api'], { json: true });
+  const verified = await verifySettled(box, ['--check', 'api'], { checks: ['api'] });
   assert.equal(verified.code, 0, `verify: ${verified.stdout}`);
   const receipt = verified.json.result.checks[0].receiptId;
 

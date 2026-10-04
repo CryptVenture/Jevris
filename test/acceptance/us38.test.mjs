@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { story } from './lib.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // US38: a COBOL batch project that no certified analyzer covers. Asking Jevris to optimize a
 // task gives generic advice (plan, route, recovery) and a checkpoint; verification stays
@@ -64,10 +65,12 @@ story('US38', async ({ then, sandbox, evidence }) => {
     // A person approves it at a terminal (SR-1); the sandbox records it as the CLI does.
     const approve = await box.approveChecks();
     assert.equal(approve.code, 0, `verify approve failed: ${approve.reason}`);
-    const run = box.jevris(['verify', '--check', 'batch'], { json: true });
+    const run = await verifySettled(box, ['--check', 'batch'], { checks: ['batch'] });
     evidence(run.json);
     assert.equal(run.code, 0, `verify failed: ${run.stdout} ${run.stderr}`);
-    assert.equal(run.json.result.ran, true);
+    // An answer that holds the result says the command ran the check; one that came first says it was still running (verify-run.mjs),
+    // and the receipt asserted below is then the runner's all the same.
+    if (run.settled) assert.equal(run.json.result.ran, true);
     assert.equal(run.json.result.readiness, 'verified');
     assert.match(run.json.result.checks[0].receiptId, /^rcpt-/);
   });

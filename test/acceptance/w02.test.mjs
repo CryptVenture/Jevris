@@ -3,6 +3,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { workflow } from './lib.mjs';
 import { ownedWorkers } from './owned.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // W02: a test keeps failing with the same diagnostic after repeated edits. The workers are D's
 // scripted worker port (test mode plus the sandbox's test-home marker); the loop detection, the
@@ -97,7 +98,7 @@ workflow('W02', 'A debugging loop that needs evidence, not a larger model', asyn
     const waiting = await task();
     assert.equal(waiting.task.state, 'awaiting-evidence', 'a finished worker counted as success');
     assert.deepEqual(waiting.receipts, []);
-    const verify = box.jevris(['verify', '--task', 'T1'], { json: true });
+    const verify = await verifySettled(box, ['--task', 'T1'], { task: 'T1' });
     evidence(verify.json);
     assert.equal(verify.code, 0, `verify --task T1: ${verify.stdout}`);
     const unit = verify.json.result.checks.find((check) => check.checkId === 'unit');

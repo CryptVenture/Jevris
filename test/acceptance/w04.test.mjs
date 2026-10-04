@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { load, workflow } from './lib.mjs';
 import { ownedWorkers } from './owned.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // W04: a parallel monorepo migration. The workers are D's scripted worker port (test mode plus
 // the sandbox's test-home marker); the graph validation, the scheduler's waves and leases, the
@@ -105,7 +106,7 @@ workflow('W04', 'A parallel monorepo migration', async ({ then, sandbox, evidenc
 
   await then('each worker produces a patch and fresh check receipts in its own worktree', async () => {
     for (const id of ['A', 'B']) {
-      const verify = box.jevris(['verify', '--task', id], { json: true });
+      const verify = await verifySettled(box, ['--task', id], { task: id });
       evidence(verify.json);
       assert.equal(verify.code, 0, `verify --task ${id}: ${verify.stdout}`);
       assert.equal(verify.json.result.checks[0].fresh, true);
@@ -115,7 +116,7 @@ workflow('W04', 'A parallel monorepo migration', async ({ then, sandbox, evidenc
     evidence(l);
     assert.equal(l.task.state, 'awaiting-evidence', `L is ${l.task?.state}`);
     assert.equal(worktrees('L').length, 1);
-    assert.equal(box.jevris(['verify', '--task', 'L'], { json: true }).code, 0, 'verify --task L failed');
+    assert.equal((await verifySettled(box, ['--task', 'L'], { task: 'L' })).code, 0, 'verify --task L failed');
     for (const id of ['A', 'B', 'L']) {
       const done = await task(id);
       assert.equal(done.task.state, 'verified', `${id} is ${done.task.state}`);
@@ -154,7 +155,7 @@ workflow('W04', 'A parallel monorepo migration', async ({ then, sandbox, evidenc
     const plan = box.write('plan-d.json', { tasks: [node('D', [], ['packages/b'], 'migration-d')] });
     assert.equal(box.jevris(['plan', '--submit', '--graph', plan, '--budget', 'migration-d', '--limit-micro-usd', '2000000', '--authorization', box.authorizeBudget('migration-d'), '--yes'], { json: true }).json?.leaseIds?.length, 1, 'D was not leased');
     assert.equal((await task('D', 'awaiting-evidence'))?.task?.state, 'awaiting-evidence');
-    assert.equal(box.jevris(['verify', '--task', 'D'], { json: true }).code, 0, 'verify --task D failed');
+    assert.equal((await verifySettled(box, ['--task', 'D'], { task: 'D' })).code, 0, 'verify --task D failed');
     // Someone changes the same line on main after D's worktree was made.
     box.write('work/packages/b/index.mjs', 'export const b = 5;\n');
     box.git('commit', '-q', '-am', 'hotfix b on main');
@@ -232,7 +233,7 @@ workflow('W04', 'A parallel monorepo migration', async ({ then, sandbox, evidenc
     assert.equal(current.worker.status, 'completed');
     assert.equal(current.lateResults ?? 0, 0);
     assert.deepEqual(current.receipts, [], 'a worker result became evidence');
-    const verify = box.jevris(['verify', '--task', 'E'], { json: true });
+    const verify = await verifySettled(box, ['--task', 'E'], { task: 'E' });
     assert.equal(verify.code, 0, `verify --task E: ${verify.stdout}`);
     assert.equal((await task('E')).task.state, 'verified');
   });

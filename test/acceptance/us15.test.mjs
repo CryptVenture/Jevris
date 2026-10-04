@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { story } from './lib.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // A long test run: 400 passing lines, one failing assertion in the middle, and an error on stderr.
 const SCRIPT = [
@@ -29,7 +30,7 @@ story('US15', async ({ then, sandbox, evidence }) => {
   const originalHash = createHash('sha256').update(original).digest('hex');
 
   // Given: the check's long output is stored and shown to the model as an extractive view.
-  const run = box.jevris(['verify', '--check', 'unit'], { json: true });
+  const run = await verifySettled(box, ['--check', 'unit'], { checks: ['unit'] });
   evidence(run.json);
   assert.equal(run.code, 1, `verify did not report the failure: ${run.stdout} ${run.stderr}`);
   assert.equal(run.json.result.checks[0].outcome, 'failed');

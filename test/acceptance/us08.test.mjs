@@ -3,6 +3,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { story } from './lib.mjs';
 import { ownedWorkers, submit, taskNode, taskReader } from './owned.mjs';
+import { verifySettled } from './verify-run.mjs';
 
 // A test keeps failing because its database service is not running: the diagnostic names a
 // refused connection and nothing in the source. The worker is D's scripted worker port.
@@ -29,7 +30,7 @@ story('US08', async ({ then, sandbox, evidence }) => {
   const task = taskReader(await box.mcp());
   assert.equal((await task('T1', 'failed'))?.task?.state, 'failed', 'the owned worker did not fail');
   // The failing check's own receipt carries the same missing-service diagnostic.
-  const verify = box.jevris(['verify', '--check', 'unit'], { json: true });
+  const verify = await verifySettled(box, ['--check', 'unit'], { checks: ['unit'] });
   assert.equal(verify.json.result.checks[0].outcome, 'failed');
 
   await then('The proposed next step requests environment evidence instead of automatically escalating the coding model', async () => {
