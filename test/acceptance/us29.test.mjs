@@ -23,7 +23,13 @@ async function outage(t, sandbox, scenario) {
   };
   const hook = timed(() => box.hook('claude', { hook_event_name: 'UserPromptSubmit', session_id: 'us29', cwd: box.work, prompt: 'continue' }));
   const recover = timed(() => box.jevris(['recover', '--failure', 'TypeError at app/parse.ts:14', '--failure', 'TypeError at app/parse.ts:14'], { json: true }));
-  const status = box.jevris(['status'], { json: true });
+  // A decision is recorded when the engine finishes it, which on a slow disk can be after the command has answered by rules:
+  // wait for it (bounded, generous) instead of reading the status once. A hung Jev may leave nothing to record.
+  let status = box.jevris(['status'], { json: true });
+  for (let attempt = 0; scenario !== 'late' && attempt < 240 && (status.json?.result?.recentDecisions ?? []).length < 1; attempt += 1) {
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    status = box.jevris(['status'], { json: true });
+  }
   const { jevrisPaths } = await load('platform');
   const log = box.read(join(relative(box.dir, jevrisPaths({ home: box.home }).state), 'logs', 'sidecar.log'));
   return { provider, hook, recover, status, log };
