@@ -450,8 +450,17 @@ const C35: CapabilityDefinition = {
           { id: 'task', text: query, sourceKind: 'user', priority: 'mandatory' },
           { id: 'doc', text: text.slice(0, 3000), sourceKind: 'file', priority: 'high' },
         ],
-        instructions: 'How relevant is this document to the task?',
-        anchors: ['Not relevant to the task.', 'Background only.', 'Relevant to the task.', 'The authoritative reference for the task.'],
+        // Measured live (jev-1.13.0, 2026-10-04): with the anchors "Relevant to the task" and "The authoritative reference for the
+        // task" a document that plainly states the policy asked about was scored 2.24 at confidence 0.52, because the two top
+        // anchors differ in a judgement (authority) and not in anything the document shows. These anchors differ in what the
+        // document covers; the same document scored 2.92 at 0.93, an unrelated one 0 at 1.0 and a passing mention 1.01 at 0.98.
+        instructions: 'The first evidence is the task and the second is a document. How well does the document cover what the task needs?',
+        anchors: [
+          'The document says nothing about the subject of the task.',
+          'The document mentions the subject only in passing or as background to another topic.',
+          'The document covers the subject but is mainly about something else, or leaves out part of what the task needs.',
+          'The document is mainly about the subject and states the rules, steps or facts the task needs.',
+        ],
         rules: () => ({ score: Math.round((first.score ?? 0) * 3), reasonCode: 'LEXICAL_SCORE' }),
         ...(cx.remainingMs === undefined ? {} : { remainingMs: cx.remainingMs }),
       });

@@ -209,6 +209,25 @@ const ADVICE_OF: { readonly [C in LoopClass]: string } = {
   'patch-oscillation': 'The change is oscillating between the same states. Restore the last good checkpoint, with the user\'s approval, and pick a different approach.',
 };
 
+/**
+ * The options of the C29 question: what each class IS, in the names of the facts it is judged on, not the advice that
+ * follows it (the advice is `ADVICE_OF`, for the person). Fixed text, no user text. Measured live (jev-1.13.0, 2026-10-04) with
+ * the advice sentences as the options: a failure that came back once after another (maxRepeat 2) was called a repeated
+ * failure at 0.9, a stalled run with one failure was too (0.85), and a plain two-failure progress case was 0.47 to 0.64.
+ * With these definitions and the facts `stalled`, `commandRepeat` and `oscillating` beside the counts, the same cases
+ * were all right at 0.92 to 1.0. The thresholds repeat the rules' own (3 repeats, 2 repeats with another failure
+ * between, at least half environmental), so the question does not ask Jev to invent them.
+ */
+export const LOOP_DEFINITIONS: { readonly [C in LoopClass]: string } = {
+  'no-signal': 'No failure, diff or command has been seen yet.',
+  progress: 'The failures differ from one another (distinct is close to failures and maxRepeat is 1) and are not environmental: each attempt reaches a new problem.',
+  'repeated-failure': 'The same failure has come back three or more times (maxRepeat is 3 or more): the same approach is not working.',
+  'environment-failure': 'At least half of the failures are environmental (environmentFailures is at least half of failures): a missing tool, service or permission, not the source.',
+  'flaky-suspected': 'One failure appeared exactly twice (maxRepeat is 2) with a different failure between them (distinct is 2 or more) and nothing else loops: a flaky check or a race.',
+  'no-progress': 'Nothing new has been learned for a long time (stalled is true), or the same command keeps running with no change to the files (commandRepeat is 3 or more and diffStates is 0).',
+  'patch-oscillation': 'The edits go back and forth between the same file states (oscillating is true): each change undoes the last one.',
+};
+
 function maxRepeatOf(hashes: readonly string[]): number {
   const counts = new Map<string, number>();
   for (const h of hashes) counts.set(h, (counts.get(h) ?? 0) + 1);
@@ -319,6 +338,7 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
   const firstAny = all.length === 0 ? 0 : Math.min(...all.map((s) => s.atMs));
   const stallBaseline = all.some((s) => s.kind === 'evidence' || s.kind === 'diff') ? lastEvidence : firstAny;
   const alternating = alternatesFingerprints(diagnostics.map((s) => s.hash));
+  const stalled = lastAny > 0 && nowMs - stallBaseline > budgets.stallMs && diagnostics.length > 0;
 
   // Deterministic rules first.
   let rules: LoopClass;
@@ -331,7 +351,7 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
     rules = 'flaky-suspected';
     decisive = false;
   } else if (maxRepeatOf(commands) >= 3 && diffs.length === 0 && lastEvidence < lastAny - 1) rules = 'no-progress';
-  else if (lastAny > 0 && nowMs - stallBaseline > budgets.stallMs && diagnostics.length > 0) {
+  else if (stalled) {
     rules = 'no-progress';
     decisive = false;
   } else if (diagnostics.length === 0) rules = 'no-signal';
@@ -345,7 +365,7 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
   let decisionId: string | null = null;
   if (!decisive) {
     const options: { [k: string]: string } = {};
-    for (const c of LOOP_CLASSES.filter((c) => c !== 'no-signal')) options[c.replace(/-/g, '_')] = ADVICE_OF[c];
+    for (const c of LOOP_CLASSES.filter((c) => c !== 'no-signal')) options[c.replace(/-/g, '_')] = LOOP_DEFINITIONS[c];
     const consult = await consultChoice(input.engine, {
       capabilityId: 'C29',
       specVersion: '1',
@@ -356,7 +376,19 @@ export async function assessLoop(ws: WorkspaceServices, input: AssessInput): Pro
       // artifacts they already show by vocabulary ids, which need no egress. The failure text below is
       // screened, and the engine withholds it while source egress is not approved.
       evidence: diagnostics.slice(-12).map((d, i) => ({ id: `sig-${String(i)}`, text: `${d.family ?? 'other'}: ${d.label}`, sourceKind: 'tool' as const, priority: 'high' as const })),
-      facts: { failures: signals.failures, distinct: distinct, maxRepeat, environmentFailures: envFailures, diffStates: diffs.length, families: familySummary(diagnostics.slice(-12)), artifacts: artifactSummary(input.artifacts) },
+      facts: {
+        failures: signals.failures,
+        distinct: distinct,
+        maxRepeat,
+        environmentFailures: envFailures,
+        diffStates: diffs.length,
+        // What the class definitions are judged on beyond the counts: a stall, a command that repeats and an edit that returns.
+        stalled,
+        commandRepeat: maxRepeatOf(commands),
+        oscillating: oscillates(diffs) || alternating,
+        families: familySummary(diagnostics.slice(-12)),
+        artifacts: artifactSummary(input.artifacts),
+      },
       workspaceId: ws.workspaceId,
       evidenceRevision: `loop-${String(all.length)}`,
       taskId: input.taskId,

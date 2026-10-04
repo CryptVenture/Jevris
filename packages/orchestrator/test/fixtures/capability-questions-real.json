@@ -1,0 +1,136 @@
+{
+ "_note": "Numbers from real jev-1.13.0 answers (2026-10-04) to the redesigned C29, C35 and C72 questions for synthetic cases: probabilities, confidence and score as the API reported them (rounded to 0.01). No request or response body, header, key or account data. The cases are in capability-questions-real.test.mjs.",
+ "c29": {
+  "progress": {
+   "choice": "progress",
+   "probabilities": {
+    "progress": 1,
+    "repeated_failure": 0,
+    "environment_failure": 0,
+    "flaky_suspected": 0,
+    "no_progress": 0,
+    "patch_oscillation": 0
+   },
+   "confidence": 1
+  },
+  "flaky": {
+   "choice": "flaky_suspected",
+   "probabilities": {
+    "progress": 0.02,
+    "repeated_failure": 0.02,
+    "environment_failure": 0,
+    "flaky_suspected": 0.96,
+    "no_progress": 0,
+    "patch_oscillation": 0
+   },
+   "confidence": 0.95
+  },
+  "env": {
+   "choice": "environment_failure",
+   "probabilities": {
+    "progress": 0,
+    "repeated_failure": 0,
+    "environment_failure": 1,
+    "flaky_suspected": 0,
+    "no_progress": 0,
+    "patch_oscillation": 0
+   },
+   "confidence": 1
+  },
+  "repeat": {
+   "choice": "repeated_failure",
+   "probabilities": {
+    "progress": 0,
+    "repeated_failure": 1,
+    "environment_failure": 0,
+    "flaky_suspected": 0,
+    "no_progress": 0,
+    "patch_oscillation": 0
+   },
+   "confidence": 1
+  },
+  "stalled": {
+   "choice": "no_progress",
+   "probabilities": {
+    "progress": 0,
+    "repeated_failure": 0.05,
+    "environment_failure": 0,
+    "flaky_suspected": 0,
+    "no_progress": 0.95,
+    "patch_oscillation": 0
+   },
+   "confidence": 0.93
+  }
+ },
+ "c35": {
+  "authoritative": {
+   "score": 2.92,
+   "probabilities": {
+    "0": 0,
+    "1": 0,
+    "2": 0.08,
+    "3": 0.92
+   },
+   "confidence": 0.92
+  },
+  "partial": {
+   "score": 1.53,
+   "probabilities": {
+    "0": 0,
+    "1": 0.47,
+    "2": 0.53,
+    "3": 0
+   },
+   "confidence": 0.52
+  },
+  "background": {
+   "score": 1,
+   "probabilities": {
+    "0": 0.01,
+    "1": 0.98,
+    "2": 0.01,
+    "3": 0
+   },
+   "confidence": 0.98
+  },
+  "unrelated": {
+   "score": 0,
+   "probabilities": {
+    "0": 1,
+    "1": 0,
+    "2": 0,
+    "3": 0
+   },
+   "confidence": 1
+  }
+ },
+ "c72": {
+  "declare": {
+   "choice": "declare-checks",
+   "probabilities": {
+    "host-triage": 0,
+    "hardware-runner": 0,
+    "declare-checks": 1
+   },
+   "confidence": 1
+  },
+  "host": {
+   "choice": "host-triage",
+   "probabilities": {
+    "host-triage": 1,
+    "hardware-runner": 0,
+    "declare-checks": 0
+   },
+   "confidence": 1
+  },
+  "hardware": {
+   "choice": "hardware-runner",
+   "probabilities": {
+    "host-triage": 0,
+    "hardware-runner": 1,
+    "declare-checks": 0
+   },
+   "confidence": 1
+  }
+ }
+}

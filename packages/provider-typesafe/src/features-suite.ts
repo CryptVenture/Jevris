@@ -633,9 +633,12 @@ function securityCases(waitMs: number): CaseDef[] {
 function workerReadinessCases(waitMs: number): CaseDef[] {
   const compiled = compileDecisionSpec({ id: WORKER_READINESS_SPEC.id, version: WORKER_READINESS_SPEC.version, questions: WORKER_READINESS_QUESTIONS, evidenceRequirements: [], deadlineMs: waitMs, fallback: 'rules-only' });
   const shapes = [
-    { id: 'worker-ready-bounded', expected: 'ready', facts: { files: 2, checks: 2, protectedClasses: 'none', verb: 'fix', titleSize: 'short', roleSource: 1, roleTest: 1 } },
-    { id: 'worker-ready-open-ended', expected: 'not-ready', facts: { files: 0, checks: 0, protectedClasses: 'none', verb: 'none', titleSize: 'short', roleSource: 0, roleTest: 0 } },
-    { id: 'worker-ready-security-scope', expected: 'not-ready', facts: { files: 3, checks: 1, protectedClasses: 'PROTECTED_AUTH', verb: 'fix', titleSize: 'short', roleSource: 3, roleTest: 0 } },
+    // The facts of a real launch (`workerReadinessFacts`: every key, so the question is judged on what a launch sends).
+    // Measured live (2026-10-04): with the five-key subset this suite used before, the bounded shape was answered 0.23
+    // (not ready); with every key it is answered 0.84 (ready). The missing role and check-kind keys were the cause.
+    { id: 'worker-ready-bounded', expected: 'ready', facts: { files: 2, checks: 2, protectedClasses: 'none', verb: 'fix', titleSize: 'short', roleSource: 1, roleTest: 1, roleDocs: 0, roleConfig: 0, roleCi: 0, checkKinds: 'test,lint' } },
+    { id: 'worker-ready-open-ended', expected: 'not-ready', facts: { files: 0, checks: 0, protectedClasses: 'none', verb: 'none', titleSize: 'short', roleSource: 0, roleTest: 0, roleDocs: 0, roleConfig: 0, roleCi: 0, checkKinds: 'none' } },
+    { id: 'worker-ready-security-scope', expected: 'not-ready', facts: { files: 3, checks: 1, protectedClasses: 'PROTECTED_AUTH', verb: 'fix', titleSize: 'short', roleSource: 3, roleTest: 0, roleDocs: 0, roleConfig: 0, roleCi: 0, checkKinds: 'test' } },
   ];
   return shapes.map((s) => ({
     group: 'worker-readiness' as const,

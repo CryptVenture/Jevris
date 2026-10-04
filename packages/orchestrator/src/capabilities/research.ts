@@ -993,7 +993,15 @@ const C72: CapabilityDefinition = {
     });
     const diagnostics = hostFailed.flatMap((r) => (r === undefined ? [] : triageEnvironmentText(r.receipt.outcomeReason)));
     const unverifiedDevice = deviceStatus.filter((d) => d.status !== 'passed');
-    const options: { [key: string]: string } = { 'host-triage': 'Triage host build and compiler diagnostics first.', 'hardware-runner': 'Run the device checks on a runner that declares the hardware.', 'declare-checks': 'Approve a command manifest or a reviewed analyzer first.' };
+    // Each option names the facts it is the answer to. Measured live (jev-1.13.0, 2026-10-04): with the bare actions as the
+    // options, a project with no approved check (approvedChecks 0, so only one step is possible) was answered declare-checks
+    // at confidence 0.19 to 0.26; with the conditions beside the actions every case, including host failures and
+    // unverified device checks, was answered at 1.0. The conditions repeat the rules' own order, so Jev is not asked to invent them.
+    const options: { [key: string]: string } = {
+      'host-triage': 'The host build or analyzer reported failures (hostFailed is above 0): triage those diagnostics first.',
+      'hardware-runner': 'The approved checks exist and the host has no failures, but device checks are not yet verified (deviceUnverified is above 0): run them on a runner that declares the hardware.',
+      'declare-checks': 'No check is approved yet (approvedChecks is 0), so nothing can be built or tested: approve a command manifest or a reviewed analyzer first.',
+    };
     const rules = () => (manifests.length === 0 ? { choice: 'declare-checks', reasonCode: 'NO_APPROVED_CHECKS' } : hostFailed.length > 0 ? { choice: 'host-triage', reasonCode: 'HOST_FAILURES' } : unverifiedDevice.length > 0 ? { choice: 'hardware-runner', reasonCode: 'DEVICE_UNVERIFIED' } : { choice: 'host-triage', reasonCode: 'NOTHING_PENDING' });
     const got = await consultChoice(cx.engine, {
       capabilityId: 'C72',
