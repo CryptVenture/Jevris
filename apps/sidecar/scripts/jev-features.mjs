@@ -88,6 +88,7 @@ const { jevrisPaths, durableWrite } = await repoModule('packages', 'platform', '
 const { PINNED_MODEL, containsSecret } = await repoModule('packages', 'contracts', 'dist', 'index.js');
 const sidecar = await repoModule('apps', 'sidecar', 'dist', 'index.js');
 const driver = await import('./jev-feature-driver.mjs');
+const { DEADLINE_ATTEMPTS } = await import('./sidecar-ask.mjs');
 const hot = await import('./jev-feature-hot.mjs');
 
 const stamp = new Date().toISOString();
@@ -219,8 +220,11 @@ try {
               return 0;
             }
           };
-          const rows = await driver.runCases({ sidecar: part.wrapSidecar(sidecar), home: dir, work: workspace, cases: part.CASES, requestCount, lookup: (id) => lookupDecision(id, { home: dir }), latestDecision: (specId) => driver.latestDecisionOf(coreModule, dir, specId), timeoutMs: 20_000 });
-          for (const r of rows) say(`[caps ${part.id} ${egress}] ${r.id.padEnd(14)} ok=${r.ok} requests=${r.requests} source=${r.source} reason=${r.reasonCode} ms=${r.elapsedMs}${r.failure === null ? '' : ` failure=${r.failure}`}`);
+          // The live run measures: a call the sidecar cuts short (DEADLINE) is a finding, so it is asked once. The mock run checks the
+          // harness on whatever host runs it, and a slow host is not a finding there, so a cut-short call is asked again (see sidecar-ask.mjs).
+          const attempts = mock ? DEADLINE_ATTEMPTS : 1;
+          const rows = await driver.runCases({ sidecar: part.wrapSidecar(sidecar, { attempts }), home: dir, work: workspace, cases: part.CASES, requestCount, lookup: (id) => lookupDecision(id, { home: dir }), latestDecision: (specId) => driver.latestDecisionOf(coreModule, dir, specId), timeoutMs: 20_000, attempts });
+          for (const r of rows) say(`[caps ${part.id} ${egress}] ${r.id.padEnd(14)} ok=${r.ok} requests=${r.requests} source=${r.source} reason=${r.reasonCode} ms=${r.elapsedMs}${r.attempts > 1 ? ` attempts=${r.attempts}` : ''}${r.failure === null ? '' : ` failure=${r.failure}`}`);
           sidecarSpent += await spentOf(dir, workspace);
           await sidecar.stopSidecarProcess(dir);
           record.capabilities.rows.push(...rows.map((r) => ({ ...r, part: part.id, egress })));
