@@ -79,7 +79,8 @@ export interface CapabilityContext {
   readonly engine: unknown;
   /** Host source egress approved (config `privacy.sourceEgress`); without it no free text reaches Jev. */
   readonly egressApproved: boolean;
-  readonly remainingMs?: number;
+  /** Time left for this request, in ms. It counts down while the capability runs (see registry.ts). */
+  readonly remainingMs?: number | undefined;
   readonly nowMs: number;
   readonly git: GitPort;
   readonly platform: string;

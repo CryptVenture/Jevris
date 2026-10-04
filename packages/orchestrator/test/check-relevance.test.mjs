@@ -463,6 +463,29 @@ test('rankApprovedChecks does not wait past its deadline for the changed-files r
   assert.equal(ready.shape, 'docs');
 });
 
+test('a gate is the reason whatever the clock says: a changed-files read that is late with assist off, mode off or the kill switch stopped keeps the gate, not GIT_DEADLINE', async () => {
+  // Gates first, the clock second (CI run 37169809446 found the route op with this order wrong; the ranker and the plan had it right).
+  const engine = jevEngine({ docs: 4 });
+  const base = { engine, mode: 'advise', jevAssist: 'classify', killSwitchStopped: false, deadline: { budgetMs: 600, remainingMs: () => 600, expired: () => false } };
+  const checks = [{ id: 'unit-test', state: 'missing' }, { id: 'docs-check', state: 'missing' }, { id: 'lint', state: 'missing' }];
+  const late = (extra, list = checks) => settles(rankApprovedChecks({ ctx: { ...base, ...extra }, workspaceId: 'w', checks: list, paths: new Promise(() => undefined), marginMs: 550 }));
+  const cases = [
+    [{ jevAssist: 'off' }, 'CHECK_RELEVANCE_ASSIST_OFF'],
+    [{ mode: 'off' }, 'CHECK_RELEVANCE_MODE_OFF'],
+    [{ killSwitchStopped: true }, 'CHECK_RELEVANCE_KILL_SWITCH'],
+    [{ killSwitchStopped: true, mode: 'off', jevAssist: 'off' }, 'CHECK_RELEVANCE_KILL_SWITCH'],
+    [{ mode: 'off', jevAssist: 'off' }, 'CHECK_RELEVANCE_MODE_OFF'],
+    [{}, 'CHECK_RELEVANCE_GIT_DEADLINE'],
+  ];
+  for (const [extra, reasonCode] of cases) {
+    const answer = await late(extra);
+    assert.deepEqual([answer.source, answer.reasonCode, answer.order, answer.asked], ['rules', reasonCode, ['unit-test', 'docs-check', 'lint'], false], JSON.stringify(extra));
+  }
+  const few = await late({}, checks.slice(0, 1));
+  assert.equal(few.reasonCode, 'CHECK_RELEVANCE_TOO_FEW', 'too few checks is the first gate');
+  assert.equal(engine.calls.length, 0, 'no gate and no late read asks Jev');
+});
+
 test('a Stop with a git that never answers the changed-files read still answers, with the rules order and a reason, and the rest of the Stop path runs (M2)', async () => {
   const f = fixture();
   const real = nodeGit();

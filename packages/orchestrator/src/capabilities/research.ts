@@ -292,7 +292,7 @@ const C40: CapabilityDefinition = {
         evidenceRevision: sha256(top.label).slice(0, 32),
         evidence: [{ id: 'finding', text: top.label, sourceKind: 'tool', priority: 'high' }],
         instructions: 'How severe is this finding for users?',
-        anchors: ['Cosmetic.', 'Minor.', 'Noticeable defect.', 'Blocks or misleads users.'],
+        anchors: ['Cosmetic: no effect on how the product works.', 'Minor: a small flaw that users can work around.', 'Noticeable defect.', 'Blocks or misleads users.'],
         rules: () => ({ score: Math.round((top.score ?? 0) * 3), reasonCode: 'SEVERITY_TERMS' }),
         ...remaining(cx),
       });
@@ -358,7 +358,7 @@ const C62: CapabilityDefinition = {
         evidence: risks.slice(0, 16).map((r, i) => ({ id: `r${String(i)}`, text: `${r.label} (${r.reason})`, sourceKind: 'receipt' as const, priority: 'high' as const })),
         facts: { risks: risks.length, verified: report.verified },
         instructions: 'How risky is this release given only this evidence?',
-        anchors: ['Low.', 'Moderate.', 'High.', 'Do not release.'],
+        anchors: ['Low: the evidence supports a normal release.', 'Moderate: release with extra monitoring.', 'High: release only with a rollback ready.', 'Do not release.'],
         rules: () => ({ score: Math.round(worst * 3), reasonCode: 'EVIDENCE_RULES' }),
         ...remaining(cx),
       });
@@ -618,7 +618,7 @@ const C67: CapabilityDefinition = {
         ],
         facts: { misclassifications: misses.length, newlyCovered: coveredNow },
         instructions: 'How much clearer is the candidate question?',
-        anchors: ['Worse.', 'No clearer.', 'Somewhat clearer.', 'Much clearer.'],
+        anchors: ['Worse: the revision is less clear than the current version.', 'No clearer than the current version.', 'Somewhat clearer than the current version.', 'Much clearer than the current version.'],
         rules: () => ({ score: coveredNow > 0 ? 2 : 1, reasonCode: 'COVERAGE_RULES' }),
         ...remaining(cx),
       });
@@ -734,7 +734,10 @@ const C68: CapabilityDefinition = {
     );
     const viable = results.filter((r) => r.reason === 'applies-in-scope' && !external.some((e) => e.id === r.id)).sort((a, b) => a.changed - b.changed || (a.id < b.id ? -1 : 1));
     const options: { [key: string]: string } = { none: 'No candidate is safe to continue with.' };
-    for (const r of viable) options[r.id] = `applies cleanly in scope, ${String(r.changed)} files changed`;
+    // Numbered, so two candidates that change the same number of files are still two different options (equal texts are refused by the question lint).
+    viable.forEach((r, i) => {
+      options[r.id] = `Candidate ${String(i + 1)} of ${String(viable.length)} applies cleanly in scope, ${String(r.changed)} files changed`;
+    });
     const got = await consultChoice(cx.engine, {
       capabilityId: 'C68',
       specVersion: '1',
@@ -806,7 +809,7 @@ const C69: CapabilityDefinition = {
         evidence: [],
         facts: { conclusions: conclusions.length, backedConclusions: independence.filter((g) => g.backed > 0).length },
         instructions: 'How material is this disagreement for the task?',
-        anchors: ['Immaterial.', 'Minor.', 'Material.', 'Blocking.'],
+        anchors: ['Immaterial: the reports do not conflict in any way that matters.', 'Minor: the reports differ in a detail that does not change the plan.', 'Material: the reports differ in a way that changes the plan.', 'Blocking: the conflict must be resolved before any work continues.'],
         rules: () => ({ score: 2, reasonCode: 'EVIDENCE_CONFLICT_RULES' }),
         ...remaining(cx),
       });
@@ -871,6 +874,7 @@ const C70: CapabilityDefinition = {
       const got = await consultChoice(cx.engine, {
         capabilityId: 'C70',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Pick the canary module for a staged migration: representative, covered by checks, cheap to roll back.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(modules.join(',')).slice(0, 32),

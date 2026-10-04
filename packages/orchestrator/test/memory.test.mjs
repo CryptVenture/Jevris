@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { asEngineAnswer } from './real-answer.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { createHash, generateKeyPairSync } from 'node:crypto';
@@ -127,7 +128,7 @@ function engine(answer, calls = []) {
       calls.push(request);
       if (answer === 'abstain') return { abstained: true, reasonCode: 'LOW_CONFIDENCE', decisionId: 'dec-1', fallback: 'rules-only' };
       if (answer === 'throw') throw new Error('boom');
-      return { abstained: false, decisionId: 'dec-2', automation: 'advice', rulesOnly: false, result: { answers: { q: answer } } };
+      return { abstained: false, decisionId: 'dec-2', automation: 'advice', rulesOnly: false, result: { answers: { q: asEngineAnswer(answer) } } };
     },
   };
 }

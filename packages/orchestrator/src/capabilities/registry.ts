@@ -79,11 +79,19 @@ export async function adviseCapability(ws: WorkspaceServices, request: AdviseCap
   if (op !== undefined) return { ok: false, reasonCode: 'USE_PRODUCT_OP', op };
   const def = CAPABILITIES.get(key);
   if (def === undefined) return { ok: false, reasonCode: 'UNKNOWN_CAPABILITY' };
+  // The time left counts down while the capability runs. A capability that consults Jev several times in
+  // a row (C34 asks per candidate, C25 per pair) reads it afresh before each ask, so it stops asking when
+  // the time is gone and the rules answer the rest. Measured: with a fixed figure, C34 made seven asks in
+  // a row and answered DEADLINE with no advice at all.
+  const startedAt = Date.now();
+  const budgetMs = request.remainingMs;
   const cx: CapabilityContext = {
     ws,
     engine: request.engine,
     egressApproved: request.egressApproved === true,
-    ...(request.remainingMs === undefined ? {} : { remainingMs: request.remainingMs }),
+    get remainingMs(): number | undefined {
+      return budgetMs === undefined ? undefined : Math.max(0, budgetMs - (Date.now() - startedAt));
+    },
     nowMs: request.nowMs ?? Date.now(),
     git: request.git ?? nodeGit(),
     platform: request.platform ?? process.platform,

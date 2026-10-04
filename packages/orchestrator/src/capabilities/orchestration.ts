@@ -232,6 +232,7 @@ const C26: CapabilityDefinition = {
     const got = await consultChoice(cx.engine, {
       capabilityId: 'C26',
       specVersion: '1',
+      sendsWorkspaceText: true,
       objective: `Choose the least-privileged installed agent for the ${phase} phase.`,
       workspaceId: cx.ws.workspaceId,
       evidenceRevision: sha256(ranked.map((r) => r.id).join(',')).slice(0, 32),

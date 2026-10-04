@@ -528,25 +528,54 @@ async function mainServing(ctx: SidecarOpContext, input: RouteRequest, registry:
   }
 }
 
-/** Jev's wait for a slice classification inside a route request: the rest of the 900 ms budget, less the route's own work. */
-const SLICE_DEADLINE_MS = 700;
+/**
+ * Jev's wait for a slice classification inside a route request: the budget the op was given less 200 ms for the
+ * rest of its answer (700 ms of the 900 ms hot budget), and never more than the time left less 100 ms, so a
+ * client that has little time left is not made to wait for a call that cannot finish. Derived from the op's own
+ * deadline, so a test (or a slower budget class) gives it more or less time without a separate setting.
+ */
+function routeSliceWaitMs(budgetMs: number, remainingMs: number): number {
+  const budget = Number.isFinite(budgetMs) ? Math.floor(budgetMs) : 0;
+  const left = Number.isFinite(remainingMs) ? Math.floor(remainingMs) : 0;
+  return Math.max(0, Math.min(budget - 200, left - 100));
+}
+
+/** Below this many ms to wait, Jev is not asked: a call cannot finish. */
+const ROUTE_SLICE_MIN_WAIT_MS = 150;
+
+/**
+ * The reason a route's slice is not asked of Jev, or null when it may be. Gates come first and the clock last: with
+ * `jev.assist` off, a mode below `observe` or the kill switch stopped the answer is that gate however slow the
+ * machine is (a person with assist off must never be told "deadline"); only then does too little time count.
+ */
+function routeSliceGate(ctx: Pick<SidecarOpContext, 'jevAssist' | 'mode' | 'killSwitchStopped' | 'deadline'>): string | null {
+  if (ctx.killSwitchStopped) return 'SLICE_KILL_SWITCH';
+  if (!modeAllows(ctx.mode ?? 'observe', 'record')) return 'SLICE_MODE_OFF';
+  if (ctx.jevAssist === 'off') return 'SLICE_ASSIST_OFF';
+  if (routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs()) < ROUTE_SLICE_MIN_WAIT_MS) return 'SLICE_NO_TIME';
+  return null;
+}
 
 async function classifyRouteSlice(ctx: SidecarOpContext, hints: SliceTaskHints): Promise<SliceClassification> {
   const mode = ctx.mode ?? 'observe';
-  const jev = ctx.jevAssist !== 'off' && modeAllows(mode, 'record');
-  const intent: IntentContext = { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: SLICE_DEADLINE_MS };
+  const gate = routeSliceGate(ctx);
+  const waitMs = routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs());
+  const intent: IntentContext = { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: Math.max(1, waitMs) };
   const engine = engineOf(ctx);
-  const run = classifyTaskSlice(engine, hints, intent, { assist: jev ? 'classify' : 'off', record: modeAllows(mode, 'record') });
+  // A gate that applies is the answer's reason, so Jev is not asked and the classifier says why (`skipAsk`). The
+  // advisory record is still written when the mode and the kill switch allow it, but never waited for past the wait.
+  const record = modeAllows(mode, 'record') && !ctx.killSwitchStopped;
+  const run = classifyTaskSlice(engine, hints, intent, { assist: 'classify', record, ...(gate === null ? {} : { skipAsk: gate }) });
   let timer: ReturnType<typeof setTimeout> | undefined;
   const late = new Promise<'late'>((resolve) => {
-    timer = setTimeout(() => resolve('late'), SLICE_DEADLINE_MS + 50);
+    timer = setTimeout(() => resolve('late'), waitMs + 50);
   });
   try {
     const first = await Promise.race([run.catch(() => 'failed' as const), late]);
     if (first !== 'late' && first !== 'failed') return first;
-    // Abandoned at the deadline (or failed): the rules answer, no model, no record.
+    // Abandoned at the deadline (or failed): the rules answer, no model, no record. With a gate the gate is the reason.
     const rules = await classifyTaskSlice(null, hints, intent, { assist: 'off', record: false });
-    return { ...rules, reasonCode: first === 'late' ? 'SLICE_DEADLINE' : 'SLICE_ERROR' };
+    return { ...rules, reasonCode: gate ?? (first === 'late' ? 'SLICE_DEADLINE' : 'SLICE_ERROR') };
   } finally {
     if (timer !== undefined) clearTimeout(timer);
   }

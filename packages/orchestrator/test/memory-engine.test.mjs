@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { asEngineAnswer } from './real-answer.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
@@ -59,10 +60,11 @@ function fixture() {
 /** A fake engine that answers by question type. */
 function engine(answers, calls = []) {
   return {
+    sourceEgress: () => 'approved',
     async decide(request) {
       calls.push(request);
       const type = request.questions.q.type;
-      return { abstained: false, decisionId: `dec-${String(calls.length)}`, automation: 'advice', rulesOnly: false, result: { answers: { q: { [type]: answers[type] } } } };
+      return { abstained: false, decisionId: `dec-${String(calls.length)}`, automation: 'advice', rulesOnly: false, result: { answers: { q: asEngineAnswer({ [type]: answers[type] }) } } };
     },
   };
 }

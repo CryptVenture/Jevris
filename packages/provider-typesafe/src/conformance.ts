@@ -56,6 +56,7 @@ export interface ConformanceExpectation {
 export const CONFORMANCE_CASES: ReadonlyArray<{ readonly scenario: ConformanceScenario; readonly expect: ConformanceExpectation }> = Object.freeze([
   { scenario: 'valid', expect: { ok: true } },
   { scenario: 'tie', expect: { ok: true } },
+  { scenario: 'confident', expect: { ok: true } },
   { scenario: 'invalid-distribution', expect: { ok: false, reasonCode: 'INVALID_RESPONSE', schemaFailure: 'non-normalized-distribution' } },
   { scenario: 'model-mismatch', expect: { ok: false, reasonCode: 'MODEL_MISMATCH', schemaFailure: 'model-mismatch' } },
   { scenario: 'noul-confidence', expect: { ok: false, reasonCode: 'INVALID_RESPONSE', schemaFailure: 'noul-confidence' } },

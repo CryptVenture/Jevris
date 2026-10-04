@@ -226,25 +226,39 @@ export function rulesSlice(features: SliceFeatures): RulesSlice {
   return { sliceId: null, sure: false };
 }
 
-/** Whether classifying these features would ask Jev: there is something to go on and the rules are not sure. */
+/**
+ * Whether classifying these features would ask Jev: there is something to go on, the rules are not sure,
+ * and a Jev answer could change the outcome. A protected path class is a high risk by the locked rules
+ * and a high risk gives no slice whatever Jev says, so Jev is not asked: measured live, every request of
+ * that shape (a migration, a CI file, a secrets path) spent a call, about 42 micro-USD and about 280 ms
+ * to end in `SLICE_HIGH_RISK` regardless of the answer.
+ */
 export function sliceNeedsJev(features: SliceFeatures): boolean {
   if (!hasSliceEvidence(features)) return false;
+  if (rulesRisk(features) === 'high') return false;
   const rules = rulesSlice(features);
   return !(rules.sure && rules.sliceId !== null);
 }
 
+/**
+ * The option definitions of the slice question: fixed text, no user text. Each one says what separates it
+ * from its neighbours, using the names of the features it is judged on (`verb`, the file roles and the
+ * check kinds). Measured live (jev-1.13.0, 2026-10-03): with the short definitions a defect fix that
+ * also edits a test was read as `test-fix` (0.83), a one-file label change as `test-fix` (0.45, because a
+ * test check exists) and a clear feature at confidence 0.30 to 0.39, below the 0.6 floor.
+ */
 const SLICE_DEFINITIONS: Readonly<Record<string, string>> = {
-  'bounded-edit': 'A small edit to a few existing source files that has a clear acceptance check.',
-  'issue-fix': 'A fix for a reported defect in product code.',
-  'test-fix': 'Writing or repairing tests, or getting a failing test run to pass.',
-  refactor: 'Restructuring code while keeping what it does the same.',
-  feature: 'Adding new behaviour or a new capability to the product.',
-  docs: 'Writing or updating documentation or comments only.',
-  review: 'Reading and judging existing changes without editing them.',
-  research: 'Investigating or comparing options before any change is made.',
-  debug: 'Finding the cause of a failure by running and tracing the program.',
-  migration: 'Moving code or data to a new version, format or tool.',
-  terminal: 'Running commands or scripts with little or no file editing.',
+  'bounded-edit': 'A small change to one or a few existing source files with no new capability, such as a label, a constant or a small logic change, checked by an acceptance check; the verb names no other kind of task.',
+  'issue-fix': 'A fix for a defect in product code (verb fix). Test files may change alongside the fix as its regression test, and an acceptance check of kind test does not make it test-fix.',
+  'test-fix': 'Changing only test files, or getting a failing test run to pass without changing product code: most or all of the changed files are test files.',
+  refactor: 'Restructuring code while keeping what it does the same (verb refactor).',
+  feature: 'Adding new behaviour or a new capability to the product (verb add), usually across several source files.',
+  docs: 'Writing or updating documentation or comments only: all of the changed files are documentation.',
+  review: 'Reading and judging existing changes without editing them (verb review).',
+  research: 'Investigating or comparing options before any change is made (verb research).',
+  debug: 'Finding the cause of a failure by running and tracing the program (verb debug).',
+  migration: 'Moving code or data to a new version, format or tool (verb migrate).',
+  terminal: 'Running commands or scripts with little or no file editing (verb run, few or no files).',
 };
 
 export const SLICE_RISK_ANCHORS = [
@@ -385,14 +399,15 @@ export async function classifyTaskSlice(engine: DecisionEngine | null, hints: Sl
   const rulesId = rules.sliceId;
   const finish = (r: SliceClassification): Promise<SliceClassification> => recordClassification(engine, r, ctx, options.record !== false, now() - started, []);
 
+  // A protected path class is a high risk by the locked rules, and a high risk gives no slice whatever Jev
+  // says (the answer below could only raise it): there is nothing for Jev to change, so it is not asked.
+  if (rulesHint === 'high') return finish(result({ sliceId: null, source: 'none', risk: 'high', reasonCode: 'SLICE_HIGH_RISK', rulesAlternative: rulesId, evidenceIds: evidenceIdsOf(features, false) }));
   // A deterministic fact needs no model.
   if (rules.sure && rulesId !== null) {
-    if (rulesHint === 'high') return finish(result({ sliceId: null, source: 'none', risk: 'high', reasonCode: 'SLICE_HIGH_RISK', rulesAlternative: rulesId, evidenceIds: evidenceIdsOf(features, false) }));
     return finish(result({ sliceId: rulesId, source: 'rules', risk: rulesHint, reasonCode: 'SLICE_RULES_SURE', rulesAlternative: rulesId, evidenceIds: evidenceIdsOf(features, false) }));
   }
   const weak = (reasonCode: string, extra: Partial<SliceClassification> = {}): Promise<SliceClassification> => {
     if (rulesId === null) return finish(result({ sliceId: null, source: 'none', risk: rulesHint, reasonCode, ...extra, evidenceIds: evidenceIdsOf(features, false) }));
-    if (rulesHint === 'high') return finish(result({ sliceId: null, source: 'none', risk: 'high', reasonCode: 'SLICE_HIGH_RISK', rulesAlternative: rulesId, ...extra, evidenceIds: evidenceIdsOf(features, false) }));
     return finish(result({ sliceId: rulesId, source: 'rules', risk: rulesHint, reasonCode, rulesAlternative: rulesId, ...extra, evidenceIds: evidenceIdsOf(features, false) }));
   };
   if (options.skipAsk !== undefined) return weak(REASON_CODE.test(options.skipAsk) ? options.skipAsk : 'SLICE_ASSIST_OFF');

@@ -303,7 +303,7 @@ async function buildView(ws: WorkspaceServices, input: ViewInput): Promise<Built
         specVersion: '1',
         objective: 'Keep the output spans that help diagnose the result.',
         instructions: 'How useful is this span of tool output for diagnosing the command result?',
-        anchors: ['Noise', 'Background', 'Useful', 'Essential'],
+        anchors: ['Noise: nothing in this span helps with the task.', 'Background: context that rarely matters.', 'Useful: it helps with part of the task.', 'Essential: the task cannot be done without it.'],
         evidence: [{ id: `span-${String(b.start)}`, text: b.text, sourceKind: 'tool', priority: 'optional' }],
         workspaceId: ws.workspaceId,
         evidenceRevision: input.handle.slice(3, 40),

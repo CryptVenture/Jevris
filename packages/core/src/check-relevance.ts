@@ -169,8 +169,13 @@ interface Row {
   readonly rules: number;
 }
 
-function sortRows(rows: readonly Row[], scoreOf: (row: Row) => number): Row[] {
-  return [...rows].sort((a, b) => STATE_TIER[a.state] - STATE_TIER[b.state] || scoreOf(b) - scoreOf(a) || STATE_RANK[a.state] - STATE_RANK[b.state] || a.index - b.index);
+/**
+ * Failing first, passing last; inside a tier by `scoreOf` (higher first); at equal score a row Jev
+ * scored with confidence before one left to the rules (`preferOf`), then by the rules' own score (so a
+ * flat Jev answer keeps the rules' order, not the input order), then missing before stale, then input order.
+ */
+function sortRows(rows: readonly Row[], scoreOf: (row: Row) => number, preferOf: (row: Row) => number = () => 0): Row[] {
+  return [...rows].sort((a, b) => STATE_TIER[a.state] - STATE_TIER[b.state] || scoreOf(b) - scoreOf(a) || preferOf(b) - preferOf(a) || b.rules - a.rules || STATE_RANK[a.state] - STATE_RANK[b.state] || a.index - b.index);
 }
 
 export type RankSource = 'rules' | 'jev';
@@ -241,12 +246,30 @@ const SHAPE_WORDS: Readonly<Record<ChangeShape, string>> = {
   mixed: 'a mix of edits',
 };
 
+/**
+ * What each kind of check covers, as fixed text for the request's trusted policy. Measured live
+ * (jev-1.13.0, 2026-10-03): with only `test|missing` in the facts, Jev rated a test run for a change
+ * that edits source and a test file at 1.07 of 4 ("unlikely to be needed") and rated the answers of
+ * eight checks nearly alike. It cannot know what a kind covers unless it is told.
+ */
+export const RELEVANCE_KIND_LEGEND: Readonly<Record<RelevanceKind, string>> = {
+  test: 'runs the automated tests; covers the behaviour of changed source and test files',
+  lint: 'checks code style and static rules; covers changed source, test and config files',
+  typecheck: 'checks types; covers changed source and test files',
+  build: 'compiles or bundles the project; covers changed source and config files',
+  coverage: 'measures test coverage; covers changed source and test files',
+  docs: 'checks documentation; covers changed documentation files only',
+  generated: 'checks that generated files are up to date; covers changed source, config and documentation files',
+  pack: 'checks the packaged output; covers changed source and config files',
+  other: 'a check of a kind not listed; covers an unknown part of the change',
+};
+
 export const RELEVANCE_ANCHORS = [
-  'Not needed: the change shape never touches what this kind of check covers.',
-  'Unlikely to be needed: little of the change touches what this kind of check covers.',
-  'Possibly needed: some of the change touches what this kind of check covers.',
-  'Likely needed: much of the change touches what this kind of check covers.',
-  'Essential: the change is mostly the kind of work this kind of check covers.',
+  'Not needed: this kind of check covers none of the changed files.',
+  'Unlikely to be needed: this kind of check covers little of the change.',
+  'Possibly needed: this kind of check covers some of the change.',
+  'Likely needed: this kind of check covers much of the change.',
+  'Essential: this kind of check covers most of the change.',
 ] as const;
 
 /** The questions: one Score per asked check, `c1` to `cN`. Fixed text, no user text. */
@@ -256,7 +279,7 @@ export function relevanceQuestions(count: number): JevQuestions {
   for (let i = 1; i <= n; i += 1) {
     questions[`c${String(i)}`] = {
       type: 'score',
-      instructions: `How likely does a change of the shape in the facts need check c${String(i)} (its kind and last result are in the facts as c${String(i)}) before the work can be called done?`,
+      instructions: `How likely does the change described by the facts (its file counts by role and its shape) need check c${String(i)} before the work can be called done? The kind and last result of c${String(i)} are in the facts under c${String(i)}, and the trusted policy explains what each kind covers.`,
       criteria: [...RELEVANCE_ANCHORS],
     };
   }
@@ -299,7 +322,10 @@ function revisionOf(f: ChangeFeatures, rows: readonly Row[]): string {
 }
 
 interface Scored {
+  /** The anchor level the expected score rounds to, 0 to 4. */
   readonly score: number;
+  /** The provider's expected score, continuous, 0 to 4: finer than the level, so it orders checks the level cannot tell apart. */
+  readonly expected: number;
   readonly confidence: number;
 }
 
@@ -311,7 +337,8 @@ function scoresOf(answers: Readonly<Record<string, { readonly type: string; read
       out.push(null);
       continue;
     }
-    const score = Math.round(a['score']);
+    const expected = a['score'];
+    const score = Math.round(expected);
     if (score < 0 || score > RELEVANCE_ANCHORS.length - 1) {
       out.push(null);
       continue;
@@ -319,7 +346,7 @@ function scoresOf(answers: Readonly<Record<string, { readonly type: string; read
     const probabilities = a['probabilities'];
     const top = probabilities !== null && typeof probabilities === 'object' ? Math.max(0, ...Object.values(probabilities as Record<string, number>).filter((p) => typeof p === 'number')) : 0;
     const confidence = typeof a['confidence'] === 'number' && Number.isFinite(a['confidence']) ? a['confidence'] : top;
-    out.push({ score, confidence });
+    out.push({ score, expected, confidence });
   }
   return out;
 }
@@ -482,7 +509,7 @@ export async function rankChecks(
   const questions = relevanceQuestions(candidates.length);
   const packet = {
     objective: 'Rank approved checks by how much a change of the described shape needs each one (advice only).',
-    trustedPolicy: { checks: candidates.length, grantsAuthority: false },
+    trustedPolicy: { checks: candidates.length, grantsAuthority: false, kinds: RELEVANCE_KIND_LEGEND },
     facts: relevanceFacts(features, candidates, rows.length),
     evidence: [],
   };
@@ -506,10 +533,19 @@ export async function rankChecks(
   if (!asked.ok) return rulesOnly(`CHECK_RELEVANCE_JEV_${asked.reasonCode}`.slice(0, 64), { asked: true, askedCount: candidates.length, capped, jevDecisionId: asked.decisionId });
   const scores = scoresOf(asked.answers, candidates.length);
   const cacheHit = await cacheHitOf(engine, asked.decisionId);
+  // Two maps: the level (what the claim "Jev rated it most relevant" is judged on) and the expected score
+  // (what orders the checks). Live, a flat answer (every check near level 2) must not erase the rules'
+  // order, and 1.62 and 2.27 are both level 2 yet differ.
   const used = new Map<string, number>();
+  const expectedOf = new Map<string, number>();
   scores.forEach((s, i) => {
     const row = candidates[i];
-    if (row !== undefined && s !== null && s.confidence >= RELEVANCE_MIN_CONFIDENCE) used.set(row.id, s.score);
+    if (row !== undefined && s !== null && s.confidence >= RELEVANCE_MIN_CONFIDENCE) {
+      used.set(row.id, s.score);
+      // To half a level: finer than the level, so 1.62 and 2.27 are told apart, but not so fine that the noise
+      // between two identical requests (2.17 then 2.18; 2.66 then 2.49 live) orders the checks.
+      expectedOf.set(row.id, Math.round(s.expected * 2) / 2);
+    }
   });
   const base = { asked: true, askedCount: candidates.length, capped, cacheHit, jevDecisionId: asked.decisionId };
   if (used.size === 0) return rulesOnly(scores.every((s) => s === null) ? 'CHECK_RELEVANCE_JEV_NO_ANSWER' : 'CHECK_RELEVANCE_JEV_LOW_CONFIDENCE', base);
@@ -517,7 +553,7 @@ export async function rankChecks(
   // used), then the open checks past the cap in rules order, then the passing ones.
   const askedIds = new Set(candidates.map((c) => c.id));
   const failing = rulesRows.filter((r) => STATE_TIER[r.state] === 0);
-  const jevOpen = sortRows(candidates, (r) => used.get(r.id) ?? r.rules);
+  const jevOpen = sortRows(candidates, (r) => expectedOf.get(r.id) ?? r.rules, (r) => (expectedOf.has(r.id) ? 1 : 0));
   const rest = open.filter((r) => !askedIds.has(r.id));
   const passing = rulesRows.filter((r) => STATE_TIER[r.state] === 2);
   const ordered = [...failing, ...jevOpen, ...rest, ...passing];

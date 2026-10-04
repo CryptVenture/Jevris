@@ -9,7 +9,7 @@
  * The result is advice about ORDER (the Stop reminder, the order `jevris verify` runs the approved
  * checks in). It never removes, skips, waives or passes a check: only receipts decide done.
  */
-import type { SidecarOpContext } from '@jevris/contracts';
+import { modeAllows, type SidecarOpContext } from '@jevris/contracts';
 import { rankChecks, rulesOrderOf, type CheckLastState, type CheckRanking, type DecisionEngine, type RelevanceCheck } from '@jevris/core';
 import { changedFiles } from '../capabilities/repo.js';
 import type { WorkspaceServices } from '../workspace.js';
@@ -106,6 +106,19 @@ async function pathsWithin(paths: RankRequest['paths'], waitMs: number): Promise
 }
 
 /**
+ * The reason a request is not asked of Jev whatever the clock says, in the ranker's own order (too few checks, the
+ * kill switch, the mode, `jev.assist` off), or null when no gate applies.
+ */
+function gateReasonOf(request: RankRequest): string | null {
+  const { ctx } = request;
+  if (request.checks.length < 2) return 'CHECK_RELEVANCE_TOO_FEW';
+  if (ctx.killSwitchStopped) return 'CHECK_RELEVANCE_KILL_SWITCH';
+  if (!modeAllows(ctx.mode ?? 'observe', 'record')) return 'CHECK_RELEVANCE_MODE_OFF';
+  if (ctx.jevAssist === 'off') return 'CHECK_RELEVANCE_ASSIST_OFF';
+  return null;
+}
+
+/**
  * Ranks the checks for this request. Rules answer when they are sure; Jev is asked when `jev.assist`
  * is `classify`, the mode and the kill switch allow it and there is time. Never throws, and never
  * waits past the request's own deadline, for Jev or for the changed-files read (a slow or locked
@@ -113,9 +126,12 @@ async function pathsWithin(paths: RankRequest['paths'], waitMs: number): Promise
  */
 export async function rankApprovedChecks(request: RankRequest): Promise<CheckRanking> {
   const { ctx } = request;
+  // A gate is the answer's reason whatever the clock says (the same order the ranker applies): with assist off, a mode below
+  // `observe` or the kill switch stopped, a person is never told "deadline" because a slow machine read git late.
+  const gate = gateReasonOf(request);
   // The same deadline as the Jev wait below: the time left less the margin kept for the rest of the answer.
   const waited = await pathsWithin(request.paths, ctx.deadline.remainingMs() - (request.marginMs ?? RELEVANCE_MARGIN_MS));
-  if (waited === 'late') return rulesOrderOf({ checks: request.checks, paths: null }, RELEVANCE_GIT_DEADLINE);
+  if (waited === 'late') return rulesOrderOf({ checks: request.checks, paths: null }, gate ?? RELEVANCE_GIT_DEADLINE);
   const paths = waited;
   const input = { checks: request.checks, paths };
   try {

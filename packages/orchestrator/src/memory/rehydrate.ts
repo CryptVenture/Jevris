@@ -72,6 +72,7 @@ async function resolve(ws: WorkspaceServices, input: RehydrateInput): Promise<{ 
   const r = await consultChoice(input.engine, {
     capabilityId: 'C21',
     specVersion: '1',
+    sendsWorkspaceText: true,
     objective: 'Pick the capsule that continues the resumed session.',
     instructions: 'A session resumed without naming a task. Which saved capsule should it continue?',
     options,

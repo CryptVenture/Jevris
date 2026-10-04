@@ -19,6 +19,7 @@ const KNOWN_MODELS = new Set([MOCK_MODEL, 'jev-latest', 'jev-preview']);
 
 export const CONFORMANCE_SCENARIOS = [
   'valid',
+  'confident',
   'invalid-distribution',
   'model-mismatch',
   'noul-confidence',
@@ -92,6 +93,12 @@ function answerFor(id: string, question: JevQuestion, scenario: ConformanceScena
   if (question.type === 'choice') {
     const keys = Object.keys(question.criteria);
     let probs = normalize(weights(seed, keys.length));
+    // `confident`: the winner of the same weights takes 0.9 and the rest share 0.1, so a consumer's confidence and
+    // margin floors (0.6 and 0.15) are cleared. The other scenarios keep the spread the weights give.
+    if (scenario === 'confident' && keys.length >= 2) {
+      const win = probs.indexOf(Math.max(...probs));
+      probs = probs.map((_, i) => (i === win ? 0.9 : 0.1 / (keys.length - 1)));
+    }
     if (scenario === 'tie' && keys.length >= 2) probs = keys.map((_, i) => (i < 2 ? 0.5 : 0));
     const probabilities: Record<string, number> = {};
     keys.forEach((key, i) => {
@@ -108,7 +115,11 @@ function answerFor(id: string, question: JevQuestion, scenario: ConformanceScena
     };
   }
   if (question.type === 'score') {
-    const probs = normalize(weights(seed, question.criteria.length));
+    let probs = normalize(weights(seed, question.criteria.length));
+    if (scenario === 'confident' && question.criteria.length >= 2) {
+      const win = probs.indexOf(Math.max(...probs));
+      probs = probs.map((_, i) => (i === win ? 0.9 : 0.1 / (question.criteria.length - 1)));
+    }
     const probabilities: Record<string, number> = {};
     const legend: Record<string, string> = {};
     let score = 0;
@@ -120,7 +131,8 @@ function answerFor(id: string, question: JevQuestion, scenario: ConformanceScena
     if (scenario === 'invalid-distribution') probabilities['0'] = (probabilities['0'] ?? 0) + 0.25;
     return { type: 'score', score: round2(score), probabilities, legend, confidence: round2(Math.max(...probs)) };
   }
-  const noul = (fnv1a(seed) % 100) / 100;
+  // `confident`: a Noul at 0.95 or 0.05, by the same seed.
+  const noul = scenario === 'confident' ? (fnv1a(seed) % 2 === 0 ? 0.95 : 0.05) : (fnv1a(seed) % 100) / 100;
   const answer: Record<string, unknown> = { type: 'noul', noul: scenario === 'invalid-distribution' ? 1.5 : noul };
   if (scenario === 'noul-confidence') answer['confidence'] = 0.9;
   return answer;

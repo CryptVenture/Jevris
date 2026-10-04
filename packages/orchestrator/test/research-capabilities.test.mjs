@@ -2,6 +2,7 @@
 // real workspace state (git, store receipts, tasks, worktrees), a stub decision engine, the
 // capability's own evidence record, and guard flags that never grant, apply or certify.
 import test from 'node:test';
+import { asEngineAnswer } from './real-answer.mjs';
 import assert from 'node:assert/strict';
 import { generateKeyPairSync } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -64,7 +65,7 @@ function engine(answers, extra = {}) {
       calls.push(req);
       const a = answers[req.packet.trustedPolicy.capability];
       if (a === undefined) return { abstained: true, reasonCode: 'STUB_ABSTAIN' };
-      return { decisionId: `dec-${req.packet.trustedPolicy.capability.toLowerCase()}`, result: { answers: { q: a } } };
+      return { decisionId: `dec-${req.packet.trustedPolicy.capability.toLowerCase()}`, result: { answers: { q: asEngineAnswer(a) } } };
     },
   };
 }

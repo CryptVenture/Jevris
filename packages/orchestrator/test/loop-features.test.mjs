@@ -7,6 +7,7 @@
 // approved (checked with a real engine in the provider package's live-failure-advice test). Fake
 // engines, a temporary home and repository, no live call.
 import test from 'node:test';
+import { asEngineAnswer } from './real-answer.mjs';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -41,7 +42,7 @@ function engine(answer, calls) {
   return {
     async decide(request) {
       calls.push(request);
-      return { abstained: false, decisionId: 'dec-2', automation: 'advice', rulesOnly: false, result: { answers: { q: answer } } };
+      return { abstained: false, decisionId: 'dec-2', automation: 'advice', rulesOnly: false, result: { answers: { q: asEngineAnswer(answer) } } };
     },
   };
 }

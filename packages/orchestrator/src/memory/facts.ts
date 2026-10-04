@@ -271,7 +271,7 @@ export async function retrieveProjectMemory(ws: WorkspaceServices, input: Retrie
       specVersion: '1',
       objective: 'Retrieve relevant project knowledge.',
       instructions: 'How relevant is this remembered project fact to the current question?',
-      anchors: ['Unrelated', 'Tangential', 'Relevant', 'Directly answers it'],
+      anchors: ['Unrelated to the question', 'Only tangentially related to the question', 'Relevant to the question', 'Directly answers the question'],
       evidence: [
         { id: 'question', text: input.query, sourceKind: 'user', priority: 'mandatory' },
         { id: e.id, text: e.text, sourceKind: 'policy', priority: 'high' },

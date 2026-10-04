@@ -86,6 +86,7 @@
     "assets:sync": "node scripts/sync-assets.mjs",
     "smoke:harness": "node scripts/smoke-harness.mjs",
     "smoke:jev": "npm run smoke:jev -w @jevris/provider-typesafe --",
+    "smoke:jev:features": "node apps/sidecar/scripts/jev-features.mjs",
     "jevris": "node bin/jevris.mjs",
     "prepack": "node scripts/build.mjs",
     "smoke:pack": "node scripts/pack-smoke.mjs",

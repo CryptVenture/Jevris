@@ -96,7 +96,7 @@ const C41: CapabilityDefinition = {
             { id: 'changes', text: `changed files: ${(changed ?? []).slice(0, 40).join(', ')}; symbols: ${symbols.slice(0, 40).join(', ')}`, sourceKind: 'tool', priority: 'high' },
           ],
           instructions: 'How likely is this optional test to be affected by the change?',
-          anchors: ['Unaffected.', 'Possibly affected.', 'Likely affected.', 'Directly exercises the change.'],
+          anchors: ['Unaffected: the change cannot reach what the check covers.', 'Possibly affected.', 'Likely affected.', 'Directly exercises the change.'],
           rules: () => ({ score: Math.round((r.score ?? 0) * 3), reasonCode: 'SCOPE_IMPACT' }),
           ...(cx.remainingMs === undefined ? {} : { remainingMs: cx.remainingMs }),
         });
@@ -193,6 +193,7 @@ const C42: CapabilityDefinition = {
     const got = await consultChoice(cx.engine, {
       capabilityId: 'C42',
       specVersion: '1',
+      sendsWorkspaceText: true,
       objective: 'Pick the failure cluster most likely to share one cause; checks will validate it.',
       workspaceId: cx.ws.workspaceId,
       evidenceRevision: sha256(clusters.map((c) => c.fingerprint).join(',')).slice(0, 32),
@@ -283,7 +284,7 @@ const C43: CapabilityDefinition = {
           ],
           facts: { linesChanged: size, filesChanged: lines.size, passingChecks: p.passing, failingChecks: p.failing },
           instructions: 'How likely is this patch to satisfy the requirement?',
-          anchors: ['Unlikely.', 'Partly addresses it.', 'Likely satisfies it.', 'Clearly satisfies it with a minimal change.'],
+          anchors: ['Unlikely to satisfy the requirement.', 'Partly addresses it.', 'Likely satisfies it.', 'Clearly satisfies it with a minimal change.'],
           rules: () => ({ score: Math.round(staticScore * 3), reasonCode: 'STATIC_SCORE' }),
           ...(cx.remainingMs === undefined ? {} : { remainingMs: cx.remainingMs }),
         });
@@ -393,7 +394,7 @@ const C44: CapabilityDefinition = {
           evidence: [{ id: 'area', text: `${r.id}: ${a.files.slice(0, 30).join(', ')}`, sourceKind: 'tool', priority: 'high' }],
           facts: { sensitive: a.sensitive, interfaceLines: a.iface, linesChanged: a.size },
           instructions: 'How consequential is this change area for review?',
-          anchors: ['Cosmetic.', 'Routine.', 'Consequential.', 'Critical: security, data or public interface.'],
+          anchors: ['Cosmetic: formatting, wording or comments only.', 'Routine: an ordinary change with no special risk.', 'Consequential: it changes behaviour that others rely on.', 'Critical: security, data or public interface.'],
           rules: () => ({ score: Math.round((r.score ?? 0) * 3), reasonCode: 'RISK_FACTS' }),
           ...(cx.remainingMs === undefined ? {} : { remainingMs: cx.remainingMs }),
         });

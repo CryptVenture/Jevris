@@ -123,8 +123,8 @@ test('plan.submit labels each submitted task; the submitted plan is the same wit
     assert.equal(stored(labelled.ws).find((t) => t.node.id === 'T1').sliceId === 'refactor', false, 'a suggested slice is never stored as the task\'s slice');
     assert.equal(stored(labelled.ws).find((t) => t.node.id === 'T3').sliceId, 'bounded-edit', 'the plan\'s own slice is stored as given');
 
-    // One question per distinct features (T1 and T3), one advisory decision per task, each with its task's id; no path or title went to the engine.
-    assert.equal(engine.decides.length, 2);
+    // One question (T1: T2 is settled by the rules and T3's protected path is a high risk whatever Jev says, so neither is asked), one advisory decision per task, each with its task's id; no path or title went to the engine.
+    assert.equal(engine.decides.length, 1);
     assert.equal(JSON.stringify(engine.decides).includes('mod/T1'), false);
     assert.equal(JSON.stringify(engine.decides).includes('fix the parser'), false, 'egress is denied');
     assert.deepEqual(engine.recorded.map((r) => r.taskId).sort(), ['T1', 'T2', 'T3']);

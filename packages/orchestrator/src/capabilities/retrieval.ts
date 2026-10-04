@@ -235,6 +235,7 @@ export async function shortlistSkills(cx: Pick<CapabilityContext, 'home' | 'env'
   const got = await consultChoice(cx.engine, {
     capabilityId: 'C33',
     specVersion: '1',
+    sendsWorkspaceText: true,
     objective: 'Suggest the installed skill that applies to the stated intent, or none.',
     workspaceId: cx.ws.workspaceId,
     evidenceRevision: sha256(scored.map((s) => s.id).join('\n')).slice(0, 32),
@@ -450,7 +451,7 @@ const C35: CapabilityDefinition = {
           { id: 'doc', text: text.slice(0, 3000), sourceKind: 'file', priority: 'high' },
         ],
         instructions: 'How relevant is this document to the task?',
-        anchors: ['Not relevant.', 'Background only.', 'Relevant.', 'The authoritative reference for the task.'],
+        anchors: ['Not relevant to the task.', 'Background only.', 'Relevant to the task.', 'The authoritative reference for the task.'],
         rules: () => ({ score: Math.round((first.score ?? 0) * 3), reasonCode: 'LEXICAL_SCORE' }),
         ...(cx.remainingMs === undefined ? {} : { remainingMs: cx.remainingMs }),
       });
@@ -512,6 +513,7 @@ const C36: CapabilityDefinition = {
     const got = await consultChoice(cx.engine, {
       capabilityId: 'C36',
       specVersion: '1',
+      sendsWorkspaceText: true,
       objective: 'Rank eligible tools for the next step. Only the listed tools may be chosen.',
       workspaceId: cx.ws.workspaceId,
       evidenceRevision: sha256(ranked.map((r) => r.id).join(',')).slice(0, 32),

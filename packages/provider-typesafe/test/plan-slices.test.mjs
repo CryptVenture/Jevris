@@ -179,8 +179,10 @@ test('a mixed plan: each task is labelled, rules answer where sure, Jev for the 
   assert.deepEqual([s.SRC.slice, s.SRC.source, s.SRC.risk, s.SRC.reasonCode, s.SRC.confidencePercent], ['issue-fix', 'jev', 'low', 'SLICE_JEV_OVER_RULES', 85]);
   assert.deepEqual([s.CI.slice, s.CI.risk, s.CI.source, s.CI.reasonCode], [null, 'high', 'none', 'SLICE_HIGH_RISK'], 'a protected path never gets a slice, whatever Jev says');
   assert.deepEqual([s.NONE.slice, s.NONE.source, s.NONE.reasonCode], [null, 'none', 'SLICE_NO_FEATURES']);
-  // Jev was asked for SRC and CI only; the rules were sure for the docs and test tasks and had nothing for NONE.
-  assert.equal(requests.length, 2);
+  // Jev was asked for SRC only. The rules were sure for the docs and test tasks, had nothing for NONE, and a
+  // protected path (CI) is a high risk by the locked rules whatever Jev says, so its answer could not change
+  // anything: it is not asked (live, every protected shape spent a call and about 280 ms to end the same way).
+  assert.equal(requests.length, 1);
   // Each classified task has its own recorded advisory decision, with the task's id.
   for (const id of ['DOC', 'TST', 'SRC', 'CI', 'NONE']) assert.ok(s[id].decisionId !== null, `${id} is recorded`);
   const record = await engine.lookup(s.SRC.decisionId);
@@ -320,6 +322,23 @@ test('jev.assist off, mode off and a stopped kill switch ask no model; below obs
   // No engine at all: the rules answer, no record.
   const bare = byTask(await plan(home, { tasks }, undefined));
   assert.deepEqual([bare.A.slice, bare.A.source, bare.A.reasonCode, bare.A.decisionId], ['bounded-edit', 'rules', 'PROVIDER_NOT_CONFIGURED', null]);
+});
+
+test('gates come before the clock: with no time at all, assist off, mode off and a stopped kill switch keep their own reason, and only a request with no gate says PLAN_JEV_NO_TIME', async (t) => {
+  // The route op had this order wrong (CI run 37169809446: assist off answered SLICE_DEADLINE on a slow machine); the plan
+  // already had it right, and this keeps it: a gate is the reason whatever the clock says.
+  const { engine, requests } = await setup(t);
+  const tasks = [SOURCE('A')];
+  const spent = { deadlineMs: 0, totalMs: 0 };
+  const off = byList(await labels(engine, tasks, { options: { assist: 'off', record: false, ...spent } }));
+  assert.deepEqual([off.A.source, off.A.reasonCode], ['rules', 'SLICE_ASSIST_OFF']);
+  const modeOff = byList(await labels(engine, tasks, { options: { mode: 'off', ...spent } }));
+  assert.deepEqual([modeOff.A.source, modeOff.A.reasonCode], ['rules', 'PLAN_JEV_MODE_OFF']);
+  const stopped = byList(await labels(engine, tasks, { options: { killSwitchStopped: true, mode: 'off', ...spent } }));
+  assert.deepEqual([stopped.A.source, stopped.A.reasonCode], ['rules', 'PLAN_JEV_KILL_SWITCH'], 'the kill switch before the mode');
+  const noTime = byList(await labels(engine, tasks, { options: { record: false, ...spent } }));
+  assert.deepEqual([noTime.A.source, noTime.A.reasonCode], ['rules', 'PLAN_JEV_NO_TIME']);
+  assert.equal(requests.length, 0, 'no gate and no lack of time asks a model');
 });
 
 test('through the op, with an engine that answers at once: the answer reaches the plan result, the gates the op reads (jev.assist, mode, kill switch) hold, and the graph is the same', async (t) => {

@@ -32,3 +32,10 @@ export { createNewTaskHandler, createRepeatedFailureHandler, newTaskAdvice, repe
 export type { LiveHandlerOptions } from './live-handlers.js';
 export { PENDING_ADVICE, PendingAdviceStore } from './pending-advice.js';
 export type { PendingAdvice, PendingKind } from './pending-advice.js';
+export { createCallMeter, distributionOf, percentileOf } from './features-meter.js';
+export type { AnswerStat, CallMeter, Distribution, ExchangeObserver, MeterLimits, MeterRow, MeterTotals } from './features-meter.js';
+export { ENGINE_GROUPS, FAKE_SECRET, FAILURE_CASES, FEATURE_SUITE_SCHEMA, RANK_SHAPES, SLICE_SHAPES, TASK_PROMPTS, answerDistributions, engineCases, runFeatureSuite, suiteFailures, summarizeGroup } from './features-suite.js';
+export type { CaseDef, CaseOutcome, EngineGroup, FeatureRow, FeatureSuiteOptions, FeatureSuiteRecord, GroupSummary, RowPhase } from './features-suite.js';
+export { IDLE_SOCKET_MS, MAX_SOCKETS, nodeFetch } from './node-fetch.js';
+export { FEATURE_INVENTORY, inventoryByWiring } from './features-inventory.js';
+export type { InventoryEntry, InventoryWiring } from './features-inventory.js';

@@ -2,6 +2,7 @@
 // real workspace state (git, store receipts, tasks), a stub decision engine, and guard flags
 // that never grant, apply, run or certify anything.
 import test from 'node:test';
+import { asEngineAnswer } from './real-answer.mjs';
 import assert from 'node:assert/strict';
 import { createHash, generateKeyPairSync } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
@@ -9,6 +10,7 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync 
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { signRecord } from '@jevris/contracts';
+import { lintQuestions } from '@jevris/core';
 import {
   addTrustedIssuer,
   adviseCapability,
@@ -71,17 +73,25 @@ async function approve(ws, specs) {
   return ms;
 }
 
-/** A stub engine: per capability, an answer for question q, or an abstention. */
-function engine(answers) {
+/**
+ * A stub engine: per capability, an answer for question q, or an abstention. `egress` is what the engine
+ * reports for source egress. Every question it is asked must pass the product's question lint: a rubric
+ * anchor like "Low." is refused by the real engine before anything is sent (found live: thirteen
+ * capabilities never reached Jev for it), and a stub that does not lint would never say so.
+ */
+function engine(answers, egress = 'approved') {
   const calls = [];
   return {
     calls,
+    sourceEgress: () => egress,
     async decide(req) {
       calls.push(req);
+      const linted = lintQuestions(req.questions);
+      assert.equal(linted.ok, true, `${req.packet.trustedPolicy.capability}: the engine would refuse this question: ${JSON.stringify(linted.errors)}`);
       const cap = req.packet.trustedPolicy.capability;
       const a = answers[cap];
       if (a === undefined) return { abstained: true, reasonCode: 'STUB_ABSTAIN' };
-      return { decisionId: `dec-${cap.toLowerCase()}`, result: { answers: { q: a } } };
+      return { decisionId: `dec-${cap.toLowerCase()}`, result: { answers: { q: asEngineAnswer(a) } } };
     },
   };
 }
@@ -189,6 +199,93 @@ test('RET-01: skill roots from two spellings of one folder are one root where th
       assert.equal(workspaceRoots('linux').length, 1);
       assert.equal(workspaceRoots('darwin').length, 1);
     }
+  } finally {
+    f.done();
+  }
+});
+
+test('a question that carries workspace text (a skill description, a tool or agent description, a failure line, a module path) is asked only with source egress approved', async () => {
+  const f = await fixture();
+  try {
+    write(f.home, '.claude/skills/pdf-tools/SKILL.md', '---\nname: pdf-tools\ndescription: Extract text and tables from PDF files ZZMARKER-C33\n---\n');
+    write(f.home, '.codex/skills/sql-helper/SKILL.md', '---\nname: sql-helper\ndescription: Write and explain SQL queries\n---\n');
+    // Found by the live feature suite: the transport guard screens evidence text only, so an option text that
+    // quotes an installed skill's description left the machine with egress denied. The rules answer instead.
+    const denied = engine({ C33: { choice: 'none' } }, 'denied');
+    const rules = ok(await f.advise('C33', { intent: 'extract the tables from this PDF' }, { engine: denied }));
+    assert.equal(rules.source, 'rules');
+    assert.equal(rules.recommendation, 'pdf-tools');
+    assert.equal(denied.calls.length, 0, 'nothing was sent: no decision was built for a question that quotes the workspace');
+    const approved = engine({ C33: { choice: 'none' } }, 'approved');
+    const jev = ok(await f.advise('C33', { intent: 'extract the tables from this PDF' }, { engine: approved }));
+    assert.equal(jev.source, 'jev');
+    assert.equal(approved.calls.length, 1);
+    // An engine that cannot say reads as denied.
+    const mute = engine({ C33: { choice: 'none' } });
+    delete mute.sourceEgress;
+    assert.equal(ok(await f.advise('C33', { intent: 'extract the tables from this PDF' }, { engine: mute })).source, 'rules');
+    assert.equal(mute.calls.length, 0);
+  } finally {
+    f.done();
+  }
+});
+
+test('a Choice with fewer than two options is not asked, and an id the question contract refuses goes out as option_<n> and maps back', async () => {
+  const f = await fixture();
+  try {
+    // One skill id with a dot, a colon-free digit start: refused as a question key. It must not turn Jev off for the whole list.
+    write(f.home, '.claude/skills/9-pdf.tools/SKILL.md', '---\nname: 9-pdf.tools\ndescription: Extract text and tables from PDF files\n---\n');
+    write(f.home, '.codex/skills/sql-helper/SKILL.md', '---\nname: sql-helper\ndescription: Extract tables from SQL dumps\n---\n');
+    const stub = engine({ C33: { choice: 'option_2' } });
+    const advice = ok(await f.advise('C33', { intent: 'extract the tables' }, { engine: stub }));
+    assert.equal(stub.calls.length, 1, 'the list was asked');
+    const keys = Object.keys(stub.calls[0].questions.q.criteria);
+    for (const key of keys) assert.match(key, /^[A-Za-z][A-Za-z0-9_-]{0,63}$/, `${key} is a key the contract accepts`);
+    assert.ok(keys.includes('none'));
+    assert.ok(keys.includes('option_1') || keys.includes('option_2'), 'the dotted id went out under a safe key');
+    assert.equal(advice.source, 'jev');
+    assert.ok(['9-pdf.tools', 'sql-helper'].includes(advice.recommendation), `the answer maps back to a real id, not ${advice.recommendation}`);
+    // C26 with one eligible agent: nothing to choose between, so no decision is built and refused.
+    write(f.home, '.claude/agents/only-reviewer.md', '---\nname: only-reviewer\ndescription: Reviews changes\ntools: Read, Grep\n---\n');
+    const one = engine({ C26: { choice: 'only-reviewer' } });
+    const picked = ok(await f.advise('C26', { phase: 'reviewer' }, { engine: one }));
+    assert.equal(one.calls.length, 0, 'one option is not a choice');
+    assert.equal(picked.source, 'rules');
+  } finally {
+    f.done();
+  }
+});
+
+test('a consult answer below the confidence floor is not used: Choice under 0.6 or with less than 0.15 between its best two, Score under 0.6, Noul between 0.4 and 0.6', async () => {
+  const f = await fixture();
+  try {
+    write(f.home, '.claude/skills/pdf-tools/SKILL.md', '---\nname: pdf-tools\ndescription: Extract text and tables from PDF files\n---\n');
+    write(f.home, '.codex/skills/sql-helper/SKILL.md', '---\nname: sql-helper\ndescription: Extract tables from SQL dumps\n---\n');
+    const intent = { intent: 'extract the tables' };
+    // Measured live (jev-1.13.0, 2026-10-03): a capability consult used every answer. 12 of 33 came back below 0.6
+    // (a canary module at 0.24, a host-triage recommendation at 0.16, a failure-loop step at 0.48).
+    const rulesChoice = ok(await f.advise('C33', intent, { engine: engine({}) })).recommendation;
+    const sure = ok(await f.advise('C33', intent, { engine: engine({ C33: { choice: 'sql-helper', confidence: 0.86, probabilities: { 'sql-helper': 0.9, 'pdf-tools': 0.05, none: 0.05 } } }) }));
+    assert.deepEqual([sure.source, sure.recommendation], ['jev', 'sql-helper']);
+    const unsure = ok(await f.advise('C33', intent, { engine: engine({ C33: { choice: 'sql-helper', confidence: 0.24, probabilities: { 'sql-helper': 0.4, 'pdf-tools': 0.35, none: 0.25 } } }) }));
+    assert.deepEqual([unsure.source, unsure.recommendation], ['rules', rulesChoice], 'a Choice at confidence 0.24 is not used');
+    const close = ok(await f.advise('C33', intent, { engine: engine({ C33: { choice: 'sql-helper', confidence: 0.7, probabilities: { 'sql-helper': 0.45, 'pdf-tools': 0.4, none: 0.15 } } }) }));
+    assert.equal(close.source, 'rules', 'confidence 0.7 with 0.05 between the best two is not used');
+    const unscored = ok(await f.advise('C33', intent, { engine: engine({ C33: { choice: 'sql-helper' } }) }));
+    assert.equal(unscored.source, 'jev', 'a bare scripted answer is a confident one (see real-answer.mjs)');
+    const noConfidence = engine({});
+    noConfidence.decide = async () => ({ decisionId: 'dec-x', result: { answers: { q: { type: 'choice', choice: 'sql-helper', probabilities: { 'sql-helper': 1 } } } } });
+    assert.equal(ok(await f.advise('C33', intent, { engine: noConfidence })).source, 'rules', 'an answer with no confidence is not trusted');
+    // Noul: certainty is the larger of p and 1 - p.
+    assert.equal(ok(await f.advise('C47', {}, { engine: engine({ C47: { noul: 0.55 } }) })).source, 'rules');
+    assert.equal(ok(await f.advise('C47', {}, { engine: engine({ C47: { noul: 0.45 } }) })).source, 'rules');
+    assert.equal(ok(await f.advise('C47', {}, { engine: engine({ C47: { noul: 0.9 } }) })).source, 'jev');
+    assert.equal(ok(await f.advise('C47', {}, { engine: engine({ C47: { noul: 0.05 } }) })).source, 'jev', 'a confident no is as sure as a confident yes');
+    // Score (C43 ranks two patches, one Score each).
+    const small = 'diff --git a/a b/a\n--- a/a\n+++ b/a\n@@ -1 +1 @@\n-x\n+y\n';
+    const patches = [{ id: 'one', diff: small }, { id: 'two', diff: small.replace('+y', '+z') }];
+    assert.equal(ok(await f.advise('C43', { requirement: 'print y', patches }, { engine: engine({ C43: { score: 3, confidence: 0.41 } }) })).source, 'rules');
+    assert.equal(ok(await f.advise('C43', { requirement: 'print y', patches }, { engine: engine({ C43: { score: 3, confidence: 0.92 } }) })).source, 'jev');
   } finally {
     f.done();
   }

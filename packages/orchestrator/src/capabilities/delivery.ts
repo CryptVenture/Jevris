@@ -74,7 +74,7 @@ const C57: CapabilityDefinition = {
         evidence: [{ id: 'scope', text: `changed files: ${changed.slice(0, 60).join(', ')}`, sourceKind: 'tool', priority: 'high' }],
         facts: { changedFiles: changed.length, checks: report.checks.length },
         instructions: 'How focused and reviewable is this change?',
-        anchors: ['Sprawling: split it.', 'Broad.', 'Focused.', 'Small and focused.'],
+        anchors: ['Sprawling: it should be split into smaller changes.', 'Broad: it touches many areas and needs careful review.', 'Focused: it stays within a few related areas.', 'Small and focused: one clear change that is easy to review.'],
         rules: () => ({ score: changed.length <= 20 ? 3 : changed.length <= 60 ? 2 : 1, reasonCode: 'CHANGE_SIZE' }),
         ...(cx.remainingMs === undefined ? {} : { remainingMs: cx.remainingMs }),
       });
@@ -246,9 +246,11 @@ const C59: CapabilityDefinition = {
           workspaceId: cx.ws.workspaceId,
           evidenceRevision: sha256(`${u.name}:${u.from ?? ''}:${u.to ?? ''}`).slice(0, 32),
           evidence: changelog === null ? [] : [{ id: 'changelog', text: changelog.text.slice(0, 3000), sourceKind: 'file', priority: 'high' }],
-          facts: { package: u.name, from: u.from, to: u.to, bump: u.bump, importers: importers.length, breakingMentioned: breaking },
+          facts: { from: u.from, to: u.to, bump: u.bump, importers: importers.length, breakingMentioned: breaking },
+          // The package name is read from the workspace's lockfile: it goes out only with source egress approved.
+          approvedFacts: { package: u.name },
           instructions: 'How risky is this upgrade for the code that imports it?',
-          anchors: ['Negligible.', 'Low.', 'Moderate: test the importers.', 'High: expect breaking changes.'],
+          anchors: ['Negligible: no change in behaviour is expected.', 'Low: a small risk that the importers can absorb.', 'Moderate: test the importers.', 'High: expect breaking changes.'],
           rules: () => ({ score: Math.round(rulesScore * 3), reasonCode: 'SEMVER_RISK' }),
           ...(cx.remainingMs === undefined ? {} : { remainingMs: cx.remainingMs }),
         });
@@ -396,7 +398,7 @@ const C61: CapabilityDefinition = {
           { id: 'change', text: diff.slice(0, 3000), sourceKind: 'tool', priority: 'high' },
         ],
         instructions: 'How likely is this document out of date after the change?',
-        anchors: ['Unaffected.', 'Possibly stale.', 'Likely stale.', 'Certainly contradicts the change.'],
+        anchors: ['Unaffected: the documentation does not mention the change.', 'Possibly stale: it mentions the changed code in passing.', 'Likely stale: it describes the old behaviour of the changed code.', 'Certainly contradicts the change.'],
         rules: () => ({ score: Math.round((first.score ?? 0) * 3), reasonCode: 'REFERENCE_MATCH' }),
         ...(cx.remainingMs === undefined ? {} : { remainingMs: cx.remainingMs }),
       });

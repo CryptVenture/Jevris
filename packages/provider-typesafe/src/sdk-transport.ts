@@ -35,6 +35,7 @@ import {
 } from '@jevris/contracts';
 import { resetFromHeaders } from '@jevris/core';
 import { callDeadline, readBodyCapped } from './call-deadline.js';
+import { nodeFetch } from './node-fetch.js';
 
 function aborted(signal: AbortSignal | undefined): boolean {
   return signal !== undefined && signal.aborted === true;
@@ -63,7 +64,7 @@ export interface SdkTransportOptions {
   readonly apiKey: string;
   /** The API root. Default and only production value: https://api.typesafe.ai (no /v1). */
   readonly baseURL?: string;
-  /** Injected for tests and the conformance mock; default global fetch. */
+  /** Injected for tests and the conformance mock; default `nodeFetch` (parallel sockets over node:https, not the global fetch). */
   readonly fetch?: FetchLike;
   readonly maxResponseBytes?: number;
   readonly accountId?: string;
@@ -203,7 +204,7 @@ export class SdkTransport implements JevTransport {
     this.accountId = options.accountId ?? 'primary';
     this.#apiKey = options.apiKey;
     this.#baseURL = baseURL;
-    this.#fetch = options.fetch ?? ((input, init) => globalThis.fetch(input, init));
+    this.#fetch = options.fetch ?? nodeFetch;
   }
 
   /** One client per call, so concurrent calls never share the sent/oversize state. */

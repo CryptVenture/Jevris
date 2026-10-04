@@ -784,8 +784,13 @@ class Engine implements DecisionEngine {
     const revision = options.currentRevision?.() ?? draft.evidenceRevision;
     if (revision !== draft.evidenceRevision) return end('stale', 'STALE_REVISION', common);
     if (deadline.expired()) return end('stale', 'DEADLINE', common);
-    const answers = toJevAnswers(ask.answers);
-    if (Object.values(ask.answers).some((answer) => answer.type === 'choice' && answer.tie)) return end('abstained', 'CHOICE_TIE', common);
+    // A tied Choice has no winner and is never used. When every answer of the request tied, the decision
+    // abstains. When others are sound, only the tied ones are dropped and the record says so
+    // (CHOICE_TIE_DROPPED): one tie (about 1 in 100 live answers) must not throw away the answers that
+    // were paid for, such as a request's workflow family at confidence 1 beside a tied secondary question.
+    const tiedIds = Object.entries(ask.answers).filter(([, answer]) => answer.type === 'choice' && answer.tie).map(([id]) => id);
+    if (tiedIds.length > 0 && tiedIds.length === Object.keys(ask.answers).length) return end('abstained', 'CHOICE_TIE', common);
+    const answers = Object.fromEntries(Object.entries(toJevAnswers(ask.answers)).filter(([id]) => !tiedIds.includes(id)));
 
     const nowMs = this.#now();
     const evidenceIds = current.includedIds.filter((id) => ID.test(id)).slice(0, 256);
@@ -817,6 +822,7 @@ class Engine implements DecisionEngine {
     if (!ask.automation) reasons.push('OBSERVE_ONLY_ROUTE');
     if (current.truncated) reasons.push('PACKET_TRUNCATED');
     if (ask.repacked) reasons.push('PACKET_REPACKED');
+    if (tiedIds.length > 0) reasons.push('CHOICE_TIE_DROPPED');
     const templateId = ID.test(spec.id) ? spec.id : 'decision';
     const record = this.#record(entry, 'planned', {
       outcome: 'advisory',
