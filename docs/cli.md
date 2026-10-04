@@ -32,7 +32,7 @@ Public commands (also available as skills and MCP tools inside your coding harne
   feedback     Your feedback on one decision's advice: accepted, or rejected with a reason
   delivery     pr-readiness | ci-triage | upgrades | migrations | docs-drift | team-policy reports
   integrate    Integrate verified owned tasks; approve to fast-forward your checkout (never pushes)
-  advise       Orchestration and verification advice (C25-C47): test impact, flaky tests, duplicates...
+  advise       Orchestration and research advice by capability id (C25-C72): test impact, repository evidence, tool preflight...
   budget       status <budget-id>: use and last exhaustion; update: raise (authorized) or resume
   control      Multi-host leases: status, migrate this workspace to a control service, serve one
   handoff      import <capsule.json> [--link]: import a handoff capsule; --link links its task's session
@@ -815,15 +815,24 @@ Examples:
 ```text
 Usage: jevris advise <capability> [--task <id>] [--input <json> | --input-file <file>] [--json]
 
-Advice from Jevris's orchestration and verification capabilities, built from the task graph,
-receipts, git and the workspace files. Advice only: nothing is started, run, changed or
-approved.
+Advice from Jevris's orchestration, retrieval, verification and research capabilities, built
+from the task graph, receipts, git and the workspace files. Advice only: nothing is started,
+run, changed or approved. A capability that quotes text you give it (an intent, a finding, a
+contract) asks Jev about it only when source egress is approved; otherwise the rules answer.
 
 Capabilities:
   C25  DAG dependency suggestions (input: planId)
   C26  Worker-role allocation (input: phase, requiredTools, intent)
   C28  Duplicate-work detection
   C30  Worker handoff readiness (input: taskId, sourceRefs, diffHandle)
+  C32  Native workflow and team advice (input: harness, collaborative)
+  C33  Installed-skill shortlist (input: intent, maxItems)
+  C34  Repository evidence retrieval (input: query, maxItems)
+  C35  Documentation relevance and freshness (input: query, maxItems)
+  C36  Tool-candidate selection (input: intent, tools, allowlist, permittedEffects)
+  C37  Tool-argument preflight (input: tool, args, writeScopes)
+  C38  Environment failure triage (input: receiptId, checkId, handle)
+  C40  Visual-finding ranking (input: findings, assertions)
   C41  Test-impact prioritization (input: base)
   C42  Failure-cluster ranking (input: base)
   C43  Patch-candidate ranking (input: patches, taskIds, requirement)
@@ -831,6 +840,11 @@ Capabilities:
   C45  Requirements-to-evidence audit (input: requirementIds, requirementTexts)
   C46  Flaky-test investigation (input: checkId)
   C47  Security-review escalation (input: base)
+  C62  Release risk summary (input: incidents, rollout, exceptions)
+  C67  Question-improvement proposal (input: specId, current, candidate, misclassifications)
+  C69  Cross-model disagreement triage (input: reports)
+  C70  Project-wide change campaign (input: campaignId, modules, contract, canary, waveSize)
+  C72  Constrained and embedded development next step
 
 Options:
   --task <id>          The task the advice is for
@@ -846,6 +860,8 @@ Examples:
   jevris advise C41 --input '{"base":"main"}'
   jevris advise C26 --input '{"phase":"verifier"}'
   jevris advise C46 --input '{"checkId":"unit"}'
+  jevris advise C34 --input '{"query":"retry on timeout"}'
+  jevris advise C72
 ```
 
 ## jevris budget

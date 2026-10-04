@@ -106,8 +106,12 @@ test('every capability the inventory lists is reachable: through a command and a
     assert.equal(e.entry === OP_ONLY_ENTRY, !named.has(id), `${id}: the entry says what a command, a tool or only the op reaches`);
     assert.ok(orchestrator.CAPABILITIES.has(id) || id in orchestrator.CAPABILITY_OPS, `${id} is defined in the capability registry the op serves`);
   }
-  // The capabilities that only the op reaches: a decision for the owner whether to give each a command or a tool. A new one fails here.
-  assert.deepEqual(opOnly, ['C32', 'C33', 'C34', 'C35', 'C36', 'C37', 'C38', 'C40', 'C62', 'C67', 'C68', 'C69', 'C70', 'C72']);
+  // The capabilities that only the op reaches. The fourteen no command named were given `jevris advise` and `jevris_advise` ids (decision of
+  // 2026-10-04) except C68, which creates and removes git worktrees and applies patches in them and so does not fit a read-only advice tool; its
+  // inventory entry says so. A new one fails here.
+  assert.deepEqual(opOnly, ['C68']);
+  assert.match(capabilities.find((e) => e.spec === 'd-c68').note, /worktrees/);
+  for (const id of ['C32', 'C33', 'C34', 'C35', 'C36', 'C37', 'C38', 'C40', 'C62', 'C67', 'C69', 'C70', 'C72']) assert.ok(contracts.ADVISE_CAPABILITY_IDS.includes(id), `${id} is on jevris advise and jevris_advise`);
   // The memory capabilities and C29 have their own product op (checkpoint, recover, a hook event) rather than capability.advise.
   for (const id of ['C18', 'C19', 'C20', 'C21', 'C22', 'C23', 'C24', 'C29']) assert.ok(id in orchestrator.CAPABILITY_OPS || ['C19', 'C20', 'C21', 'C22', 'C23', 'C24'].includes(id), id);
 });

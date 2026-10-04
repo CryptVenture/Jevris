@@ -67,8 +67,11 @@ export interface OpInputs {
   };
 }
 
-/** What an orchestration or verification capability may be told: only its own keys, bounded. */
-export type AdviseInput = { readonly [key: string]: string | readonly string[] | readonly { readonly id: string; readonly diff: string }[] | { readonly [id: string]: string } };
+/** A plain JSON value, as a capability's input holds it. */
+export type AdviseValue = string | number | boolean | readonly AdviseValue[] | { readonly [key: string]: AdviseValue };
+
+/** What an orchestration, retrieval, verification or research capability may be told: only its own keys, each checked and bounded. */
+export type AdviseInput = { readonly [key: string]: AdviseValue };
 
 /** What a delivery report may be told; each field reaches only the capability that reads it. */
 export interface DeliveryInput {
@@ -260,6 +263,55 @@ function words(value: unknown, what: string, maxItems: number, maxLength: number
   return value as string[];
 }
 
+const TOOL_NAME = /^[A-Za-z][A-Za-z0-9_.:-]{0,63}$/;
+const EFFECT_NAME = /^[A-Za-z][A-Za-z0-9_.:-]{0,31}$/;
+const SPEC_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+const CAMPAIGN_ID = /^[A-Za-z][A-Za-z0-9_-]{0,47}$/;
+const FINDING_SOURCES = ['screenshot', 'accessibility-tree', 'vision-model'];
+const INCIDENT_SEVERITIES = ['low', 'medium', 'high', 'critical'];
+/** The largest `args` object a tool-call preflight (C37) takes, as JSON. */
+const ARGS_MAX_BYTES = 16_384;
+
+/** A list of 'min' to 'max' plain objects; the caller reads each item with its own keys. */
+function objects(v: unknown, what: string, min: number, max: number): readonly Raw[] {
+  if (!Array.isArray(v) || v.length < min || v.length > max) refuse(`${what} must list ${min === 0 ? 'at most' : `${min} to`} ${max} items.`);
+  for (const item of v) if (!isRaw(item)) refuse(`${what} items must be objects.`);
+  return v as readonly Raw[];
+}
+
+function flag(raw: Raw, key: string, what: string): boolean | null {
+  const v = raw[key];
+  if (v === undefined) return null;
+  if (typeof v !== 'boolean') refuse(`${what} must be true or false.`);
+  return v;
+}
+
+function relativePath(v: unknown, what: string): string {
+  if (typeof v !== 'string' || !RELATIVE_FILE.test(v) || v.split(/[\/]/).includes('..')) refuse(`${what} must be a path relative to the workspace, without "..".`);
+  return v;
+}
+
+/** A question draft (C67): instructions, at least two options, mandatory evidence ids and an optional threshold. */
+function specDraft(v: unknown, what: string): AdviseValue {
+  if (!isRaw(v)) refuse(`${what} must be an object { instructions, options, mandatoryEvidence, threshold }.`);
+  onlyKeys(v, ['instructions', 'options', 'mandatoryEvidence', 'threshold']);
+  const options = v['options'];
+  if (!isRaw(options) || Object.keys(options).length < 2 || Object.keys(options).length > 32) refuse(`${what}.options must map 2 to 32 option ids to text.`);
+  const outOptions: { [id: string]: string } = {};
+  for (const [id, t] of Object.entries(options)) {
+    if (!ID.test(id) || typeof t !== 'string' || t.trim().length === 0 || t.length > 300 || t.includes('\0')) refuse(`${what}.options maps ids to text of at most 300 characters.`);
+    outOptions[id] = t;
+  }
+  const threshold = v['threshold'];
+  if (threshold !== undefined && (typeof threshold !== 'number' || !Number.isFinite(threshold) || threshold < 0 || threshold > 1)) refuse(`${what}.threshold must be a number from 0 to 1.`);
+  return {
+    instructions: text(v, 'instructions', 600, true),
+    options: outOptions,
+    mandatoryEvidence: v['mandatoryEvidence'] === undefined ? [] : words(v['mandatoryEvidence'], `${what}.mandatoryEvidence`, 32, 64),
+    ...(threshold === undefined ? {} : { threshold }),
+  };
+}
+
 /** The input of one of D's advice capabilities: its own keys only, each shape-checked and bounded. */
 function adviseInput(capabilityId: string, value: unknown): AdviseInput {
   if (value === undefined || value === null) return {};
@@ -329,6 +381,175 @@ function adviseInput(capabilityId: string, value: unknown): AdviseInput {
         out[key] = texts;
         break;
       }
+      case 'harness':
+        if (typeof v !== 'string' || !(HARNESS_IDS as readonly string[]).includes(v)) refuse(`${what} must be one of ${HARNESS_IDS.join(', ')}.`);
+        out[key] = v;
+        break;
+      case 'collaborative':
+        if (typeof v !== 'boolean') refuse(`${what} must be true or false.`);
+        out[key] = v;
+        break;
+      case 'maxItems':
+        if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 16) refuse(`${what} must be a whole number from 1 to 16.`);
+        out[key] = v;
+        break;
+      case 'query':
+        out[key] = text(value, key, 500, true);
+        break;
+      case 'tools': {
+        out[key] = objects(v, what, 1, 128).map((tool) => {
+          onlyKeys(tool, ['id', 'description', 'effects']);
+          const id = tool['id'];
+          if (typeof id !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/.test(id)) refuse(`${what} items need an id of letters, digits, dot, dash, colon or underscore.`);
+          const description = tool['description'];
+          if (description !== undefined && (typeof description !== 'string' || description.length > 300 || description.includes('\0'))) refuse(`${what} descriptions are text up to 300 characters.`);
+          return { id, ...(description === undefined ? {} : { description }), effects: tool['effects'] === undefined ? [] : words(tool['effects'], `${what} effects`, 8, 32, EFFECT_NAME) };
+        });
+        break;
+      }
+      case 'allowlist':
+        out[key] = words(v, what, 256, 64, /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,63}$/);
+        break;
+      case 'permittedEffects':
+        out[key] = words(v, what, 8, 32, EFFECT_NAME);
+        break;
+      case 'tool':
+        if (typeof v !== 'string' || !TOOL_NAME.test(v)) refuse(`${what} must be a tool name.`);
+        out[key] = v;
+        break;
+      case 'args': {
+        if (!isRaw(v)) refuse(`${what} must be the tool's arguments as an object.`);
+        out[key] = bounded(v, what, ARGS_MAX_BYTES) as AdviseValue;
+        break;
+      }
+      case 'writeScopes':
+        out[key] = words(v, what, 64, 400);
+        break;
+      case 'receiptId':
+        if (typeof v !== 'string' || !ID.test(v)) refuse(`${what} must be a receipt id.`);
+        out[key] = v;
+        break;
+      case 'handle':
+        if (typeof v !== 'string' || !HANDLE.test(v)) refuse(`${what} must be an evidence handle (ev: and 64 hex characters).`);
+        out[key] = v;
+        break;
+      case 'findings':
+        out[key] = objects(v, what, 1, 64).map((f) => {
+          onlyKeys(f, ['id', 'text', 'source']);
+          const id = f['id'];
+          const source = f['source'];
+          if (typeof id !== 'string' || !ID.test(id)) refuse(`${what} items need an id.`);
+          if (typeof source !== 'string' || !FINDING_SOURCES.includes(source)) refuse(`${what} sources are ${FINDING_SOURCES.join(', ')}.`);
+          return { id, text: text(f, 'text', 500, true), source };
+        });
+        break;
+      case 'assertions':
+        out[key] = objects(v, what, 1, 32).map((a) => {
+          onlyKeys(a, ['id', 'claim', 'toolReceiptId', 'verification']);
+          const id = a['id'];
+          const toolReceiptId = a['toolReceiptId'];
+          if (typeof id !== 'string' || !ID.test(id)) refuse(`${what} items need an id.`);
+          if (toolReceiptId !== undefined && (typeof toolReceiptId !== 'string' || !ID.test(toolReceiptId))) refuse(`${what} toolReceiptId must be a receipt id.`);
+          let verification: AdviseValue | null = null;
+          if (a['verification'] !== undefined) {
+            const ver = a['verification'];
+            if (!isRaw(ver)) refuse(`${what} verification must be an object { kind, receiptId, reviewer, reviewedAt }.`);
+            onlyKeys(ver, ['kind', 'receiptId', 'reviewer', 'reviewedAt']);
+            if (ver['kind'] !== 'vision' && ver['kind'] !== 'human') refuse(`${what} verification.kind is vision or human.`);
+            const receiptId = ver['receiptId'];
+            if (receiptId !== undefined && (typeof receiptId !== 'string' || !ID.test(receiptId))) refuse(`${what} verification.receiptId must be a receipt id.`);
+            verification = {
+              kind: ver['kind'],
+              ...(receiptId === undefined ? {} : { receiptId }),
+              ...(ver['reviewer'] === undefined ? {} : { reviewer: text(ver, 'reviewer', 80, true) }),
+              ...(ver['reviewedAt'] === undefined ? {} : { reviewedAt: text(ver, 'reviewedAt', 40, true) }),
+            };
+          }
+          return { id, claim: a['claim'] === undefined ? '' : text(a, 'claim', 300, true), ...(toolReceiptId === undefined ? {} : { toolReceiptId }), ...(verification === null ? {} : { verification }) };
+        });
+        break;
+      case 'incidents':
+        out[key] = objects(v, what, 1, 64).map((i) => {
+          onlyKeys(i, ['id', 'severity', 'resolved']);
+          const id = i['id'];
+          const severity = i['severity'];
+          if (typeof id !== 'string' || !ID.test(id)) refuse(`${what} items need an id.`);
+          if (typeof severity !== 'string' || !INCIDENT_SEVERITIES.includes(severity)) refuse(`${what} severities are ${INCIDENT_SEVERITIES.join(', ')}.`);
+          const resolved = flag(i, 'resolved', `${what} resolved`);
+          return { id, severity, ...(resolved === null ? {} : { resolved }) };
+        });
+        break;
+      case 'rollout': {
+        if (!isRaw(v)) refuse(`${what} must be an object { stages, rollbackPlan }.`);
+        onlyKeys(v, ['stages', 'rollbackPlan']);
+        out[key] = {
+          stages: v['stages'] === undefined ? [] : words(v['stages'], `${what}.stages`, 16, 80),
+          ...(v['rollbackPlan'] === undefined ? {} : { rollbackPlan: text(v, 'rollbackPlan', 500, true) }),
+        };
+        break;
+      }
+      case 'exceptions':
+        out[key] = objects(v, what, 1, 32).map((e) => {
+          onlyKeys(e, ['id', 'resolved']);
+          const id = e['id'];
+          if (typeof id !== 'string' || !ID.test(id)) refuse(`${what} items need an id.`);
+          const resolved = flag(e, 'resolved', `${what} resolved`);
+          return { id, ...(resolved === null ? {} : { resolved }) };
+        });
+        break;
+      case 'specId':
+        if (typeof v !== 'string' || !SPEC_ID.test(v)) refuse(`${what} must be a decision spec id.`);
+        out[key] = v;
+        break;
+      case 'current':
+      case 'candidate':
+        out[key] = specDraft(v, what);
+        break;
+      case 'misclassifications':
+        out[key] = objects(v, what, 1, 128).map((m) => {
+          onlyKeys(m, ['expected', 'got']);
+          const expected = m['expected'];
+          const got = m['got'];
+          if (typeof expected !== 'string' || !ID.test(expected)) refuse(`${what} items need an expected option id.`);
+          if (got !== undefined && (typeof got !== 'string' || !ID.test(got))) refuse(`${what} got must be an option id.`);
+          return { expected, ...(got === undefined ? {} : { got }) };
+        });
+        break;
+      case 'reports':
+        out[key] = objects(v, what, 2, 16).map((r) => {
+          onlyKeys(r, ['id', 'model', 'conclusion', 'evidenceIds', 'sources']);
+          const id = r['id'];
+          const conclusion = r['conclusion'];
+          if (typeof id !== 'string' || !ID.test(id)) refuse(`${what} items need an id.`);
+          if (typeof conclusion !== 'string' || !ID.test(conclusion)) refuse(`${what} conclusions are ids (a short label of what the report concludes).`);
+          return {
+            id,
+            model: text(r, 'model', 128, true),
+            conclusion,
+            evidenceIds: r['evidenceIds'] === undefined ? [] : words(r['evidenceIds'], `${what} evidenceIds`, 32, 140),
+            sources: r['sources'] === undefined ? [] : words(r['sources'], `${what} sources`, 64, 300),
+          };
+        });
+        break;
+      case 'campaignId':
+        if (typeof v !== 'string' || !CAMPAIGN_ID.test(v)) refuse(`${what} must start with a letter and use at most 48 letters, digits, dash or underscore.`);
+        out[key] = v;
+        break;
+      case 'modules': {
+        if (!Array.isArray(v) || v.length === 0 || v.length > 200) refuse(`${what} must list 1 to 200 modules.`);
+        out[key] = v.map((m) => relativePath(m, `${what} items`));
+        break;
+      }
+      case 'contract':
+        out[key] = text(value, key, 1500, true);
+        break;
+      case 'canary':
+        out[key] = relativePath(v, what);
+        break;
+      case 'waveSize':
+        if (typeof v !== 'number' || !Number.isInteger(v) || v < 1 || v > 8) refuse(`${what} must be a whole number from 1 to 8.`);
+        out[key] = v;
+        break;
       default:
         refuse(`Unknown argument "${key.slice(0, 40)}".`);
     }

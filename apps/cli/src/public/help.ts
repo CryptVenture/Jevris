@@ -23,7 +23,7 @@ Public commands (also available as skills and MCP tools inside your coding harne
   feedback     Your feedback on one decision's advice: accepted, or rejected with a reason
   delivery     pr-readiness | ci-triage | upgrades | migrations | docs-drift | team-policy reports
   integrate    Integrate verified owned tasks; approve to fast-forward your checkout (never pushes)
-  advise       Orchestration and verification advice (C25-C47): test impact, flaky tests, duplicates...
+  advise       Orchestration and research advice by capability id (C25-C72): test impact, repository evidence, tool preflight...
   budget       status <budget-id>: use and last exhaustion; update: raise (authorized) or resume
   control      Multi-host leases: status, migrate this workspace to a control service, serve one
   handoff      import <capsule.json> [--link]: import a handoff capsule; --link links its task's session

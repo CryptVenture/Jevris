@@ -1139,15 +1139,31 @@ export type DeliveryReport = keyof typeof DELIVERY_REPORTS;
 export const DELIVERY_REPORT_NAMES = Object.freeze(Object.keys(DELIVERY_REPORTS) as DeliveryReport[]);
 
 /**
- * D's orchestration and verification capabilities the CLI (`jevris advise <id>`) and MCP
- * (`jevris_advise`) offer through the same op, with the input keys each one reads. Every one is
- * advice with the same guards; nothing is started, run, changed or approved.
+ * D's orchestration, retrieval, verification and research capabilities the CLI (`jevris advise <id>`) and
+ * MCP (`jevris_advise`) offer through the same op, with the input keys each one reads. Every one is advice
+ * with the same guards; nothing is started, run, changed or approved.
+ *
+ * The keys listed are the ones a person or an agent may send; a capability may read more through the raw
+ * `capability.advise` op (C32's probe actions, C33's skill roots, C67's `writeBranch`), and those stay
+ * there because they read outside the workspace or write a record that is not advice. C68 (safe speculative
+ * evaluation) is not offered at all: it creates and removes git worktrees and applies patches in them,
+ * which a tool that is read-only advice must not do. A capability that quotes text from its input (an
+ * intent, a finding, a contract) asks Jev only with source egress approved; with it denied nothing quoted
+ * leaves the machine and the rules answer.
  */
 export const ADVISE_CAPABILITIES = Object.freeze({
   C25: { title: 'DAG dependency suggestions', inputs: ['planId'] },
   C26: { title: 'Worker-role allocation', inputs: ['phase', 'requiredTools', 'intent'] },
   C28: { title: 'Duplicate-work detection', inputs: [] },
   C30: { title: 'Worker handoff readiness', inputs: ['taskId', 'sourceRefs', 'diffHandle'] },
+  C32: { title: 'Native workflow and team advice', inputs: ['harness', 'collaborative'] },
+  C33: { title: 'Installed-skill shortlist', inputs: ['intent', 'maxItems'] },
+  C34: { title: 'Repository evidence retrieval', inputs: ['query', 'maxItems'] },
+  C35: { title: 'Documentation relevance and freshness', inputs: ['query', 'maxItems'] },
+  C36: { title: 'Tool-candidate selection', inputs: ['intent', 'tools', 'allowlist', 'permittedEffects'] },
+  C37: { title: 'Tool-argument preflight', inputs: ['tool', 'args', 'writeScopes'] },
+  C38: { title: 'Environment failure triage', inputs: ['receiptId', 'checkId', 'handle'] },
+  C40: { title: 'Visual-finding ranking', inputs: ['findings', 'assertions'] },
   C41: { title: 'Test-impact prioritization', inputs: ['base'] },
   C42: { title: 'Failure-cluster ranking', inputs: ['base'] },
   C43: { title: 'Patch-candidate ranking', inputs: ['patches', 'taskIds', 'requirement'] },
@@ -1155,6 +1171,11 @@ export const ADVISE_CAPABILITIES = Object.freeze({
   C45: { title: 'Requirements-to-evidence audit', inputs: ['requirementIds', 'requirementTexts'] },
   C46: { title: 'Flaky-test investigation', inputs: ['checkId'] },
   C47: { title: 'Security-review escalation', inputs: ['base'] },
+  C62: { title: 'Release risk summary', inputs: ['incidents', 'rollout', 'exceptions'] },
+  C67: { title: 'Question-improvement proposal', inputs: ['specId', 'current', 'candidate', 'misclassifications'] },
+  C69: { title: 'Cross-model disagreement triage', inputs: ['reports'] },
+  C70: { title: 'Project-wide change campaign', inputs: ['campaignId', 'modules', 'contract', 'canary', 'waveSize'] },
+  C72: { title: 'Constrained and embedded development next step', inputs: [] },
 } as const satisfies { readonly [id: string]: { readonly title: string; readonly inputs: readonly string[] } });
 export type AdviseCapabilityId = keyof typeof ADVISE_CAPABILITIES;
 export const ADVISE_CAPABILITY_IDS = Object.freeze(Object.keys(ADVISE_CAPABILITIES) as AdviseCapabilityId[]);

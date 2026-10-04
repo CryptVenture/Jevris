@@ -93,7 +93,7 @@ export const FEATURE_INVENTORY: readonly InventoryEntry[] = [
   capability('C62', 'Score', 'capabilities/research.ts', 'release evidence risk'),
   capability('C64', 'Choice', 'capabilities/delivery.ts', 'team policy reuse'),
   capability('C67', 'Score', 'capabilities/research.ts', 'prompt-revision clarity', 'text'),
-  capability('C68', 'Choice', 'capabilities/research.ts', 'isolated candidate selection'),
+  capability('C68', 'Choice', 'capabilities/research.ts', 'isolated candidate selection; reachable only through the raw capability.advise op on purpose: it creates and removes git worktrees and applies candidate patches in them, which a tool that is read-only advice (jevris_advise) must not do, so exposing it needs its own design'),
   capability('C69', 'Score', 'capabilities/research.ts', 'evidence-conflict materiality', 'text'),
   capability('C70', 'Choice', 'capabilities/research.ts', 'canary module for a staged migration; option texts are module paths', 'text'),
   capability('C72', 'Choice', 'capabilities/research.ts', 'host-triage recommendation'),

@@ -1,6 +1,6 @@
 /**
- * `jevris advise <capability>` (US22; SSOT §12.3, §12.6): D's orchestration and verification
- * capabilities through the `capability.advise` op (a local, rules-only answer when the sidecar
+ * `jevris advise <capability>` (US22; SSOT §12.3 to §12.9): D's orchestration, retrieval, verification
+ * and research capabilities through the `capability.advise` op (a local, rules-only answer when the sidecar
  * is down). Each is advice: nothing is started, run, changed or approved, and every guard in the
  * answer is false. The input is the capability's own keys only, checked before any request.
  */
@@ -22,9 +22,10 @@ const CAPABILITY_LINES = ADVISE_CAPABILITY_IDS.map((id) => {
 
 export const ADVISE_HELP = `Usage: jevris advise <capability> [--task <id>] [--input <json> | --input-file <file>] [--json]
 
-Advice from Jevris's orchestration and verification capabilities, built from the task graph,
-receipts, git and the workspace files. Advice only: nothing is started, run, changed or
-approved.
+Advice from Jevris's orchestration, retrieval, verification and research capabilities, built
+from the task graph, receipts, git and the workspace files. Advice only: nothing is started,
+run, changed or approved. A capability that quotes text you give it (an intent, a finding, a
+contract) asks Jev about it only when source egress is approved; otherwise the rules answer.
 
 Capabilities:
 ${CAPABILITY_LINES}
@@ -42,7 +43,9 @@ Exit codes: 0 advice printed; 2 usage error or refused input.
 Examples:
   jevris advise C41 --input '{"base":"main"}'
   jevris advise C26 --input '{"phase":"verifier"}'
-  jevris advise C46 --input '{"checkId":"unit"}'`;
+  jevris advise C46 --input '{"checkId":"unit"}'
+  jevris advise C34 --input '{"query":"retry on timeout"}'
+  jevris advise C72`;
 
 const INPUT_CAP = 262_144;
 
