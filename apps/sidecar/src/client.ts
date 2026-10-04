@@ -1,5 +1,5 @@
 import { spawn } from 'node:child_process';
-import { closeSync, mkdirSync, openSync, readFileSync, statSync, unlinkSync, writeSync } from 'node:fs';
+import { closeSync, mkdirSync, openSync, readFileSync, statSync, writeSync } from 'node:fs';
 import { connect, type Socket } from 'node:net';
 import { join } from 'node:path';
 import type {
@@ -17,6 +17,7 @@ import { askServiceToStart, defaultServiceRun, serviceInputForHome, serviceUnitS
 export { HOOK_LATENCY_FILE, HOOK_LATENCY_FILE_MAX_BYTES, appendHookLatency, hookLatencyFile, hookLatencyLine, parseHookLatencyLine } from './hook-latency.js';
 export type { HookLatencyEntry } from './hook-latency.js';
 import { readSharedFileSync } from '@jevris/platform';
+import { removeLockFile, type LockFileDeps } from './lock-file.js';
 import {
   CREDENTIAL_ENV_NAME,
   FOREIGN_LOCALITY_MESSAGE,
@@ -341,14 +342,14 @@ export function sidecarCommand(): readonly string[] | undefined {
 }
 
 /** How the caller that took the spawn lock meant to start the sidecar. */
-type StartVia = 'service' | 'spawn';
+export type StartVia = 'service' | 'spawn';
 
 /**
  * Takes the spawn lock with an exclusive create; a lock older than the stale window is replaced.
  * The lock records how the start was made. A replaced lock that was a service start tells the new
  * holder that the service did not bring a sidecar up in the window (`previousVia`).
  */
-function takeSpawnLock(files: RuntimeFiles, via: StartVia): { readonly previousVia: StartVia | undefined } | false {
+export function takeSpawnLock(files: RuntimeFiles, via: StartVia, deps: LockFileDeps = {}): { readonly previousVia: StartVia | undefined } | false {
   let previousVia: StartVia | undefined;
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
@@ -361,11 +362,8 @@ function takeSpawnLock(files: RuntimeFiles, via: StartVia): { readonly previousV
       if (errorCode(error) !== 'EEXIST') return false;
       if (!spawnLockStale(files)) return false;
       previousVia = spawnLockVia(files);
-      try {
-        unlinkSync(files.spawnLock);
-      } catch {
-        return false;
-      }
+      // A transient Windows error on the unlink is retried first; if the stale lock stays, it is held.
+      if (!removeLockFile(files.spawnLock, deps)) return false;
     }
   }
   return false;
@@ -402,12 +400,9 @@ function spawnLockStale(files: RuntimeFiles): boolean {
   }
 }
 
-function releaseSpawnLock(files: RuntimeFiles): void {
-  try {
-    unlinkSync(files.spawnLock);
-  } catch {
-    // The daemon removes it once it listens.
-  }
+export function releaseSpawnLock(files: RuntimeFiles, deps: LockFileDeps = {}): void {
+  // A lock that stays is not fatal: the daemon removes it once it listens, and it is judged by its age.
+  removeLockFile(files.spawnLock, deps);
 }
 
 /** The environment of the detached sidecar: no Jev key variable is inherited (GOV-06). */

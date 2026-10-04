@@ -18,6 +18,7 @@ import type { SidecarClientKind, SidecarEndpointFile, SidecarEventSubscriber, Si
 import { OWNED_MODE_OP, activeVerificationRuns, migrateModeDefault, ownedModeEnabled, setManagedPolicyDefaults } from '@jevris/orchestrator';
 import { currentUser, ensurePrivateDir, jevrisPaths, writePrivateFile, type ExecPort } from '@jevris/platform';
 import { pathLineWriter } from './line-writer.js';
+import { removeLockFile, type LockFileDeps } from './lock-file.js';
 import { execStatus, sidecarManagedOptions } from './managed-exec.js';
 import { detectLocality } from './locality.js';
 import { bodyRecord, loadOps, refuse, type LoadedOps, type ShutdownDecision } from './ops.js';
@@ -201,7 +202,7 @@ function lockHolder(path: string): number | undefined {
 const heldLocks = new Set<string>();
 
 /** Exclusive daemon lock: two racing starts produce one sidecar (IPC-12). */
-function takeDaemonLock(files: RuntimeFiles): 'taken' | 'held' {
+export function takeDaemonLock(files: RuntimeFiles, deps: LockFileDeps = {}): 'taken' | 'held' {
   if (heldLocks.has(files.lock)) return 'held';
   for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
@@ -222,25 +223,20 @@ function takeDaemonLock(files: RuntimeFiles): 'taken' | 'held' {
           continue;
         }
       }
-      try {
-        unlinkSync(files.lock);
-      } catch {
-        // raced; retry
-      }
+      // A transient Windows error on the unlink is retried first; a lock that stays (or that another start
+      // raced us to) is tried again by the next attempt.
+      removeLockFile(files.lock, deps);
     }
   }
   return 'held';
 }
 
-function releaseDaemonLock(files: RuntimeFiles): void {
+export function releaseDaemonLock(files: RuntimeFiles, deps: LockFileDeps = {}): void {
   if (!heldLocks.has(files.lock)) return;
   heldLocks.delete(files.lock);
   if (lockHolder(files.lock) !== process.pid) return;
-  try {
-    unlinkSync(files.lock);
-  } catch {
-    // already gone
-  }
+  // Already gone, or held a moment by a reader: a lock that stays names a dead pid, and the next start replaces it.
+  removeLockFile(files.lock, deps);
 }
 
 function probeSocket(path: string, timeoutMs = 300): Promise<'live' | 'dead'> {
@@ -718,11 +714,8 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
   await writePrivateFile(files.pid, `${process.pid}\n`, { platform, env });
   await writePrivateFile(files.locality, localityRecordText(service.bootId, locality, Date.now()), { platform, env });
   await writePrivateFile(files.endpoint, `${JSON.stringify(endpoint)}\n`, { platform, env });
-  try {
-    unlinkSync(files.spawnLock);
-  } catch {
-    // a manual start has no spawn lock
-  }
+  // A manual start has no spawn lock; a lock that stays is judged by its age.
+  removeLockFile(files.spawnLock);
 
   let pipeAcl: SidecarDaemon['pipeAcl'] = isNamedPipe(endpointPath) ? 'pending' : 'not-applicable';
   if (isNamedPipe(endpointPath)) {
