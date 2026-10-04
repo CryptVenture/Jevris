@@ -19,6 +19,7 @@ export {
   durableWrite,
   isTempFor,
   removeStaleTemps,
+  removeStaleTempsIn,
   renameWithRetry,
   tempNameFor,
   type DurableFs,

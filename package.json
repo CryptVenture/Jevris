@@ -91,6 +91,7 @@
     "prepack": "node scripts/build.mjs",
     "smoke:pack": "node scripts/pack-smoke.mjs",
     "bench:load": "node apps/sidecar/scripts/load.mjs",
+    "bench:engine": "node apps/sidecar/scripts/engine-overhead.mjs",
     "docs": "node scripts/docs.mjs",
     "docs:platform": "node scripts/docs.mjs platform"
   },

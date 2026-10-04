@@ -15,6 +15,13 @@
  *   never planned.
  * - Nothing reaches `applied` without an adapter receipt whose status is `applied`.
  * - A crash leaves a journal entry that `recover()` settles at the next start.
+ * - The journal is written where a crash must be able to settle the decision, not at every state:
+ *   the entry moves through its states in memory (its `history` still names each one), is written
+ *   once before a request may leave (it names the reservation and says `sent`), and once for the
+ *   final record. A decision that sends nothing (a cache hit, a rules answer, a refusal, advice
+ *   recorded without a call) is one write. Each write is an fsync, the cost that does not shrink
+ *   with a faster CPU: a cold decision made nine writes of the journal and the budget and a cached
+ *   one three; they make four and one.
  */
 import { sliceAssistLines } from './slice-explain.js';
 import { checkRelevanceLines } from './check-relevance-explain.js';
@@ -484,9 +491,10 @@ class Engine implements DecisionEngine {
       usage: null,
       modelResolved: null,
     };
-    const created = await this.journal.create(decisionId, draft);
+    // Advice makes no call and settles nothing, so there is nothing for a crash to recover: one write.
+    const created = this.journal.begin(decisionId, draft);
     if (!created.ok) return { ok: false, reasonCode: 'JOURNAL_UNAVAILABLE' };
-    const validated = await this.journal.transition(created.entry, 'validated', { draft: {} });
+    const validated = this.journal.advance(created.entry, 'validated', { draft: {} });
     if (!validated.ok) return { ok: false, reasonCode: 'JOURNAL_UNAVAILABLE' };
     const codes = input.reasonCodes.filter((code) => /^[A-Z][A-Z0-9_]{0,63}$/.test(code));
     const record = this.#record(validated.entry, 'planned', {
@@ -596,7 +604,8 @@ class Engine implements DecisionEngine {
       usage: null,
       modelResolved: null,
     };
-    const created = await this.journal.create(decisionId, draft);
+    // The entry moves through its states in memory; `persist` and `transition` write it (see the header).
+    const created = this.journal.begin(decisionId, draft);
     if (!created.ok) return { abstained: true, reasonCode: 'JOURNAL_UNAVAILABLE', decisionId, fallback };
     let entry = created.entry;
 
@@ -637,8 +646,9 @@ class Engine implements DecisionEngine {
       return { abstained: true, reasonCode, decisionId, fallback };
     };
 
-    const step = async (to: DecisionState, patch: Partial<DecisionDraft> = {}): Promise<boolean> => {
-      const moved = await this.journal.transition(entry, to, { draft: patch });
+    /** Moves the entry to the next state in memory. Nothing is written. */
+    const step = (to: DecisionState, patch: Partial<DecisionDraft> = {}): boolean => {
+      const moved = this.journal.advance(entry, to, { draft: patch });
       if (!moved.ok) return false;
       entry = moved.entry;
       return true;
@@ -651,7 +661,7 @@ class Engine implements DecisionEngine {
     const lint = lintQuestions(request.questions);
     if (!lint.ok) return end('refused', 'QUESTION_LINT', { more: lint.errors.slice(0, 8).map((error) => `LINT_${error.code}`) });
     if (!decisionSpecMatches(spec, request.questions)) return end('refused', 'SPEC_QUESTION_MISMATCH');
-    if (!(await step('validated'))) return end('abstained', 'JOURNAL_UNAVAILABLE');
+    if (!step('validated')) return end('abstained', 'JOURNAL_UNAVAILABLE');
 
     // Deterministic rules first: a verdict means no provider call.
     if (request.rules !== undefined) {
@@ -673,7 +683,7 @@ class Engine implements DecisionEngine {
     if (missing.length > 0) return end('abstained', 'MISSING_EVIDENCE', { draft: { packetHash: packet.packetHash } });
     const dropped = spec.evidenceRequirements.filter((id) => packet.omittedIds.includes(id));
     if (dropped.length > 0) return end('abstained', 'REQUIRED_EVIDENCE_OMITTED', { draft: { packetHash: packet.packetHash } });
-    if (!(await step('evidence-ready', { packetHash: packet.packetHash }))) return end('abstained', 'JOURNAL_UNAVAILABLE');
+    if (!step('evidence-ready', { packetHash: packet.packetHash })) return end('abstained', 'JOURNAL_UNAVAILABLE');
 
     if (this.#client === null) return end('abstained', 'PROVIDER_NOT_CONFIGURED', { more: ['RULES_ONLY'] });
     if (deadline.expired()) return end('abstained', 'DEADLINE');
@@ -711,13 +721,21 @@ class Engine implements DecisionEngine {
       if (!reserved.ok) return end('abstained', reserved.reasonCode, reserved.reasonCode === 'BUDGET' ? { more: budgetReasonCodes(reserved) } : {});
       reservationId = reserved.reservation.id;
     }
-    if (!(await step('reserved', { reservationId, reservedMicroUsd: reserveAmount }))) {
+    if (!step('reserved', { reservationId, reservedMicroUsd: reserveAmount })) {
       if (reservationId !== null) await this.budget?.release(reservationId);
       return end('abstained', 'JOURNAL_UNAVAILABLE');
     }
 
-    // reserved -> evaluating (from here the request may be billed)
-    if (!(await step('evaluating', { sent: true }))) {
+    // reserved -> evaluating (from here the request may be billed). The one write before the request
+    // may leave: the entry names the reservation and says `sent`, so a crash from here on is settled
+    // by `recover()` (a reservation whose request never left is released, one that may have been
+    // billed is held). The states before it, and `reserved` itself, wait for this write; a crash
+    // before it leaves a reservation no entry names, exactly as a crash between the budget write
+    // and the `reserved` write did.
+    const unsent = entry;
+    if (!step('evaluating', { sent: true }) || !(await this.journal.persist(entry)).ok) {
+      // Nothing left: the entry that is ended says so (`sent` false) and the reservation is released.
+      entry = unsent;
       if (reservationId !== null) await this.budget?.release(reservationId);
       return end('abstained', 'JOURNAL_UNAVAILABLE');
     }
@@ -776,8 +794,9 @@ class Engine implements DecisionEngine {
       return end('abstained', ask.reasonCode, { ...common, ...(ask.failure === null ? {} : { failureKind: ask.failure }) });
     }
 
-    // evaluating -> evaluated
-    if (!(await step('evaluated', common.draft))) return end('abstained', 'JOURNAL_UNAVAILABLE', common);
+    // evaluating -> evaluated, in memory: the budget already holds the committed usage (settle above),
+    // and the final record below carries it, so this state needs no write of its own.
+    if (!step('evaluated', common.draft)) return end('abstained', 'JOURNAL_UNAVAILABLE', common);
 
     // Post-evaluation recheck: revision, deadline and kill switch.
     if (this.#killSwitch()) return end('abstained', 'KILL_SWITCH', common);
@@ -940,7 +959,11 @@ class Engine implements DecisionEngine {
     if (!Number.isSafeInteger(input.actualMicroUsd) || input.actualMicroUsd < 0) return { ok: false, reasonCode: 'INVALID_AMOUNT' };
     if (entry.draft.reservationId !== null && this.budget !== null) {
       const settled = await this.budget.reconcile(entry.draft.reservationId, input);
-      if (!settled.ok && settled.reasonCode !== 'ALREADY_SETTLED') return { ok: false, reasonCode: settled.reasonCode };
+      // A reservation whose cost was final long ago (committed, or released) may have been folded into the budget's
+      // summary of the month: it is no longer a row of its own, and it was already settled, as ALREADY_SETTLED says.
+      // A decision still waiting for its usage (`estimate-pending-reconcile`) is a hold, which is never folded.
+      const folded = settled.ok === false && settled.reasonCode === 'UNKNOWN_RESERVATION' && entry.record.billingBasis !== 'estimate-pending-reconcile';
+      if (!settled.ok && settled.reasonCode !== 'ALREADY_SETTLED' && !folded) return { ok: false, reasonCode: settled.reasonCode };
     }
     const r = entry.record;
     const record: DecisionRecord = {
@@ -957,13 +980,25 @@ class Engine implements DecisionEngine {
 
   async recover(): Promise<{ readonly recovered: number }> {
     let recovered = 0;
+    // The temps a killed write left, cleared with one listing (a write no longer lists the folder).
+    await this.journal.sweepStaleTemps().catch(() => 0);
     for (const id of await this.journal.list()) {
-      const entry = await this.journal.read(id);
-      if (entry === null || !IN_FLIGHT_STATES.includes(entry.state)) continue;
+      const read = await this.journal.read(id);
+      if (read === null || !IN_FLIGHT_STATES.includes(read.state)) continue;
+      let entry = read;
       const sent = entry.draft.sent;
+      let settledCost: number | null = null;
       if (entry.draft.reservationId !== null && this.budget !== null) {
-        if (sent && entry.draft.usage === null) await this.budget.hold(entry.draft.reservationId);
-        else if (!sent) await this.budget.release(entry.draft.reservationId);
+        if (sent && entry.draft.usage === null) {
+          // The usage is written to the budget (commit) before the entry's final write, so a crash between
+          // the two leaves a committed reservation and an entry that does not know it yet: the budget's
+          // own record is the usage, and holding a settled reservation would do nothing.
+          const reservation = await this.budget.get(entry.draft.reservationId);
+          if (reservation !== null && (reservation.state === 'committed' || reservation.state === 'reconciled') && reservation.usage !== null) {
+            entry = { ...entry, draft: { ...entry.draft, usage: { inputTokens: reservation.usage.inputTokens, outputTokens: reservation.usage.outputTokens } } };
+            settledCost = reservation.actualMicroUsd;
+          } else await this.budget.hold(entry.draft.reservationId);
+        } else if (!sent) await this.budget.release(entry.draft.reservationId);
       }
       const billingBasis: BillingBasis = !sent ? 'no-provider-call' : entry.draft.usage !== null ? 'provider-reported-usage' : 'estimate-pending-reconcile';
       const record = this.#record(entry, 'abstained', {
@@ -973,6 +1008,7 @@ class Engine implements DecisionEngine {
         billingBasis,
         providerCalls: sent ? 1 : 0,
         durationMs: Math.max(0, this.#now() - Date.parse(entry.draft.receivedAt)),
+        ...(settledCost === null ? {} : { actualMicroUsd: settledCost }),
       });
       const moved = await this.journal.transition(entry, 'abstained', { record });
       if (moved.ok) recovered += 1;

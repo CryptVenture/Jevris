@@ -39,6 +39,13 @@ export interface DurableWriteOptions {
   readonly retries?: number;
   /** Temps older than this are removed before the write. Default 60 s. */
   readonly staleMs?: number;
+  /**
+   * Whether the write first lists the destination's folder for stale temps of the same destination
+   * (default true). The listing costs time in proportion to the folder's size, so a writer whose
+   * destinations are fresh and unique (one file per decision) turns it off and sweeps the folder
+   * once with `removeStaleTempsIn`.
+   */
+  readonly sweepStaleTemps?: boolean;
   readonly platform?: string;
   readonly fs?: Partial<DurableFs>;
   readonly sleep?: (ms: number) => Promise<void>;
@@ -126,6 +133,41 @@ export async function removeStaleTemps(destination: string, options: DurableWrit
   return removed;
 }
 
+/** A temp this helper's writers made (`.<base>.<pid>.<hex>.jtmp`), for any destination. */
+const ANY_UNIQUE_TEMP = /^\..+\.\d+\.[0-9a-f]+\.jtmp$/;
+
+/**
+ * Removes every stale temp of this helper's writers in `dir`, whatever its destination: what a write
+ * killed part-way leaves behind. One folder listing; never throws. Returns the removed paths.
+ */
+export async function removeStaleTempsIn(dir: string, options: DurableWriteOptions = {}): Promise<readonly string[]> {
+  const api = pathApiFor(options.platform ?? process.platform);
+  const fs: DurableFs = { ...nodeFs, ...options.fs };
+  const staleMs = options.staleMs ?? 60_000;
+  const now = (options.now ?? Date.now)();
+  const removed: string[] = [];
+  let names: string[];
+  try {
+    names = await fs.readdir(dir);
+  } catch {
+    return removed;
+  }
+  for (const name of names) {
+    if (!ANY_UNIQUE_TEMP.test(name)) continue;
+    const full = api.join(dir, name);
+    try {
+      const st = await fs.lstat(full);
+      if (!st.isFile() || st.isSymbolicLink()) continue;
+      if (now - st.mtimeMs < staleMs) continue;
+      await fs.rm(full, { force: true });
+      removed.push(full);
+    } catch {
+      continue;
+    }
+  }
+  return removed;
+}
+
 async function symlinked(fs: DurableFs, path: string): Promise<boolean | 'error'> {
   try {
     return (await fs.lstat(path)).isSymbolicLink();
@@ -172,7 +214,7 @@ export async function durableWrite(
   if (destLink !== false) return { ok: false, code: destLink === true ? 'ESYMLINK' : 'ELSTAT' };
   const dirLink = await symlinked(fs, dir);
   if (dirLink !== false) return { ok: false, code: dirLink === true ? 'ESYMLINK' : 'ELSTAT' };
-  await removeStaleTemps(destination, options);
+  if (options.sweepStaleTemps !== false) await removeStaleTemps(destination, options);
 
   const temp = api.join(dir, tempNameFor(base, process.pid, randomBytes(6).toString('hex')));
   const flags = constants.O_CREAT | constants.O_EXCL | constants.O_WRONLY | (constants.O_NOFOLLOW ?? 0);

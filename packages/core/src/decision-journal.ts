@@ -1,9 +1,18 @@
 /**
  * The persisted decision state machine (DEC-04, §7.1) and its journal.
  *
- * One file per decision (`<journalDir>/<decisionId>.json`), rewritten atomically on every
- * transition with the platform's durable write. Decision ids are random, so processes never
- * write the same file, and a crash leaves either the previous state or the next one.
+ * One file per decision (`<journalDir>/<decisionId>.json`), rewritten atomically with the platform's
+ * durable write. Decision ids are random, so processes never write the same file, and a crash leaves
+ * either the previous state or the next one.
+ *
+ * Every durable write is an fsync, the one cost that does not shrink with a faster CPU, so a caller
+ * chooses where its decision must be on disk. `transition` and `create` write each step (the
+ * original behaviour). `begin` and `advance` move the entry in memory only, with the same checks
+ * and the same `history`, and `persist` writes the entry as it stands, history and all: the engine
+ * persists once before a request may leave (the point a crash must be able to settle) and once for
+ * the final record, not at every state in between. A state that was never persisted left nothing
+ * to settle: no reservation exists before the engine has written the entry that names it, and no
+ * request leaves before the entry that says `sent` is on disk.
  *
  * States: received, validated, evidence-ready, reserved, evaluating, evaluated, planned, then a
  * terminal applied/refused/stale/abstained/quarantined, then reconciled. A terminal record is
@@ -13,7 +22,7 @@
 import { mkdir, readFile, readdir, unlink } from 'node:fs/promises';
 import { join } from 'node:path';
 import { DecisionRecordContract, TERMINAL_DECISION_STATES, type DecisionRecord, type DecisionState } from '@jevris/contracts';
-import { durableWrite } from '@jevris/platform';
+import { durableWrite, removeStaleTempsIn } from '@jevris/platform';
 
 export const JOURNAL_VERSION = 'jevris-decision-journal-1';
 
@@ -143,11 +152,23 @@ export class DecisionJournal {
       await mkdir(this.#dir, { recursive: true, mode: 0o700 }).catch(() => undefined);
       this.#ready = true;
     }
-    const written = await durableWrite(this.#path(entry.decisionId), `${JSON.stringify(entry)}\n`);
+    // A decision's file name is new and unique, so a stale temp of the same destination cannot exist;
+    // listing the folder for one costs time in proportion to the journal's size (about 5 ms at 10 000
+    // entries, on every write). `sweepStaleTemps()` clears what a killed write left, once, at start.
+    const written = await durableWrite(this.#path(entry.decisionId), `${JSON.stringify(entry)}\n`, { sweepStaleTemps: false });
     return written.ok;
   }
 
-  async create(decisionId: string, draft: DecisionDraft): Promise<JournalResult> {
+  /**
+   * Removes the temps a killed write left in the journal folder (`.<id>.json.<pid>.<hex>.jtmp`, older
+   * than a minute), with one listing. The engine calls it once at start. Never throws.
+   */
+  async sweepStaleTemps(): Promise<number> {
+    return (await removeStaleTempsIn(this.#dir)).length;
+  }
+
+  /** The first entry of a decision, in memory only: nothing is written until `persist` (or `create`). */
+  begin(decisionId: string, draft: DecisionDraft): JournalResult {
     if (!isDecisionId(decisionId)) return { ok: false, reasonCode: 'INVALID_DECISION_ID' };
     const entry: JournalEntry = {
       schemaVersion: JOURNAL_VERSION,
@@ -158,18 +179,30 @@ export class DecisionJournal {
       record: null,
       schemaFailure: null,
     };
+    return { ok: true, entry };
+  }
+
+  async create(decisionId: string, draft: DecisionDraft): Promise<JournalResult> {
+    const begun = this.begin(decisionId, draft);
+    if (!begun.ok) return begun;
+    return this.persist(begun.entry);
+  }
+
+  /** Writes an entry as it stands, with its whole history. The one durable write of the journal. */
+  async persist(entry: JournalEntry): Promise<JournalResult> {
     return (await this.#save(entry)) ? { ok: true, entry } : { ok: false, reasonCode: 'JOURNAL_WRITE' };
   }
 
   /**
-   * Moves an entry to `to`. Illegal transitions are refused, and a terminal record is never
-   * rewritten except by `reconciled` (which only adds usage and cost).
+   * Moves an entry to `to` in memory, with the checks `transition` makes: an illegal transition is
+   * refused, and a terminal record is never replaced except by `reconciled`, `applied`, `stale` or
+   * `refused`. Nothing is written; `persist` writes it.
    */
-  async transition(
+  advance(
     entry: JournalEntry,
     to: DecisionState,
     patch: { readonly draft?: Partial<DecisionDraft>; readonly record?: DecisionRecord; readonly schemaFailure?: SchemaFailureNote } = {},
-  ): Promise<JournalResult> {
+  ): JournalResult {
     if (!canTransition(entry.state, to)) return { ok: false, reasonCode: 'ILLEGAL_TRANSITION' };
     if (patch.record !== undefined) {
       const checked = DecisionRecordContract.validate(patch.record);
@@ -184,7 +217,18 @@ export class DecisionJournal {
       record: patch.record ?? entry.record,
       schemaFailure: patch.schemaFailure ?? entry.schemaFailure,
     };
-    return (await this.#save(next)) ? { ok: true, entry: next } : { ok: false, reasonCode: 'JOURNAL_WRITE' };
+    return { ok: true, entry: next };
+  }
+
+  /** `advance`, then `persist`: one step, written. */
+  async transition(
+    entry: JournalEntry,
+    to: DecisionState,
+    patch: { readonly draft?: Partial<DecisionDraft>; readonly record?: DecisionRecord; readonly schemaFailure?: SchemaFailureNote } = {},
+  ): Promise<JournalResult> {
+    const moved = this.advance(entry, to, patch);
+    if (!moved.ok) return moved;
+    return this.persist(moved.entry);
   }
 
   async read(decisionId: string): Promise<JournalEntry | null> {

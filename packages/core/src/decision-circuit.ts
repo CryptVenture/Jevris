@@ -148,6 +148,8 @@ export class CircuitBreaker {
   readonly #restoreAfter: number;
   readonly #now: () => number;
   readonly #entries = new Map<string, CircuitEntry>();
+  /** What the last write put in the file, as `#signature` reads it; null until this process writes. */
+  #written: string | null = null;
 
   private constructor(path: string | null, options: CircuitOptions) {
     this.#path = path;
@@ -356,12 +358,34 @@ export class CircuitBreaker {
     return this.#get(key);
   }
 
-  /** Writes the state file. Returns false when the write failed (the in-memory state still holds). */
+  /**
+   * What the file must say, without what it does not need: the time of the last update (shown nowhere
+   * and used for no timing) and, in a closed circuit, the count of successes (it counts toward restoring
+   * automation only after an outage, and every failure resets it). A success on a closed circuit changes
+   * only those two, so it does not need a write.
+   */
+  #signature(): string {
+    const entries: Record<string, unknown> = {};
+    for (const [key, entry] of this.#entries) {
+      const { updatedAtMs: _at, ...rest } = entry;
+      entries[key] = entry.state === 'closed' ? { ...rest, consecutiveSuccesses: 0 } : rest;
+    }
+    return JSON.stringify(entries);
+  }
+
+  /**
+   * Writes the state file when something the file records has changed since the last write (every
+   * successful call used to rewrite it with an fsync, to record nothing new). Returns false when the
+   * write failed (the in-memory state still holds); true when it was written or there was nothing new.
+   */
   async persist(): Promise<boolean> {
     if (this.#path === null) return true;
+    const signature = this.#signature();
+    if (signature === this.#written) return true;
     const entries: Record<string, CircuitEntry> = {};
     for (const [key, entry] of this.#entries) entries[key] = entry;
     const written = await durableWrite(this.#path, `${JSON.stringify({ schemaVersion: FILE_VERSION, entries })}\n`);
+    if (written.ok) this.#written = signature;
     return written.ok;
   }
 }

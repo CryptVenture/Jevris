@@ -17,6 +17,17 @@
  * Money is integer micro-USD. Periods are UTC calendar months or days; entries of a closed
  * period stop counting except holds, which count until they are reconciled or expire.
  *
+ * The file is rewritten whole, with an fsync, on every reserve and every settlement, so its size is
+ * the cost of each. A busy month used to grow it without bound (measured: 27 ms per reserve and commit
+ * at 3 KiB, 34 ms at 1.4 MiB and 108 ms at 5.8 MiB, so over 20 000 decisions). So settled entries of the
+ * current period are folded: once more than `foldSettledAbove` (default 2000) of them are in the file,
+ * all but the newest `keepSettled` (default 1000) become one summary entry per workspace (`r-fold-...`,
+ * state `committed`, the sum of their cost and usage). Totals, the machine limit and every workspace cap
+ * are unchanged by it (a summary counts as what it summarises), holds and open reservations are never
+ * folded, and the fold is part of the same single atomic write as the change that caused it. What is
+ * lost is only the per-reservation detail of settled, old spend in this file: the decision journal and
+ * the store keep every decision's own record and cost.
+ *
  * Limits (owner decision 2026-09-29): `currentLimit` is read again at every reserve and snapshot,
  * so a settings change applies at once and keeps the period's spent amount (it is in the file).
  * `workspaceLimit` gives a workspace its own cap inside that limit: a reservation must fit both,
@@ -73,6 +84,10 @@ export interface DecisionBudgetOptions {
   readonly lockTimeoutMs?: number;
   /** A lock directory older than this is considered abandoned by a crashed process. */
   readonly staleLockMs?: number;
+  /** Settled entries of the period the file may hold before the oldest are folded (default 2000). */
+  readonly foldSettledAbove?: number;
+  /** Settled entries kept as they are when a fold happens, the newest ones (default 1000). */
+  readonly keepSettled?: number;
 }
 
 /** Which cap refused a reservation: the machine-wide limit or the workspace's own cap. */
@@ -120,6 +135,10 @@ export interface WorkspaceBudgetSnapshot {
 
 const COUNT_OPEN: ReadonlySet<ReservationState> = new Set(['reserved', 'held']);
 const SETTLED: ReadonlySet<ReservationState> = new Set(['committed', 'released', 'reconciled', 'expired-hold']);
+/** The settled states a fold may summarise: their cost is final. An expired hold can still be reconciled, so it stays. */
+const FOLDABLE: ReadonlySet<ReservationState> = new Set(['committed', 'released', 'reconciled']);
+/** The id of a workspace's summary entry for a period. */
+const FOLD_ID_PREFIX = 'r-fold-';
 
 function isMoney(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
@@ -179,6 +198,8 @@ export class DecisionBudget {
   readonly #now: () => number;
   readonly #lockTimeoutMs: number;
   readonly #staleLockMs: number;
+  readonly #foldAbove: number;
+  readonly #keepSettled: number;
   #memory: Reservation[] = [];
 
   private constructor(path: string | null, options: DecisionBudgetOptions) {
@@ -192,6 +213,10 @@ export class DecisionBudget {
     this.#now = options.now ?? (() => Date.now());
     this.#lockTimeoutMs = options.lockTimeoutMs ?? 2000;
     this.#staleLockMs = options.staleLockMs ?? 15_000;
+    const keep = options.keepSettled ?? 1000;
+    this.#keepSettled = Number.isSafeInteger(keep) && keep >= 0 ? keep : 1000;
+    const above = options.foldSettledAbove ?? 2000;
+    this.#foldAbove = Math.max(this.#keepSettled, Number.isSafeInteger(above) && above >= 0 ? above : 2000);
   }
 
   /** A budget persisted at `path`, shared by every process that opens the same file. */
@@ -318,6 +343,46 @@ export class DecisionBudget {
     return out;
   }
 
+  /**
+   * Folds the oldest settled entries of the current period into one summary entry per workspace when more than
+   * `foldSettledAbove` are held (see the header). Order is by position, which is creation order: a reservation is
+   * appended and settled in place. A summary is itself a committed entry, so it merges into the next fold.
+   */
+  #fold(reservations: Reservation[], nowMs: number): Reservation[] {
+    const current = periodOf(this.#period, nowMs);
+    const foldable: number[] = [];
+    reservations.forEach((r, index) => {
+      if (r.period === current && FOLDABLE.has(r.state)) foldable.push(index);
+    });
+    if (foldable.length <= this.#foldAbove) return reservations;
+    const folded = new Set(foldable.slice(0, foldable.length - this.#keepSettled));
+    const sums = new Map<string, Reservation>();
+    for (const index of folded) {
+      const r = reservations[index] as Reservation;
+      const cost = r.state === 'released' ? 0 : (r.actualMicroUsd ?? r.reservedMicroUsd);
+      const input = r.usage?.inputTokens ?? 0;
+      const output = r.usage?.outputTokens ?? 0;
+      const id = `${FOLD_ID_PREFIX}${current}-${r.workspaceId}`;
+      const known = sums.get(id);
+      sums.set(id, {
+        id,
+        decisionId: 'folded',
+        workspaceId: r.workspaceId,
+        period: current,
+        reservedMicroUsd: (known?.reservedMicroUsd ?? 0) + cost,
+        state: 'committed',
+        actualMicroUsd: (known?.actualMicroUsd ?? 0) + cost,
+        usage: { inputTokens: (known?.usage?.inputTokens ?? 0) + input, outputTokens: (known?.usage?.outputTokens ?? 0) + output },
+        source: 'provider-usage',
+        createdAtMs: Math.min(known?.createdAtMs ?? r.createdAtMs, r.createdAtMs),
+        updatedAtMs: Math.max(known?.updatedAtMs ?? r.updatedAtMs, r.updatedAtMs),
+      });
+    }
+    // A summary of nothing but released entries costs nothing and says nothing: it is not kept.
+    const summaries = [...sums.values()].filter((r) => (r.actualMicroUsd ?? 0) > 0);
+    return [...summaries, ...reservations.filter((_, index) => !folded.has(index))];
+  }
+
   #totals(reservations: readonly Reservation[], nowMs: number, limit: number, workspaceId?: string): BudgetSnapshot {
     const current = periodOf(this.#period, nowMs);
     let committed = 0;
@@ -378,7 +443,7 @@ export class DecisionBudget {
       const all = await this.#read();
       if (all === null) return { ok: false, reasonCode: 'BUDGET_STORE', availableMicroUsd: null };
       const nowMs = this.#now();
-      const live = this.#maintain(all, nowMs);
+      const live = this.#fold(this.#maintain(all, nowMs), nowMs);
       const totals = this.#totals(live, nowMs, limit);
       if (totals.availableMicroUsd < input.microUsd) return { ok: false, reasonCode: 'BUDGET', availableMicroUsd: totals.availableMicroUsd, cap: 'machine', capLimitMicroUsd: limit };
       if (workspaceCap !== null) {

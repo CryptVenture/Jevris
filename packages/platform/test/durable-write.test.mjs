@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { durableWrite, isTempFor, removeStaleTemps, renameWithRetry, tempNameFor } from '../dist/index.js';
+import { durableWrite, isTempFor, removeStaleTemps, removeStaleTempsIn, renameWithRetry, tempNameFor } from '../dist/index.js';
 
 function tempDir(t) {
   const dir = mkdtempSync(join(tmpdir(), 'jdw-'));
@@ -161,4 +161,32 @@ test('removeStaleTemps honours the age and ignores other files', async (t) => {
   makeOld(other);
   assert.deepEqual(await removeStaleTemps(destination), [stale]);
   assert.equal(existsSync(other), true);
+});
+
+test('sweepStaleTemps: false writes without listing the folder, so a stale temp of the same destination stays until the folder is swept (BLD-01)', async (t) => {
+  const dir = tempDir(t);
+  const destination = join(dir, 'd-1.json');
+  const stale = join(dir, tempNameFor('d-1.json', 4242, 'abcdef012345'));
+  writeFileSync(stale, 'partial');
+  makeOld(stale);
+  assert.deepEqual(await durableWrite(destination, 'one', { sweepStaleTemps: false }), { ok: true });
+  assert.equal(readFileSync(destination, 'utf8'), 'one');
+  assert.equal(existsSync(stale), true, 'the write did not look for it');
+  // The default still sweeps, as before.
+  assert.deepEqual(await durableWrite(destination, 'two'), { ok: true });
+  assert.equal(existsSync(stale), false);
+});
+
+test('removeStaleTempsIn removes the stale temps of every destination in a folder, and nothing else', async (t) => {
+  const dir = tempDir(t);
+  const staleA = join(dir, tempNameFor('a.json', 1, 'aaaaaaaaaaaa'));
+  const staleB = join(dir, tempNameFor('b.json', 2, 'bbbbbbbbbbbb'));
+  const fresh = join(dir, tempNameFor('c.json', 3, 'cccccccccccc'));
+  const keep = join(dir, 'a.json');
+  const note = join(dir, 'notes.txt.tmp');
+  for (const path of [staleA, staleB, fresh, keep, note]) writeFileSync(path, 'x');
+  for (const path of [staleA, staleB, keep, note]) makeOld(path);
+  assert.deepEqual((await removeStaleTempsIn(dir)).sort(), [staleA, staleB].sort());
+  assert.deepEqual(readdirSync(dir).sort(), ['a.json', 'notes.txt.tmp', tempNameFor('c.json', 3, 'cccccccccccc')].sort(), 'a fresh temp may belong to a running writer; other files are never touched');
+  assert.deepEqual(await removeStaleTempsIn(join(dir, 'missing')), [], 'a folder that does not exist is nothing to sweep');
 });
