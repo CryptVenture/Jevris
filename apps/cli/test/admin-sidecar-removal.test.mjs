@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { readUntil, viewWhen } from './sidecar-view.mjs';
 
 // IPC-16: jevris doctor shows the sidecar facts. IPC-17: jevris uninstall and jevris data delete
 // stop the sidecar before removing anything. The service unit is one per OS account, so it is
@@ -13,10 +14,19 @@ import { managedHostSkip } from '../../../test/managed-host.mjs';
 
 const { runAdminCommand } = await import('../dist/admin-cli.js');
 const { main } = await import('../dist/cli.js');
-const { runRuntimeCommand, sidecarDoctorView } = await import('../dist/runtime-commands.js');
+const { runRuntimeCommand } = await import('../dist/runtime-commands.js');
 const { jevrisPaths } = await import('../../../packages/platform/dist/index.js');
 const here = dirname(fileURLToPath(import.meta.url));
 const SIDECAR_MAIN = join(here, '..', '..', 'sidecar', 'dist', 'main.js');
+
+/** The sidecar state a `doctor --json` output names, or undefined when it is not JSON. */
+function sidecarState(out) {
+  try {
+    return JSON.parse(out.text).sidecar?.state;
+  } catch {
+    return undefined;
+  }
+}
 
 async function admin(argv, hooks = {}) {
   let text = '';
@@ -52,15 +62,17 @@ test('doctor shows the sidecar; uninstall and data delete stop it first, and rem
     assert.match((await admin(['doctor', '--home', home])).text, /^sidecar: idle; kill switch clear\. .*starts on demand/m);
 
     assert.equal(await main(['sidecar', 'start', '--home', home], () => {}), 0);
-    const running = JSON.parse((await admin(['doctor', '--home', home, '--json'])).text).sidecar;
+    // Doctor asks the running sidecar for its health at its own short timeout, so each read waits for the state it expects.
+    const running = JSON.parse((await readUntil(() => admin(['doctor', '--home', home, '--json']), (out) => sidecarState(out) === 'running')).text).sidecar;
     assert.equal(running.state, 'running', JSON.stringify(running));
     assert.equal(typeof running.pid, 'number');
-    assert.match((await admin(['doctor', '--home', home])).text, /^sidecar: running; pid \d+, version \S+, up \d+ s, endpoint \S.*; store ok; kill switch clear$/m);
+    const doctorText = await readUntil(() => admin(['doctor', '--home', home]), (out) => /^sidecar: running;/m.test(out.text));
+    assert.match(doctorText.text, /^sidecar: running; pid \d+, version \S+, up \d+ s, endpoint \S.*; store ok; kill switch clear$/m);
 
     // Uninstall of a home that is not the account's own: the sidecar stops, the unit is left alone.
     const removed = await admin(['uninstall', '--home', home], { serviceExec });
     assert.equal(removed.code, 0, removed.text);
-    assert.equal((await sidecarDoctorView(home)).state, 'idle');
+    assert.equal((await viewWhen(home, 'idle')).state, 'idle');
     assert.deepEqual(calls, [], 'no service manager call for another home');
     assert.match(removed.text, /jevris service uninstall --home/);
 
@@ -68,7 +80,7 @@ test('doctor shows the sidecar; uninstall and data delete stop it first, and rem
     // The Jevris home is now the account's own home, so its unit has no --home and lives in the default layout.
     asAccount(home);
     assert.equal(await main(['sidecar', 'start', '--home', home], () => {}), 0);
-    assert.equal((await sidecarDoctorView(home)).state, 'running');
+    assert.equal((await viewWhen(home, 'running')).state, 'running');
     // A unit for this home is installed first (the service manager is faked), so every OS has
     // one to remove, with or without a systemd user session.
     let installOut = '';
@@ -82,7 +94,7 @@ test('doctor shows the sidecar; uninstall and data delete stop it first, and rem
     const deleted = await admin(['data', 'delete', '--home', home, '--json'], { serviceExec });
     assert.equal(deleted.code, 0, deleted.text);
     assert.equal(JSON.parse(deleted.text).ok, true);
-    assert.equal((await sidecarDoctorView(home)).state, 'idle');
+    assert.equal((await viewWhen(home, 'idle')).state, 'idle');
     assert.equal(existsSync(data), false);
     if (['darwin', 'linux', 'win32'].includes(process.platform)) {
       assert.ok(calls.length >= 1, 'the service manager was asked to remove the unit');

@@ -64,7 +64,10 @@ function wiring({ home, osHome }, run) {
     // A hook's request finds no sidecar: the endpoint file is absent.
     request: async () => ({ ok: false, reason: 'unavailable', reasonCode: 'NOT_RUNNING', message: 'not running' }),
   };
-  const deps = (env = {}) => ({ adapters: { claude }, sidecar, env: { JEVRIS_HOME: home, ...env }, cwd: () => '/work', nowMs: () => Date.now() });
+  // The hook's deadline is its largest (4000 ms): these tests are about how the sidecar is started and the manager's own short wait,
+  // not about how fast this machine reads its files. Under the 1500 ms default a slow host's start ran out the deadline first and the
+  // reason was SIDECAR_TIMEOUT. A test about a tighter deadline passes its own.
+  const deps = (env = {}) => ({ adapters: { claude }, sidecar, env: { JEVRIS_HOME: home, JEVRIS_HOOK_DEADLINE_MS: '4000', ...env }, cwd: () => '/work', nowMs: () => Date.now() });
   return { managerCalls, spawns, deps };
 }
 

@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { viewWhen } from './sidecar-view.mjs';
 
 // IPC-16: `sidecarDoctorView` gives doctor the sidecar pid, version, uptime, endpoint, store
 // health and kill switch without starting anything. IPC-17: `stopSidecarForRemoval` stops the
@@ -45,7 +46,7 @@ test('doctor sees the sidecar facts, and removal stops it and its service first 
     assert.deepEqual([noop.stopped, noop.method, noop.service], [true, 'not-running', null]);
 
     assert.equal(await main(['sidecar', 'start', '--home', home], () => {}), 0);
-    view = await sidecarDoctorView(home);
+    view = await viewWhen(home, 'running');
     assert.equal(view.state, 'running', JSON.stringify(view));
     assert.equal(view.degraded, false);
     assert.equal(typeof view.pid, 'number');
@@ -71,13 +72,13 @@ test('doctor sees the sidecar facts, and removal stops it and its service first 
     // Install hands the sidecar that runs on demand over to the service: it was stopped (the faked
     // manager starts nothing), and the install line says so.
     assert.match(JSON.parse(installOut).sidecar, /^sidecar: stopped the on-demand sidecar \(pid \d+\) so the service can start its own$/);
-    assert.equal((await sidecarDoctorView(home)).state, 'idle');
+    assert.equal((await viewWhen(home, 'idle')).state, 'idle');
     // Removal must stop a sidecar that runs beside an installed unit, so start one on demand again
     // (the real manager is never asked: the test run keeps it from being called).
     const { ensureSidecar } = await import('@jevris/sidecar');
     const again = await ensureSidecar({ home, waitMs: 10_000 }, { service: false });
     assert.equal(again.ok, true, JSON.stringify(again));
-    assert.equal((await sidecarDoctorView(home)).state, 'running');
+    assert.equal((await viewWhen(home, 'running')).state, 'running');
     if (process.platform === 'win32') taskXml = readFileSync(unitPath).subarray(2).toString('utf16le');
     calls.length = 0;
     const removed = await stopSidecarForRemoval(home, { removeService: true, serviceExec });
@@ -88,7 +89,7 @@ test('doctor sees the sidecar facts, and removal stops it and its service first 
     assert.equal(removed.service.state, 'not-installed');
     assert.equal(existsSync(unitPath), false, 'the unit file is removed');
     assert.ok(calls.length >= 1, 'the service manager was asked to remove the unit');
-    assert.equal((await sidecarDoctorView(home)).state, 'idle');
+    assert.equal((await viewWhen(home, 'idle')).state, 'idle');
   } finally {
     await main(['sidecar', 'stop', '--home', home], () => {});
     for (const [name, value] of [['JEVRIS_SIDECAR_ENTRY', saved.entry], ['HOME', saved.HOME], ['USERPROFILE', saved.USERPROFILE], ['APPDATA', saved.APPDATA], ['LOCALAPPDATA', saved.LOCALAPPDATA], ['XDG_CONFIG_HOME', saved.XDG_CONFIG_HOME], ['XDG_DATA_HOME', saved.XDG_DATA_HOME], ['XDG_STATE_HOME', saved.XDG_STATE_HOME]]) {
@@ -113,8 +114,8 @@ test('doctor reports a sidecar killed without cleanup as degraded, and idle agai
   for (const name of ['XDG_CONFIG_HOME', 'XDG_DATA_HOME', 'XDG_STATE_HOME']) delete process.env[name];
   try {
     assert.equal(await main(['sidecar', 'start', '--home', home], () => {}), 0);
-    const running = await sidecarDoctorView(home);
-    assert.equal(running.state, 'running');
+    const running = await viewWhen(home, 'running');
+    assert.equal(running.state, 'running', JSON.stringify(running));
     process.kill(running.pid, 'SIGKILL');
     const alive = (pid) => {
       try {
@@ -125,14 +126,14 @@ test('doctor reports a sidecar killed without cleanup as degraded, and idle agai
       }
     };
     for (let i = 0; i < 1_200 && alive(running.pid); i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
-    const stale = await sidecarDoctorView(home);
-    assert.equal(stale.state, 'not-running');
+    const stale = await viewWhen(home, 'not-running');
+    assert.equal(stale.state, 'not-running', JSON.stringify(stale));
     assert.equal(stale.degraded, true);
     assert.match(stale.message, /without cleaning up/);
     // The next start recovers the stale files; a clean stop leaves it idle, not degraded.
     assert.equal(await main(['sidecar', 'start', '--home', home], () => {}), 0);
     assert.equal(await main(['sidecar', 'stop', '--home', home], () => {}), 0);
-    const idle = await sidecarDoctorView(home);
+    const idle = await viewWhen(home, 'idle');
     assert.deepEqual([idle.state, idle.degraded], ['idle', false]);
   } finally {
     await main(['sidecar', 'stop', '--home', home], () => {});
