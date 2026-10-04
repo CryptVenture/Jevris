@@ -1313,7 +1313,7 @@ test('SessionStart with a model, then a decision for that session: explain repor
     budget: core.DecisionBudget.open(join(home, 'budget.json'), { limitMicroUsd: 1_000_000 }),
   });
   const request = (workspaceId) => {
-    const compiled = core.compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: provider.CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 2000, fallback: 'rules-only' });
+    const compiled = core.compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: provider.CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 60_000, fallback: 'rules-only' });
     return {
       spec: compiled.spec, questions: provider.CONFORMANCE_REQUEST.questions, workspaceId, evidenceRevision: 'rev-1', taskId: 'task-1',
       packet: { objective: 'Rename a helper', trustedPolicy: {}, facts: {}, evidence: [{ id: 'e1', text: 'A helper exists.', sourceKind: 'file', priority: 'mandatory' }], missingEvidence: [] },
@@ -1355,7 +1355,7 @@ test('a decision the sidecar settles is in the store at once: the next status li
     journalDir: join(home, 'decisions'),
     budget: core.DecisionBudget.open(join(home, 'budget.json'), { limitMicroUsd: 1_000_000 }),
   });
-  const compiled = core.compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: provider.CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 2000, fallback: 'rules-only' });
+  const compiled = core.compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: provider.CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 60_000, fallback: 'rules-only' });
   const ops = [{
     op: 'test.decide', scope: 'advice', budget: 'background',
     handle: async (ctx) => {

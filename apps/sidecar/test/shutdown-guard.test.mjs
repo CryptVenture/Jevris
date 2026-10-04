@@ -141,7 +141,8 @@ test('a shutdown from a hook or MCP client is still refused by scope, whatever t
   try {
     await startDaemon({ home, backgroundWork: () => 0 });
     for (const scope of ['hook', 'mcp']) {
-      const res = await sidecarRequest({ home, op: 'shutdown', scope, body: { force: true } });
+      // A hook's default budget is 900 ms, and a slow runner's pipe connect and handshake can take longer; what is under test is the scope, not the speed.
+      const res = await sidecarRequest({ home, op: 'shutdown', scope, body: { force: true }, timeoutMs: 30_000 });
       assert.equal(res.ok, false, scope);
       assert.equal(res.reasonCode, 'SCOPE_DENIED', scope);
     }

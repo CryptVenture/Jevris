@@ -31,7 +31,7 @@ function engine(dir) {
 }
 
 function request(sessionId) {
-  const compiled = compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 2000, fallback: 'rules-only' });
+  const compiled = compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 60_000, fallback: 'rules-only' }); // A real engine does durable journal writes before it sends, which take seconds on a loaded Windows runner: the deadline is not what this test is about, so it is long.
   return {
     spec: compiled.spec, questions: CONFORMANCE_REQUEST.questions, workspaceId: 'wModel', evidenceRevision: 'rev-1', taskId: 'task-1', ...(sessionId === undefined ? {} : { sessionId }),
     packet: { objective: 'Rename a helper', trustedPolicy: {}, facts: {}, evidence: [{ id: 'e1', text: 'A helper exists.', sourceKind: 'file', priority: 'mandatory' }], missingEvidence: [] },

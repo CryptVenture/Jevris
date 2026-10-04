@@ -366,6 +366,8 @@ test('C29 loop consult: the family codes and vocabulary ids need no egress; the 
       workspaceId: 'w-c29',
       evidenceRevision: 'loop-2',
       taskId: 'task-c29',
+      // The default deadline is 5 s; a real engine on a loaded runner needs far less than this long bound and the deadline is not what is under test.
+      deadlineMs: 30_000,
       rules: () => ({ choice: 'progress', reasonCode: 'RULES' }),
     });
   const denied = await setup(t, () => ({}));

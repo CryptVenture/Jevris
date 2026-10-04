@@ -49,7 +49,7 @@ test('a loopback http override with a test key is honoured; each other form is r
 });
 
 function request() {
-  const compiled = core.compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 2000, fallback: 'rules-only' });
+  const compiled = core.compileDecisionSpec({ id: 'task-profile', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: ['e1'], deadlineMs: 60_000, fallback: 'rules-only' }); // A real engine does durable journal writes before it sends, which take seconds on a loaded Windows runner: the deadline is not what this test is about, so it is long.
   return {
     spec: compiled.spec,
     questions: CONFORMANCE_REQUEST.questions,

@@ -46,10 +46,19 @@ export interface ServiceInputOptions {
   /** The sidecar entry command (sidecarCommand()); undefined when this install has none. */
   readonly command?: readonly string[] | undefined;
   readonly env?: { readonly [key: string]: string | undefined };
-  /** The platform whose unit to plan (tests); the paths are still resolved for this host. */
+  /** The platform whose unit to plan (tests); the paths are still resolved for this host unless `pathRules` says otherwise. */
   readonly platform?: ServicePlatform;
   /** The account's home, where per-user units live (tests); default the OS home. */
   readonly osHome?: string;
+  /**
+   * Resolve every path (the home, the state folder, whether two names are one place) by this
+   * platform's rules instead of this host's (tests). It is for a test that plans a unit for
+   * another platform with that platform's own paths, such as `C:\Users\dev` on a macOS host, and
+   * touches no disk: `home`, `env` and `osHome` are then that platform's paths. Unset, the
+   * paths are this host's, which is what a test that writes the unit to a temp folder needs.
+   * `planService().unitPath` is where the file goes on this host and always follows this host.
+   */
+  readonly pathRules?: ServicePlatform;
 }
 
 /**
@@ -78,16 +87,18 @@ export function sameHomeDirectory(a: string, b: string, platform: string = proce
 export function serviceInputForHome(options: ServiceInputOptions = {}): ServiceInput {
   const env = options.env ?? process.env;
   const explicit = options.home !== undefined ? { home: options.home } : {};
-  const resolved = resolveHome({ ...explicit, env });
-  const osHome = options.osHome ?? resolveHome({ env: {} }).home;
+  // Only a test names the rules: the paths are this host's otherwise (the platform's own, the same thing, for a real user).
+  const rules = options.pathRules === undefined ? {} : { platform: options.pathRules };
+  const resolved = resolveHome({ ...explicit, ...rules, env });
+  const osHome = options.osHome ?? resolveHome({ ...rules, env: {} }).home;
   // The account's own home is the default one: its unit carries no --home, whichever way it was named.
-  const defaultHome = resolved.source === 'os' || sameHomeDirectory(resolved.home, osHome);
+  const defaultHome = resolved.source === 'os' || sameHomeDirectory(resolved.home, osHome, options.pathRules);
   const getuid = Reflect.get(process, 'getuid') as (() => number) | undefined;
   const user = env['USERNAME'];
   return {
     platform: options.platform ?? (process.platform as ServicePlatform),
     osHome,
-    stateDir: (defaultHome ? jevrisPaths({ env: { ...env, JEVRIS_HOME: undefined }, osHome }) : jevrisPaths({ ...explicit, env })).state,
+    stateDir: (defaultHome ? jevrisPaths({ ...rules, env: { ...env, JEVRIS_HOME: undefined }, osHome }) : jevrisPaths({ ...explicit, ...rules, env })).state,
     argv: [process.execPath, ...(options.command ?? []), '--supervised', ...(!defaultHome ? ['--home', resolved.home] : [])],
     ...(typeof getuid === 'function' ? { uid: getuid() } : {}),
     ...(typeof user === 'string' ? { windowsUser: typeof env['USERDOMAIN'] === 'string' ? `${env['USERDOMAIN']}\\${user}` : user } : {}),

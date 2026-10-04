@@ -17,7 +17,7 @@ function home(t) {
 let serial = 0;
 function request() {
   serial += 1;
-  const compiled = core.compileDecisionSpec({ id: 'probe-check', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: [], deadlineMs: 2000, fallback: 'rules-only' });
+  const compiled = core.compileDecisionSpec({ id: 'probe-check', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: [], deadlineMs: 60_000, fallback: 'rules-only' }); // A real engine does durable journal writes before it sends, which take seconds on a loaded Windows runner: the deadline is not what this test is about, so it is long.
   return { spec: compiled.spec, questions: CONFORMANCE_REQUEST.questions, workspaceId: 'w-probe', evidenceRevision: 'rev-1', lane: 'background', packet: { objective: `Pick a helper name (${serial}).`, trustedPolicy: {}, facts: { n: serial }, evidence: [] } };
 }
 
