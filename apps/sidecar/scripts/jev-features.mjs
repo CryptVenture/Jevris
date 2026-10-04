@@ -10,7 +10,7 @@
  *
  * What it does. Every Jev decision the product makes runs once through its real handler, the real
  * engine and the real packet builders: route slice classification, plan slice labels, check ranking,
- * repeated-failure advice, new-task advice, the intent decisions C01 to C07, the security decisions C51
+ * repeated-failure advice, new-task advice, the intent decisions C01 to C04, C06 and C07, the security decisions C51
  * and C49, and the worker-readiness advice. The capability catalogue (C18 to C72) runs through a real
  * sidecar, one case per Jev consult site, each reached through its real entry point (an op or a hook event). The hot path (route and plan at the product's 900 ms budget,
  * a concurrent burst, a repeat sequence for the cache hit rate) runs through the same sidecar, and the
@@ -262,7 +262,9 @@ try {
           const present = ['stack-trace', 'logs', 'failing-test-output', 'recent-diff', 'repro-steps', 'config-file', 'environment-info'].filter((_, k) => (i >> k) % 2 === 1 && k < 5);
           const features = { toolClass: ['shell', 'edit', 'read', 'web'][i % 4], exitClass: ['nonzero', 'signal', 'timeout', 'error'][Math.floor(i / 4) % 4], signature: 'aaaaaaaaaaaaaaaa', commandDigest: 'bbbbbbbbbbbbbbbb', environmental: false, elapsed: ['lt1s', 'lt10s', 'lt60s', 'gte60s'][i % 4], present };
           features.family = `${features.toolClass}:${features.exitClass}`;
-          const context = provider.failureContextOf(features, { attempts: 2 + (i % 3), sameCommand: true, editsSince: i % 3, unsure: false, previous: null }, 9);
+          // The one question this advice asks Jev is the same-failure Noul (signatures differ, the same call ran again, nothing edited): which
+          // artifact comes next is the rules' pick and never a request, so only an unsure failure makes one.
+          const context = provider.failureContextOf(features, { attempts: 2 + (i % 3), sameCommand: true, editsSince: 0, unsure: true, previous: { environmental: false, elapsed: 'lt10s', present } }, 9);
           const a = await provider.adviseRepeatedFailure(engine, context, { assist: 'classify', deadlineMs: 1500, ids: { workspaceId: 'jev-hot-ws', sessionId: 'jev-hot-session' }, record: true });
           return { source: a.source, reasonCode: a.reasonCode, cacheHit: a.cacheHit };
         },
