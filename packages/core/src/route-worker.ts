@@ -498,10 +498,19 @@ export const WORKER_READINESS_SPEC = Object.freeze({ id: 'worker-readiness', ver
 /**
  * The question, as fixed text (no user text, only a description of the facts it is shown). The facts are
  * counts and categories: the files a task may change and the kind of each, its acceptance checks, any protected
- * path class and the kind of work. The anchors say what a bounded task looks like in those terms, so a small
- * task with a check reads as ready and an open-ended or security-sensitive one does not. A change to this
- * text changes its hash, and a signed calibration release is bound to that hash (US34): a release made for
- * an older text is refused until a new one is signed for this one.
+ * path class and the kind of work. The anchors say what a bounded task looks like in those terms, and name the
+ * thresholds in the names of the facts they are judged on (`files` between 1 and 8, `checks` 1 or more,
+ * `protectedClasses` none), so a small task with a check reads as ready and an open-ended, sprawling or
+ * security-sensitive one does not.
+ *
+ * Chosen on measured answers (jev-1.13.0, 2026-10-04: nine fixed shapes, two runs each, three wordings, through
+ * `adviseWorkerReadiness`'s own request): the original wording read every bounded task as not ready (10 of 18
+ * right), the one before this read 16 of 18 right and was unsure about a 40-file task (0.53), and this one read 18
+ * of 18 right, none below 0.90. The numbers are `packages/provider-typesafe/test/fixtures/worker-readiness-wordings-measured.json`.
+ *
+ * A change to this text changes its hash, and a signed calibration release is bound to that hash (US34): a
+ * release made for an older text is refused until a new one is signed for this one. None ships in 1.2.0, so the
+ * wording is fixed before one is signed, and any later change means a new release.
  */
 export const WORKER_READINESS_QUESTIONS: JevQuestions = Object.freeze({
   workerReady: {
@@ -509,8 +518,8 @@ export const WORKER_READINESS_QUESTIONS: JevQuestions = Object.freeze({
     instructions:
       'The facts describe a coding task by counts and categories only: how many files it may change and what kind each is, how many acceptance checks it has, any protected path class, and the kind of work. Using only those facts, is this a bounded task that a worker model can finish and pass its acceptance checks without escalating to a stronger model?',
     criteria: {
-      true: 'The task is bounded: it changes a small, known set of files, none in a protected path class, and it has at least one acceptance check, so a worker can finish it and show that it is done.',
-      false: 'The task is not bounded: it names no files or very many, it has no acceptance check, or it touches a protected path class such as security, secrets, CI or a data migration.',
+      true: 'The task is bounded: it changes between 1 and 8 files (files is between 1 and 8), none in a protected path class (protectedClasses is none), and it has at least one acceptance check (checks is 1 or more), so a worker can finish it and show that it is done.',
+      false: 'The task is not bounded: it names no files (files is 0) or more than 8, it has no acceptance check (checks is 0), or it touches a protected path class (protectedClasses is not none).',
     },
   },
 }) as JevQuestions;

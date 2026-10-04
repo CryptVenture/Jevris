@@ -67,8 +67,10 @@ test('the question is a fixed Noul whose text describes the facts and what a bou
   assert.deepEqual(Object.keys(core.WORKER_READINESS_QUESTIONS), ['workerReady']);
   assert.match(q.instructions, /counts and categories only/);
   assert.match(q.instructions, /acceptance checks/);
-  assert.match(q.criteria.true, /small, known set of files, none in a protected path class, and it has at least one acceptance check/);
-  assert.match(q.criteria.false, /names no files or very many, it has no acceptance check, or it touches a protected path class/);
+  // The anchors name the thresholds in the names of the facts they are judged on: the wording measured best live (worker-readiness-wordings-measured.test.mjs).
+  assert.match(q.criteria.true, /between 1 and 8 files \(files is between 1 and 8\), none in a protected path class \(protectedClasses is none\), and it has at least one acceptance check \(checks is 1 or more\)/);
+  assert.match(q.criteria.false, /names no files \(files is 0\) or more than 8, it has no acceptance check \(checks is 0\), or it touches a protected path class \(protectedClasses is not none\)/);
+  for (const factName of ['files', 'checks', 'protectedClasses']) assert.ok(factName in core.workerReadinessFacts(core.sliceFeatures({ title: 'x', paths: ['a.ts'], checkIds: ['t'] })), `${factName} is a fact the request carries, so the anchors point at something in it`);
   assert.deepEqual(core.WORKER_READINESS_SPEC, { id: 'worker-readiness', version: 'v1' });
   assert.equal(core.workerCalibrationContext({ sliceId: 'bounded-edit', nowMs: 1 }).questionHash, contracts.questionHash(core.WORKER_READINESS_QUESTIONS), 'a signed release is bound to this text: a change to it refuses an older release (US34)');
   assert.equal(core.compileDecisionSpec({ id: 'worker-readiness', version: 'v1', questions: core.WORKER_READINESS_QUESTIONS, evidenceRequirements: [], deadlineMs: 700, fallback: 'rules-only' }).ok, true);
