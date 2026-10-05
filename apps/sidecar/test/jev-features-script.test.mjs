@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, realpathSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, symlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,4 +65,34 @@ test('--mock runs every part against the conformance mock and writes an evidence
   } finally {
     rmSync(dir, { recursive: true, force: true, maxRetries: 3 });
   }
+});
+
+// The smallest run (no capability cases, no hot path, a call cap that halts it): these tests are about the record, not the suite.
+const QUICK = ['--mock', '--skip', 'caps,hot', '--max-calls', '5', '--cold', '1', '--cached', '1'];
+
+test('a record the platform refuses says why and what to do, after the run\'s own result line, and the run exits 1: the destination is a folder, on every platform (JEV-0075)', { skip: managedHostSkip() }, (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jev-features-refused-')));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, 'is-a-folder.json'));
+  const out = run([...QUICK, '--evidence', join(dir, 'is-a-folder.json')]);
+  assert.match(out.stdout, /evidence NOT WRITTEN \(([A-Z][A-Z0-9_]+): [^)]+\)\s*$/, `${out.stdout.slice(-600)}\n${out.stderr.slice(-300)}`);
+  assert.match(out.stdout, /passed false failures HALTED_CALL_CAP; engine calls 5 /, 'the run\'s own result is still printed');
+  assert.equal(out.stdout.includes(dir), false, 'the path is in the line');
+  assert.equal(out.code, 1);
+});
+
+test('a path reached through a symbolic link (macOS /tmp is one) is refused as ESYMLINK with what to do, nothing is written through it, and the real path is written (JEV-0075)', { skip: managedHostSkip() || (process.platform === 'win32' && 'a symbolic link needs a privilege there; the text itself is tested in packages/platform/test/durable-write-refusal.test.mjs') }, (t) => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jev-features-link-')));
+  t.after(() => rmSync(dir, { recursive: true, force: true }));
+  mkdirSync(join(dir, 'real'));
+  symlinkSync(join(dir, 'real'), join(dir, 'link'), 'dir');
+  const refused = run([...QUICK, '--evidence', join(dir, 'link', 'x.json')]);
+  assert.match(refused.stdout, /evidence NOT WRITTEN \(ESYMLINK: the file, or the folder it is in, is a symbolic link \(on macOS \/tmp is one\); name the real path, such as \/private\/tmp\/\.\.\., or a path with no link\)\s*$/, `${refused.stdout.slice(-600)}\n${refused.stderr.slice(-300)}`);
+  assert.equal(refused.stdout.includes(dir), false, 'the path is in the line');
+  assert.equal(refused.code, 1);
+  assert.equal(existsSync(join(dir, 'real', 'x.json')), false, 'nothing was written through the link');
+  const real = join(dir, 'real', 'x.json');
+  const written = run([...QUICK, '--evidence', real]);
+  assert.doesNotMatch(written.stdout, /NOT WRITTEN/, written.stdout.slice(-600));
+  assert.ok(existsSync(real), 'the real path is written');
 });

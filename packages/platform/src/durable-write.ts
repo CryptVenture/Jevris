@@ -59,6 +59,34 @@ export type DurableWriteResult =
   | { readonly ok: true }
   | { readonly ok: false; readonly code: string };
 
+/**
+ * What a script says when `durableWrite` refused (JEV-0075): the code the platform returned and one fixed sentence for it, with what to do.
+ * The code is read as a code (capital letters, digits and underscores) and is never anything else, and every sentence is fixed text, so the line
+ * can carry no path, message or body. A code with no sentence of its own gets the general one. Used by the scripts that write an evidence record
+ * (`smoke:jev`, `smoke:jev:features`), which would otherwise print only that the record was not written.
+ */
+export function durableWriteRefusal(result: DurableWriteResult): string {
+  if (result.ok) return '';
+  const code = /^[A-Z][A-Z0-9_]{1,24}$/.test(result.code) ? result.code : 'EUNKNOWN';
+  const sentence = REFUSAL_SENTENCES[code] ?? 'the platform refused the write; the code is the one it returned';
+  return `${code}: ${sentence}`;
+}
+
+const REFUSAL_SENTENCES: Readonly<Record<string, string>> = {
+  ESYMLINK: 'the file, or the folder it is in, is a symbolic link (on macOS /tmp is one); name the real path, such as /private/tmp/..., or a path with no link',
+  ELSTAT: 'the file or its folder could not be inspected; check that the folder exists and that you may read it',
+  EINVAL: 'the path is empty or is not a usable path; name a file',
+  EACL: 'the file could not be made owner-only, so it was not kept; choose a folder of your own',
+  EACCES: 'the folder refused the write; choose a folder you may write to',
+  EPERM: 'the folder refused the write; choose a folder you may write to',
+  ENOENT: 'the folder does not exist; create it or choose another',
+  ENOTDIR: 'a part of the path is a file, not a folder',
+  EISDIR: 'the path is a folder; name a file in it',
+  ENOSPC: 'the disk is full',
+  EROFS: 'the folder is read-only; choose another',
+  EBUSY: 'the file is in use; close what holds it and run again',
+};
+
 export const RETRYABLE_RENAME_CODES: readonly string[] = ['EPERM', 'EBUSY', 'EACCES'];
 const TEMP_SUFFIX = '.jtmp';
 

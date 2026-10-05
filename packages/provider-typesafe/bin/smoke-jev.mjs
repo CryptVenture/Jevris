@@ -6,7 +6,9 @@
  *                                                 account typesafe-primary), fixed non-sensitive prompts
  *   npm run smoke:jev -- --mock                   the same suite against the conformance mock (CI)
  *   options: --calls N (latency sample, default 30),
- *            --evidence FILE (release evidence, kind api-live-suite; default <data>/evidence/api-live-suite-<time>.json)
+ *            --evidence FILE (release evidence, kind api-live-suite; default <data>/evidence/api-live-suite-<time>.json). The file, and the
+ *            folder it is in, must not be a symbolic link (on macOS /tmp is one: name /private/tmp/... or a folder under your home); a record
+ *            that could not be written is said so on stderr with the platform's code (ESYMLINK, EACCES...) and what to do, and the run exits 1.
  *
  * The evidence file holds model ids, usage, latency and outcome codes only: never a key or a body.
  * It records every latency call and error probe with its elapsed milliseconds and outcome (reason
@@ -41,7 +43,7 @@ if (!mock && (process.env.JEVRIS_TEST === '1' || process.env.NODE_TEST_CONTEXT))
 }
 
 const provider = await import('../dist/index.js');
-const { durableWrite } = await import('@jevris/platform');
+const { durableWrite, durableWriteRefusal } = await import('@jevris/platform');
 const calls = Number.parseInt(option('--calls', '30'), 10);
 const { jevrisPaths } = await import('@jevris/platform');
 const { releaseEvidence, ReleaseEvidenceContract } = await import('@jevris/contracts');
@@ -90,6 +92,9 @@ if (!checked.ok) {
 }
 mkdirSync(dirname(out), { recursive: true });
 const written = await durableWrite(out, `${JSON.stringify(evidence, null, 2)}\n`);
+// The record is the point of the run: one that was refused says why (the platform's code and a fixed sentence, never a path or a message) and fails the run (JEV-0075).
+const refusal = written.ok ? null : durableWriteRefusal(written);
+if (refusal !== null) process.stderr.write(`smoke:jev: evidence NOT WRITTEN (${refusal})\n`);
 process.stdout.write(
   `${JSON.stringify({
     passed: record.passed,
@@ -103,6 +108,7 @@ process.stdout.write(
     cancellation: record.cancellation,
     caps: record.caps,
     evidence: written.ok ? out : null,
+    ...(refusal === null ? {} : { evidenceNotWritten: refusal }),
   })}\n`,
 );
-process.exit(record.passed ? 0 : 1);
+process.exit(record.passed && written.ok ? 0 : 1);

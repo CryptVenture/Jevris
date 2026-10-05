@@ -19,7 +19,9 @@
  *
  * Options.
  *   --mock                    use the conformance mock instead of the live API
- *   --evidence FILE           where to write the evidence record (default <data>/evidence/jev-features-<time>.json)
+ *   --evidence FILE           where to write the evidence record (default <data>/evidence/jev-features-<time>.json). The file, and the folder it is in,
+ *                             must not be a symbolic link (on macOS /tmp is one: name /private/tmp/... or a folder under your home). A record the
+ *                             platform refuses ends the run with exit 1 and `evidence NOT WRITTEN (<code>: <what to do>)`, after the run's own lines.
  *   --cold N                  cold runs per case that asks Jev (default 3; the engine groups)
  *   --cached N                cached runs per case (default 2)
  *   --hot N                   cold requests per op in the hot-path run (default 30)
@@ -87,7 +89,7 @@ const hotMicroUsd = number('--hot-uusd', 7_000);
 const say = (line) => process.stdout.write(`${line}\n`);
 
 const provider = await repoModule('packages', 'provider-typesafe', 'dist', 'index.js');
-const { jevrisPaths, durableWrite } = await repoModule('packages', 'platform', 'dist', 'index.js');
+const { jevrisPaths, durableWrite, durableWriteRefusal } = await repoModule('packages', 'platform', 'dist', 'index.js');
 const { PINNED_MODEL, containsSecret } = await repoModule('packages', 'contracts', 'dist', 'index.js');
 const sidecar = await repoModule('apps', 'sidecar', 'dist', 'index.js');
 const driver = await import('./jev-feature-driver.mjs');
@@ -324,7 +326,9 @@ try {
   const out = option('--evidence', join(jevrisPaths().data, 'evidence', `jev-features-${stamp.replace(/[:.]/g, '-')}.json`));
   mkdirSync(dirname(out), { recursive: true });
   const written = await durableWrite(out, text);
-  say(`passed ${record.passed} failures ${record.failures.join(',') || 'none'}; engine calls ${totals.calls} (${totals.costMicroUsd} micro-USD), sidecar spent ${sidecarSpent ?? 'n/a'} micro-USD; evidence ${written.ok ? out : 'NOT WRITTEN'}`);
+  // A record the platform refuses says why (its code and a fixed sentence, never a path or a message) and what to do, after the run's own lines (JEV-0075).
+  const refusal = written.ok ? '' : ` (${durableWriteRefusal(written)})`;
+  say(`passed ${record.passed} failures ${record.failures.join(',') || 'none'}; engine calls ${totals.calls} (${totals.costMicroUsd} micro-USD), sidecar spent ${sidecarSpent ?? 'n/a'} micro-USD; evidence ${written.ok ? out : `NOT WRITTEN${refusal}`}`);
   exitCode = record.passed && written.ok ? 0 : 1;
 } catch (error) {
   process.stderr.write(`smoke:jev:features: ${String(error?.message ?? error).slice(0, 300)}\n`);

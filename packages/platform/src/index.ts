@@ -17,6 +17,7 @@ export { legacyLeftovers, legacyPairs, migrateLegacyLayout, type MigrationFs, ty
 export {
   RETRYABLE_RENAME_CODES,
   durableWrite,
+  durableWriteRefusal,
   isTempFor,
   removeStaleTemps,
   removeStaleTempsIn,
