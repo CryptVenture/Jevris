@@ -4,7 +4,7 @@ Nothing leaves this machine unless an administrator allows it, and then only the
 
 ## What can leave this machine
 
-Nothing leaves unless an administrator's `host.json` sets `egress` to `approved-scoped`; `jevris egress approve` is the supported way to set it (see [Approving egress](#approving-egress)). A file in the repository, a skill, a prompt or a model summary can never approve sending source. When a decision is sent to Jev, it carries only the fields the question needs, under the decision engine's request-size cap of 131072 bytes. While egress is not approved, a request to Jev carries no free text from the workspace or its tools, only bounded structured features: categories, counts, reason codes, sizes and salted hashes. Where a decision does carry evidence (a recovery request, for example), each item goes as a short span id and a digest, the item's kind and category, and its length in characters, and its text is not sent. Both hashes are salted with a random value that exists only in the running sidecar's memory (a new one each start, never stored or sent), so a list of common error lines cannot be matched against either. A capability whose question quotes the workspace in its options (the descriptions of installed skills, agents and tools, a failure line, a module path, a saved objective) is not asked at all while egress is not approved: the rules answer and nothing is sent. With egress approved the text is sent, screened for secrets first, and the span id is the stable one the answer names. Remote telemetry is off.
+Nothing leaves unless an administrator's `host.json` sets `egress` to `approved-scoped`; `jevris egress approve` is the supported way to set it (see [Approving egress](#approving-egress)). A file in the repository, a skill, a prompt or a model summary can never approve sending source. When a decision is sent to Jev, it carries only the fields the question needs, under the decision engine's request-size cap of 131072 bytes. While egress is not approved, a request to Jev carries no free text from the workspace or its tools, only bounded structured features: categories, counts, reason codes, sizes and salted hashes. Where a decision does carry evidence (a recovery request, for example), each item goes as a short span id and a digest, the item's kind and category, and its length in characters, and its text is not sent. Both hashes are salted with a random value that exists only in the running sidecar's memory (a new one each start, never stored or sent), so a list of common error lines cannot be matched against either. A capability whose question is about text is not asked at all while egress is not approved: the rules answer, nothing is sent and no decision is recorded. That covers a question that quotes the workspace in its options (the descriptions of installed skills, agents and tools, a failure line, a module path, a saved objective) and one that judges evidence text the packet builder would withhold (a query, a file span, a diff, a requirement, a tool call's arguments, an incident id, a draft question), because Jev would be asked about a hash and a length it cannot judge, and its answer would be meaningless and still labelled Jev's. [Which capabilities those are](#what-each-capability-asks-with-egress-denied) is a table below. With egress approved the text is sent, screened for secrets first, and the span id is the stable one the answer names. Remote telemetry is off.
 
 The task-slice classification of `jevris route` ([routing.md](routing.md#when-the-route-has-no-slice)) is one such request. Its evidence is features only: file counts per role, extensions over a fixed list, protected-path class codes, check kinds, a verb class and size buckets. File names, file contents and the task title are not sent; with egress approved the title goes as one screened evidence span. `jev.assist off` sends nothing. Ranking the approved checks (which one `jevris verify` runs first and a Stop reminder names first, see [verification.md](verification.md)) is another: its evidence is the number of changed files and a size bucket, counts per role, the top six extensions, protected-path class codes, and for each check its kind and last result. No path name, diff, check output, check name or task text is sent, and a check is only `c1`, `c2` and so on in the request. `jev.assist off` sends nothing for it either. The slice and risk hint beside each task of a plan (`jevris plan`, `jevris plan --submit`, see [routing.md](routing.md#slice-hints-for-the-tasks-of-a-plan)) is the first kind again: the same features per task, no path name, no check name, the title only when source egress is approved, and `jev.assist off` sends nothing for it.
 
@@ -19,6 +19,63 @@ Memory and compaction advice (capsule items C18, readiness C19, omission check C
 On a ChatGPT sign-in, the Codex model listing also asks Codex once how much of the plan is left (`account/rateLimits/read`). Codex answers it from OpenAI with your own login, as it does for its own usage display. No model runs, nothing is billed, and nothing from the workspace is sent. Jevris keeps only each window's band, whether it is weekly, its reset and whether usage is allowed (`route-learning/usage-readings.json`, at most 4 readings, owner-only), never the percentage, the account id, the plan or a credit balance. It is never sent with a Codex or OpenAI key in the environment. See [codex.md](harnesses/codex.md).
 
 Your coding harness talks to its own model vendor, as it always does; Jevris does not change that. An owned worker is a run of that same installed harness, under your login or key, in a task's worktree, so what it sends to its vendor follows that harness and your account's terms, as when you run it yourself (see [routing.md](routing.md#owned-workers)).
+
+## What each capability asks with egress denied
+
+`jevris advise`, `jevris_advise`, `jevris delivery`, `jevris_delivery_report`, `jevris checkpoint`, `jevris recover` and the raw `capability.advise` op all follow this table, because they reach the same capability code. A capability is one of two kinds, and the table says which, by reading what its question carries (the inventory in `packages/provider-typesafe/src/features-inventory.ts` records the same field, and `apps/sidecar/test/jev-feature-egress.test.mjs` checks it against the capability's source and its feature cases):
+
+- **Text.** The question is about text a person or the workspace supplied. With source egress denied it is not asked: the answer is the rules', with `source: rules`, the rules' own reason code (`LEXICAL_SCORE`, `PARSED_CLEAN`, `SMALLEST_COVERED_MODULE`), no decision id, no request and no spend. With egress approved it is asked, with the text screened for secrets first. For the memory capabilities (C18, C20, C22, C23, C24) the person's own `privacy.sourceEgress: approved-scoped` preference is needed as well as the administrator's approval.
+- **Features.** The question holds everything it needs in counts, codes and flags (`facts`), so it is asked with egress denied too. Any evidence text such a capability also carries is withheld by the packet builder: a salted span id, a salted digest, the item's kind and its length.
+
+| Capability | Egress denied | The question is about |
+|------------|---------------|------------------------|
+| C18 capsule items | rules | the text of optional capsule items |
+| C19 compaction readiness | asked | use percentage band, counts and flags |
+| C20 omission check | rules | the compaction summary and the saved decisions |
+| C21 capsule pick | asked | unfinished and decision counts and an age bucket per capsule |
+| C22 check-output spans | rules | spans of a long check output |
+| C23 constraint conflicts | rules | the text of two constraints |
+| C24 project memory | rules | the text of memory entries |
+| C25 dependency suggestions | rules | task titles, write scopes and outputs |
+| C26 worker-role allocation | rules | installed agent descriptions |
+| C28 duplicate work | rules | task titles and the paths they touch |
+| C29 loop advice | asked | closed failure-family codes, counts, flags and artifact vocabulary ids; the failure text is withheld evidence |
+| C30 handoff readiness | rules | the task's title, requirements, outputs, scopes and source references |
+| C32 workflow or team | asked | counts and flags |
+| C33 skill shortlist | rules | the intent and installed skill descriptions |
+| C34 repository evidence | rules | the query and the text of each candidate span |
+| C35 documentation relevance | rules | the query and the top document |
+| C36 tool selection | rules | the intent and tool descriptions |
+| C37 argument preflight | rules | the tool call's command or arguments |
+| C38 environment triage | rules | excerpts of a recorded output |
+| C40 visual findings | rules | the text of a finding |
+| C41 test impact | rules | test names, changed files and symbols |
+| C42 failure clusters | rules | failure lines |
+| C43 patch ranking | rules | the diffs and the requirement |
+| C44 review areas | asked | whether the area is sensitive, interface lines changed and lines changed; the file names are withheld |
+| C45 requirements audit | rules | requirement and check descriptions |
+| C46 flaky tests | asked | counts of runs, controlled groups and flips, and whether the environment varied |
+| C47 security escalation | asked | counts of sensitive paths, authorization changes and scanner failures |
+| C57 pull-request readiness | rules | the names of the changed files |
+| C58 CI triage | rules | the failure text of an imported CI result |
+| C59 dependency-upgrade risk | asked | versions, the bump class, importer count and whether a breaking change is mentioned; the package name goes only with egress approved |
+| C60 migration rehearsal | rules | the compatibility contract and the migration files |
+| C61 documentation drift | rules | the document and the diff |
+| C62 release risk | rules | the incident, check and exception ids and their statuses |
+| C64 team configuration | asked | the languages and project kinds found, the approved check count |
+| C67 question proposals | rules | the two drafts of a question |
+| C68 isolated candidate selection | asked | counts of candidates, viable ones and external effects |
+| C69 evidence conflicts | asked | counts of conclusions and of independent sources |
+| C70 change campaign | rules | module paths and the migration contract |
+| C72 host triage | asked | counts of approved, failed and unverified checks and attached hardware |
+
+The routing, check-ranking, repeated-failure, new-task, scope, worker-readiness, security and health-probe decisions are described above and are not capabilities of this table.
+
+### Text a capability keeps
+
+Every request is screened for secrets before it is sent, and a finding stops it (`SECRET_BLOCKED`, in the decision record as locations, never text). Text that a capability only keeps never goes through that screen, so the capabilities that keep text the caller gave them apply the same rules before they store anything: C67 keeps the question proposal in an evidence blob (and, with `writeBranch`, on a `jevris/proposals/*` branch), and C70 keeps the campaign plan with the module paths and the campaign name. Both screen every text field (the instructions, the option keys and texts, the mandatory evidence names and the misclassifications of a draft; the spec id; the modules, the canary and the campaign id) with the packet builder's secret rules and the contracts' credential shapes. A finding ends the call with `SECRET_BLOCKED` and names the fields, never the text: nothing is sent, stored behind a handle, written to a branch or recorded, with egress approved or not. The name of a sensitive path (`.env`, `id_rsa`) is not a secret, so a draft that mentions one is kept; the packet builder still refuses it in a request.
+
+The other capabilities keep no input text. Their evidence record (`capability-record`) holds the capability id, the guard result, a SHA-256 of the input, the verb, a recommendation of at most 120 characters with secrets redacted, the reason code and counts. C34 stores bounded spans of workspace files (redacted, 4 KiB at most) and C71 a report of experiment, variant and model ids and numbers; the raw output of a check is kept as the raw artifact, for the retention below. The decision engine's journal and the traces hold codes, hashes, counts and ids only.
 
 ## What is not consent
 
