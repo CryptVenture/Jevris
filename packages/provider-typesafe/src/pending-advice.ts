@@ -5,7 +5,10 @@
  * the hook at once with nothing, runs the question after the hook has gone, and puts the finished
  * advice here. The decision subscriber hands it to the harness at the session's next event that can
  * show it, and only then marks it delivered (the commit of its proposal), so an event that cannot
- * show it, or whose answer is no longer wanted, leaves it for the next one.
+ * show it, whose answer is no longer wanted, or whose message another subscriber's stronger outcome
+ * (a certified context) takes, leaves it for the next one. Under the sidecar's `event` op the take
+ * runs after every subscriber has answered (`holdCommit`, see `sidecar-subscribers.ts`); a held line
+ * keeps its time and its session.
  *
  * In memory only. A sidecar restart drops pending advice, which is acceptable: it is advice, the
  * decision it came from is already recorded, and nothing depends on it being shown.
