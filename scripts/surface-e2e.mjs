@@ -304,11 +304,11 @@ async function onePass(product, options, load, prefix, extraEnv) {
     record('verify approve (as a person at a terminal)', approval !== null && Object.keys(approval.hashes).join(',') === 'unit', proposed.ok ? '' : proposed.reason);
     // `jevris verify` answers inside a window of the request (40% of its deadline) and the run goes on after it. On a loaded host the answer is
     // not the result: it lists the check as running or queued, or as STALE (the freshness read missed the window), or says verified with
-    // ran=false (the receipt is written and the run's own end is not). Asking again does not read the result: a run that has ended leaves
-    // a current receipt, and the next ask starts another run that misses the window the same way, so no ask answers ran=true (the
-    // slow-host gate: seven asks, each "verified ran=false"). So: ask once, wait until the sidecar has no verification run under way (its
-    // status says `verificationRuns` 0), and when the answer did not hold the result read the receipt through the read-only `verify required`,
-    // which runs nothing.
+    // ran=false (the receipt is written and the run's own end is not). Asking again does not read the result: each ask with no run under
+    // way starts another run, and where a run outlasts the window every one of them answers verified with ran=false, beside the receipt of
+    // the run before (the slow-host gate: the seventh of seven asks, in both passes). So: ask once, wait until the sidecar has no
+    // verification run under way (its status says `verificationRuns` 0), and when the answer did not hold the result read the receipt
+    // through the read-only `verify required`, which runs nothing.
     const parseVerify = (out) => {
       try {
         return JSON.parse(out.stdout);
