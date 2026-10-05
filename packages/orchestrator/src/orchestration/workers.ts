@@ -1035,6 +1035,14 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
   running.set(sessionKey(ws.workspaceId, lease.taskId), controller);
   let cancelled = false;
   let leaseLost = false;
+  // A cancel can land after the task shows `running` and before this handle exists: it finds nothing to
+  // abort and is only filed as a request. Look for that request now, so the run stops at once instead of at
+  // the next heartbeat (a third of the lease's life away). `cancelTask` does the same look from its side, for
+  // a request that is filed while this handle is being registered.
+  if (ws.host.get('cancel-requests', sessionKey(ws.workspaceId, lease.taskId)) !== undefined) {
+    cancelled = true;
+    controller.abort();
+  }
   const ttl = Date.parse(lease.expiresAt) - Date.parse(lease.heartbeatAt);
   const beat = setInterval(() => {
     void (async () => {
@@ -1357,23 +1365,36 @@ export async function cancelTask(
   const key = sessionKey(ws.workspaceId, taskId);
   const session = ws.host.get<OwnedSessionRecord>('owned-sessions', key);
   let signalled: CancelResult['signalled'] = 'none';
-  const local = running.get(key);
-  if (local !== undefined) {
-    await ws.host.transact((tx) => tx.put('cancel-requests', key, { reason: reason.slice(0, 200), atMs: nowMs }));
-    local.abort();
-    signalled = 'in-process';
-    // The aborted run publishes the cancellation itself (its diff, its effect, its lease): wait
-    // for it within the caller's deadline, so the answer is the task's real state.
+  // The aborted run publishes the cancellation itself (its diff, its effect, its lease): wait
+  // for it within the caller's deadline, so the answer is the task's real state.
+  const settledWithin = async (): Promise<void> => {
     const settled = settling.get(key);
     if (settled !== undefined && settleWaitMs > 0) {
       let timer: ReturnType<typeof setTimeout> | undefined;
       await Promise.race([settled, new Promise<void>((resolve) => (timer = setTimeout(resolve, settleWaitMs)))]);
       if (timer !== undefined) clearTimeout(timer);
     }
+  };
+  const local = running.get(key);
+  if (local !== undefined) {
+    await ws.host.transact((tx) => tx.put('cancel-requests', key, { reason: reason.slice(0, 200), atMs: nowMs }));
+    local.abort();
+    signalled = 'in-process';
+    await settledWithin();
   } else if (session !== undefined && session.state === 'running') {
-    // The owning process picks this up on its next heartbeat and aborts its own session.
+    // No run in this process holds a handle (yet): file the request. The owning process picks it up on
+    // its next heartbeat and aborts its own session.
     await ws.host.transact((tx) => tx.put('cancel-requests', key, { reason: reason.slice(0, 200), atMs: nowMs }));
     signalled = 'requested';
+    // A run of this process that registered its handle while the request was being written looked for the
+    // request before it was filed, and would only see it at the next heartbeat (a third of the lease's life):
+    // reach it now.
+    const late = running.get(key);
+    if (late !== undefined) {
+      late.abort();
+      signalled = 'in-process';
+      await settledWithin();
+    }
   }
   if (signalled === 'none') {
     // Nothing is running: stop scheduling now and release any lease conservatively.
