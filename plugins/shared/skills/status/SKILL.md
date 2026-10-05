@@ -13,7 +13,7 @@ Required evidence: none. Do not ask for paths or a home directory; Jevris takes 
 
 Steps:
 1. Call `jevris_status` with no arguments.
-2. Lead with its `summary` sentence, then give the mode, the sidecar state, the model pin, active workers and queued tasks (the queue is idle only when no worker is active and none is queued), budget and whether the kill switch is on.
+2. Lead with its `summary`, then mode, sidecar state, model pin, active workers and queued tasks (idle only when both are none), budget and kill switch.
 3. If the user asks about a listed decision, call `jevris_explain_decision` with its id.
 
 Output contract: one short paragraph, then at most eight bullet lines. Say "reduced" when `mode` is `reduced`, and give the sidecar `reasonCode`.
