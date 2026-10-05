@@ -532,16 +532,19 @@ Usage: jevris configure [show] [--json]
        jevris configure workspace-budget [<micro-usd>|none] [--dry-run] [--workspace <dir>] [--json]
 
 Shows the effective configuration or changes one product setting. It never changes
-native harness permissions; source egress needs administrator approval.
+native harness permissions. Whether Jevris may send text to Jev is the administrator's
+decision (jevris egress approve); set privacy.sourceEgress records only your own half of
+that consent (approved-scoped, or deny-until-approved to take it back), and nothing is sent
+without both.
 
 Settable keys (docs/settings.md gives each one's values):
   mode routing.managedWorkers routing.modelListing verification.backgroundAtStop
   routing.firstTry jev.assist routing.mainSession orchestration.enabled
   orchestration.maxConcurrentWorkers orchestration.maxWorkerDepth
   orchestration.maxRepairAttempts decisions.hotPathDeadlineMs decisions.backgroundDeadlineMs
-  decisions.maxQuestions privacy.remoteTelemetry privacy.rawArtifactRetentionDays
-  privacy.decisionRetentionDays compaction.nativeAutoDeferral
-  decisions.monthlyBudgetMicroUsd
+  decisions.maxQuestions privacy.sourceEgress privacy.remoteTelemetry
+  privacy.rawArtifactRetentionDays privacy.decisionRetentionDays
+  compaction.nativeAutoDeferral decisions.monthlyBudgetMicroUsd
 
 Options:
   show                Print the effective settings and their sources (the default)
@@ -560,7 +563,8 @@ Options:
                       or none needs a person at an interactive terminal who answers y.
   --yes               Never confirms a raise. Raising mode, routing.managedWorkers,
                       routing.mainSession, routing.firstTry (baseline to auto),
-                      verification.backgroundAtStop, jev.assist (off to classify) or
+                      verification.backgroundAtStop, jev.assist (off to classify),
+                      privacy.sourceEgress (to approved-scoped) or
                       decisions.monthlyBudgetMicroUsd above its
                       effective value needs a person at an interactive terminal who answers
                       y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). Lowering and
@@ -577,6 +581,7 @@ Examples:
   jevris configure set mode advise
   jevris configure set routing.mainSession advice-only
   jevris configure set decisions.monthlyBudgetMicroUsd 2000000
+  jevris configure set privacy.sourceEgress approved-scoped
   jevris configure owned-mode on --workspace ~/src/app
   jevris configure workspace-budget 500000 --workspace ~/src/app
 ```

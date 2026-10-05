@@ -14,7 +14,7 @@ import { readFile } from 'node:fs/promises';
 import { providerOverrideDiagnostic } from '@jevris/provider-typesafe';
 import { COMMAND_EXIT_CODES, isSurfaceOperation, PUBLIC_COMMAND_NAMES, type PublicCommandName } from '@jevris/contracts';
 import { loadModelRegistry } from '@jevris/core';
-import { SETTABLE_KEYS, raisePrompt, raiseWhat, raisesAuthority } from '@jevris/orchestrator';
+import { EGRESS_PREFERENCE_KEY, SETTABLE_KEYS, raisePrompt, raiseWhat, raisesAuthority } from '@jevris/orchestrator';
 import type { NativeProbe } from '@jevris/platform';
 import { resultDataTermsLine } from './data-terms.js';
 import { createSurfaceContext } from './public/context.js';
@@ -376,7 +376,10 @@ Examples:
        jevris configure workspace-budget [<micro-usd>|none] [--dry-run] [--workspace <dir>] [--json]
 
 Shows the effective configuration or changes one product setting. It never changes
-native harness permissions; source egress needs administrator approval.
+native harness permissions. Whether Jevris may send text to Jev is the administrator's
+decision (jevris egress approve); set privacy.sourceEgress records only your own half of
+that consent (approved-scoped, or deny-until-approved to take it back), and nothing is sent
+without both.
 
 Settable keys (docs/settings.md gives each one's values):
 ${settableKeysText()}
@@ -398,7 +401,8 @@ Options:
                       or none needs a person at an interactive terminal who answers y.
   --yes               Never confirms a raise. Raising mode, routing.managedWorkers,
                       routing.mainSession, routing.firstTry (baseline to auto),
-                      verification.backgroundAtStop, jev.assist (off to classify) or
+                      verification.backgroundAtStop, jev.assist (off to classify),
+                      privacy.sourceEgress (to approved-scoped) or
                       decisions.monthlyBudgetMicroUsd above its
                       effective value needs a person at an interactive terminal who answers
                       y; --yes, --json and a pipe are refused (CHANNEL_REFUSED). Lowering and
@@ -415,6 +419,7 @@ Examples:
   jevris configure set mode advise
   jevris configure set routing.mainSession advice-only
   jevris configure set decisions.monthlyBudgetMicroUsd 2000000
+  jevris configure set privacy.sourceEgress approved-scoped
   jevris configure owned-mode on --workspace ~/src/app
   jevris configure workspace-budget 500000 --workspace ~/src/app`,
 };
@@ -665,6 +670,21 @@ async function confirmConfigureSet(
   return ok ? 'confirmed' : refusal.length > 0 ? 'refused' : 'declined';
 }
 
+/**
+ * JEV-0050: a written change of the person's source-egress preference (`privacy.sourceEgress`) is
+ * recorded in the audit log, a raise and a lowering alike, like `egress approve` and `revoke`.
+ * Content-free (the key and the two enum values). A dry run, a refusal and an unchanged value write
+ * no row. Never throws: the change already happened.
+ */
+async function auditEgressPreference(envelope: unknown, home: string): Promise<void> {
+  const payload = ((envelope as { readonly result?: unknown } | null)?.result ?? {}) as { readonly dryRun?: unknown; readonly changed?: unknown };
+  if (payload.dryRun === true || !Array.isArray(payload.changed)) return;
+  const change = (payload.changed as readonly { readonly key?: unknown; readonly from?: unknown; readonly to?: unknown }[]).find((c) => c.key === EGRESS_PREFERENCE_KEY);
+  if (change === undefined || typeof change.from !== 'string' || typeof change.to !== 'string') return;
+  const { recordCliAudit } = await import('./runtime-commands.js');
+  await recordCliAudit('policy.change', { action: 'configure.set', key: EGRESS_PREFERENCE_KEY, from: change.from.slice(0, 32), to: change.to.slice(0, 32) }, home);
+}
+
 /** Runs one public command from its argv (without the command name). Returns the exit code. */
 export async function runPublicCommand(name: PublicCommandName, argv: readonly string[], write: Write, options: PublicCommandOptions = {}): Promise<number> {
   if ((argv.includes('--help') || argv.includes('-h')) && !(name === 'route' && (argv[0] === 'learning' || argv[0] === 'limits'))) {
@@ -789,6 +809,7 @@ export async function runPublicCommand(name: PublicCommandName, argv: readonly s
     }
   }
   if (!outcome.ok) return usage(outcome.message);
+  if (name === 'configure') await auditEgressPreference(outcome.result, ctx.home);
   let text = json ? `${JSON.stringify(outcome.result)}\n` : renderHuman(outcome.result);
   if (!json && name === 'status' && options.probeSqlite !== undefined) {
     const probe = options.probeSqlite();

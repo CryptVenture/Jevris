@@ -391,9 +391,10 @@ test('configure shows settings, changes product keys only, and refuses administr
   const reread = await runJson('configure', [], box);
   assert.equal(reread.value.result.effective.mode, 'advise');
 
-  const admin = await run('configure', ['set', 'privacy.sourceEgress', 'allowed'], box);
+  // The keys an administrator owns refuse with a reason; privacy.sourceEgress is the person's own half of egress consent (JEV-0050, configure-source-egress.test.mjs).
+  const admin = await run('configure', ['set', 'provider.model', 'jev-1.13.0'], box);
   assert.equal(admin.code, 2);
-  assert.match(admin.text, /administrator/);
+  assert.match(admin.text, /host policy/);
   const unknown = await run('configure', ['set', 'nope', 'x'], box);
   assert.equal(unknown.code, 2);
 });

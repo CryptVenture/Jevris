@@ -29,6 +29,8 @@ export const BACKGROUND_AT_STOP_DEFAULT: BackgroundAtStopSetting = 'off';
 export const FIRST_TRY_KEY = 'routing.firstTry';
 /** `jev.assist` (owner decision 2026-10-01): `classify` from install; raising it back from `off` needs a person at a terminal. */
 export const JEV_ASSIST_KEY = 'jev.assist';
+/** JEV-0050: the person's own half of source-egress consent, a preference in their file (the administrator's half is host policy). */
+export const EGRESS_PREFERENCE_KEY = 'privacy.sourceEgress';
 export const WORKSPACE_CONFIG = join('.jevris', 'config.json'); // path-hygiene: allow workspace-relative config location
 const MAX_BYTES = 262_144;
 
@@ -532,6 +534,10 @@ export const SETTABLE_KEYS: { readonly [key: string]: Parser } = {
   'decisions.hotPathDeadlineMs': int(100, 30_000),
   'decisions.backgroundDeadlineMs': int(500, 120_000),
   'decisions.maxQuestions': int(1, 12),
+  // JEV-0050: your own half of source-egress consent (the file's preference; the administrator's half is
+  // `jevris egress approve`, and the preference alone never lets text out). Raising it to `approved-scoped`
+  // needs a person at a terminal, like every change that widens what may leave the machine.
+  [EGRESS_PREFERENCE_KEY]: oneOf('deny-until-approved', 'approved-scoped'),
   'privacy.remoteTelemetry': oneOf('off'),
   'privacy.rawArtifactRetentionDays': int(0, 365),
   'privacy.decisionRetentionDays': int(0, 3650),
@@ -543,7 +549,6 @@ export const SETTABLE_KEYS: { readonly [key: string]: Parser } = {
 
 /** Keys that need an administrator or a certified adapter; configure refuses them with a reason. */
 export const ADMIN_KEYS: { readonly [key: string]: string } = {
-  'privacy.sourceEgress': 'Source egress needs administrator consent through host policy, not configure.',
   'decisions.allowUncalibratedActuation': 'Uncalibrated actuation is never allowed.',
   'provider.model': 'The provider pin is set by host policy.',
   'provider.credentialRef': 'Credentials are managed with `jevris credential`, never in configuration.',
@@ -566,6 +571,7 @@ const AUTHORITY_RANK: { readonly [key: string]: { readonly [value: string]: numb
   [BACKGROUND_AT_STOP_KEY]: { off: 0, on: 1 },
   [FIRST_TRY_KEY]: { baseline: 0, auto: 1 },
   [JEV_ASSIST_KEY]: { off: 0, classify: 1 },
+  [EGRESS_PREFERENCE_KEY]: { 'deny-until-approved': 0, 'approved-scoped': 1 },
 };
 
 /** Money keys: a higher value lets Jevris spend more, so raising one needs a person too (owner decision 2026-09-29). */
@@ -610,11 +616,13 @@ export function raisesAuthority(input: ConfigLocation, key: string, value: strin
 
 /** What a raise does, in the words the question and the refusal use. */
 export function raiseWhat(key: string, value: string): string {
+  if (key === EGRESS_PREFERENCE_KEY) return `raising ${key} to ${value} is your half of the consent for what may leave this machine`;
   return SPEND_KEYS.has(key) ? `raising ${key} to ${value} lets Jevris spend more on Jev calls` : `raising ${key} to ${value} widens what Jevris may do`;
 }
 
 /** The question a person at a terminal answers before a raise. */
 export function raisePrompt(key: string, value: string): string {
+  if (key === EGRESS_PREFERENCE_KEY) return `Raise ${key} to ${value}? It is your half of the consent for advice that quotes your text to Jev; nothing is sent until an administrator also approves egress (jevris egress approve). [y/N] `;
   return SPEND_KEYS.has(key) ? `Raise ${key} to ${value}? It lets Jevris spend more on Jev calls. [y/N] ` : `Raise ${key} to ${value}? It widens what Jevris may do. [y/N] `;
 }
 

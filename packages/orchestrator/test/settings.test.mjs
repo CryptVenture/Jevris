@@ -144,7 +144,9 @@ test('set --dry-run shows a diff and writes nothing; set writes only product key
     assert.equal(real.changed[0].to, '3');
     assert.equal(JSON.parse(readFileSync(join(f.configDir, 'jevris.config.json'), 'utf8')).orchestration.maxConcurrentWorkers, 3);
     assert.equal(real.nativePermissionsChanged, false);
-    assert.match((await setConfigValue({ home: f.home, key: 'privacy.sourceEgress', value: 'approved-scoped', dryRun: false })).message, /administrator/);
+    // JEV-0050: privacy.sourceEgress is the person's own half of consent and is settable at a terminal (source-egress-preference.test.mjs); the keys an administrator owns still refuse.
+    assert.match((await setConfigValue({ home: f.home, key: 'provider.model', value: 'jev-1.13.0', dryRun: false })).message, /host policy/);
+    assert.match((await setConfigValue({ home: f.home, key: 'decisions.allowUncalibratedActuation', value: 'true', dryRun: false })).message, /never allowed/);
     assert.match((await setConfigValue({ home: f.home, key: 'nope', value: '1', dryRun: false })).message, /not a setting/);
     assert.match((await setConfigValue({ home: f.home, key: 'orchestration.maxConcurrentWorkers', value: '99', dryRun: false })).message, /not a valid value/);
   } finally {
