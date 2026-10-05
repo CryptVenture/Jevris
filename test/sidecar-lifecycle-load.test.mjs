@@ -30,6 +30,13 @@
 //   37329307976, a stall of 3.7 s, 8 lifecycle and 54 subagent hooks lost, then a quiet round that was not quiet). The product's git
 //   worker thread does it (packages/orchestrator/src/verify/git-work.ts), and the second test below gives every git process a
 //   300 ms start, blocking whichever thread makes it, and asserts that once the worker is up none starts on the main thread.
+// - The 50 subagent streams do not share one event loop. A driver that carried them in one loop stands still itself on a slow host:
+//   every request opens three small files (the sidecar's endpoint, key and locality) with a synchronous call, and on a host that opens a
+//   file in 6 ms 800 requests keep that loop blocked for 14 s, in stretches of seconds. Its clients then gave up (CLOSED, TIMEOUT) and
+//   its requests reached the sidecar with their time half spent and were answered from the queue: a test that cannot keep up, not a
+//   sidecar that does not answer (the slow-host gate, `npm run test:slow`, failed this test in 3 runs of 4 that way, while the
+//   sidecar's own loop stood still for 0.8 s at most; on windows-latest the driver never stood still). In life each hook is a process of
+//   its own, so the streams run on STREAM_LOOPS worker threads of the driver, each with an event loop of its own.
 // - A client that gave up is judged by the sidecar's own record. A healthy sidecar answers before
 //   its client leaves: its deadline answer is written 50 ms before the client's deadline. So a
 //   client-side TIMEOUT is accepted only where a ticker in the sidecar process (and one in the
@@ -50,6 +57,8 @@ import { gitStartPreload } from './git-start-probe.mjs';
 const SUBAGENTS = 50;
 const ROUNDS = 2;
 const SESSIONS = 4;
+/** Worker threads of the load driver that carry the subagent streams, each on an event loop of its own (50 streams: five on each). */
+const STREAM_LOOPS = 10;
 /** The hook launcher's default deadline: the client's own wait, in ms. */
 const CLIENT_TIMEOUT_MS = 1500;
 /** The shortest stretch without a timer turn the tickers record, in ms. */
@@ -101,11 +110,31 @@ function stallExplains(stalls, began, timeoutMs = CLIENT_TIMEOUT_MS) {
   return stalls.some(([from, to]) => from <= leftAt - STALL_BEFORE_MS && to >= leftAt - STALL_UNTIL_MS);
 }
 
-/** The load driver, run as its own process with the sandbox environment (sidecarRequest reads it). */
+/**
+ * The stalls that may explain a client that gave up: those of the sidecar, and those of the driver loop the client was sent from. The
+ * driver has one loop for the lifecycle sessions and one for each share of the subagent streams (`driverStalls[0]` is the first), and a
+ * stall of one loop does not stop another, so it explains only the clients of its own.
+ */
+function stallsFor(sidecarStalls, driverStalls) {
+  return (hook) => [...sidecarStalls, ...(driverStalls[hook.loop ?? 0] ?? [])];
+}
+
+/**
+ * The load driver, run as its own process with the sandbox environment (sidecarRequest reads it). It stands for the hook launchers of the
+ * harness: in life every hook is a process of its own, whose reads of the sidecar's endpoint and key files and whose connect run
+ * beside every other hook's, never behind them. One event loop that carried all 50 subagent streams would serialise those synchronous
+ * reads (three file opens a request): a host that opens a file in 6 ms made that loop stand still for seconds, so the clients gave up
+ * and the requests reached the sidecar with their time half spent, which is a driver that cannot keep up, not a sidecar that does not
+ * answer. So the subagent streams run on STREAM_LOOPS worker threads of the driver, each with an event loop of its own (a handful of
+ * streams each), and the lifecycle sessions run on the main thread. Every loop has its own stall ticker, and a hook is judged by the
+ * stalls of the sidecar and of its own loop only.
+ */
 const DRIVER = `
 import { join } from 'node:path';
 import { readFileSync } from 'node:fs';
-const [sidecarUrl, adapterUrl, askUrl, work, subagentsText, roundsText, sessionsText, timeoutText, gitLog, quietAttemptsText] = process.argv.slice(2);
+import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
+const argv = isMainThread ? process.argv.slice(2) : workerData.argv;
+const [sidecarUrl, adapterUrl, askUrl, work, subagentsText, roundsText, sessionsText, timeoutText, gitLog, quietAttemptsText, loopsText] = argv;
 const sidecar = await import(sidecarUrl);
 const { sidecarRequest } = sidecar;
 const { normalize } = await import(adapterUrl);
@@ -115,6 +144,7 @@ const ROUNDS = Number(roundsText);
 const SESSIONS = Number(sessionsText);
 const TIMEOUT_MS = Number(timeoutText);
 const QUIET_ATTEMPTS = Number(quietAttemptsText);
+const LOOPS = Number(loopsText);
 /** The thread ids the git start log holds, one per git process started (the log is the test's, kept only when git starts are probed). */
 const gitStarts = () => {
   try {
@@ -123,7 +153,8 @@ const gitStarts = () => {
     return [];
   }
 };
-// The driver's own ticker: stretches of 100 ms or more in which this loop ran no timer.
+// This loop's own ticker: stretches of 100 ms or more in which it ran no timer.
+const loopId = isMainThread ? 0 : workerData.loop;
 const stalls = [];
 let lastTick = Date.now();
 const ticker = setInterval(() => {
@@ -131,7 +162,8 @@ const ticker = setInterval(() => {
   if (now - lastTick >= 100) stalls.push([lastTick, now]);
   lastTick = now;
 }, 10);
-let serial = 0;
+// Ids that are unique across the loops, so no two loops send the same tool use or agent.
+let serial = loopId * 1_000_000;
 function nativeEvent(kind, { session, agent = null }) {
   serial += 1;
   const base = { session_id: session, transcript_path: join(work, '.no-transcript.jsonl'), cwd: work, permission_mode: 'default', ...(agent === null ? {} : { agent_id: agent, agent_type: 'general-purpose' }) };
@@ -147,7 +179,7 @@ function nativeEvent(kind, { session, agent = null }) {
 }
 async function hook(native) {
   const normalized = normalize(native, {});
-  if (!normalized.ok) return { kind: native.hook_event_name, code: 'NORMALIZE_' + normalized.reasonCode };
+  if (!normalized.ok) return { kind: native.hook_event_name, code: 'NORMALIZE_' + normalized.reasonCode, loop: loopId };
   const began = Date.now();
   const answer = await sidecarRequest({
     op: 'event',
@@ -161,9 +193,10 @@ async function hook(native) {
   const queued = answer.ok && Array.isArray(answer.result?.queued) ? answer.result.queued : [];
   const code = answer.ok ? (queued.length > 0 ? 'OK_QUEUED' : answer.result?.duplicate ? 'OK_DUP' : 'OK') : (answer.reasonCode ?? 'SIDECAR_' + String(answer.reason).toUpperCase());
   const outcome = answer.ok ? answer.result?.results?.orchestrator?.hookOutcome ?? null : null;
-  return { kind: native.hook_event_name, session: native.session_id, code, queued, began, ms: Date.now() - began, outcome: outcome === null ? null : { kind: outcome.kind ?? null, reasonCode: outcome.reasonCode ?? null, text: typeof outcome.text === 'string' ? outcome.text.slice(0, 200) : null } };
+  return { kind: native.hook_event_name, session: native.session_id, code, queued, began, ms: Date.now() - began, loop: loopId, outcome: outcome === null ? null : { kind: outcome.kind ?? null, reasonCode: outcome.reasonCode ?? null, text: typeof outcome.text === 'string' ? outcome.text.slice(0, 200) : null } };
 }
-async function subagents(session, count) {
+/** The streams first to first + count - 1 of a session's subagents: SubagentStart, three tool calls (before and after), SubagentStop each. */
+async function subagents(session, first, count) {
   const out = [];
   const one = async (i) => {
     const o = { session, agent: 'a' + i + '_' + serial };
@@ -174,54 +207,88 @@ async function subagents(session, count) {
     }
     out.push(await hook(nativeEvent('sstop', o)));
   };
-  await Promise.all(Array.from({ length: count }, (_, i) => one(i)));
+  await Promise.all(Array.from({ length: count }, (_, i) => one(first + i)));
   return out;
 }
-// Warm-up, outside the measured load: one quiet session compacts, restores and stops, and two subagents run, so the first git
-// process, the first store open and the first scans of each hook kind are behind the sidecar before 50 subagents start. What these
-// answer is not judged. The sidecar's own background work for them (a capsule write that outlived its deadline) ends first.
-const warm = [];
-for (const kind of ['precompact', 'restore', 'stop']) warm.push((await hook(nativeEvent(kind, { session: 'k3-warm' }))).code);
-warm.push(...(await subagents('k3-warm', 2)).map((s) => s.code));
-// With git starts probed: more warm-up sessions until a git process has been started by a thread that is not the main one (the sidecar's
-// git worker is up: it starts once the sidecar is, and a git call before it says it is ready runs on the main thread, as it always did).
-// What the log holds up to then is not judged; every git start after it is.
-let readyAt = null;
-if (gitLog !== '') {
-  for (let attempt = 0; attempt < 60 && readyAt === null; attempt += 1) {
-    await waitUntilQuiet(sidecar, { workspace: work });
-    if (gitStarts().some((id) => id !== '0')) readyAt = gitStarts().length;
-    else warm.push((await hook(nativeEvent('precompact', { session: 'k3-ready-' + attempt }))).code);
+if (!isMainThread) {
+  // A stream loop: runs the share of subagent streams it is told to, and reports its stalls when it is told to end.
+  parentPort.on('message', async (message) => {
+    if (message.type === 'burst') parentPort.postMessage({ type: 'burst', hooks: await subagents(message.session, message.first, message.count) });
+    else if (message.type === 'end') {
+      clearInterval(ticker);
+      parentPort.postMessage({ type: 'end', stalls });
+    }
+  });
+  parentPort.postMessage({ type: 'ready' });
+} else {
+  const workers = await Promise.all(Array.from({ length: LOOPS }, (_, k) => new Promise((resolve, reject) => {
+    const worker = new Worker(new URL(import.meta.url), { workerData: { argv, loop: k + 1 } });
+    worker.once('error', reject);
+    worker.once('message', () => {
+      worker.off('error', reject);
+      worker.on('error', (error) => {
+        process.stderr.write('a stream loop failed: ' + String(error?.stack ?? error) + '\\n');
+        process.exit(3);
+      });
+      resolve(worker);
+    });
+  })));
+  const ask = (worker, message, field) => new Promise((resolve) => {
+    worker.once('message', (answer) => resolve(answer[field]));
+    worker.postMessage(message);
+  });
+  const perLoop = Math.ceil(SUBAGENTS / LOOPS);
+  /** One burst of SUBAGENTS subagent streams in a session, shared out over the stream loops. */
+  const burstOf = async (session) => (await Promise.all(workers.map((worker, k) => ask(worker, { type: 'burst', session, first: k * perLoop, count: Math.max(0, Math.min(perLoop, SUBAGENTS - k * perLoop)) }, 'hooks')))).flat();
+  // Warm-up, outside the measured load: one quiet session compacts, restores and stops, and two subagents run, so the first git
+  // process, the first store open and the first scans of each hook kind are behind the sidecar before 50 subagents start. What these
+  // answer is not judged. The sidecar's own background work for them (a capsule write that outlived its deadline) ends first.
+  const warm = [];
+  for (const kind of ['precompact', 'restore', 'stop']) warm.push((await hook(nativeEvent(kind, { session: 'k3-warm' }))).code);
+  warm.push(...(await subagents('k3-warm', 0, 2)).map((s) => s.code));
+  // With git starts probed: more warm-up sessions until a git process has been started by a thread that is not the main one (the sidecar's
+  // git worker is up: it starts once the sidecar is, and a git call before it says it is ready runs on the main thread, as it always did).
+  // What the log holds up to then is not judged; every git start after it is.
+  let readyAt = null;
+  if (gitLog !== '') {
+    for (let attempt = 0; attempt < 60 && readyAt === null; attempt += 1) {
+      await waitUntilQuiet(sidecar, { workspace: work });
+      if (gitStarts().some((id) => id !== '0')) readyAt = gitStarts().length;
+      else warm.push((await hook(nativeEvent('precompact', { session: 'k3-ready-' + attempt }))).code);
+    }
+    if (readyAt === null) readyAt = gitStarts().length;
   }
-  if (readyAt === null) readyAt = gitStarts().length;
+  const quietBeforeLoad = await waitUntilQuiet(sidecar, { workspace: work });
+  const lifecycle = [];
+  const load = [];
+  for (let round = 0; round < ROUNDS; round += 1) {
+    const burst = burstOf('k3-burst-' + round);
+    await Promise.all(Array.from({ length: SESSIONS }, async (_, i) => {
+      const o = { session: 'k3-life-' + round + '-' + i };
+      lifecycle.push(await hook(nativeEvent('precompact', o)));
+      lifecycle.push(await hook(nativeEvent('restore', o)));
+      lifecycle.push(await hook(nativeEvent('stop', o)));
+    }));
+    load.push(...(await burst));
+  }
+  // A quiet session after the load: the same three hooks with nothing else in flight. A round the host cut short (a capsule write that ran past
+  // its deadline, its restore then waiting on it) is asked again in a session of its own once the sidecar's own state says it is quiet, as the
+  // other tests ask again (docs/testing.md): a sidecar that never answers a quiet session in time still fails every attempt.
+  let quiet = [];
+  let quietAttempts = 0;
+  for (let attempt = 0; attempt < QUIET_ATTEMPTS; attempt += 1) {
+    quietAttempts += 1;
+    await waitUntilQuiet(sidecar, { workspace: work });
+    quiet = [];
+    for (const kind of ['precompact', 'restore', 'stop']) quiet.push(await hook(nativeEvent(kind, { session: 'k3-quiet-' + attempt })));
+    if (quiet.map((s) => s.kind + ':' + s.code).join() === 'PreCompact:OK,SessionStart:OK,Stop:OK') break;
+  }
+  clearInterval(ticker);
+  const driverStalls = [stalls];
+  for (const worker of workers) driverStalls.push(await ask(worker, { type: 'end' }, 'stalls'));
+  await Promise.all(workers.map((worker) => worker.terminate()));
+  process.stdout.write(JSON.stringify({ warm, quietBeforeLoad, lifecycle, quiet, quietAttempts, gitStarts: gitLog === '' ? null : { all: gitStarts(), readyAt }, load: load.map((s) => ({ code: s.code, began: s.began, loop: s.loop })), driverStalls }));
 }
-const quietBeforeLoad = await waitUntilQuiet(sidecar, { workspace: work });
-const lifecycle = [];
-const load = [];
-for (let round = 0; round < ROUNDS; round += 1) {
-  const burst = subagents('k3-burst-' + round, SUBAGENTS);
-  await Promise.all(Array.from({ length: SESSIONS }, async (_, i) => {
-    const o = { session: 'k3-life-' + round + '-' + i };
-    lifecycle.push(await hook(nativeEvent('precompact', o)));
-    lifecycle.push(await hook(nativeEvent('restore', o)));
-    lifecycle.push(await hook(nativeEvent('stop', o)));
-  }));
-  load.push(...(await burst));
-}
-// A quiet session after the load: the same three hooks with nothing else in flight. A round the host cut short (a capsule write that ran past
-// its deadline, its restore then waiting on it) is asked again in a session of its own once the sidecar's own state says it is quiet, as the
-// other tests ask again (docs/testing.md): a sidecar that never answers a quiet session in time still fails every attempt.
-let quiet = [];
-let quietAttempts = 0;
-for (let attempt = 0; attempt < QUIET_ATTEMPTS; attempt += 1) {
-  quietAttempts += 1;
-  await waitUntilQuiet(sidecar, { workspace: work });
-  quiet = [];
-  for (const kind of ['precompact', 'restore', 'stop']) quiet.push(await hook(nativeEvent(kind, { session: 'k3-quiet-' + attempt })));
-  if (quiet.map((s) => s.kind + ':' + s.code).join() === 'PreCompact:OK,SessionStart:OK,Stop:OK') break;
-}
-clearInterval(ticker);
-process.stdout.write(JSON.stringify({ warm, quietBeforeLoad, lifecycle, quiet, quietAttempts, gitStarts: gitLog === '' ? null : { all: gitStarts(), readyAt }, load: load.map((s) => ({ code: s.code, began: s.began })), driverStalls: stalls }));
 `;
 
 /** Quiet sessions asked at most, the first included, before the quiet check of the run is judged. */
@@ -233,7 +300,7 @@ function runDriver(box, gitLog = '') {
   const askUrl = pathToFileURL(join(repoRoot, 'apps', 'sidecar', 'scripts', 'sidecar-ask.mjs')).href;
   const driver = box.write('k3-driver.mjs', DRIVER);
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [driver, sidecarUrl, adapterUrl, askUrl, box.work, String(SUBAGENTS), String(ROUNDS), String(SESSIONS), String(CLIENT_TIMEOUT_MS), gitLog, String(QUIET_ATTEMPTS)], { cwd: box.work, env: box.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(process.execPath, [driver, sidecarUrl, adapterUrl, askUrl, box.work, String(SUBAGENTS), String(ROUNDS), String(SESSIONS), String(CLIENT_TIMEOUT_MS), gitLog, String(QUIET_ATTEMPTS), String(STREAM_LOOPS)], { cwd: box.work, env: box.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => {
@@ -264,14 +331,15 @@ const GAVE_UP = /^(CONNECT_TIMEOUT|HANDSHAKE_TIMEOUT|TIMEOUT)$/;
  * whose write ran past its deadline reads OK_QUEUED by design and counts as answered; `extra` names the codes one more kind of hook
  * may end in (a subagent hook may be queued or refused BUSY); `held` names the sessions whose capsule write ran past its deadline
  * (`heldWriteSessions`), whose restore waits for that write (K2) and, if the write outlasts the restore's own deadline, is queued with
- * reason DEADLINE: a restore of such a session reads OK_QUEUED and counts as answered too.
+ * reason DEADLINE: a restore of such a session reads OK_QUEUED and counts as answered too. `stalls` is the list of stalls that may explain a give-up,
+ * or a function that gives the list for one hook (`stallsFor`).
  */
 function lostHooks(hooks, stalls, { extra = null, held = new Set() } = {}) {
   const lost = [];
   for (const hook of hooks) {
     const code = (hook.kind === 'PreCompact' || (hook.kind === 'SessionStart' && held.has(hook.session))) && hook.code === 'OK_QUEUED' ? 'OK' : hook.code;
     if (ANSWERED.test(code) || (extra !== null && extra.test(code))) continue;
-    if (GAVE_UP.test(code) && stallExplains(stalls, hook.began)) continue;
+    if (GAVE_UP.test(code) && stallExplains(typeof stalls === 'function' ? stalls(hook) : stalls, hook.began)) continue;
     lost.push(code);
   }
   return lost;
@@ -318,14 +386,15 @@ async function lifecycleLoad(t, { gitStartMs = 0 } = {}) {
 
   const { warm, quietBeforeLoad, lifecycle, quiet, quietAttempts, gitStarts, load, driverStalls } = await runDriver(box, gitLog);
   const sidecarStalls = readStalls(existsSync(tickerLog) ? readFileSync(tickerLog, 'utf8') : '');
-  const stalls = [...sidecarStalls, ...driverStalls];
+  const stallsOf = stallsFor(sidecarStalls, driverStalls);
+  const driverStallsAll = driverStalls.flat();
   const answers = lifecycle.filter((s) => s.kind === 'SessionStart' || s.kind === 'Stop');
   assert.equal(answers.length, 2 * ROUNDS * SESSIONS, 'every restore and Stop was sent');
   assert.equal(load.length, ROUNDS * SUBAGENTS * 8, 'every subagent hook was sent');
   // The slowest answer of each lifecycle kind, in ms: what the load cost them.
   const slowest = lifecycle.reduce((acc, s) => ({ ...acc, [s.kind]: Math.max(acc[s.kind] ?? 0, s.ms) }), {});
   const longest = (list) => list.reduce((most, [from, to]) => Math.max(most, to - from), 0);
-  const report = `lifecycle ${JSON.stringify(tally(lifecycle.map((s) => `${s.kind}:${s.code}`)))}; slowest ${JSON.stringify(slowest)} ms; subagent hooks ${JSON.stringify(tally(load.map((s) => s.code)))}; loop stalls of 100 ms or more, longest ${String(longest(sidecarStalls))} ms in the sidecar (${String(sidecarStalls.length)}) and ${String(longest(driverStalls))} ms in the driver (${String(driverStalls.length)}); warm-up ${JSON.stringify(tally(warm))}${quietBeforeLoad ? '' : ', the sidecar was still busy when the load began'}; quiet session answered in attempt ${String(quietAttempts)} of ${String(QUIET_ATTEMPTS)}`;
+  const report = `lifecycle ${JSON.stringify(tally(lifecycle.map((s) => `${s.kind}:${s.code}`)))}; slowest ${JSON.stringify(slowest)} ms; subagent hooks ${JSON.stringify(tally(load.map((s) => s.code)))}; loop stalls of 100 ms or more, longest ${String(longest(sidecarStalls))} ms in the sidecar (${String(sidecarStalls.length)}) and ${String(longest(driverStallsAll))} ms in the driver (${String(driverStallsAll.length)}); warm-up ${JSON.stringify(tally(warm))}${quietBeforeLoad ? '' : ', the sidecar was still busy when the load began'}; quiet session answered in attempt ${String(quietAttempts)} of ${String(QUIET_ATTEMPTS)}`;
   t.diagnostic(report);
 
   // The locked target: under load, a restore or a Stop is never answered from the queue. The one restore that is: that of a session whose own
@@ -338,8 +407,8 @@ async function lifecycleLoad(t, { gitStartMs = 0 } = {}) {
   assert.deepEqual(lifecycle.filter((s) => s.code === 'BUSY').map((s) => s.kind), [], report);
   // Every answer is in time or ran out of time (DEADLINE), never lost silently. A client that left before any answer came is
   // accepted only where a loop of the sidecar (or of the driver) stood still across the moment the answer was due.
-  assert.deepEqual(lostHooks(lifecycle, stalls, { held }), [], report);
-  assert.deepEqual(lostHooks(load, stalls, { extra: /^(OK_QUEUED|BUSY)$/ }), [], report);
+  assert.deepEqual(lostHooks(lifecycle, stallsOf, { held }), [], report);
+  assert.deepEqual(lostHooks(load, stallsOf, { extra: /^(OK_QUEUED|BUSY)$/ }), [], report);
   // An answered restore after its session's own PreCompact carries the capsule, also when that
   // PreCompact's write ran on past its deadline (held for the session, B 528dff7); an answered
   // Stop names the mandatory check `unit`, which never ran, as missing verification.
@@ -390,6 +459,13 @@ test('K3: a client that left with no answer is explained only by a loop that sto
   assert.equal(stallExplains([[began - 3_000, began - 1_500]], began), false, 'a stall of an earlier wait');
   // A client that waited longer is judged by its own deadline.
   assert.equal(stallExplains([[began + 3_000, began + 4_500]], began, 4_000), true);
+  // A stall of one loop of the driver (loop 0 carries the lifecycle sessions, the others the subagent streams) explains the clients of that
+  // loop only, because the loops stand still one at a time; a stall of the sidecar explains every client.
+  const stall = [began + 100, leftAt + 400];
+  const sent = [{ kind: 'PreToolUse', code: 'TIMEOUT', began, loop: 1 }, { kind: 'PreToolUse', code: 'TIMEOUT', began, loop: 2 }, { kind: 'Stop', code: 'TIMEOUT', began }];
+  assert.deepEqual(lostHooks(sent, stallsFor([], [[], [stall], []])), ['TIMEOUT', 'TIMEOUT'], 'only the clients of the stalled loop are explained');
+  assert.deepEqual(lostHooks(sent, stallsFor([], [[stall], [], []])), ['TIMEOUT', 'TIMEOUT'], 'a lifecycle hook is the main loop\'s and a stream\'s is not');
+  assert.deepEqual(lostHooks(sent, stallsFor([stall], [[], [], []])), [], 'a stall of the sidecar explains every client');
   // The ticker log.
   assert.deepEqual(readStalls('100 250\nnot a line\n\n300 450\n12 x\n'), [[100, 250], [300, 450]]);
   // What fails a run: an answer is in time, ran out of time, or came from a PreCompact whose write ran on; a client that gave up is
