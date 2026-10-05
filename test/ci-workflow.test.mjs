@@ -37,6 +37,17 @@ test('the CI matrix is three OSes by Node 22.14.0, 24 and latest, fail-fast off 
   assert.match(ci, /^ {2}pull_request:$/m);
 });
 
+test('the test job keeps Defender off the workspace on Windows only, best effort (slow-runner stalls)', () => {
+  const job = jobBlock(read('.github', 'workflows', 'ci.yml'), 'test');
+  const at = job.indexOf('- name: Keep Defender off the workspace');
+  assert.ok(at > 0 && at < job.indexOf('- name: Check out'), 'it runs before the checkout writes any file');
+  const step = job.slice(at, job.indexOf('\n      - name:', at + 1));
+  assert.match(step, /if: runner\.os == 'Windows'/);
+  assert.match(step, /continue-on-error: true/);
+  assert.match(step, /Add-MpPreference -ExclusionPath \$env:GITHUB_WORKSPACE, \$env:RUNNER_TEMP, \$env:TEMP/);
+  assert.doesNotMatch(step, /Set-MpPreference|-DisableRealtimeMonitoring/, 'it excludes paths; it never turns protection off');
+});
+
 test('every cell runs the same npm steps as scripts/ci-cell.mjs, in order (BLD-10)', () => {
   const runs = [...jobBlock(ci, 'test').matchAll(/^ {8}run: (npm .+)$/gm)].map((match) => match[1]);
   assert.deepEqual(
