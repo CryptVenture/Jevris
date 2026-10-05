@@ -7,6 +7,8 @@ declare module '@jevris/sidecar' {
   export function ensureSidecar(input: { readonly home?: string; readonly waitMs?: number }, deps?: { readonly service?: false }): Promise<EnsureSidecarResult>;
   /** Whether a service is installed for this home, from the unit file alone (no manager is called). */
   export function serviceInstalledFor(home?: string): boolean;
+  /** The pid of the sidecar the service runs for this home when it is alive, whether or not it answers; undefined when none. */
+  export function liveServiceSidecarPid(home?: string): number | undefined;
   export function sidecarRequest(input: SidecarRequestInput): Promise<SidecarRequestResult>;
   /** The autostart wait: the requested one, or JEVRIS_SIDECAR_WAIT_MS (at most 60 s) under a test run. */
   export function sidecarWaitMs(requested: number, env?: { readonly [key: string]: string | undefined }): number;

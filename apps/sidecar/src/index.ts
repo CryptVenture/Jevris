@@ -1,5 +1,5 @@
 // Sidecar protocol v1 (IPC-01..IPC-20): the agreed client, the daemon and the op registry.
-export { defaultRequestTimeoutMs, ensureSidecar, probeSidecar, serviceInstalledFor, sidecarChildEnv, sidecarCommand, sidecarRequest, sidecarWaitMs, spawnSidecar, stopSidecarProcess, SERVICE_START_GRACE_MS, SIDECAR_TEST_WAIT_MAX_MS } from './client.js';
+export { defaultRequestTimeoutMs, ensureSidecar, liveServiceSidecarPid, probeSidecar, serviceInstalledFor, sidecarChildEnv, sidecarCommand, sidecarRequest, sidecarWaitMs, spawnSidecar, stopSidecarProcess, SERVICE_START_GRACE_MS, SIDECAR_TEST_WAIT_MAX_MS } from './client.js';
 export type { EnsureSidecarDeps, SidecarProbe, SpawnSidecarOptions, StopResult } from './client.js';
 export { BUILD_CHECK_MS, DEFAULT_IDLE_MS, STALE_BUILD_EXIT_CODE, hardenPipeAcl, pipeAclOwnerOnly, pipeAclScript, runSidecarMain, startDaemon, sweepStaleFallbackSockets } from './daemon.js';
 export type { DaemonOptions, DaemonStartResult, SidecarDaemon } from './daemon.js';

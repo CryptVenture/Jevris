@@ -582,6 +582,15 @@ function liveServiceSidecar(files: RuntimeFiles): number | undefined {
 }
 
 /**
+ * The pid of the sidecar the service runs for this home when it is alive, whether or not it answers; undefined when there is none.
+ * `jevris sidecar start` and `restart` read it to apply the rule a hook, a command and an MCP call already follow: nothing is
+ * started beside a service-run sidecar that is alive but silent.
+ */
+export function liveServiceSidecarPid(home?: string): number | undefined {
+  return liveServiceSidecar(runtimeFiles(home !== undefined ? { home } : {}));
+}
+
+/**
  * Starts the sidecar on demand (IPC-13). With `waitMs: 0` it never blocks: a hook starts the
  * sidecar and runs rules-only on that invocation. The CLI and MCP wait up to about 1.5 s.
  * Many parallel callers produce one sidecar: an exclusive spawn lock picks one spawner, and

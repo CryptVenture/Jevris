@@ -31,7 +31,7 @@ export interface RuntimeCommandHooks {
   /** Runs launchctl, systemctl or schtasks for `jevris service` (tests inject it). */
   readonly serviceExec?: (file: string, args: readonly string[]) => { readonly status: number | null; readonly stdout: string; readonly stderr: string };
   /** The sidecar probe, stop and start `jevris sidecar` and `jevris service install` use (tests inject them). */
-  readonly sidecar?: Partial<Pick<typeof import('@jevris/sidecar'), 'probeSidecar' | 'stopSidecarProcess' | 'ensureSidecar' | 'sidecarRequest'>>;
+  readonly sidecar?: Partial<Pick<typeof import('@jevris/sidecar'), 'probeSidecar' | 'stopSidecarProcess' | 'ensureSidecar' | 'sidecarRequest' | 'liveServiceSidecarPid'>>;
 }
 
 interface Parsed {
@@ -762,6 +762,7 @@ function sidecarPorts(sidecar: SidecarModule, hooks: RuntimeCommandHooks | undef
     stopSidecarProcess: hooks?.sidecar?.stopSidecarProcess ?? sidecar.stopSidecarProcess,
     ensureSidecar: hooks?.sidecar?.ensureSidecar ?? sidecar.ensureSidecar,
     sidecarRequest: hooks?.sidecar?.sidecarRequest ?? sidecar.sidecarRequest,
+    liveServiceSidecarPid: hooks?.sidecar?.liveServiceSidecarPid ?? sidecar.liveServiceSidecarPid,
   };
 }
 
@@ -782,7 +783,10 @@ const SERVICE_FIX = 'Run `jevris service status` to see why, and `jevris service
  * `jevris sidecar stop|restart|start`. A sidecar the service manager supervises is never
  * replaced by an unsupervised one: the manager does not restart a clean exit (launchd
  * SuccessfulExit false, systemd Restart=on-failure), so a restart stops it cleanly and asks the
- * manager to start it again, and a start with nothing running asks the manager first.
+ * manager to start it again, and a start with nothing running asks the manager first. A sidecar the
+ * service runs that is alive but does not answer is still the service's: a start the manager refuses
+ * or cannot take starts nothing beside it (the rule a hook, a command and an MCP call follow), and a
+ * restart is judged as for any service-run sidecar.
  */
 async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parsed, home: string | undefined, sidecar: SidecarModule, write: Write | undefined, hooks: RuntimeCommandHooks | undefined): Promise<number> {
   const ports = sidecarPorts(sidecar, hooks);
@@ -793,8 +797,11 @@ async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parse
   const service = (): { readonly input: ReturnType<typeof serviceInputFor>['input']; readonly exec: ServiceExecHook | undefined } => ({ input: serviceInputFor(sidecar, home).input, exec: serviceExecFor(hooks?.serviceExec) });
   const probe = await ports.probeSidecar(home, 500);
   const supervised = probe.running && probe.foreign !== true && probe.endpoint?.supervised === true;
+  // The service's own sidecar, alive but not answering: its endpoint file says supervised and its pid is alive.
+  const silentPid = probe.running || probe.foreign === true ? undefined : ports.liveServiceSidecarPid(home);
+  const serviceRun = supervised || silentPid !== undefined;
 
-  if (sub === 'restart' && supervised) {
+  if (sub === 'restart' && serviceRun) {
     // Check the manager before anything is stopped: a refusal leaves the running sidecar alone.
     const { input, exec } = service();
     const ready = managerPossible ? sidecar.serviceReady(input, exec) : undefined;
@@ -823,7 +830,7 @@ async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parse
     }
     if (sub === 'stop') {
       out(write, stopped.method === 'not-running' ? 'sidecar: not running\n' : `sidecar: stopped (pid ${String(stopped.pid)})\n`);
-      if (supervised) out(write, 'The service manager does not restart a clean stop. `jevris sidecar start` starts it again through the service; it also starts at the next login.\n');
+      if (serviceRun) out(write, 'The service manager does not restart a clean stop. `jevris sidecar start` starts it again through the service; it also starts at the next login.\n');
       return 0;
     }
   }
@@ -843,13 +850,20 @@ async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parse
       out(write, `${started.manager} was asked to start the sidecar, but it did not answer within ${String(waitMs)} ms (SERVICE_START_TIMEOUT). Run \`jevris service status\`, then \`jevris sidecar status\`.\n`);
       return 1;
     }
-    if (sub === 'restart' && supervised) {
+    if (sub === 'restart' && serviceRun) {
       const detail = started.steps.find((step) => !step.ok)?.detail;
       out(write, `The sidecar was stopped, but ${started.manager} did not start it (SERVICE_START_FAILED${detail !== undefined ? `: ${detail}` : ''}). ${SERVICE_FIX}\n`);
       return 1;
     }
+    if (silentPid !== undefined && sidecar.serviceInstalledFor(home)) {
+      // The same refusal ensureSidecar gives a hook, a command and an MCP call (F3-04): the service's sidecar is alive and silent, so no second one.
+      const refused = started.state === 'failed';
+      const code = refused ? 'SERVICE_START_REFUSED' : 'SERVICE_UNREACHABLE';
+      out(write, `${started.manager} ${refused ? 'refused to start' : 'could not be reached to start'} the Jevris sidecar service (${code}), and the sidecar the service runs (pid ${String(silentPid)}) is alive but did not answer, so no second sidecar was started. Run \`jevris service status\`, then \`jevris sidecar restart\`.\n`);
+      return 1;
+    }
     // start, or a restart of an on-demand sidecar: no unit for this home, or the manager does not
-    // answer; an on-demand start below.
+    // answer, and no sidecar of the service's is alive; an on-demand start below.
   }
 
   // The manager was asked above when a unit is installed; the on-demand start does not ask it again.
