@@ -40,7 +40,8 @@ function replay(answerOf) {
   return { fetch, requests };
 }
 
-async function fixture(t, answerOf, files = {}) {
+/** `egress`: whether the administrator approved source egress. The text capabilities (C35's query and document) are asked only when it is; C29 and C72 judge counts and flags and are asked either way. */
+async function fixture(t, answerOf, files = {}, { egress = false } = {}) {
   const dir = tempDir('jv-qreal-');
   const home = join(dir, 'home');
   const repo = join(dir, 'repo');
@@ -58,7 +59,7 @@ async function fixture(t, answerOf, files = {}) {
   const ws = openWorkspace({ home, workspaceRoot: repo, env: { HOME: home }, store });
   const script = replay(answerOf);
   const engineHome = mkdtempSync(join(tmpdir(), 'jevris-qreal-engine-'));
-  const engine = await createSidecarEngine({ home: engineHome, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {} });
+  const engine = await createSidecarEngine({ home: engineHome, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {}, sourceEgress: () => ({ provenance: 'administrator', sourceEgress: egress ? 'approved-scoped' : 'deny-until-approved' }) });
   t.after(() => {
     closeTestStore(store);
     rmSync(dir, { recursive: true, force: true });
@@ -115,17 +116,24 @@ test('C29: the options are the class definitions, no advice sentence, and each d
 const POLICY = '# Retry policy\nPayment calls retry with exponential backoff, at most four attempts. A call that still fails is reported to the caller; nothing retries forever.\n';
 
 test('C35: the real answer for a document that states the policy (2.92 at 0.92) is used; one that covers it only partly (0.52) is below the floor and the rules answer', async (t) => {
-  const used = await fixture(t, () => REAL.c35.authoritative, { 'docs/retries.md': POLICY });
+  const used = await fixture(t, () => REAL.c35.authoritative, { 'docs/retries.md': POLICY }, { egress: true });
   const a = await used.advise('C35', { query: 'payment retries backoff' });
   assert.equal(a.ok, true, JSON.stringify(a));
   assert.deepEqual([a.advice.source, a.advice.reasonCode], ['jev', 'JEV_SCORE']);
-  const unsure = await fixture(t, () => REAL.c35.partial, { 'docs/retries.md': POLICY });
+  const unsure = await fixture(t, () => REAL.c35.partial, { 'docs/retries.md': POLICY }, { egress: true });
   const b = await unsure.advise('C35', { query: 'payment retries backoff' });
   assert.deepEqual([b.advice.source, b.advice.reasonCode], ['rules', 'LEXICAL_SCORE']);
 });
 
+test('C35: with egress denied the question about the document is not asked, and the rules answer with no decision', async (t) => {
+  const f = await fixture(t, () => REAL.c35.authoritative, { 'docs/retries.md': POLICY });
+  const a = await f.advise('C35', { query: 'payment retries backoff' });
+  assert.deepEqual([a.advice.source, a.advice.reasonCode, a.advice.decisionId], ['rules', 'LEXICAL_SCORE', null]);
+  assert.equal(f.requests.length, 0, 'a request about the document left without egress approval');
+});
+
 test('C35: the anchors differ in what the document covers, and the question says which evidence is the task and which is the document', async (t) => {
-  const f = await fixture(t, () => REAL.c35.background, { 'docs/retries.md': POLICY });
+  const f = await fixture(t, () => REAL.c35.background, { 'docs/retries.md': POLICY }, { egress: true });
   await f.advise('C35', { query: 'payment retries backoff' });
   const q = f.requests[0].questions.q;
   assert.match(q.instructions, /first evidence is the task and the second is a document/);
