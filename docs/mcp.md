@@ -165,7 +165,7 @@ Current mode, sidecar state, decision health, model pin, active workers, budget 
 
 Explains one recorded decision.
 
-- **Arguments:** `decisionId` (required) and `sliceId` (optional: a task slice such as `bounded-edit`, to add that slice's route learning).
+- **Arguments:** `decisionId` (required) and `sliceId` (optional: a task slice such as `bounded-edit`, or a route-learning key such as `bounded-edit::gpt-6.1-sol` as `jevris route learning status` lists it, to add that slice's route learning; a baseline other than Opus 5.5 learns under its own key, and each key compares its arms with its own baseline).
 - **Result:** `{ decisionId, found, trace }`. `trace` contains:
   - `outcome` and `reasonCodes`;
   - `resolvedModel`;
