@@ -6,9 +6,14 @@
  *   other line queued by then, by one asynchronous append. At most one write is in flight; lines
  *   queued meanwhile go in the next one. The request path never waits on the disk.
  * - Memory is bounded: past `maxPendingBytes` a line is dropped and counted, never blocking.
+ * - A write that fails with EPERM, EBUSY or EACCES (on Windows a scanner or another handle holds the
+ *   file for a moment) is tried again, asynchronously, after 5, 10, 20 and 40 ms, with the same
+ *   chunk and before anything queued behind it, so no line is lost, repeated or reordered. A line
+ *   is dropped and counted only when the last try also fails, or at once for any other error.
  * - Rotation (the log) follows a byte counter seeded once from the file size, not a stat per line.
- * - `flushSync` writes what is queued at once, for shutdown and for a trace file that is being
- *   closed; a write in flight then finishes first on the libuv pool.
+ * - `flushSync` writes what is queued at once, for shutdown; a chunk that is waiting out a failed
+ *   write goes first. `drainThen` and `drained` wait for the write in flight, for a trace file that
+ *   is being closed and for a stop that must not return before its lines are on disk.
  */
 import { appendFile, appendFileSync, rename, renameSync, statSync, unlink, unlinkSync, write, writeSync } from 'node:fs';
 
@@ -26,19 +31,56 @@ export interface LineWriter {
   size(): number;
   /**
    * Writes what is queued, then runs `fn` once no write is in flight (at once, or when the one in
-   * flight completes), so a file descriptor is never closed under a pending write.
+   * flight completes, retries included), so a file descriptor is never closed under a pending write.
    */
   drainThen(fn: () => void): void;
+  /** `drainThen` as a promise: resolves once every line accepted so far is written or given up on. */
+  drained(): Promise<void>;
 }
 
 interface Target {
-  /** Starts an asynchronous write of `chunk`; calls back with success. */
-  writeAsync(chunk: string, done: (ok: boolean) => void): void;
+  /** Starts an asynchronous write of `chunk`; calls back with the error, or null when it is written. */
+  writeAsync(chunk: string, done: (error: unknown) => void): void;
   writeSync(chunk: string): boolean;
+}
+
+/** An append that fails with one of these is tried again; any other error drops the chunk. */
+const RETRIABLE = new Set(['EPERM', 'EBUSY', 'EACCES']);
+/** Tries for one chunk (and for a log rename): the first, then four more after waits of 5, 10, 20 and 40 ms. */
+export const APPEND_TRIES = 5;
+const backoffMs = (attempt: number): number => 5 * 2 ** attempt;
+const codeOf = (error: unknown): string | undefined => (typeof error === 'object' && error !== null ? (error as { code?: string }).code : undefined);
+
+function sleepSync(ms: number): void {
+  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Resolves when `work` does, or after `ms`, whichever is first, and leaves no timer behind. A stuck
+ * disk then delays a stop by `ms` once; it cannot hold it.
+ */
+export async function waitAtMost(ms: number, work: Promise<unknown>): Promise<void> {
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    await Promise.race([
+      work,
+      new Promise<void>((resolve) => {
+        timer = setTimeout(resolve, ms);
+      }),
+    ]);
+  } finally {
+    if (timer !== undefined) clearTimeout(timer);
+  }
 }
 
 function byteLength(text: string): number {
   return Buffer.byteLength(text, 'utf8');
+}
+
+interface Chunk {
+  readonly chunk: string;
+  readonly lines: number;
+  readonly bytes: number;
 }
 
 function createWriter(target: Target, initialSize: number, options: { readonly maxPendingBytes?: number; readonly rotate?: (size: number, incoming: number) => boolean }): LineWriter {
@@ -50,14 +92,74 @@ function createWriter(target: Target, initialSize: number, options: { readonly m
   let dropped = 0;
   let size = initialSize;
   let waiters: (() => void)[] = [];
+  /** The chunk being written, and the timer that tries it again while a transient failure is waited out. */
+  let held: Chunk | undefined;
+  let backoff: NodeJS.Timeout | undefined;
 
-  const takeChunk = (): { readonly chunk: string; readonly lines: number; readonly bytes: number } | undefined => {
+  const takeChunk = (): Chunk | undefined => {
     if (queue.length === 0) return undefined;
     const chunk = queue.join('');
     const taken = { chunk, lines: queue.length, bytes: queuedBytes };
     queue = [];
     queuedBytes = 0;
     return taken;
+  };
+
+  const release = (): void => {
+    const run = waiters;
+    waiters = [];
+    for (const fn of run) fn();
+  };
+
+  /** Writes a chunk now, synchronously, and counts it written or dropped. */
+  const writeNow = (taken: Chunk): void => {
+    if (target.writeSync(taken.chunk)) size += taken.bytes;
+    else dropped += taken.lines;
+  };
+
+  const flushNow = (): void => {
+    const taken = takeChunk();
+    if (taken === undefined) return;
+    if (options.rotate?.(size, taken.bytes) === true) size = 0;
+    writeNow(taken);
+  };
+
+  /** The chunk in flight is over: written, or given up on. Nothing else is written before this. */
+  const finish = (taken: Chunk, ok: boolean): void => {
+    held = undefined;
+    inFlight = false;
+    if (ok) size += taken.bytes;
+    else dropped += taken.lines;
+    if (waiters.length > 0) {
+      // A closing file: write the rest now, then let the closer go.
+      flushNow();
+      release();
+      return;
+    }
+    if (queue.length > 0) schedule();
+  };
+
+  /**
+   * One try of the chunk in flight. A transient error waits out a short back-off and tries the same
+   * chunk again, with `inFlight` still set, so lines queued meanwhile stay behind it.
+   */
+  const attempt = (taken: Chunk, tries: number): void => {
+    const settle = (error: unknown): void => {
+      if (error === null || error === undefined) return finish(taken, true);
+      if (tries + 1 < APPEND_TRIES && RETRIABLE.has(codeOf(error) ?? '')) {
+        backoff = setTimeout(() => {
+          backoff = undefined;
+          attempt(taken, tries + 1);
+        }, backoffMs(tries));
+        return;
+      }
+      finish(taken, false);
+    };
+    try {
+      target.writeAsync(taken.chunk, settle);
+    } catch (error) {
+      settle(error ?? new Error('write failed'));
+    }
   };
 
   const flush = (): void => {
@@ -67,20 +169,8 @@ function createWriter(target: Target, initialSize: number, options: { readonly m
     if (taken === undefined) return;
     if (options.rotate?.(size, taken.bytes) === true) size = 0;
     inFlight = true;
-    target.writeAsync(taken.chunk, (ok) => {
-      inFlight = false;
-      if (ok) size += taken.bytes;
-      else dropped += taken.lines;
-      if (waiters.length > 0) {
-        // A closing file: write the rest now, then let the closer go.
-        flushNow();
-        const run = waiters;
-        waiters = [];
-        for (const fn of run) fn();
-        return;
-      }
-      if (queue.length > 0) schedule();
-    });
+    held = taken;
+    attempt(taken, 0);
   };
 
   const schedule = (): void => {
@@ -89,12 +179,13 @@ function createWriter(target: Target, initialSize: number, options: { readonly m
     setImmediate(flush);
   };
 
-  const flushNow = (): void => {
-    const taken = takeChunk();
-    if (taken === undefined) return;
-    if (options.rotate?.(size, taken.bytes) === true) size = 0;
-    if (target.writeSync(taken.chunk)) size += taken.bytes;
-    else dropped += taken.lines;
+  const drainThen = (fn: () => void): void => {
+    if (!inFlight) {
+      flushNow();
+      fn();
+      return;
+    }
+    waiters.push(fn);
   };
 
   return {
@@ -110,16 +201,22 @@ function createWriter(target: Target, initialSize: number, options: { readonly m
       return true;
     },
     flushSync(): void {
-      flushNow();
-    },
-    drainThen(fn: () => void): void {
-      if (!inFlight) {
+      if (backoff !== undefined) {
+        // A chunk waiting out a failed write goes first, so the lines stay in order.
+        clearTimeout(backoff);
+        backoff = undefined;
+        const waiting = held;
+        held = undefined;
+        inFlight = false;
+        if (waiting !== undefined) writeNow(waiting);
         flushNow();
-        fn();
+        release();
         return;
       }
-      waiters.push(fn);
+      flushNow();
     },
+    drainThen,
+    drained: () => new Promise<void>((resolve) => drainThen(resolve)),
     dropped: () => dropped,
     size: () => size,
   };
@@ -138,16 +235,11 @@ export interface LogFs {
 
 const NODE_FS: LogFs = { appendFile, appendFileSync, rename, renameSync, statSync, unlink, unlinkSync };
 
-/** A rename onto an existing `.1` fails on Windows while a scanner or another handle holds it. */
-const RETRIABLE = new Set(['EPERM', 'EBUSY', 'EACCES']);
-/** Rename attempts before the old `.1` is replaced instead; the waits between are 5, 10, 20, 40 ms. */
+/**
+ * A rename onto an existing `.1` fails on Windows while a scanner or another handle holds it. The
+ * attempts before the old `.1` is replaced instead; the waits between are 5, 10, 20, 40 ms.
+ */
 export const ROTATE_RENAME_TRIES = 5;
-const backoffMs = (attempt: number): number => 5 * 2 ** attempt;
-const codeOf = (error: unknown): string | undefined => (typeof error === 'object' && error !== null ? (error as { code?: string }).code : undefined);
-
-function sleepSync(ms: number): void {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
-}
 
 /**
  * The sidecar log: appends to `path` (owner-only), and moves it to `<path>.1` once it would pass
@@ -171,7 +263,7 @@ export function pathLineWriter(path: string, rotateBytes: number, options: { rea
   const target: Target = {
     writeAsync(chunk, done) {
       const append = (): void => {
-        fs.appendFile(path, chunk, { mode: 0o600 }, (error) => done(error === null || error === undefined));
+        fs.appendFile(path, chunk, { mode: 0o600 }, done);
       };
       if (!rotatePending) return append();
       rotatePending = false;
@@ -223,8 +315,17 @@ export function pathLineWriter(path: string, rotateBytes: number, options: { rea
             }
           }
         }
-        fs.appendFileSync(path, chunk, { mode: 0o600 });
-        return true;
+        // Shutdown only (the log is never flushed synchronously on a request): a transient error is
+        // waited out here as the asynchronous append waits it out.
+        for (let n = 0; ; n += 1) {
+          try {
+            fs.appendFileSync(path, chunk, { mode: 0o600 });
+            return true;
+          } catch (error) {
+            if (n + 1 >= APPEND_TRIES || !RETRIABLE.has(codeOf(error) ?? '')) return false;
+            sleepSync(backoffMs(n));
+          }
+        }
       } catch {
         return false;
       }
@@ -242,20 +343,27 @@ export function pathLineWriter(path: string, rotateBytes: number, options: { rea
   });
 }
 
+/** The file-system calls the trace writer makes; a test replaces them to make a write fail. */
+export interface FdFs {
+  readonly write: typeof write;
+  readonly writeSync: typeof writeSync;
+}
+
 /** A trace file already opened (owner-only, O_APPEND, no symlink) by its caller. */
-export function fdLineWriter(fd: number, initialSize: number, options: { readonly maxPendingBytes?: number } = {}): LineWriter {
+export function fdLineWriter(fd: number, initialSize: number, options: { readonly maxPendingBytes?: number; readonly fs?: Partial<FdFs> } = {}): LineWriter {
+  const fs: FdFs = { write, writeSync, ...options.fs };
   const target: Target = {
     writeAsync(chunk, done) {
-      write(fd, chunk, (error) => done(error === null || error === undefined));
+      fs.write(fd, chunk, done);
     },
     writeSync(chunk) {
       try {
-        writeSync(fd, chunk);
+        fs.writeSync(fd, chunk);
         return true;
       } catch {
         return false;
       }
     },
   };
-  return createWriter(target, initialSize, options);
+  return createWriter(target, initialSize, options.maxPendingBytes !== undefined ? { maxPendingBytes: options.maxPendingBytes } : {});
 }

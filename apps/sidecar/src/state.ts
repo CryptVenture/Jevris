@@ -2286,7 +2286,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
           }
         }
       }
-      telemetry.close();
+      // The day's last trace lines are on disk when the stop returns (bounded: telemetry.close).
+      await telemetry.close();
       try {
         latency.flush();
       } catch {

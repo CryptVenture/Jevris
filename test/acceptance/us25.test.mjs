@@ -52,6 +52,18 @@ story('US25', async ({ then, sandbox, evidence }) => {
   const audit = box.jevris(['audit', 'export', auditPath, '--home', box.home]);
   const policy = box.jevris(['policy', 'check', '--would-send-source', '--home', box.home, '--workspace', box.work]);
   evidence({ read: read.stdout, proposal: proposal.stdout, prompt: prompt.stdout, authorize: authorize.code, tools, policy: policy.stdout });
+  // The sidecar writes its log asynchronously (a write that fails for a moment is tried again, a slow disk lands late), so a
+  // read right after the hooks can miss their lines. Wait, with a generous bound, until the three events are in the file.
+  const logPath = join(jevrisPaths({ home: box.home }).state, 'logs', 'sidecar.log');
+  const eventLines = (text) => text.trim().split('\n').filter((line) => line.includes('"event":"request"') && line.includes('"op":"event"'));
+  const readLog = () => {
+    try {
+      return readFileSync(logPath, 'utf8');
+    } catch {
+      return '';
+    }
+  };
+  for (let i = 0; i < 6_000 && eventLines(readLog()).length < 3; i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
 
   await then('No authorization receipt or trusted classifier context is created from that text', () => {
     for (const hook of [read, proposal, prompt]) {
@@ -66,10 +78,10 @@ story('US25', async ({ then, sandbox, evidence }) => {
     const rows = readFileSync(auditPath, 'utf8').trim().split('\n').filter(Boolean).map((line) => JSON.parse(line));
     assert.equal(rows.some((row) => /^authorization/.test(row.kind)), false, 'an authorization was minted');
     assert.equal(JSON.stringify(rows).includes('Authorization granted'), false);
-    const log = readFileSync(join(jevrisPaths({ home: box.home }).state, 'logs', 'sidecar.log'), 'utf8');
+    const log = readFileSync(logPath, 'utf8');
     assert.equal(log.includes('Authorization granted'), false, 'the claim text reached the sidecar log');
     // The events did reach the sidecar: the text was seen and still granted nothing.
-    const events = log.trim().split('\n').filter((line) => line.includes('"event":"request"') && line.includes('"op":"event"'));
+    const events = eventLines(log);
     assert.ok(events.length >= 3, `the hook events never reached the sidecar (${events.length})`);
   });
 

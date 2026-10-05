@@ -94,7 +94,19 @@ story('US27', async ({ then, sandbox, evidence }) => {
   evidence({ browser, guessed, unsigned, first, replayed, hookAdmin });
 
   const status = box.jevris(['sidecar', 'status', '--home', box.home], { json: true });
-  const logText = readFileSync(join(paths.state, 'logs', 'sidecar.log'), 'utf8');
+  // The sidecar writes its log asynchronously (a write that fails for a moment is tried again, a slow disk lands late), so a
+  // read right after the requests can miss their lines. Wait, with a generous bound, until the two rejects asserted below are in it.
+  const logPath = join(paths.state, 'logs', 'sidecar.log');
+  const rejected = () => {
+    try {
+      const text = readFileSync(logPath, 'utf8');
+      return ['BAD_MAC', 'REPLAYED'].every((code) => text.includes(`"event":"reject","reasonCode":"${code}"`));
+    } catch {
+      return false;
+    }
+  };
+  for (let i = 0; i < 6_000 && !rejected(); i += 1) await new Promise((resolve) => setTimeout(resolve, 10));
+  const logText = readFileSync(logPath, 'utf8');
   const log = logText.trim().split('\n').flatMap((line) => {
     try {
       return [JSON.parse(line)];

@@ -1,6 +1,6 @@
 import { createHmac, randomBytes } from 'node:crypto';
 import { closeSync, constants, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, renameSync, unlinkSync, writeSync } from 'node:fs';
-import { fdLineWriter, type LineWriter } from './line-writer.js';
+import { fdLineWriter, waitAtMost, type LineWriter } from './line-writer.js';
 import { join } from 'node:path';
 import type { SidecarTraceEvent } from '@jevris/contracts';
 import { readSharedFileSync } from '@jevris/platform';
@@ -9,7 +9,9 @@ import { readSharedFileSync } from '@jevris/platform';
  * Local observability for the sidecar (SSOT §17.5; OBS-01, OBS-02, OBS-03).
  *
  * - Traces: one JSON line per step, from a request's receipt to its outcome, in
- *   `<state>/traces/trace-<UTC date>.jsonl` (owner-only, 16 MiB a day, 7 days kept). A line holds
+ *   `<state>/traces/trace-<UTC date>.jsonl` (owner-only, 16 MiB a day, 7 days kept). Lines are queued
+ *   and written asynchronously (line-writer.ts): a write that fails with EPERM, EBUSY or EACCES is
+ *   tried again, and `close()` resolves only once the last line is on disk. A line holds
  *   only bounded codes: event and op names, the client kind, the request id, reason codes,
  *   Jevris decision ids, durations and counts. Workspace, task, session and delivery ids are
  *   keyed HMACs (a private per-home key), stable across restarts and meaningless elsewhere.
@@ -33,6 +35,8 @@ export const TRACE_FILE_MAX_BYTES = 16 * 1024 * 1024;
 export const TRACE_RETENTION_DAYS = 7;
 export const DIAGNOSTIC_DEFAULT_MS = 15 * 60_000;
 export const DIAGNOSTIC_MAX_MS = 60 * 60_000;
+/** The most `close()` waits for the day's last write to land: a stuck disk delays a stop once, no longer. */
+export const TRACE_CLOSE_WAIT_MS = 5000;
 /** A status-line file older than this, from a sidecar that no longer runs, reads as not running. */
 export const STATUSLINE_STALE_MS = 90_000;
 /** Latency histogram upper bounds in milliseconds; the last bucket is everything slower. */
@@ -104,7 +108,12 @@ export interface Telemetry {
   /** Lines not written because the day's file reached its cap or the disk refused. */
   dropped(): number;
   readonly traceDir: string;
-  close(): void;
+  /**
+   * Writes what is queued and closes the day's file. Resolves once the write in flight has landed
+   * (a transient failure retried), or after `TRACE_CLOSE_WAIT_MS`: a stop that awaits it leaves
+   * every line it accepted in the file.
+   */
+  close(): Promise<void>;
 }
 
 export interface TelemetryInput {
@@ -242,27 +251,37 @@ export function openTelemetry(input: TelemetryInput): Telemetry {
   /** P7: the open day's lines are queued and written asynchronously. */
   let writer: LineWriter | undefined;
 
+  /** Writers whose file is closed but whose last write has not landed yet; their drops still count. */
+  const draining = new Set<LineWriter>();
+  let droppedByClosed = 0;
+
   /** Closes the day's file once its queued lines are written (never under a pending write). */
-  function closeDay(): void {
+  function closeDay(): Promise<void> {
     const handle = fd;
     const closing = writer;
     fd = undefined;
     writer = undefined;
-    if (handle === undefined) return;
-    const shut = (): void => {
-      try {
-        closeSync(handle);
-      } catch {
-        // already closed
+    if (handle === undefined) return Promise.resolve();
+    return new Promise<void>((resolve) => {
+      const shut = (): void => {
+        try {
+          closeSync(handle);
+        } catch {
+          // already closed
+        }
+        if (closing !== undefined) {
+          droppedByClosed += closing.dropped();
+          draining.delete(closing);
+        }
+        resolve();
+      };
+      if (closing === undefined) shut();
+      else {
+        draining.add(closing);
+        closing.drainThen(shut);
       }
-    };
-    if (closing === undefined) shut();
-    else {
-      droppedByClosed += closing.dropped();
-      closing.drainThen(shut);
-    }
+    });
   }
-  let droppedByClosed = 0;
   let diagnosticCache: { state: DiagnosticState; readAtMs: number } | undefined;
 
   function opaqueId(kind: 'ws' | 'task' | 'session' | 'delivery', value: string): string {
@@ -413,9 +432,9 @@ export function openTelemetry(input: TelemetryInput): Telemetry {
       return diagnosticCache.state;
     },
     opaqueId,
-    dropped: () => droppedLines + droppedByClosed + (writer?.dropped() ?? 0),
+    dropped: () => droppedLines + droppedByClosed + [...draining].reduce((sum, w) => sum + w.dropped(), 0) + (writer?.dropped() ?? 0),
     close() {
-      closeDay();
+      return waitAtMost(TRACE_CLOSE_WAIT_MS, closeDay());
     },
   };
 }
