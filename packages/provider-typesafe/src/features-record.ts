@@ -8,7 +8,13 @@
  * null is accepted anywhere: none can carry text. Anything else is a violation, named by its path and never by its value.
  *
  * `recordViolations` is what the suite's own tests and the script run over the record before it is written, so a new field has to be listed here, with
- * its shape, to be written at all.
+ * its shape, to be written at all. The keys of a map count too: a key (a status, a reason code, a detail name) is accepted only as a code, never as a phrase.
+ *
+ * A run that stops early still writes its record (JEV-0072), so every field a stop can fill is listed, whichever way the run stopped: `spent.halted` and
+ * `engine.halted` (a reason code: `CALL_CAP`, `SPEND_CAP`, `HTTP_401`, `HTTP_402`, `HTTP_403`, `HTTP_429_STORM`, or the code of the suite's own abort),
+ * `engine.skipped[]` (the case ids the stop left unrun), `engine.failures[]` and `failures[]` (`HALTED_<code>` and the other failure codes) and, in a row a
+ * refused call fell back in, `reasonCode`, `failureKind`, `got` and `detail`. `RECORD_STRING_PATHS` is the list of exact paths, and the test of this module
+ * keeps it in step with a record that holds a value at every one of them.
  */
 
 export interface RecordCheckOptions {
@@ -27,6 +33,8 @@ const SPEC_ID = /^[a-z][a-z0-9-]{0,63}$/;
 const QUESTION_ID = /^[A-Za-z][A-Za-z0-9_-]{0,39}$/;
 /** What a capability case's summary calls its reason: a reason code, or the readiness label of the verify op (`not-verified`). */
 const SUMMARY_REASON = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
+/** Why a run stopped early: a reason code (`CALL_CAP`, `SPEND_CAP`, `HTTP_401`, `HTTP_429_STORM`, or the code the suite aborted with). */
+const HALT = REASON;
 const DECISION_ID = /^d-[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/;
 /** The `verb` of an advice or of an op (`rank`, `pause`, `checkpoint`, `handoff.export`, `ask-focused-question`). */
 const VERB = /^[a-z][a-z0-9.-]{0,40}$/;
@@ -53,13 +61,15 @@ const EXACT: ReadonlyMap<string, Rule> = new Map<string, Rule>([
   ['version', matches(/^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,40})?$/)],
   ['commit', matches(/^[0-9a-f]{40}$/)],
   ['failures[]', matches(REASON)],
+  // Why the run stopped early (JEV-0072): the meter's halt code, the same one the engine part holds.
+  ['spent.halted', matches(HALT)],
   ['environment.os', matches(/^[a-z0-9_]{1,16}$/)],
   ['environment.arch', matches(/^[a-z0-9_]{1,16}$/)],
   ['environment.node', matches(/^v\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,20})?$/)],
   // The engine groups.
   ['engine.schemaVersion', oneOf('jev-features-suite-1')],
   ['engine.pinnedModel', matches(/^jev-\d+\.\d+\.\d+$/)],
-  ['engine.halted', matches(REASON)],
+  ['engine.halted', matches(HALT)],
   ['engine.failures[]', matches(REASON)],
   ['engine.skipped[]', matches(CODE_LIST)],
   ['engine.groups[].group', oneOf(...GROUPS)],
@@ -94,6 +104,12 @@ const EXACT: ReadonlyMap<string, Rule> = new Map<string, Rule>([
   ['capabilities.rows[].answerProbabilities[].type', oneOf('choice', 'score', 'noul')],
 ]);
 
+/** Every exact path a string is accepted at, with `[]` for a list; the paths with a free part (`PATTERNS`) and the case title are not in it. */
+export const RECORD_STRING_PATHS: readonly string[] = [...EXACT.keys(), 'capabilities.rows[].title'];
+
+/** A key of a map in the record (a status, a reason code, a detail name): a code, so no phrase, path or command can be one. */
+const KEY = /^[A-Za-z0-9_.:+-]{1,80}$/;
+
 /** Paths with a free part: any key under the engine rows' `detail` holds a code or a list of codes. */
 const PATTERNS: readonly (readonly [RegExp, Rule])[] = [
   [/^engine\.rows\[\]\.detail\.[A-Za-z0-9_]{1,40}$/, matches(CODE_LIST)],
@@ -106,17 +122,20 @@ const PATTERNS: readonly (readonly [RegExp, Rule])[] = [
 ];
 
 /** The path of a value in `a.b[].c` form: arrays are `[]`, so every element of a list is judged by the one rule. */
-function walk(value: unknown, path: string, visit: (path: string, text: string) => void): void {
+function walk(value: unknown, path: string, visit: (path: string, text: string) => void, visitKey: (path: string, key: string) => void): void {
   if (typeof value === 'string') {
     visit(path, value);
     return;
   }
   if (Array.isArray(value)) {
-    for (const item of value) walk(item, `${path}[]`, visit);
+    for (const item of value) walk(item, `${path}[]`, visit, visitKey);
     return;
   }
   if (value !== null && typeof value === 'object') {
-    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) walk(inner, path === '' ? key : `${path}.${key}`, visit);
+    for (const [key, inner] of Object.entries(value as Record<string, unknown>)) {
+      visitKey(path, key);
+      walk(inner, path === '' ? key : `${path}.${key}`, visit, visitKey);
+    }
   }
 }
 
@@ -127,6 +146,9 @@ function walk(value: unknown, path: string, visit: (path: string, text: string) 
 export function recordViolations(record: unknown, options: RecordCheckOptions = {}): readonly string[] {
   const titles = options.titles === undefined ? null : new Set(options.titles);
   const out: string[] = [];
+  const keyViolation = (path: string, key: string): void => {
+    if (out.length < 64 && !KEY.test(key)) out.push(`${path === '' ? '(top level)' : path}: a key that is not a code (${String(key.length)} characters)`);
+  };
   walk(record, '', (path, text) => {
     if (out.length >= 64) return;
     if (path === 'capabilities.rows[].title') {
@@ -144,6 +166,6 @@ export function recordViolations(record: unknown, options: RecordCheckOptions = 
       return;
     }
     out.push(`${path}: a string where the record holds numbers and codes (${String(text.length)} characters); list the field in features-record.ts only if it is a code`);
-  });
+  }, keyViolation);
   return out;
 }

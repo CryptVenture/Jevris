@@ -35,7 +35,7 @@
  * Safety. The key is read only through the product's resolver, in this process for the engine groups
  * and by the sidecar itself for the sidecar parts; it is never printed, logged, put in argv or in the
  * record. Everything runs in a temporary home: the real ~/.jevris is never read or written. The run
- * stops at the first 401, 402 or 403, or three 429s in a row, or at a cap. The record holds numbers
+ * stops at the first 401, 402 or 403, or three 429s in a row, or at a cap, and still writes the record of what ran (`spent.halted` names why). The record holds numbers
  * and codes only: `recordViolations` (packages/provider-typesafe/src/features-record.ts) checks every
  * string in it against the field's allow-list before it is written, so free text (a recommendation that
  * names a module path, an error message) cannot reach it.
@@ -296,7 +296,7 @@ try {
 
   // ----------------------------------------------------------------------------------------------- the record
   const totals = meter.totals();
-  record.spent = { engineCalls: totals.calls, engineMicroUsd: totals.costMicroUsd, engineInputTokens: totals.inputTokens, engineOutputTokens: totals.outputTokens, statuses: totals.statuses, sidecarMicroUsd: needsSidecar ? sidecarSpent : null, halted: meter.halted };
+  record.spent = provider.spentRecord(meter, needsSidecar ? sidecarSpent : null);
   const failures = [...(record.engine?.failures ?? [])];
   if (record.capabilities !== undefined) {
     // A case that needs source egress sends nothing while it is denied (that is the rule), and must ask once it is approved.

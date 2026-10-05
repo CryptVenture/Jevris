@@ -256,6 +256,24 @@ export function createCallMeter(inner: FetchLike, limits: MeterLimits, now: () =
   };
 }
 
+/**
+ * The `spent` part of the suite's evidence record: the engine groups' calls, spend and tokens from the meter, the sidecar parts' spend (null when no
+ * sidecar part ran) and why the run stopped early (`CALL_CAP`, `SPEND_CAP`, `HTTP_401`, `HTTP_402`, `HTTP_403`, `HTTP_429_STORM`, or a code the suite
+ * halted with), or null. Numbers and one code: `spent.halted` is listed in features-record.ts, so a run a cap or a status stopped still writes its record.
+ */
+export function spentRecord(meter: CallMeter, sidecarMicroUsd: number | null): {
+  readonly engineCalls: number;
+  readonly engineMicroUsd: number;
+  readonly engineInputTokens: number;
+  readonly engineOutputTokens: number;
+  readonly statuses: Readonly<Record<string, number>>;
+  readonly sidecarMicroUsd: number | null;
+  readonly halted: string | null;
+} {
+  const totals = meter.totals();
+  return { engineCalls: totals.calls, engineMicroUsd: totals.costMicroUsd, engineInputTokens: totals.inputTokens, engineOutputTokens: totals.outputTokens, statuses: totals.statuses, sidecarMicroUsd, halted: meter.halted };
+}
+
 /** The percentile of a list of numbers by nearest rank (null for an empty list). */
 export function percentileOf(values: readonly number[], p: number): number | null {
   if (values.length === 0) return null;

@@ -112,12 +112,21 @@ function routeBody(task) {
   return { currentModel: 'claude-opus-5', modelPin: null, effortPin: null, taskId: null, sliceId: null, task: { title: task.title, paths: task.paths, checkIds: task.checkIds } };
 }
 
+/**
+ * A refused or failed op in the record by code, never as a message: its reason code, else its short `reason` word upper-cased (`unavailable` is
+ * `UNAVAILABLE`), else `FAILED`. The record is numbers and codes only (features-record.ts), and a free-text reason would refuse the write.
+ */
+function failureCode(res) {
+  for (const candidate of [res.reasonCode, res.reason]) if (typeof candidate === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,62}$/.test(candidate)) return candidate.toUpperCase();
+  return 'FAILED';
+}
+
 async function routeOnce(sidecar, { home, work }, task, phase, i) {
   const started = performance.now();
   const res = await sidecar.sidecarRequest({ home, op: 'route', scope: 'cli', workspace: work, body: routeBody(task), budget: 'hot', timeoutMs: HOT_BUDGET_MS });
   const elapsedMs = Math.round(performance.now() - started);
   const slice = res.ok ? res.result?.slice : undefined;
-  const reasonCode = res.ok ? (slice?.reasonCode ?? 'NO_SLICE') : String(res.reasonCode ?? res.reason ?? 'FAILED');
+  const reasonCode = res.ok ? (slice?.reasonCode ?? 'NO_SLICE') : failureCode(res);
   return {
     op: 'route',
     phase,
@@ -152,7 +161,7 @@ async function planOnce(sidecar, { home, work }, tasks, phase, i) {
     i,
     ok: res.ok,
     elapsedMs,
-    reasonCode: res.ok ? (reasons.find((c) => /DEADLINE|CAP|NO_TIME/.test(c)) ?? reasons.find((c) => c.startsWith('SLICE_JEV')) ?? reasons[0] ?? 'NO_SUGGESTIONS') : String(res.reasonCode ?? res.reason ?? 'FAILED'),
+    reasonCode: res.ok ? (reasons.find((c) => /DEADLINE|CAP|NO_TIME/.test(c)) ?? reasons.find((c) => c.startsWith('SLICE_JEV')) ?? reasons[0] ?? 'NO_SUGGESTIONS') : failureCode(res),
     source: fromJev > 0 ? 'jev' : 'rules',
     asked: list.some((s) => s.confidencePercent !== null),
     cacheHit: null,
