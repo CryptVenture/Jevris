@@ -15,6 +15,7 @@ import { createDeadline, isAbsoluteOnAnyPlatform, monotonicClock, type JevrisPat
 import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, firstTryOf, firstTryStatusView, firstTryWorkspaceOf, jevAssistOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified } from '@jevris/orchestrator';
 import { BUILTIN_OP_NAMES, bodyRecord, ok, refuse, type LoadedOps } from './ops.js';
 import { ANSWER_EVENT_KINDS, PROTOCOL, jevrisPackage, loadedRuntimeBuild } from './protocol.js';
+import { renderedSubscribers } from './outcome-rank.js';
 import { resolveRetention } from './retention-policy.js';
 import { sweepFileRetention } from './file-retention.js';
 import { adminOps } from './admin-ops.js';
@@ -2056,6 +2057,14 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     const results: Record<string, unknown> = {};
     /** Subscribers that missed their slice: their proposal, if any, was not waited for. */
     const queued: string[] = [];
+    /**
+     * A subscriber's consuming effect, handed over by `holdCommit` (a waiting advice line taken off its queue), for the
+     * subscribers whose answer was used in time. Run below, after every subscriber has answered, only for an answer
+     * the launcher will render: it renders the strongest outcome of all of them, so a line outranked by a certified
+     * context is not taken and stays held for the session's next event.
+     */
+    const held = new Map<string, () => boolean>();
+    const answered = new Set<string>();
     // Decisions a subscriber makes for this event carry its session id, so explain can join
     // the decision to the session's requested and actual model (US12).
     const sessionCtx: SidecarOpContext = session === undefined ? ctx : { ...ctx, engine: engineForSession(ctx.engine, session.sessionId) };
@@ -2085,8 +2094,15 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     const startMeasured = (subscriber: (typeof subscribers)[number], signal: AbortSignal): Promise<unknown> => {
       const began = monotonicClock.now();
       let running: Promise<unknown>;
+      const heldContext: SidecarOpContext & { readonly holdCommit: (commit: () => boolean) => void } = {
+        ...subscriberCtx,
+        signal,
+        holdCommit: (commit) => {
+          held.set(subscriber.name, commit);
+        },
+      };
       try {
-        running = Promise.resolve(subscriber.handle({ ...subscriberCtx, signal }));
+        running = Promise.resolve(subscriber.handle(heldContext));
       } catch (error) {
         running = Promise.reject(error);
       }
@@ -2145,6 +2161,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
           executor.hold(keyOf(subscriber), subscriber.name, tail);
         } else {
           results[subscriber.name] = winner.value ?? null;
+          answered.add(subscriber.name);
         }
       } catch {
         results[subscriber.name] = { error: 'SUBSCRIBER_FAILED' };
@@ -2193,6 +2210,23 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
         if (record === undefined || outcome?.['kind'] !== 'route') continue;
         results[name] = { ...record, hookOutcome: { kind: 'observe' }, certified: false, reasonCode: 'MODE_DOES_NOT_ACTUATE' };
         ctx.trace({ event: 'route-withheld', subscriber: name, reasonCode: 'MODE_DOES_NOT_ACTUATE' });
+      }
+    }
+    // The held consuming effects, last and synchronously: nothing asynchronous follows, so an effect that ran is one
+    // whose answer is used. An answer the launcher will drop for a stronger outcome, or one the request no longer
+    // wants, takes nothing: what it would have shown stays held for the next event.
+    if (held.size > 0) {
+      const rendered = renderedSubscribers(results);
+      for (const [name, commit] of held) {
+        if (!answered.has(name) || (ctx.signal as { readonly aborted?: boolean }).aborted === true) continue;
+        let reasonCode: string | null = null;
+        if (!rendered.has(name)) reasonCode = 'OUTRANKED';
+        else if (!commitTook(commit)) reasonCode = 'ALREADY_SHOWN';
+        if (reasonCode === null) continue;
+        const record = plainRecord(results[name]);
+        if (record === undefined) continue;
+        results[name] = { ...record, hookOutcome: { kind: 'observe' }, certified: false, reasonCode, ...(Array.isArray(record['decisionIds']) ? { decisionIds: [] } : {}) };
+        ctx.trace({ event: 'pending-advice-withheld', subscriber: name, reasonCode });
       }
     }
     return { recorded: true, duplicate: false, deliveryKey, results, ...(queued.length > 0 ? { queued: queued.sort() } : {}) };
@@ -2505,6 +2539,15 @@ interface EventSession {
 
 function label(value: unknown): string | null {
   return typeof value === 'string' && SESSION_LABEL.test(value) ? value : null;
+}
+
+/** Runs a held consuming effect; false when it took nothing (already taken) or threw, so the answer is not shown. */
+function commitTook(commit: () => boolean): boolean {
+  try {
+    return commit();
+  } catch {
+    return false;
+  }
 }
 
 function plainRecord(value: unknown): Record<string, unknown> | undefined {

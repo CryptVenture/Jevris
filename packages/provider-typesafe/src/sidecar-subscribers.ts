@@ -169,6 +169,19 @@ export const cliCertificationSource: CertificationSource = {
   },
 };
 
+/**
+ * What the sidecar's `event` op adds to the context of each subscriber it calls. A subscriber whose
+ * answer takes something off a queue (a waiting advice line) calls `holdCommit` with that take instead
+ * of running it. The sidecar runs it once every subscriber has answered, only when this subscriber's
+ * answer is among what the launcher renders and its request is still wanted, and replaces the
+ * answer with an `observe` when the take fails (the line was shown meanwhile). Otherwise the line
+ * stays queued, with its expiry, for the session's next event. Absent in a direct call, where the
+ * take runs at once, as before.
+ */
+export interface HoldsCommit {
+  readonly holdCommit?: (commit: () => boolean) => void;
+}
+
 export interface SubscriberOptions {
   readonly handlers?: Partial<Record<TriggerKind, readonly TriggerHandler[]>>;
   readonly certifications?: CertificationSource;
@@ -353,7 +366,13 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
     // still wanted: nothing asynchronous follows, so a committed effect is one whose answer is used.
     if (winner?.commit !== undefined) {
       if ((ctx.signal as { readonly aborted?: boolean }).aborted === true) return observe('ANSWER_NOT_WANTED', trigger);
-      if (!winner.commit()) return observe('ALREADY_SHOWN', trigger);
+      // Run under the sidecar's event op, the take is handed over instead: the other subscribers answer on their own,
+      // and the launcher renders only the strongest outcome among all of them (a certified context, such as the
+      // orientation line, beats an explain), so whether this answer is the one shown is known only when every
+      // subscriber has answered. The sidecar takes the line then, or leaves it held for the next event.
+      const hold = (ctx as SidecarOpContext & HoldsCommit).holdCommit;
+      if (hold !== undefined) hold(winner.commit);
+      else if (!winner.commit()) return observe('ALREADY_SHOWN', trigger);
     }
     return best;
   }
