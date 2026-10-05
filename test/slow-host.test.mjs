@@ -277,8 +277,11 @@ test('the preload waits on writes under the run\'s temp folder, never outside it
   const outside = temp(t);
   const { out, log } = inKit(t, options, TIME_WRITE, { env: { OUTSIDE: outside } });
   assert.ok(out.inside >= 80, `a write under the temp folder waited (${out.inside} ms)`);
-  assert.ok(out.other < 60, `a write outside it did not (${out.other} ms)`);
   assert.ok(faultTotals(log).fsOps >= 1, 'the slowed operation is counted in the kit\'s log');
+  // A write outside the folder is not slowed. That is read from the kit's own count of the operations it slowed, not from a stopwatch: a plain write
+  // can take any time on a loaded host, and a bound on it would fail this test on the loaded host it exists for.
+  const alone = inKit(t, options, TIME_WRITE);
+  assert.equal(faultTotals(log).fsOps, faultTotals(alone.log).fsOps, 'the same run with a write outside the folder slowed no more operations than the run without it');
   // A run's HOME is a temporary home INSIDE its temporary folder: that is where the faults belong, so the HOME variable never turns the scope off.
   const inside = inKit(t, options, TIME_WRITE.replace("path.join(process.argv[2], 'a.txt')", "path.join(process.env.HOME, 'a.txt')"), { home: 'work/h' });
   assert.ok(inside.out.inside >= 80, `a write under a temporary home inside the temp folder waited (${inside.out.inside} ms)`);
@@ -286,11 +289,18 @@ test('the preload waits on writes under the run\'s temp folder, never outside it
   const dir = temp(t);
   const realHome = join(dir, 'real-home');
   mkdirSync(join(realHome, 'tmp'), { recursive: true });
-  for (const [tmpRoot, label] of [[dir, 'a temp folder that holds the real home'], [realHome, 'a temp folder that is the real home'], [join(realHome, 'tmp'), 'a temp folder inside the real home']]) {
-    const kit = writeKit(join(dir, `kit-${label.length}`), options, { pathValue: '', realHome });
+  // Read from the kit's count of the operations it slowed (no stopwatch, which a loaded host would fail), with a control: the same command in a
+  // folder that is in scope is slowed and counted, so a count of none means the folder was out of scope and not that the log is silent for `node -e`.
+  const slowedBy = (tmpRoot, name) => {
+    const kit = writeKit(join(dir, name), options, { pathValue: '', realHome });
     const run = spawnSync(process.execPath, ['-e', TIME_WRITE.replace('process.argv[2]', 'process.env.TMPDIR')], { cwd: root, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', TMPDIR: tmpRoot, NODE_OPTIONS: `--require=${kit.enable}` } });
     assert.equal(run.status, 0, run.stderr);
-    assert.ok(JSON.parse(run.stdout).inside < 60, `${label}: no delay (${run.stdout})`);
+    return faultTotals(existsSync(kit.log) ? readFileSync(kit.log, 'utf8') : '').fsOps;
+  };
+  const elsewhere = temp(t);
+  assert.ok(slowedBy(elsewhere, 'kit-control') >= 1, 'control: a write in a temp folder that is in scope is slowed and counted');
+  for (const [tmpRoot, label] of [[dir, 'a temp folder that holds the real home'], [realHome, 'a temp folder that is the real home'], [join(realHome, 'tmp'), 'a temp folder inside the real home']]) {
+    assert.equal(slowedBy(tmpRoot, `kit-${label.length}`), 0, `${label}: nothing is slowed`);
   }
 });
 
@@ -343,7 +353,7 @@ test('a COMMIT of better-sqlite3 waits while its transaction holds the lock, and
   ].join('\n');
   const { out, log } = inKit(t, quietOptions('--sqlite-delay', '80'), script);
   assert.ok(out.commit >= 70, `the commit waited (${out.commit} ms)`);
-  assert.ok(out.plain < 60, `an insert outside a transaction did not (${out.plain} ms)`);
+  // The plain insert is not slowed: the kit counted one commit and only that one (read from its count, not a stopwatch on the insert, which a loaded host would fail).
   assert.equal(faultTotals(log).sqliteCommits, 1);
 });
 
