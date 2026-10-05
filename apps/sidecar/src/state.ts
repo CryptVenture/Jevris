@@ -64,6 +64,8 @@ const STATUS_MODEL_ID = new RegExp(MODEL_ID_PATTERN);
 const ACTIVE_WORKERS_MAX = 64;
 /** An owned task is at work while it is leased or running (session.link's "active" too). */
 const ACTIVE_TASK_STATES = ['leased', 'running'] as const;
+/** An owned task is queued while it waits for a lease or a prerequisite: the states the queue drain starts from (JEV-0008, JEV-0069). */
+const QUEUED_TASK_STATES = ['validated', 'ready'] as const;
 
 /**
  * The effective settings for a request's workspace: D's one resolver (`readEffectiveConfig`:
@@ -1176,13 +1178,13 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
    * stored row and the latest receipts only), and P6's reminder counts. Each is null for the
    * global workspace or on any failure.
    */
-  function workspaceStatusOf(ctx: SidecarOpContext): { stopReport: unknown; reminders: unknown; activeWorkers: string[] } {
-    if (ctx.workspace.root === null || ctx.workspace.id === 'global') return { stopReport: null, reminders: null, activeWorkers: [] };
+  function workspaceStatusOf(ctx: SidecarOpContext): { stopReport: unknown; reminders: unknown; activeWorkers: string[]; queuedTasks: number | null } {
+    if (ctx.workspace.root === null || ctx.workspace.id === 'global') return { stopReport: null, reminders: null, activeWorkers: [], queuedTasks: null };
     let ws: ReturnType<typeof openWorkspace>;
     try {
       ws = openWorkspace({ home: ctx.home, workspaceRoot: ctx.workspace.root, ...(WORKSPACE_ID.test(ctx.workspace.id) ? { workspaceId: ctx.workspace.id } : {}), store: ctx.store });
     } catch {
-      return { stopReport: null, reminders: null, activeWorkers: [] };
+      return { stopReport: null, reminders: null, activeWorkers: [], queuedTasks: null };
     }
     // The workspace's owned workers at work: its tasks leased or running in D's ledger (the same
     // "active" as session.link's taskState), by task id, at most the contract's 64.
@@ -1194,6 +1196,14 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
         .slice(0, ACTIVE_WORKERS_MAX);
     } catch {
       activeWorkers = [];
+    }
+    // JEV-0069: the tasks waiting for a lease or a prerequisite (what a worker's end hands a slot to). A task is never in
+    // both lists: it moves from ready to leased in the same transaction that grants its lease.
+    let queuedTasks: number | null = null;
+    try {
+      queuedTasks = listTasks(ws, { states: QUEUED_TASK_STATES }).length;
+    } catch {
+      queuedTasks = null;
     }
     let stopReport: unknown = null;
     try {
@@ -1208,7 +1218,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     } catch {
       reminders = null;
     }
-    return { stopReport, reminders, activeWorkers };
+    return { stopReport, reminders, activeWorkers, queuedTasks };
   }
 
   /**
@@ -1282,6 +1292,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       // Owner decision 2026-10-01 (Jev as an active decision aid): whether Jev classifies a route request's task slice.
       ['jevAssist', settings === undefined ? 'classify' : jevAssistOf(settings.config)],
       ['queue', queueStatus()],
+      // JEV-0069: the queued owned tasks, so a client can tell the queue is idle (0 here and no active worker).
+      ['queuedTasks', workspaceView.queuedTasks],
       // Owner 9d6a66d: whether an administrator's registry override is active, or refused (then
       // routing is unavailable, with this reason code).
       ['modelRegistry', modelRegistryStatus()],

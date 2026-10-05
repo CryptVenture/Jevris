@@ -498,6 +498,8 @@ function body(result: SurfaceResult): string[] {
         line('model pin', p.routing.modelPin),
         line('routing pinned', p.routing.pinned ? 'yes' : 'no'),
         list('active workers', p.activeWorkers),
+        // JEV-0069: the queued tasks, so "none" above while work waits (the hand-over between two workers) cannot read as idle.
+        ...(p.queuedTasks === undefined || p.queuedTasks === null ? [] : [line('queued tasks', p.queuedTasks)]),
         line('budget', p.budget.state),
         ...(p.testWorkerPort === undefined || p.testWorkerPort === null ? [] : [p.testWorkerPort]),
       ];

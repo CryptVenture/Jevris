@@ -51,7 +51,7 @@ export const TOOLS: readonly ToolSpec[] = [
     op: 'status',
     title: 'Jevris status',
     description:
-      'Current Jevris mode, sidecar state, decision health, model pin, active workers, budget and kill switch for this workspace. Read-only.',
+      'Current Jevris mode, sidecar state, decision health, model pin, active workers, queued tasks, budget and kill switch for this workspace. Read-only.',
     inputSchema: input({}),
     effect: 'read',
   },

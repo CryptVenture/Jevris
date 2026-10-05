@@ -279,6 +279,14 @@ export const StatusPayloadSchema = S.object(
      * refused with the reason. Absent or null otherwise; owned workers then use the Agent SDK.
      */
     testWorkerPort: S.nullable(ShortText),
+    /**
+     * JEV-0069: how many of this workspace's accepted tasks are queued: in state `ready` or `validated`, waiting for a
+     * lease (a free slot, budget or a resource) or for a prerequisite to be verified. `activeWorkers` lists only the
+     * tasks leased or running, so between one worker ending and the next queued task being leased it reads none while
+     * work still waits: the queue is idle only when this is 0 and `activeWorkers` is empty. Absent or null when the
+     * workspace is unknown or its tasks cannot be read.
+     */
+    queuedTasks: S.nullable(Count),
     /** The last unverified stop report for the workspace; absent or null when there is none. */
     stopReport: S.nullable(StopReportSchema),
     /**
