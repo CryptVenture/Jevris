@@ -16,7 +16,12 @@ import { ADVISE_CAPABILITY_IDS, DELIVERY_REPORTS } from '@jevris/contracts';
  *  - `dormant`: the code exists and is tested, but no hook, op, command or tool supplies what it needs, so it never runs;
  *  - `not-asked`: a question is defined and nothing asks it.
  * `egress`: `features` (counts, categories and codes only: allowed with egress denied) or `text` (the question carries
- * workspace text: asked only with source egress approved, by the administrator and by the person's own preference).
+ * workspace text or is about it, a query, a span, a diff, a requirement, a name or an id a person gave: asked only with source
+ * egress approved, by the administrator and by the person's own preference). With egress denied the packet builder withholds
+ * evidence text and sends a salted hash and a length, which Jev cannot judge, so a `text` capability's consult sets
+ * `sendsWorkspaceText` and is not asked: the rules answer, no request, no decision. A `features` entry holds everything its
+ * question needs in `facts`, so the evidence it also carries (withheld) adds nothing. `jev-feature-egress.test.mjs` checks the
+ * field against the feature cases, which run each capability with egress denied and approved.
  * `entry`: where in the product it is reached (a hook event, an op, a command or a tool), named so a reader can find it.
  */
 export type InventoryWiring = 'hot' | 'detached' | 'on-demand' | 'dormant' | 'not-asked';
@@ -78,23 +83,23 @@ export const FEATURE_INVENTORY: readonly InventoryEntry[] = [
   capability('C37', 'Noul', 'capabilities/retrieval.ts', 'argument preflight', 'text'),
   capability('C38', 'Choice', 'capabilities/retrieval.ts', 'environment triage of a recorded output', 'text'),
   capability('C40', 'Score', 'capabilities/research.ts', 'visual finding severity', 'text'),
-  capability('C41', 'Score per optional check', 'capabilities/verification.ts', 'test-impact ranking'),
+  capability('C41', 'Score per optional check', 'capabilities/verification.ts', 'test-impact ranking; the test names, changed files and symbols are the evidence', 'text'),
   capability('C42', 'Choice', 'capabilities/verification.ts', 'failure-cluster ranking; option texts quote failure lines', 'text'),
   capability('C43', 'Score per patch', 'capabilities/verification.ts', 'patch ranking', 'text'),
   capability('C44', 'Score per area', 'capabilities/verification.ts', 'review-area ranking'),
   capability('C45', 'Noul per requirement', 'capabilities/verification.ts', 'requirements audit', 'text'),
   capability('C46', 'Choice', 'capabilities/verification.ts', 'flaky-test advice'),
   capability('C47', 'Noul', 'capabilities/verification.ts', 'security escalation'),
-  capability('C57', 'Score', 'capabilities/delivery.ts', 'PR readiness; asked only when every other readiness fact holds'),
+  capability('C57', 'Score', 'capabilities/delivery.ts', 'PR readiness; asked only when every other readiness fact holds; the changed file names are the evidence', 'text'),
   capability('C58', 'Choice', 'capabilities/delivery.ts', 'CI failure triage', 'text'),
   capability('C59', 'Score per dependency upgrade', 'capabilities/delivery.ts', 'dependency-upgrade risk; the package name goes out only with egress approved'),
   capability('C60', 'Noul', 'capabilities/delivery.ts', 'migration rehearsal', 'text'),
   capability('C61', 'Score', 'capabilities/delivery.ts', 'documentation drift', 'text'),
-  capability('C62', 'Score', 'capabilities/research.ts', 'release evidence risk'),
+  capability('C62', 'Score', 'capabilities/research.ts', 'release evidence risk; the incident, check and exception ids and statuses a person named are the evidence', 'text'),
   capability('C64', 'Choice', 'capabilities/delivery.ts', 'team policy reuse'),
   capability('C67', 'Score', 'capabilities/research.ts', 'prompt-revision clarity', 'text'),
   capability('C68', 'Choice', 'capabilities/research.ts', 'isolated candidate selection; reachable only through the raw capability.advise op on purpose: it creates and removes git worktrees and applies candidate patches in them, which a tool that is read-only advice (jevris_advise) must not do, so exposing it needs its own design'),
-  capability('C69', 'Score', 'capabilities/research.ts', 'evidence-conflict materiality', 'text'),
+  capability('C69', 'Score', 'capabilities/research.ts', 'evidence-conflict materiality; counts of conclusions and independent sources only'),
   capability('C70', 'Choice', 'capabilities/research.ts', 'canary module for a staged migration; option texts are module paths', 'text'),
   capability('C72', 'Choice', 'capabilities/research.ts', 'host-triage recommendation'),
   { spec: 'd-c18', kind: 'Score per optional capsule item', file: `${ORCH}memory/capsule.ts`, needle: "capabilityId: 'C18'", wiring: 'on-demand', egress: 'text', entry: 'the checkpoint op (jevris checkpoint, jevris_checkpoint)', note: 'needs the person\'s preference privacy.sourceEgress approved-scoped and the administrator\'s approval, and 1.5 s left' },
@@ -104,7 +109,7 @@ export const FEATURE_INVENTORY: readonly InventoryEntry[] = [
   { spec: 'd-c22', kind: 'Score per span of a long check output', file: `${ORCH}memory/distill.ts`, needle: "capabilityId: 'C22'", wiring: 'detached', egress: 'text', entry: 'the verify op (jevris verify), in the check run', note: 'at most 8 spans, asked together as one request of up to 8 questions (each span keeps its own answer, floor and fallback), only with egress approved by the administrator and the person; the check result is the runner\'s and is untouched' },
   { spec: 'd-c23', kind: 'Noul per constraint pair', file: `${ORCH}memory/facts.ts`, needle: "capabilityId: 'C23'", wiring: 'on-demand', egress: 'text', entry: 'the checkpoint op with new constraints (jevris checkpoint --constraint)', note: 'a new constraint against the held ones, at most 8 pairs, only with egress approved by both; a pair found contradictory becomes a hypothesis line, never a finding' },
   { spec: 'd-c24', kind: 'Score per project-memory entry', file: `${ORCH}memory/facts.ts`, needle: "capabilityId: 'C24'", wiring: 'hot', egress: 'text', entry: 'the SessionStart restore (compact and resume)', note: 'inert on purpose: entries are only those admitted by passing receipts or a named person (admitProjectMemory), and no command admits one in 1.2.0 because admitting an entry is a provenance and consent question (a repository file is not consent) that needs its own design, so nothing is asked until some exist; Jev rescores only more than 5 entries, twelve to a request, with egress approved' },
-  { spec: 'd-c29', kind: 'Choice', file: `${ORCH}orchestration/loops.ts`, needle: "capabilityId: 'C29'", wiring: 'on-demand', egress: 'text', entry: 'the recover op (jevris recover, jevris_recover)', note: 'loop advice when two different failures were each seen once' },
+  { spec: 'd-c29', kind: 'Choice', file: `${ORCH}orchestration/loops.ts`, needle: "capabilityId: 'C29'", wiring: 'on-demand', egress: 'features', entry: 'the recover op (jevris recover, jevris_recover)', note: 'loop advice when two different failures were each seen once; the facts hold closed family codes, counts, flags and artifact vocabulary ids, and the failure text is withheld evidence, so it is asked with egress denied too' },
 ];
 
 /** The count by wiring, for the report. */

@@ -88,6 +88,7 @@ const C41: CapabilityDefinition = {
         const got = await consultScore(cx.engine, {
           capabilityId: 'C41',
           specVersion: '1',
+          sendsWorkspaceText: true,
           objective: 'Order optional tests by how likely the change affects them.',
           workspaceId: cx.ws.workspaceId,
           evidenceRevision: sha256(`${r.id}:${(changed ?? []).join(',')}`).slice(0, 32),
@@ -275,6 +276,7 @@ const C43: CapabilityDefinition = {
         const got = await consultScore(cx.engine, {
           capabilityId: 'C43',
           specVersion: '1',
+          sendsWorkspaceText: true,
           objective: 'Choose which patch to verify first. The score accepts nothing; checks decide.',
           workspaceId: cx.ws.workspaceId,
           evidenceRevision: sha256(p.diff).slice(0, 32),
@@ -451,6 +453,7 @@ const C45: CapabilityDefinition = {
         const got = await consultNoul(cx.engine, {
           capabilityId: 'C45',
           specVersion: '1',
+          sendsWorkspaceText: true,
           objective: 'Highlight a requirement whose mapped checks may not really cover it. Receipts still decide completion.',
           workspaceId: cx.ws.workspaceId,
           evidenceRevision: sha256(`${id}:${checks.map((c) => c.id).join(',')}`).slice(0, 32),

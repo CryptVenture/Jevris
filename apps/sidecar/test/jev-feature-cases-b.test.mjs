@@ -236,7 +236,9 @@ test('the case list is well formed and the known findings name real cases', () =
     assert.equal(typeof c.egressNeeded, 'boolean', c.id);
     assert.ok(c.notes.length > 40, `${c.id}: say why the input reaches Jev`);
   }
-  assert.deepEqual(CASES.filter((c) => c.egressNeeded).map((c) => c.id), ['C42'], 'only C42 asks nothing without egress');
+  // A consult about text (an option text, a test or file name, a diff, a requirement, a failure line, a document) asks nothing without egress: the packet builder
+  // would withhold the evidence and only a hash and a length would be sent. The ones that stay (C44, C46, C47, C59, C64) are judged from counts, codes and flags.
+  assert.deepEqual(CASES.filter((c) => c.egressNeeded).map((c) => c.id), ['C41', 'C42', 'C43', 'C45', 'C57', 'C58', 'C60', 'C61'], 'the consults about text ask nothing without egress');
   for (const known of [KNOWN_LEAKS, KNOWN_DEFECTS]) for (const id of Object.keys(known)) assert.ok(ids.includes(id), `${id} is not a case`);
   for (const id of CARRIES_TEXT_WHEN_APPROVED) assert.ok(ids.includes(id), `${id} is not a case`);
   for (const path of Object.keys(FILES)) assert.ok(path.startsWith('caseB/'), `${path} is outside the part's folder`);
@@ -291,12 +293,12 @@ test('with source egress approved in the sandbox home every case asks, with its 
   let checked = false;
   try {
     assertPass(t, pass, { approved: true });
-    // The approval took effect: evidence text reached the stub for the cases that carry it, and C42, which
-    // sends nothing while egress is denied, asks now.
+    // The approval took effect: evidence text reached the stub for the cases that carry it, and the consults that send nothing while
+    // egress is denied (C41, C42, C43, C45, C57, C58, C60, C61: they are about text) ask now.
     const withText = pass.results.filter(({ sent }) => sent.some((request) => JSON.parse(request.body).state.untrustedEvidence.length > 0)).map(({ c }) => c.id);
     for (const id of ['C42', 'C45', 'C47', 'C58', 'C60']) assert.ok(withText.includes(id), `${id}: no evidence text left although egress was approved`);
+    for (const { c, row } of pass.results.filter(({ c }) => c.egressNeeded)) assert.equal(row.source, 'jev', `${c.id}: not asked with egress approved`);
     const c42 = pass.results.find(({ c }) => c.id === 'C42');
-    assert.equal(c42.row.source, 'jev');
     assertCallRequests(c42.row, 1, 'C42');
     // C59's package name travels as a fact only now.
     const c59 = pass.results.find(({ c }) => c.id === 'C59');

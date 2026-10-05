@@ -431,7 +431,9 @@ export const CASES = [
     steps: [],
     call: advise('C40', { findings: [{ id: 'f1', text: 'The button overlaps the footer ZZMARKER-C40', source: 'screenshot' }] }),
     expectAsked: true,
-    notes: 'One textual finding is enough: the top finding is scored by a Jev Score question. The finding text is evidence. (Its anchors were refused by the question lint until they were lengthened.)',
+    egressNeeded: true,
+    egressVia: 'host',
+    notes: 'One textual finding is enough: the top finding is scored by a Jev Score question. The finding text is evidence. (Its anchors were refused by the question lint until they were lengthened.) The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved by host policy: with it denied the rules answer, with no request and no decision.',
   },
   {
     id: 'C62',
@@ -441,7 +443,9 @@ export const CASES = [
     steps: [],
     call: advise('C62', { incidents: [{ id: 'INC-1', severity: 'high', resolved: false }], rollout: { stages: ['canary', 'full'], rollbackPlan: 'Revert the release ZZMARKER-C62' }, exceptions: [{ id: 'EXC-1', resolved: false }] }),
     expectAsked: true,
-    notes: 'Any listed risk reaches the Score question (an unresolved incident, a missing rollout plan, an unapproved check); no setup is needed. The risk labels are evidence. (Its anchors were refused by the question lint until they were lengthened.)',
+    egressNeeded: true,
+    egressVia: 'host',
+    notes: 'Any listed risk reaches the Score question (an unresolved incident, a missing rollout plan, an unapproved check); no setup is needed. The risk labels are evidence. (Its anchors were refused by the question lint until they were lengthened.) The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved by host policy: with it denied the rules answer, with no request and no decision.',
   },
   {
     id: 'C65',
@@ -476,7 +480,9 @@ export const CASES = [
       misclassifications: [{ expected: 'b', got: 'a' }],
     }),
     expectAsked: true,
-    notes: 'Both specs need an instruction and two options, and the candidate must keep the "none" option and any mandatory evidence (or the proposal is refused before the question). writeBranch is left off, so no git branch is written. The two specs are evidence. (Its anchors were refused by the question lint until they were lengthened.)',
+    egressNeeded: true,
+    egressVia: 'host',
+    notes: 'Both specs need an instruction and two options, and the candidate must keep the "none" option and any mandatory evidence (or the proposal is refused before the question). writeBranch is left off, so no git branch is written. The two specs are evidence. (Its anchors were refused by the question lint until they were lengthened.) The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved by host policy: with it denied the rules answer, with no request and no decision.',
   },
   {
     id: 'C68',

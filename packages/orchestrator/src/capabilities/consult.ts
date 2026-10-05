@@ -41,6 +41,13 @@ interface ConsultBase {
    * objective. The transport guard screens evidence text only, so such a question is asked only while
    * source egress is approved; with egress denied the rules answer and nothing is sent
    * (`EGRESS_NOT_APPROVED`).
+   *
+   * Also true when the question is about the text of its evidence (a query, a file span, a diff, a
+   * requirement, a finding, a tool call's arguments, an identifier a person named). The packet builder
+   * withholds that text while egress is denied and sends a salted hash and a length, which Jev cannot
+   * judge; the answer would be meaningless and still labelled Jev's, and the call is paid for. Leave it
+   * off only when `facts` (counts, codes and flags) carry everything the question needs, so the withheld
+   * evidence adds nothing; the capability then asks with egress denied too.
    */
   readonly sendsWorkspaceText?: boolean;
   readonly taskId?: string | null;

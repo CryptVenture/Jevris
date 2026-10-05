@@ -1,8 +1,9 @@
 // The thirteen capabilities reached through `jevris advise` and `jevris_advise` (C32 to C38, C40, C62, C67, C69, C70, C72), run with
 // exactly the input their surface accepts, through the real engine and its packet builder against a scripted Jev (no live call). Per id:
 // the advice is the contract's envelope with every guard false; Jev answers when asked and its decision is recorded; and with source egress
-// denied nothing quoted from the input (a marker planted in each) is in any request, while with it approved the text goes where the
-// capability reads it, so the egress check is not vacuous. C32, C69 and C72 ask from counts and flags alone and are asked either way.
+// denied nothing quoted from the input (a marker planted in each) is in any request and a capability whose question is about that text is not asked at
+// all (the rules answer), while with it approved the text goes where the capability reads it, so the egress check is not vacuous. C32, C69 and C72 ask
+// from counts and flags alone and are asked either way.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
@@ -84,20 +85,21 @@ const UNIT = { id: 'unit', argv: [process.execPath, '-e', '0'], resultFormat: 'e
 const DRAFT = (instructions) => ({ instructions, options: { a: 'The first option.', none: 'No option applies.' }, mandatoryEvidence: ['e1'], threshold: 0.6 });
 
 /**
- * `ask`: when Jev is asked with source egress denied: `always` (counts and flags only) or `egress-only` (the question quotes text, so nothing is sent
- * unless egress is approved) or `evidence` (a request goes, with the quoted evidence withheld by the packet builder). `marker`: planted in the input.
+ * `ask`: when Jev is asked with source egress denied: `always` (counts and flags only: the question holds everything it needs) or `egress-only` (the question
+ * is about text a person or the workspace supplied, so nothing is sent unless egress is approved: the packet builder would withhold the text and Jev would be
+ * asked about a hash and a length). `marker`: planted in the input.
  */
 const CASES = {
   C32: { ask: 'always', marker: null, input: () => ({ harness: 'claude', collaborative: false }) },
   C33: { ask: 'egress-only', marker: 'MARKINTENT', files: {}, skills: { 'run-tests': 'Run the unit tests of a project', 'write-docs': 'Write documentation for a project' }, input: () => ({ intent: 'MARKINTENT run the unit tests', maxItems: 4 }) },
-  C34: { ask: 'evidence', marker: 'MARKQUERY', files: { 'src/cart.ts': 'export function calculateTotal(items) {\n  return items.reduce((n, i) => n + i.price, 0);\n}\n' }, input: () => ({ query: 'MARKQUERY calculate total', maxItems: 3 }) },
-  C35: { ask: 'evidence', marker: 'MARKQUERY', files: { 'docs/guide.md': '# Install guide\n\nInstall the app with the installer, then run the setup.\n' }, input: () => ({ query: 'MARKQUERY install guide setup', maxItems: 3 }) },
+  C34: { ask: 'egress-only', marker: 'MARKQUERY', files: { 'src/cart.ts': 'export function calculateTotal(items) {\n  return items.reduce((n, i) => n + i.price, 0);\n}\n' }, input: () => ({ query: 'MARKQUERY calculate total', maxItems: 3 }) },
+  C35: { ask: 'egress-only', marker: 'MARKQUERY', files: { 'docs/guide.md': '# Install guide\n\nInstall the app with the installer, then run the setup.\n' }, input: () => ({ query: 'MARKQUERY install guide setup', maxItems: 3 }) },
   C36: { ask: 'egress-only', marker: 'MARKINTENT', input: () => ({ intent: 'MARKINTENT run the tests', tools: [{ id: 'run_tests', description: 'Run the unit tests', effects: ['exec'] }, { id: 'edit_file', description: 'Edit a file', effects: ['write'] }], allowlist: ['run_tests', 'edit_file'], permittedEffects: ['exec', 'write'] }) },
-  C37: { ask: 'evidence', marker: 'MARKCMD', input: () => ({ tool: 'Bash', args: { command: 'ls -la MARKCMD' }, writeScopes: ['src'] }) },
-  C38: { ask: 'evidence', marker: 'MARKOUT', input: async (f) => ({ handle: await f.evidence('npm test\nError: connect ECONNREFUSED 127.0.0.1:5432 MARKOUT\n') }) },
-  C40: { ask: 'evidence', marker: 'MARKFINDING', input: () => ({ findings: [{ id: 'f1', text: 'MARKFINDING the save button is cut off at the right edge', source: 'screenshot' }] }) },
-  C62: { ask: 'evidence', marker: 'MARKINC', input: () => ({ incidents: [{ id: 'MARKINC', severity: 'high', resolved: false }], rollout: { stages: ['canary', 'all'], rollbackPlan: 'revert the release' } }) },
-  C67: { ask: 'evidence', marker: 'MARKSPEC', input: () => ({ specId: 'my-spec', current: DRAFT('Which option applies?'), candidate: DRAFT('MARKSPEC which one option applies best?'), misclassifications: [{ expected: 'a', got: 'none' }] }) },
+  C37: { ask: 'egress-only', marker: 'MARKCMD', input: () => ({ tool: 'Bash', args: { command: 'ls -la MARKCMD' }, writeScopes: ['src'] }) },
+  C38: { ask: 'egress-only', marker: 'MARKOUT', input: async (f) => ({ handle: await f.evidence('npm test\nError: connect ECONNREFUSED 127.0.0.1:5432 MARKOUT\n') }) },
+  C40: { ask: 'egress-only', marker: 'MARKFINDING', input: () => ({ findings: [{ id: 'f1', text: 'MARKFINDING the save button is cut off at the right edge', source: 'screenshot' }] }) },
+  C62: { ask: 'egress-only', marker: 'MARKINC', input: () => ({ incidents: [{ id: 'MARKINC', severity: 'high', resolved: false }], rollout: { stages: ['canary', 'all'], rollbackPlan: 'revert the release' } }) },
+  C67: { ask: 'egress-only', marker: 'MARKSPEC', input: () => ({ specId: 'my-spec', current: DRAFT('Which option applies?'), candidate: DRAFT('MARKSPEC which one option applies best?'), misclassifications: [{ expected: 'a', got: 'none' }] }) },
   C69: { ask: 'always', marker: null, input: async (f) => ({ reports: [{ id: 'r1', model: 'model-one', conclusion: 'yes', evidenceIds: [await f.evidence('first proof')], sources: ['s1'] }, { id: 'r2', model: 'model-two', conclusion: 'no', evidenceIds: [await f.evidence('second proof')], sources: ['s2'] }] }) },
   C70: { ask: 'egress-only', marker: 'MARKCONTRACT', approve: true, input: () => ({ campaignId: 'camp1', modules: ['pkg/a', 'pkg/b'], contract: 'MARKCONTRACT rename the helper across modules', waveSize: 2 }) },
   C72: { ask: 'always', marker: null, approve: true, input: () => ({}) },

@@ -201,8 +201,8 @@ export const OWNED_CASES = [
     waitFor: [{ taskId: 'a28o-one', state: 'awaiting-evidence' }, { taskId: 'a28o-two', state: 'awaiting-evidence' }],
     call: advise('C28', {}),
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'The tasks carry the label security (a high-risk task has no first-try slice, so a worker that leaves no receipt is not handed off and failed before the call), and each worker writes inside the write scope of its task (a write outside it fails the task). Two owned tasks whose scripted workers finished (awaiting evidence, which counts as active), in the same top-level folder with near-identical titles: the pair scores about 0.57, between 0.3 and 0.7, so the rules defer to Jev. A score of 0.7 or more is a duplicate by rules, below 0.3 is not one.',
+    egressNeeded: true,
+    notes: 'The tasks carry the label security (a high-risk task has no first-try slice, so a worker that leaves no receipt is not handed off and failed before the call), and each worker writes inside the write scope of its task (a write outside it fails the task). Two owned tasks whose scripted workers finished (awaiting evidence, which counts as active), in the same top-level folder with near-identical titles: the pair scores about 0.57, between 0.3 and 0.7, so the rules defer to Jev. A score of 0.7 or more is a duplicate by rules, below 0.3 is not one. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
 ];
 
@@ -219,8 +219,8 @@ export const CASES = [
     ],
     call: advise('C25', {}),
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'Needs two tasks in proposed, validated, ready or blocked. The CLI task names the parser task\'s output (tokenstream) in its title, so one candidate pair exists (a25-cli after a25-parser); the reverse pair and a write-scope overlap do not (a plan refuses overlapping scopes between independent tasks). Without a planId every unfinished task of the workspace is a candidate, one Jev question each (at most 12): the titles and outputs here share no word with other cases\' tasks. The evidence is the two task titles and scopes (withheld without egress approval).',
+    egressNeeded: true,
+    notes: 'Needs two tasks in proposed, validated, ready or blocked. The CLI task names the parser task\'s output (tokenstream) in its title, so one candidate pair exists (a25-cli after a25-parser); the reverse pair and a write-scope overlap do not (a plan refuses overlapping scopes between independent tasks). Without a planId every unfinished task of the workspace is a candidate, one Jev question each (at most 12): the titles and outputs here share no word with other cases\' tasks. The evidence is the two task titles and scopes. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C26',
@@ -244,8 +244,8 @@ export const CASES = [
     ],
     call: advise('C28', {}),
     expectAsked: false,
-    egressNeeded: false,
-    notes: 'The consult needs two tasks that are active (leased, running or awaiting evidence), which only a worker run produces, and a pair score between 0.3 and 0.7 (shared top-level folder and similar titles). A run is an owned-worker run, which costs money and needs a harness: no op reaches that state, so the handler answers "fewer than two active tasks" from rules, which is what this case proves. The test also reaches the consult with the scripted test worker port (case C28-owned, offline only).',
+    egressNeeded: true,
+    notes: 'The consult needs two tasks that are active (leased, running or awaiting evidence), which only a worker run produces, and a pair score between 0.3 and 0.7 (shared top-level folder and similar titles). A run is an owned-worker run, which costs money and needs a harness: no op reaches that state, so the handler answers "fewer than two active tasks" from rules, which is what this case proves. The test also reaches the consult with the scripted test worker port (case C28-owned, offline only). The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C30',
@@ -258,8 +258,8 @@ export const CASES = [
     ],
     call: advise('C30', { sourceRefs: ['caseA/c30/handoff.ts', 'ZZMARKER-C30 handoffSymbol'] }, 'a30-handoff'),
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'The consult runs only when the rules find nothing missing: the task has requirement ids, an acceptance check, expected outputs and write scopes, the call names source references, and no earlier worker run changed files (that would also need a diff handle). Any gap is answered by rules (CONTRACT_INCOMPLETE).',
+    egressNeeded: true,
+    notes: 'The consult runs only when the rules find nothing missing: the task has requirement ids, an acceptance check, expected outputs and write scopes, the call names source references, and no earlier worker run changed files (that would also need a diff handle). Any gap is answered by rules (CONTRACT_INCOMPLETE). The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C33',
@@ -278,8 +278,8 @@ export const CASES = [
     steps: [],
     call: advise('C34', { query: 'ZZMARKER-C34 retry backoff in the payment client', maxItems: 1 }),
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'Needs git to list the workspace and a file whose text or path matches the query, and more than 2000 ms left of the op budget. One Jev score question per candidate span, at most two here because maxItems is 1. The span text is the evidence (withheld without egress approval); the chosen spans are also stored as evidence handles.',
+    egressNeeded: true,
+    notes: 'Needs git to list the workspace and a file whose text or path matches the query, and more than 2000 ms left of the op budget. One Jev score question per candidate span, at most two here because maxItems is 1. The query and the span text are the evidence; the chosen spans are also stored as evidence handles whatever the egress setting. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C35',
@@ -288,8 +288,8 @@ export const CASES = [
     steps: [],
     call: advise('C35', { query: 'ZZMARKER-C35 how payment retries and backoff work' }),
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'Needs a documentation file (README, CHANGELOG, a docs folder or any .md) whose text shares a word with the query. One Jev score question for the top document.',
+    egressNeeded: true,
+    notes: 'Needs a documentation file (README, CHANGELOG, a docs folder or any .md) whose text shares a word with the query. One Jev score question for the top document. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C36',
@@ -317,8 +317,8 @@ export const CASES = [
     steps: [],
     call: advise('C37', { tool: 'Bash', args: { command: 'npm run build ZZMARKER-C37' }, writeScopes: ['caseA/'] }),
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'The consult runs only when the deterministic parser finds no anomaly (a parse failure, a path outside the workspace, a credential path, a recursive delete, a piped download, a force push, a command substitution all stop at review without asking Jev). The command text is the evidence (withheld without egress approval).',
+    egressNeeded: true,
+    notes: 'The consult runs only when the deterministic parser finds no anomaly (a parse failure, a path outside the workspace, a credential path, a recursive delete, a piped download, a force push, a command substitution all stop at review without asking Jev). The command text is the evidence. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C38',
@@ -330,7 +330,7 @@ export const CASES = [
     ],
     call: advise('C38', { handle: LOG_HANDLE }),
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'Needs recorded tool output: a receipt of a failed check, or an evidence handle. A handle is content-addressed, so the setup step lets C34 store the span of ci-output.txt and the call names that handle (LOG_HANDLE, computed from the file text). The question always has three options; the evidence is one line per diagnostic found (withheld without egress approval).',
+    egressNeeded: true,
+    notes: 'Needs recorded tool output: a receipt of a failed check, or an evidence handle. A handle is content-addressed, so the setup step lets C34 store the span of ci-output.txt and the call names that handle (LOG_HANDLE, computed from the file text). The question always has three options; the evidence is one line per diagnostic found. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
 ];

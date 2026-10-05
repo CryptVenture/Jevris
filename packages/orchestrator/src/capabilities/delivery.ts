@@ -68,6 +68,7 @@ const C57: CapabilityDefinition = {
       const got = await consultScore(cx.engine, {
         capabilityId: 'C57',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Rate how reviewable the change is. It does not create or merge anything.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: report.revision.slice(0, 64),
@@ -122,6 +123,7 @@ const C58: CapabilityDefinition = {
       const got = await consultChoice(cx.engine, {
         capabilityId: 'C58',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Route a CI failure to source, infrastructure or flaky investigation. Nothing in CI is changed.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: f.receipt.id,
@@ -313,6 +315,7 @@ const C60: CapabilityDefinition = {
       const got = await consultNoul(cx.engine, {
         capabilityId: 'C60',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Flag a migration that may break the stated backward-compatibility contract. Nothing runs.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(files.join(',')).slice(0, 32),
@@ -390,6 +393,7 @@ const C61: CapabilityDefinition = {
       consult = await consultScore(cx.engine, {
         capabilityId: 'C61',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Rate how likely a document is outdated by the interface change. Do not assert behavior the code does not show.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(`${first.id}:${names.join(',')}`).slice(0, 32),

@@ -113,9 +113,9 @@ export const CASES = [
     ],
     call: { op: 'capability.advise', scope: 'mcp', body: { capabilityId: 'C41', input: { base: 'HEAD~1' } } },
     expectAsked: true,
-    egressNeeded: false,
+    egressNeeded: true,
     notes:
-      'Needs an approved manifest with an optional check that has an input scope, and a change that touches that scope without touching a build or dependency file (that would make the impact unknown and run the broad suite). The first step approves the checks (a person does that with `jevris verify approve`); the second commits a change to a scoped file, and `base: HEAD~1` makes that the diff. The optional check scores strictly between 0 and 1, so the handler asks one Score question. The test text, the changed file names and the symbols go to Jev only as evidence, which is withheld while egress is denied.',
+      'Needs an approved manifest with an optional check that has an input scope, and a change that touches that scope without touching a build or dependency file (that would make the impact unknown and run the broad suite). The first step approves the checks (a person does that with `jevris verify approve`); the second commits a change to a scoped file, and `base: HEAD~1` makes that the diff. The optional check scores strictly between 0 and 1, so the handler asks one Score question. The test text, the changed file names and the symbols go to Jev only as evidence, which is withheld while egress is denied. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C42',
@@ -151,8 +151,8 @@ export const CASES = [
       },
     },
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'No workspace state: two bounded diffs in the input and a non-empty requirement are enough (the handler consults once per patch when it has an engine and a requirement). The requirement and the diffs go to Jev only as evidence.',
+    egressNeeded: true,
+    notes: 'No workspace state: two bounded diffs in the input and a non-empty requirement are enough (the handler consults once per patch when it has an engine and a requirement). The requirement and the diffs go to Jev only as evidence. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C44',
@@ -181,8 +181,8 @@ export const CASES = [
     ],
     call: { op: 'capability.advise', scope: 'mcp', body: { capabilityId: 'C45', input: { requirementIds: ['REQ-B1'], requirementTexts: { 'REQ-B1': `A signed-in user can reach the dashboard ${tag('C45')}` } } } },
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'The Noul question is asked only for a requirement that IS covered (an uncovered one is reported by rules) and whose text the caller supplied. So one approved check names REQ-B1 in its requirementIds, and the input names the requirement and gives its text. No task is needed: the ids come from the input when there is no task.',
+    egressNeeded: true,
+    notes: 'The Noul question is asked only for a requirement that IS covered (an uncovered one is reported by rules) and whose text the caller supplied. So one approved check names REQ-B1 in its requirementIds, and the input names the requirement and gives its text. No task is needed: the ids come from the input when there is no task. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C46',
@@ -220,9 +220,9 @@ export const CASES = [
     ],
     call: { op: 'capability.advise', scope: 'mcp', body: { capabilityId: 'C57', input: { base: 'HEAD~1' } } },
     expectAsked: true,
-    egressNeeded: false,
+    egressNeeded: true,
     notes:
-      'The Score question is asked only when the report is READY: every mandatory check has a current passing receipt, no requirement is uncovered, no task is open and no review comment is reported. So the steps clear any open task (other cases may have left some in a shared workspace), commit a notes file outside the check\'s scope (its name carries the marker, and `base: HEAD~1` makes it the change that goes to Jev as evidence), approve one mandatory check scoped to caseB/c57 (so edits elsewhere do not make its receipt stale) and run every approved check through `verify` (readiness needs EVERY mandatory check approved in the workspace to pass, not only this one).',
+      'The Score question is asked only when the report is READY: every mandatory check has a current passing receipt, no requirement is uncovered, no task is open and no review comment is reported. So the steps clear any open task (other cases may have left some in a shared workspace), commit a notes file outside the check\'s scope (its name carries the marker, and `base: HEAD~1` makes it the change that goes to Jev as evidence), approve one mandatory check scoped to caseB/c57 (so edits elsewhere do not make its receipt stale) and run every approved check through `verify` (readiness needs EVERY mandatory check approved in the workspace to pass, not only this one). The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C58',
@@ -234,8 +234,8 @@ export const CASES = [
     ],
     call: { op: 'capability.advise', scope: 'mcp', body: { capabilityId: 'C58', input: {} } },
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'Needs a current failed receipt issued by a CI import. The local op `caseB.ci-import` registers a throwaway signing key as a trusted issuer (a person does that with `jevris verify issuer add`), signs a bundle for the current HEAD with one failed check, and sends it to the real `verify.import-ci` op. The handler asks one Choice question per failure (here one).',
+    egressNeeded: true,
+    notes: 'Needs a current failed receipt issued by a CI import. The local op `caseB.ci-import` registers a throwaway signing key as a trusted issuer (a person does that with `jevris verify issuer add`), signs a bundle for the current HEAD with one failed check, and sends it to the real `verify.import-ci` op. The handler asks one Choice question per failure (here one). The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C59',
@@ -262,8 +262,8 @@ export const CASES = [
       body: { capabilityId: 'C60', input: { migrations: [PATH.c60], compatibility: `Old readers still select legacy_flag ${tag('C60')}` } },
     },
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'Needs a migration file (named in the input, so no git change is needed) and a non-empty backward-compatibility statement; then it asks one Noul question. The file holds a destructive statement, which rules report on their own. Nothing is run.',
+    egressNeeded: true,
+    notes: 'Needs a migration file (named in the input, so no git change is needed) and a non-empty backward-compatibility statement; then it asks one Noul question. The file holds a destructive statement, which rules report on their own. Nothing is run. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C61',
@@ -274,8 +274,8 @@ export const CASES = [
     ],
     call: { op: 'capability.advise', scope: 'mcp', body: { capabilityId: 'C61', input: { base: 'HEAD~1' } } },
     expectAsked: true,
-    egressNeeded: false,
-    notes: 'Needs a committed change to an exported declaration (here the signature of renderWidget) and a document that names it (the README in the same folder). The handler ranks the documents that reference a changed export and asks one Score question about the first. The document text and the diff go to Jev only as evidence.',
+    egressNeeded: true,
+    notes: 'Needs a committed change to an exported declaration (here the signature of renderWidget) and a document that names it (the README in the same folder). The handler ranks the documents that reference a changed export and asks one Score question about the first. The document text and the diff go to Jev only as evidence. The question is about that text, which the packet builder withholds while egress is denied (only a salted hash and a length would be sent), so the handler asks Jev only with source egress approved: with egress denied it answers from rules, with no request and no decision.',
   },
   {
     id: 'C64',

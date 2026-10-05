@@ -351,6 +351,7 @@ const C34: CapabilityDefinition = {
         const r = await consultScore(cx.engine, {
           capabilityId: 'C34',
           specVersion: '1',
+          sendsWorkspaceText: true,
           objective: 'Rank a repository span as evidence for the stated task.',
           workspaceId: cx.ws.workspaceId,
           evidenceRevision: sha256(`${c.path}:${String(c.line)}:${span.text}`).slice(0, 32),
@@ -443,6 +444,7 @@ const C35: CapabilityDefinition = {
       const r = await consultScore(cx.engine, {
         capabilityId: 'C35',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Rate how authoritative and relevant the top document is for the task. Do not estimate dates.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(`${first.id}:${first.lastChanged ?? ''}`).slice(0, 32),
@@ -657,6 +659,7 @@ const C37: CapabilityDefinition = {
       const r = await consultNoul(cx.engine, {
         capabilityId: 'C37',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Flag a tool call whose arguments look semantically out of place for the task.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(JSON.stringify(args).slice(0, 4000)).slice(0, 32),
@@ -761,6 +764,7 @@ const C38: CapabilityDefinition = {
     const got = await consultChoice(cx.engine, {
       capabilityId: 'C38',
       specVersion: '1',
+      sendsWorkspaceText: true,
       objective: 'Tell a source defect from missing tooling or an unavailable service.',
       workspaceId: cx.ws.workspaceId,
       evidenceRevision: sha256(out.text.slice(0, 64 * 1024)).slice(0, 32),

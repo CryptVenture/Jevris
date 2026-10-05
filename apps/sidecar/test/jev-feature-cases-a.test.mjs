@@ -161,8 +161,10 @@ test('the cases are well formed and every free-text field carries its marker', (
   for (const id of [...Object.keys(KNOWN_LEAKS), ...Object.keys(KNOWN_DEFECTS)]) assert.ok(ids.includes(id), `${id} is not a case`);
   // The ten consults of the assignment: one case each (C28 also has its owned variant).
   assert.deepEqual(CASES.map((c) => c.call.body.capabilityId), ['C25', 'C26', 'C28', 'C30', 'C33', 'C34', 'C35', 'C36', 'C37', 'C38']);
-  // The consults that carry workspace or caller text in the question wait for egress approval.
-  assert.deepEqual(CASES.filter((c) => c.egressNeeded).map((c) => c.id), ['C26', 'C33', 'C36']);
+  // Every consult of this part is about workspace or caller text (an option text, a task title, a query, a span, a command, a failure line): with egress
+  // denied the packet builder withholds the evidence and only a hash and a length would be sent, so none of them is asked without approval.
+  assert.deepEqual(CASES.filter((c) => c.egressNeeded).map((c) => c.id), ['C25', 'C26', 'C28', 'C30', 'C33', 'C34', 'C35', 'C36', 'C37', 'C38']);
+  assert.deepEqual(OWNED_CASES.filter((c) => c.egressNeeded).map((c) => c.id), ['C28-owned']);
 });
 
 test('preparePart refuses an egress or a mode it does not know, before it touches anything', async () => {
@@ -278,17 +280,24 @@ async function runOwned(pass, c) {
 }
 
 for (const egress of ['denied', 'approved']) {
-  test(`C28 reaches Jev when two owned tasks are active, with scripted workers (egress ${egress})`, { skip: managedHostSkip(), timeout: 600_000 }, async (t) => {
+  test(`C28 reaches Jev when two owned tasks are active, with scripted workers, and only with egress approved (egress ${egress})`, { skip: managedHostSkip(), timeout: 600_000 }, async (t) => {
     for (const c of OWNED_CASES) {
       const pass = await startPass(t, { egress, workerRuns: c.workerRuns });
       const { row, since, call } = await runOwned(pass, c);
       t.diagnostic(describe(`${c.id} (${egress})`, row));
       assert.equal(row.failure, null, String(row.failure));
-      assertOwnQuestion(c, call);
-      assert.ok(row.requests >= 1, `${c.id}: the call sent no Jev request (reason ${String(row.reasonCode)}, codes ${row.jevReasonCodes.join('|')}, summary ${String(row.verb)})`);
-      assert.equal(row.source, 'jev', `${c.id}: not answered by Jev`);
-      if (egress === 'denied') assert.deepEqual(markersIn(since), [], `${c.id}: a request carried ${MARKER} while egress was denied`);
-      else assert.ok(markersIn(call).length > 0, `${c.id}: no request carried ${MARKER} with egress approved`);
+      if (egress === 'denied') {
+        // The question is about the two tasks' titles and paths, which the packet builder would withhold: it is not asked, and nothing is decided.
+        assert.equal(row.requests, 0, `${c.id}: a question about workspace text was sent while egress was denied`);
+        assert.equal(row.source, 'rules', `${c.id}: the rules did not answer`);
+        assert.equal(row.decisionId, null, `${c.id}: a decision was built for a question that is not asked`);
+        assert.deepEqual(markersIn(since), [], `${c.id}: a request carried ${MARKER} while egress was denied`);
+      } else {
+        assertOwnQuestion(c, call);
+        assert.ok(row.requests >= 1, `${c.id}: the call sent no Jev request (reason ${String(row.reasonCode)}, codes ${row.jevReasonCodes.join('|')}, summary ${String(row.verb)})`);
+        assert.equal(row.source, 'jev', `${c.id}: not answered by Jev`);
+        assert.ok(markersIn(call).length > 0, `${c.id}: no request carried ${MARKER} with egress approved`);
+      }
       assert.equal(pass.box.stopSidecar().code, 0);
     }
   });
@@ -415,8 +424,9 @@ test('probe: an id the question contract refuses is sent under a safe key and ma
 // op's five-second budget and answer DEADLINE, with no advice at all. The assertion is on the outcome
 // (the op answered, from fewer requests than candidates), not on how long it took.
 test('probe: C34 with a slow Jev stops asking when time is short and still answers', { skip: managedHostSkip(), timeout: 600_000 }, async (t) => {
-  // The op's own five-second budget is the subject, so this pass keeps it exactly (test/budget-scale.mjs).
-  const pass = await startPass(t, { egress: 'denied', stubOptions: { scenario: 'late', lateMs: 700 }, exactBudgets: true });
+  // The op's own five-second budget is the subject, so this pass keeps it exactly (test/budget-scale.mjs). The question is about the span text, so it is
+  // asked only with egress approved.
+  const pass = await startPass(t, { egress: 'approved', stubOptions: { scenario: 'late', lateMs: 700 }, exactBudgets: true });
   const slow = join(pass.box.dir, 'ws-slow');
   const files = {};
   for (let i = 0; i < 10; i += 1) files[`src/retry${String(i)}.ts`] = `export function retryBackoff${String(i)}() { return ${String(i)}; } // retry backoff payment client\n`;

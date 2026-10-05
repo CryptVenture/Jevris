@@ -109,6 +109,7 @@ const C25: CapabilityDefinition = {
       const got = await consultChoice(cx.engine, {
         capabilityId: 'C25',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Suggest whether one planned task should wait for another. A planner reviews every suggestion.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(id).slice(0, 32),
@@ -312,6 +313,7 @@ const C28: CapabilityDefinition = {
           const got = await consultNoul(cx.engine, {
             capabilityId: 'C28',
             specVersion: '1',
+            sendsWorkspaceText: true,
             objective: 'Decide whether two active tasks are doing the same work.',
             workspaceId: cx.ws.workspaceId,
             evidenceRevision: sha256(`${a.node.id}:${b.node.id}`).slice(0, 32),
@@ -401,6 +403,7 @@ const C30: CapabilityDefinition = {
       const got = await consultNoul(cx.engine, {
         capabilityId: 'C30',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Check whether a worker handoff still lacks context. Acceptance checks decide completion regardless.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(`${task.node.id}:${sourceRefs.join(',')}`).slice(0, 32),

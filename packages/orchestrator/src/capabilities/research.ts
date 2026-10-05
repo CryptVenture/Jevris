@@ -37,6 +37,7 @@ import { isPlain, safeText, sha256, type Rec } from '../util.js';
 import { consultChoice, consultScore } from './consult.js';
 import { abstainAdvice, advice, byScore, type CapabilityAdvice, type CapabilityContext, type CapabilityDefinition, type RankedItem } from './advice.js';
 import { listFiles, readBounded } from './repo.js';
+import { refuseSecrets, type KeptText } from './screen.js';
 import { triageEnvironmentText } from './retrieval.js';
 
 type Consulted = { source: 'jev' | 'rules'; reasonCode: string; decisionId: string | null };
@@ -287,6 +288,7 @@ const C40: CapabilityDefinition = {
       consult = await consultScore(cx.engine, {
         capabilityId: 'C40',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Rate how severe a textual visual finding is for users. It does not assert anything about pixels.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(top.label).slice(0, 32),
@@ -352,6 +354,7 @@ const C62: CapabilityDefinition = {
       const got = await consultScore(cx.engine, {
         capabilityId: 'C62',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Rate overall release risk from the listed evidence only. It decides nothing about deployment.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(risks.map((r) => r.id).join(',')).slice(0, 32),
@@ -568,6 +571,7 @@ export interface QuestionSpecDraft {
   readonly instructions: string;
   readonly options: { readonly [id: string]: string };
   readonly mandatoryEvidence: readonly string[];
+  /** A number from 0 to 1, or null for none (an absent or out-of-range value reads as none). A candidate with none where the live draft has one lowers it. */
   readonly threshold: number | null;
 }
 
@@ -581,6 +585,15 @@ function specOf(value: unknown): QuestionSpecDraft | null {
 }
 
 const ABSTAIN_OPTIONS = ['none', 'unknown', 'abstain'];
+
+/** The text of a draft the proposal keeps, under fixed field names (an option key or a caller's own name is never a field name). */
+function draftText(name: 'current' | 'candidate', draft: QuestionSpecDraft): KeptText[] {
+  return [
+    { field: `${name}.instructions`, text: draft.instructions },
+    ...Object.entries(draft.options).flatMap(([key, text]) => [{ field: `${name}.options`, text: key }, { field: `${name}.options`, text }]),
+    ...draft.mandatoryEvidence.map((text) => ({ field: `${name}.mandatoryEvidence`, text })),
+  ];
+}
 
 /** The ways a proposal would weaken a safety property of the live spec; any one refuses it. */
 export function safetyRegressions(current: QuestionSpecDraft, candidate: QuestionSpecDraft): readonly string[] {
@@ -602,6 +615,10 @@ const C67: CapabilityDefinition = {
     const candidate = specOf(input['candidate']);
     if (!ID.test(specId) || current === null || candidate === null) return abstainAdvice(C67, 'SPEC_REQUIRED', 'Pass specId and the current and candidate specs ({ instructions, options, mandatoryEvidence, threshold }).');
     const misses = recsOf(input, 'misclassifications', 128).map((m) => ({ expected: strOf(m, 'expected', 64), got: strOf(m, 'got', 64) })).filter((m) => ID.test(m.expected));
+    // The proposal is kept (an evidence blob, a proposals branch) and the drafts are sent to Jev, so the text is screened for
+    // credentials first. Request screening does not cover what is only stored, and a request with egress denied withholds the text.
+    const refused = refuseSecrets(C67, [{ field: 'specId', text: specId }, ...draftText('current', current), ...draftText('candidate', candidate), ...misses.flatMap((m) => [{ field: 'misclassifications', text: m.expected }, { field: 'misclassifications', text: m.got }])]);
+    if (refused !== null) return refused;
     const regressions = safetyRegressions(current, candidate);
     const coveredNow = misses.filter((m) => Object.hasOwn(candidate.options, m.expected) && !Object.hasOwn(current.options, m.expected)).length;
     let consult: Consulted = { ...RULES, reasonCode: 'COVERAGE_RULES' };
@@ -609,6 +626,7 @@ const C67: CapabilityDefinition = {
       consult = await consultScore(cx.engine, {
         capabilityId: 'C67',
         specVersion: '1',
+        sendsWorkspaceText: true,
         objective: 'Rate whether the candidate question is clearer than the current one for the listed misclassifications. It changes no live policy.',
         workspaceId: cx.ws.workspaceId,
         evidenceRevision: sha256(JSON.stringify([current, candidate])).slice(0, 32),
@@ -854,6 +872,9 @@ const C70: CapabilityDefinition = {
     const files = await listFiles(cx.git, cx.ws.workspaceRoot) ?? [];
     const named = strsOf(input, 'modules', CAMPAIGN_MAX_MODULES + 1, 200).filter((m) => !m.split(/[\\/]/).includes('..') && !isAbsoluteOnAnyPlatform(m));
     const discovered = [...new Set(files.filter((f) => MODULE_MARKER.test(f) && !/(^|\/)(node_modules|vendor|dist)\//.test(f)).map((f) => f.split('/').slice(0, -1).join('/')).filter((d) => d !== ''))].sort();
+    // The plan is kept (an evidence blob) with the module paths and the campaign name a caller gives, so they are screened for credentials first.
+    const refused = refuseSecrets(C70, [{ field: 'campaignId', text: campaignId }, ...named.map((text) => ({ field: 'modules', text })), { field: 'canary', text: strOf(input, 'canary', 200) }]);
+    if (refused !== null) return refused;
     const modules = named.length > 0 ? named : discovered;
     if (modules.length === 0) return abstainAdvice(C70, 'NO_MODULES', 'No module inventory: name the modules or add module manifests.');
     if (modules.length > CAMPAIGN_MAX_MODULES) return abstainAdvice(C70, 'TOO_MANY_MODULES', `More than ${String(CAMPAIGN_MAX_MODULES)} modules: split the campaign. There is no unbounded agent swarm.`);
