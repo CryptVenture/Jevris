@@ -108,6 +108,8 @@ The Jev key is Jevris's own. Your coding harnesses sign in separately, on a subs
 
 If you share a dump for support, rotate the Jev key afterwards with `jevris credential set`.
 
+**Errors that nothing handles.** An owned worker's driver that throws, and any promise in the sidecar that is rejected with no handler, are never written down as the error. A failed worker run records the code `WORKER_RUN_FAILED` and at most an error code such as `ENOENT`, which is kept only when it has the shape of a system code (capital letters, digits and underscores, at most 32 characters). The error's message, which could carry a vendor's reply or a path, and its stack are dropped. The sidecar's own handler logs `UNHANDLED_REJECTION` the same way, and then stops the way a signal stops it, so Node's default of printing the error on stderr and leaving the lock and endpoint files behind does not apply.
+
 **The egress approval file.** `host.json` approves egress only from a regular file you own that no one else can write, with neither it nor the Jevris home inside a git work tree, so a repository that relocates `JEVRIS_HOME` cannot supply its own approval. The rules and their reason codes are on [privacy.md](privacy.md#approving-egress). The access-limit record is read without following a link and never past its size cap.
 
 ## The kill switch

@@ -297,8 +297,8 @@ lease (`leaseIds` is empty), and the `reasonCode` of `jevris_submit_task` says w
 | `QUEUED_WORKER_UNSUPPORTED` | has a model, but no worker port loads on this machine |
 | `CAP_REACHED` | waits because `orchestration.maxConcurrentWorkers` (default 2) workers already run; it starts when a slot frees, with no second submit |
 | `RESOURCE_BUSY` | waits because a resource it declares is held by a running worker |
-| `OVER_BUDGET` | waits because its reservation does not fit what is left of its root budget (`jevris budget status`) |
-| `BUDGET_PAUSED` | waits because its root budget is paused (`jevris budget update <id> --resume`) |
+| `OVER_BUDGET` | waits because its reservation does not fit what is left of its root budget (`jevris budget status`). Under the `pause-all` policy this first refusal also pauses the budget, and the task keeps this reason ([below](#when-a-budget-runs-out)) |
+| `BUDGET_PAUSED` | waits because its root budget is paused (`jevris budget update <id> --resume`) and the task was first refused after the pause, so it was not the one that ran the budget out |
 
 `CAP_REACHED` is a different reason from `QUEUED` on purpose: `QUEUED` sends you to the
 conditions above, and a busy cap needs nothing changed. Other lease refusals can appear for a
@@ -307,6 +307,17 @@ a control service (`CONTROL_UNAVAILABLE`, `CONTROL_SERVICE_REQUIRED`); the task 
 each case. With orchestration enabled and `routing.managedWorkers` at `observe` or `advise`, the
 router still records which model it would have chosen for a task that names one, and nothing is
 started.
+
+**Telling that the queue is idle.** `jevris status` lists the `active workers` (the tasks leased or
+running) and, on the next line, `queued tasks: N`: the tasks waiting for a lease or a prerequisite
+(state `ready` or `validated`). `jevris status --json` and the `jevris_status` result carry the
+same as `activeWorkers` and `queuedTasks`. The queue is idle when `queued tasks` is `0` and
+`active workers` is `none`. Read both: `active workers: none` alone is also true for a moment
+between one worker ending and the next queued task being leased, while `queued tasks` is still
+above 0. There is no time bound to wait for that hand-over (it took well under a second on a
+quiet machine and more than a second on a loaded one), so wait on the two values and not on a
+guessed delay. `queuedTasks` is absent when the sidecar did not count (it is not running, or the
+workspace is unknown).
 
 `routing.modelListing` (default `on`) lets the sidecar ask each installed harness which models
 it offers, from the harness's own model listing. Only model ids are kept, and no model is
@@ -336,6 +347,31 @@ Which harness runs a worker, and whether it signs in with a subscription or an A
 in `workers.json`, not in these settings. Route learning, which picks a worker's model and
 effort per task slice, has its own commands (`jevris route learning`). Both are in
 [routing.md](routing.md).
+
+### When a budget runs out
+
+Each root budget has a policy for work that is already running when it runs out: `finish-running`,
+`cancel-newest` (cancels the newest running task, once) or `pause-all` (pauses the budget, so
+nothing new starts until you resume it; running work finishes). The reason a task waits follows
+one sequence:
+
+1. The first task whose reservation does not fit is refused `OVER_BUDGET`. Under `pause-all`, that
+   refusal also pauses the budget. Under `finish-running` and `cancel-newest` the budget is never
+   paused.
+2. A task keeps the reason of its first refusal for as long as the episode is open. Every later look
+   at the queue (a worker ends and the next task is tried) finds the budget paused, and the task
+   that was refused `OVER_BUDGET` stays `OVER_BUDGET`. The code does not turn into `BUDGET_PAUSED`.
+3. A task that is first refused while the budget is already paused (one submitted after the pause)
+   is `BUDGET_PAUSED`.
+4. A resume (`jevris budget update <id> --resume`), or a raised limit with your terminal
+   authorization, answers the episode. The next refusal starts the reasons again: a task that still
+   does not fit at the same limit is `OVER_BUDGET`, and the policy does not pause the budget a
+   second time.
+
+`jevris budget status <id>` shows the budget's own state and each task's reason separately. Its
+first line says `Budget <id> is paused` (in `--json`, `budget.paused` and `budget.policy`), and
+every refused task is listed with its own reason code. A paused budget is therefore a state of the
+budget, not a second reason for the task.
 
 ## Jev assist
 
