@@ -10,6 +10,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, realpathSync, statSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { testScaledMs } from '@jevris/contracts';
 import { jevrisPaths, pathKey, resolveHome, type EnvLike, type JevrisPaths } from '@jevris/platform';
 import type { SidecarClientKind, SurfacePorts } from './ports.js';
 
@@ -113,6 +114,20 @@ function envText(env: EnvLike, name: string): string | undefined {
   return plain(value) ? value : undefined;
 }
 
+/** What a surface call waits for the sidecar's answer: the background budget (5 s). */
+export const SURFACE_REQUEST_TIMEOUT_MS = 5000;
+
+/**
+ * The surface's wait for the sidecar, times the test budget scale under a test run (JEVRIS_TEST=1 with
+ * JEVRIS_TEST_BUDGET_SCALE, which the runner sets to 6 on Windows CI). The scale lengthens the sidecar's op budgets, so
+ * a client that still left at 5 s answered "reduced mode" (a local import, for the handoff import) for an op the sidecar
+ * was about to answer inside its own, longer budget: W10 on windows-latest, CI run 37329307976. Outside a test run the
+ * wait is the 5 s of the background budget, as before.
+ */
+export function surfaceRequestTimeoutMs(env: EnvLike): number {
+  return testScaledMs(SURFACE_REQUEST_TIMEOUT_MS, env);
+}
+
 export function createSurfaceContext(input: ContextInput): SurfaceContext {
   const env = input.env ?? process.env;
   const platform = input.platform ?? process.platform;
@@ -139,7 +154,7 @@ export function createSurfaceContext(input: ContextInput): SurfaceContext {
     ports: input.ports,
     autostart,
     sidecarWaitMs: 1500,
-    requestTimeoutMs: 5000,
+    requestTimeoutMs: surfaceRequestTimeoutMs(env),
     nowMs: now,
   };
 }

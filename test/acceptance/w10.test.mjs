@@ -23,6 +23,15 @@ async function mcpAs(t, box, harness, cwd = box.work) {
   return async (name, args) => (await client.callTool({ name, arguments: args })).structuredContent;
 }
 
+/**
+ * A handoff answer that came from the sidecar. The surface answers from local state ("reduced", with the reason in `sidecar`) when the sidecar
+ * does not answer in time, and a local import accepts a capsule without negotiating it (reason code IMPORTED, never IMPORTED_ACTUATE), so a story
+ * about the negotiation says first that the sidecar answered: windows-latest (CI run 37329307976) read a reduced import as a failed negotiation.
+ */
+function fromSidecar(answer, what) {
+  assert.equal(answer.mode, 'full', `${what} was answered locally, not by the sidecar (${JSON.stringify(answer.sidecar)}): ${JSON.stringify(answer.result)}`);
+}
+
 // W10: a task moves from Claude Code to Kilo. The capsule leaves only after the egress check;
 // Kilo reports its capabilities and checks the revision; task state and evidence move, Claude's
 // controls and approvals do not; Kilo continues with context advice but no routing and says so;
@@ -56,6 +65,7 @@ workflow('W10', 'Moving from Claude Code to another harness', async ({ t, then, 
   evidence(exported);
 
   await then('the capsule is exported only after the egress check: no secret leaves in it', () => {
+    fromSidecar(exported, 'the handoff export');
     assert.equal(exported.result.found, true, `export failed: ${JSON.stringify(exported)}`);
     assert.equal(JSON.stringify(exported).includes(SECRET), false, 'a secret left in the handoff capsule');
     assert.equal(exported.result.capsule.source.harness, 'claude');
@@ -66,6 +76,7 @@ workflow('W10', 'Moving from Claude Code to another harness', async ({ t, then, 
   evidence(imported);
 
   await then('the target reports its capabilities and verifies the revision before it imports', () => {
+    fromSidecar(imported, 'the handoff import');
     assert.equal(imported.result.accepted, true, JSON.stringify(imported.result));
     // Kilo is certified for context here, the revision and the changed file match: full import.
     assert.equal(imported.result.reasonCode, 'IMPORTED_ACTUATE', JSON.stringify(imported.result));
@@ -101,6 +112,7 @@ workflow('W10', 'Moving from Claude Code to another harness', async ({ t, then, 
     box.write('work/src/report.js', 'export const total = () => 0;\n');
     const moved = await kilo('jevris_handoff_import', { capsule: envelope });
     evidence(moved);
+    fromSidecar(moved, 'the second handoff import');
     assert.equal(moved.result.reasonCode, 'IMPORTED_ADVICE_ONLY_CONTINUATION', JSON.stringify(moved.result));
     assert.ok(moved.result.unresolved.some((line) => line.includes('src/report.js changed since the handoff')), JSON.stringify(moved.result.unresolved));
   });
