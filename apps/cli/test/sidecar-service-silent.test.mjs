@@ -3,7 +3,8 @@
 // SERVICE_START_REFUSED or SERVICE_UNREACHABLE). `jevris sidecar start` asked the manager first, but when
 // the manager refused it fell back to an on-demand start that skipped the "service sidecar alive" check, so
 // it put an unsupervised sidecar beside the service's. `jevris sidecar restart` of a silent service-run
-// sidecar did the same after it had stopped it. Both now apply the same rule.
+// sidecar did the same after it had stopped it. Both now apply the same rule. (JEV-0073 then made restart
+// ask the manager before it stops the silent sidecar: apps/cli/test/sidecar-service-silent-restart.test.mjs.)
 //
 // The service manager, the sidecar stop and the on-demand start are stand-ins that record what they are
 // asked; the "alive but silent" sidecar is a real endpoint file that names this test process (alive) and
@@ -213,14 +214,16 @@ test('restart of a silent service-run sidecar stops it, starts it through the ma
   });
 });
 
-test('restart of a silent service-run sidecar whose manager then refuses the start says so and spawns nothing', SKIP, async () => {
+test('restart of a silent service-run sidecar whose manager refuses the start gives start\'s refusal, stops nothing and spawns nothing (JEV-0073)', SKIP, async () => {
   await withScene(async ({ home }) => {
     const xml = await installUnit(home);
     writeSilentEndpoint(home, true);
     const s = stage(home, xml, 'refuses');
     const result = await run(['sidecar', 'restart', '--home', home], s.hooks);
     assert.equal(result.code, 1, result.text);
-    assert.match(result.text, /SERVICE_START_FAILED/);
+    assert.match(result.text, /\(SERVICE_START_REFUSED\)/);
+    assert.match(result.text, new RegExp(`pid ${process.pid}\\b`));
+    assert.ok(!s.events.includes('stop'), `the service's sidecar is not asked to stop: ${s.events.join(' | ')}`);
     assert.ok(!s.events.includes('ensure'), `no unsupervised sidecar takes its place: ${s.events.join(' | ')}`);
   });
 });

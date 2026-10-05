@@ -1155,7 +1155,9 @@ manager when a service is installed, so there is one sidecar, never two).
   stop        ask it to finish in-flight work and exit (a service does not restart a clean stop); it refuses
               while it is finishing a verification run, and --force orders it to stop anyway
   restart     stop, then start (--force as for stop); with a service installed the service starts it again
-              (this also hands a sidecar started on demand over to the service)
+              (this also hands a sidecar started on demand over to the service). A service-run sidecar that
+              does not answer is not stopped unless the service manager takes a start first (SERVICE_START_REFUSED
+              or SERVICE_UNREACHABLE otherwise, nothing stopped); --force orders the stop without that question
   statusline  one line from the local cache, for a status line command (no sidecar call)
   metrics     decisions, abstentions, fallbacks, latency, tokens and cost [--hours <n>, default 24]
   diagnose    on [--minutes <1..60>] | off | status: temporary extra trace detail, never content

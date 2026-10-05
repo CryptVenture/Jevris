@@ -780,13 +780,25 @@ async function awaitServiceStart(ports: ReturnType<typeof sidecarPorts>, home: s
 const SERVICE_FIX = 'Run `jevris service status` to see why, and `jevris service install` to register it again.';
 
 /**
+ * The refusal for a service-run sidecar that is alive but does not answer (F3-04): the one sentence and code a hook, a command and an MCP call
+ * carry, for `sidecar start` and `sidecar restart` alike (JEV-0073). A restart says nothing was stopped.
+ */
+function silentServiceRefusal(manager: string, refused: boolean, pid: number, verb: 'start' | 'restart'): string {
+  const code = refused ? 'SERVICE_START_REFUSED' : 'SERVICE_UNREACHABLE';
+  return `${manager} ${refused ? 'refused to start' : 'could not be reached to start'} the Jevris sidecar service (${code}), and the sidecar the service runs (pid ${String(pid)}) is alive but did not answer, so no second sidecar was started.${verb === 'restart' ? ' Nothing was stopped.' : ''} Run \`jevris service status\`, then \`jevris sidecar restart\`.\n`;
+}
+
+/**
  * `jevris sidecar stop|restart|start`. A sidecar the service manager supervises is never
  * replaced by an unsupervised one: the manager does not restart a clean exit (launchd
  * SuccessfulExit false, systemd Restart=on-failure), so a restart stops it cleanly and asks the
  * manager to start it again, and a start with nothing running asks the manager first. A sidecar the
  * service runs that is alive but does not answer is still the service's: a start the manager refuses
- * or cannot take starts nothing beside it (the rule a hook, a command and an MCP call follow), and a
- * restart is judged as for any service-run sidecar.
+ * or cannot take starts nothing beside it (the rule a hook, a command and an MCP call follow). A
+ * restart of it gives the same refusal and stops nothing: such a sidecar cannot be asked to stop (its
+ * shutdown guard, which keeps it alive while it finishes a verification run, is not reachable), so
+ * the manager is asked to start the unit first, and only a manager that takes the start is followed
+ * by the stop and the second start. `--force` is the order to end it anyway and skips that question.
  */
 async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parsed, home: string | undefined, sidecar: SidecarModule, write: Write | undefined, hooks: RuntimeCommandHooks | undefined): Promise<number> {
   const ports = sidecarPorts(sidecar, hooks);
@@ -806,9 +818,24 @@ async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parse
     const { input, exec } = service();
     const ready = managerPossible ? sidecar.serviceReady(input, exec) : undefined;
     if (ready === undefined || !ready.ok) {
+      if (silentPid !== undefined && ready !== undefined && ready.state === 'unknown') {
+        out(write, silentServiceRefusal(ready.manager, false, silentPid, 'restart'));
+        return 1;
+      }
       const why = ready?.message ?? 'There is no service manager on this platform.';
       out(write, `sidecar restart refused (SERVICE_UNREACHABLE): the sidecar runs under a service manager and it could not be reached. ${why} Nothing was stopped. ${SERVICE_FIX}\n`);
       return 1;
+    }
+    // A sidecar that does not answer cannot be asked to stop, so the stop would be a signal that its shutdown guard never sees (a verification
+    // run it is finishing would end with it). Ask the manager to start the unit first, as `start` does: a manager that refuses or cannot be
+    // reached leaves the sidecar alone and gives start's refusal. A running unit is left running by a start, so this stops nothing.
+    // `--force` is the order to end it anyway, and goes straight to the stop.
+    if (silentPid !== undefined && parsed.flags.get('--force') !== true) {
+      const asked = sidecar.startService(input, exec);
+      if (!asked.ok) {
+        out(write, silentServiceRefusal(asked.manager, asked.state === 'failed', silentPid, 'restart'));
+        return 1;
+      }
     }
   }
 
@@ -857,9 +884,7 @@ async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parse
     }
     if (silentPid !== undefined && sidecar.serviceInstalledFor(home)) {
       // The same refusal ensureSidecar gives a hook, a command and an MCP call (F3-04): the service's sidecar is alive and silent, so no second one.
-      const refused = started.state === 'failed';
-      const code = refused ? 'SERVICE_START_REFUSED' : 'SERVICE_UNREACHABLE';
-      out(write, `${started.manager} ${refused ? 'refused to start' : 'could not be reached to start'} the Jevris sidecar service (${code}), and the sidecar the service runs (pid ${String(silentPid)}) is alive but did not answer, so no second sidecar was started. Run \`jevris service status\`, then \`jevris sidecar restart\`.\n`);
+      out(write, silentServiceRefusal(started.manager, started.state === 'failed', silentPid, 'start'));
       return 1;
     }
     // start, or a restart of an on-demand sidecar: no unit for this home, or the manager does not
@@ -888,7 +913,9 @@ const MY_HELP: { readonly [command: string]: string } = {
     '  stop        ask it to finish in-flight work and exit (a service does not restart a clean stop); it refuses',
     '              while it is finishing a verification run, and --force orders it to stop anyway',
     '  restart     stop, then start (--force as for stop); with a service installed the service starts it again',
-    '              (this also hands a sidecar started on demand over to the service)',
+    '              (this also hands a sidecar started on demand over to the service). A service-run sidecar that',
+    '              does not answer is not stopped unless the service manager takes a start first (SERVICE_START_REFUSED',
+    '              or SERVICE_UNREACHABLE otherwise, nothing stopped); --force orders the stop without that question',
     '  statusline  one line from the local cache, for a status line command (no sidecar call)',
     '  metrics     decisions, abstentions, fallbacks, latency, tokens and cost [--hours <n>, default 24]',
     '  diagnose    on [--minutes <1..60>] | off | status: temporary extra trace detail, never content',
