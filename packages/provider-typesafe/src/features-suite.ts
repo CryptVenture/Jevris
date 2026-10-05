@@ -9,10 +9,11 @@
  * the rules, why.
  *
  * Groups (this module): `slice` (route slice classification), `plan-slices`, `check-ranking`,
- * `repeated-failure`, `new-task`, `intent` (C01 to C04, C06 and C07), `security` (C51 and C49) and
- * `worker-readiness` (a question the product defines but no code asks yet). The capability catalogue
- * (C18 to C72) and the hot path through a real sidecar run from `apps/sidecar/scripts/jev-features.mjs`
- * and merge their rows into the same record.
+ * `repeated-failure`, `new-task`, `intent` (C01 to C04, C06 and C07), `security` (C51 and C49),
+ * `worker-readiness` (the question the owned-worker launch asks) and `health-probe` (the circuit breaker's own
+ * one-question probe while the circuit is half-open, driven with the conformance mock and an injected clock, in every
+ * mode). The capability catalogue (C18 to C72) and the hot path through a real sidecar run from
+ * `apps/sidecar/scripts/jev-features.mjs` and merge their rows into the same record.
  *
  * Privacy while checking: with source egress denied, no title, path, prompt or tool text may be in any
  * request. The suite sets the meter's probes to each case's own strings and counts a leak whenever one
@@ -24,6 +25,7 @@ import {
   adviseWorkerReadiness,
   auditDecomposition,
   classifyTaskSlice,
+  compileDecisionSpec,
   detectAmbiguity,
   detectScopeChange,
   injectionSuspicion,
@@ -34,6 +36,7 @@ import {
   shortlistTemplates,
   suggestPlanSlices,
   triageTaskFamily,
+  type DecideRequest,
   type DecisionEngine,
   type PlanSliceTask,
   type RelevanceCheck,
@@ -41,14 +44,17 @@ import {
   type TemplateMeta,
 } from '@jevris/core';
 import { PINNED_MODEL, type TaskNode } from '@jevris/contracts';
+import { CONFORMANCE_REQUEST } from './conformance.js';
+import { createMockFetch } from './conformance-mock.js';
 import { adviseRepeatedFailure, failureContextOf, type FailureFeatures } from './failure-advice.js';
 import { adviseNewTask } from './new-task-advice.js';
 import { distributionOf, type AnswerStat, type CallMeter, type Distribution, type MeterRow, type MeterTotals } from './features-meter.js';
+import type { FetchLike } from './sdk-transport.js';
 
 export const FEATURE_SUITE_SCHEMA = 'jev-features-suite-1';
 
 /** The groups this module runs. */
-export const ENGINE_GROUPS = ['slice', 'plan-slices', 'check-ranking', 'repeated-failure', 'new-task', 'intent', 'security', 'worker-readiness'] as const;
+export const ENGINE_GROUPS = ['slice', 'plan-slices', 'check-ranking', 'repeated-failure', 'new-task', 'intent', 'security', 'worker-readiness', 'health-probe'] as const;
 export type EngineGroup = (typeof ENGINE_GROUPS)[number];
 
 /** How a row was measured: a fresh engine (no cache), the same engine again (cache), or never sent. */
@@ -137,6 +143,11 @@ export interface CaseDef {
   readonly probes?: readonly string[];
   /** Whether the engine for this case has source egress approved (default false). */
   readonly egress?: boolean;
+  /**
+   * A case that builds its own engine, transport and clock runs once, as one cold row: a repeat of it measures nothing new,
+   * and the engine the runner hands it is not the one it uses.
+   */
+  readonly once?: true;
   run(engine: DecisionEngine): Promise<CaseOutcome>;
 }
 
@@ -155,7 +166,16 @@ export interface FeatureSuiteOptions {
   readonly progress?: (line: string) => void;
   /** A ceiling for each decision's own wait, in ms (default 5000: this suite measures, the sidecar run uses the product budgets). */
   readonly waitMs?: number;
+  /**
+   * Makes the health-probe case's engine: its own home (the circuit breaker persists its state under the home, so it must not share
+   * the engines of the other cases), the credential of a mock (never a real key), the fetch and the clock the case gives it.
+   * Without it the case reports `PROBE_ENGINE_NOT_SUPPLIED` and the run does not pass.
+   */
+  readonly createProbeEngine?: CreateProbeEngine;
 }
+
+/** What the health-probe case hands the caller to build its engine on: a transport that never leaves the process, and a clock it moves. */
+export type CreateProbeEngine = (probe: { readonly fetch: FetchLike; readonly clock: { readonly now: () => number } }) => Promise<DecisionEngine>;
 
 export interface GroupSummary {
   readonly group: string;
@@ -680,9 +700,106 @@ function workerReadinessCases(waitMs: number): CaseDef[] {
   }));
 }
 
-/** Every engine-level case, in run order. */
-export function engineCases(waitMs = 5000): CaseDef[] {
-  return [...sliceCases(waitMs), ...planCases(), ...rankCases(waitMs), ...failureCases(waitMs), ...newTaskCases(waitMs), ...intentCases(waitMs), ...securityCases(waitMs), ...workerReadinessCases(waitMs)];
+/** The least step that carries the injected clock past the breaker's 30 s cool-down and the 30 s between two probes. */
+const PROBE_STEP_MS = 31_000;
+
+/** The most failed decisions the case sends to open the circuit; the breaker opens at the fifth. */
+const PROBE_MAX_FAILURES = 8;
+
+function isProbeBody(body: unknown): boolean {
+  if (body === null || typeof body !== 'object') return false;
+  const questions: unknown = Reflect.get(body, 'questions');
+  return questions !== null && typeof questions === 'object' && 'healthCheck' in questions;
+}
+
+/**
+ * The health probe (PRV-08): while the Jev circuit is half-open the engine asks ONE fixed question that carries no content (is this
+ * a readable health-check request?), and the answer restores observation first and automation after three more. The live API cannot
+ * be made to fail on demand, so this case does not use it: it builds an engine of its own over the conformance mock and a clock it
+ * moves, in every mode (live runs included), so it sends nothing to Jev and costs nothing. It opens the circuit with failed decisions
+ * (529), lets the cool-down pass on the injected clock, probes, and records the states and counts. The row's `calls` stay 0 because
+ * nothing went through the suite's metered transport; the requests the mock saw are `probeRequests`.
+ */
+function healthProbeCases(createProbeEngine: CreateProbeEngine | undefined): CaseDef[] {
+  const done = (reasonCode: string, answered: boolean, detail: CaseOutcome['detail'] = {}): CaseOutcome => ({ spec: 'health-probe', got: answered ? 'PROBE_OK' : reasonCode, source: 'none', reasonCode, asked: answered, answered, detail: { transport: 'conformance-mock', ...detail } });
+  return [
+    {
+      group: 'health-probe',
+      id: 'health-probe-half-open',
+      expected: 'PROBE_OK',
+      once: true,
+      async run(): Promise<CaseOutcome> {
+        if (createProbeEngine === undefined) return done('PROBE_ENGINE_NOT_SUPPLIED', false);
+        let now = Date.now();
+        const bodies: unknown[] = [];
+        const jev = { up: false };
+        const down = createMockFetch({ scenario: 'http-529', retryAfterSeconds: 0 });
+        const healthy = createMockFetch({ scenario: 'valid' });
+        const fetch: FetchLike = (input, init) => {
+          let body: unknown = null;
+          try {
+            body = typeof init?.body === 'string' ? JSON.parse(init.body) : null;
+          } catch {
+            body = null;
+          }
+          bodies.push(body);
+          return jev.up ? healthy(input, init) : down(input, init);
+        };
+        const engine = await createProbeEngine({ fetch, clock: { now: () => now } });
+        if (engine.probeProvider === undefined) return done('PROBE_NOT_AVAILABLE', false);
+        const state = (): string => engine.circuit?.snapshot().state ?? 'none';
+        const compiled = compileDecisionSpec({ id: 'health-probe-case', version: 'v1', questions: CONFORMANCE_REQUEST.questions, evidenceRequirements: [], deadlineMs: 60_000, fallback: 'rules-only' });
+        if (!compiled.ok) return done('CASE_SPEC_INVALID', false);
+        let serial = 0;
+        const task = (): DecideRequest => {
+          serial += 1;
+          return { spec: compiled.spec, questions: CONFORMANCE_REQUEST.questions, workspaceId: WORKSPACE, evidenceRevision: REVISION, lane: 'background', packet: { objective: `Pick a helper name (${String(serial)}).`, trustedPolicy: {}, facts: { n: serial }, evidence: [] } };
+        };
+        // An outage: failed decisions until the breaker opens, and one more that is refused without a call.
+        while (state() !== 'open' && serial < PROBE_MAX_FAILURES) await engine.decide(task());
+        const failuresToOpen = serial;
+        const stateOpened = state();
+        const sentWhileOpen = bodies.length;
+        const refused = await engine.decide(task());
+        const refusedWithoutCall = 'abstained' in refused && refused.abstained && refused.reasonCode === 'CIRCUIT_OPEN' && bodies.length === sentWhileOpen;
+        // Connectivity returns and the cool-down passes: the circuit is half-open and one probe is asked.
+        jev.up = true;
+        now += PROBE_STEP_MS;
+        const stateAfterCooldown = state();
+        const first = await engine.probeProvider();
+        const stateAfterFirstProbe = state();
+        const second = await engine.probeProvider();
+        // Three more probes, each after the interval, restore automation (the same model).
+        let probesOk = first.reasonCode === 'PROBE_OK' ? 1 : 0;
+        for (let i = 0; i < 3; i += 1) {
+          now += PROBE_STEP_MS;
+          if ((await engine.probeProvider()).reasonCode === 'PROBE_OK') probesOk += 1;
+        }
+        const stateAfterRestore = state();
+        const probes = bodies.filter(isProbeBody);
+        const carriesTaskText = probes.some((body) => JSON.stringify(body).includes('Pick a helper'));
+        const restored = first.reasonCode === 'PROBE_OK' && stateAfterFirstProbe === 'observe-only' && probesOk === 4 && stateAfterRestore === 'closed' && stateAfterCooldown === 'half-open' && stateOpened === 'open';
+        const ok = restored && refusedWithoutCall && second.reasonCode === 'PROBE_RATE_LIMITED' && probes.length === 4 && !carriesTaskText;
+        return done(ok ? 'PROBE_OK' : first.reasonCode === 'PROBE_OK' ? 'PROBE_RESTORE_INCOMPLETE' : first.reasonCode, ok, {
+          failuresToOpen,
+          stateOpened,
+          refusedWithoutCall,
+          stateAfterCooldown,
+          probeRequests: probes.length,
+          probesAnswered: probesOk,
+          secondProbeInInterval: second.reasonCode,
+          stateAfterFirstProbe,
+          stateAfterRestore,
+          probeCarriesTaskText: carriesTaskText,
+        });
+      },
+    },
+  ];
+}
+
+/** Every engine-level case, in run order. The health-probe case builds its engine through `createProbeEngine` (see `FeatureSuiteOptions`). */
+export function engineCases(waitMs = 5000, createProbeEngine?: CreateProbeEngine): CaseDef[] {
+  return [...sliceCases(waitMs), ...planCases(), ...rankCases(waitMs), ...failureCases(waitMs), ...newTaskCases(waitMs), ...intentCases(waitMs), ...securityCases(waitMs), ...workerReadinessCases(waitMs), ...healthProbeCases(createProbeEngine)];
 }
 
 // -------------------------------------------------------------------------------------- runner
@@ -786,6 +903,8 @@ export function suiteFailures(rows: readonly FeatureRow[], halted: string | null
   if (rows.some((r) => mustNot.has(r.id) && r.calls > 0)) failures.push('REFUSED_CASE_SENT_A_REQUEST');
   if (rows.some((r) => r.failureKind !== null)) failures.push('PROVIDER_ANSWER_REJECTED_BY_VALIDATOR');
   if (rows.some((r) => r.failedCalls > 0)) failures.push('PROVIDER_CALL_FAILED');
+  // The probe is the product's own deterministic behaviour, not a measurement of Jev: a probe that did not restore the circuit is a failure.
+  if (rows.some((r) => r.spec === 'health-probe' && r.got !== 'PROBE_OK')) failures.push('HEALTH_PROBE_NOT_RESTORED');
   return [...new Set(failures)];
 }
 
@@ -798,7 +917,7 @@ export async function runFeatureSuite(options: FeatureSuiteOptions): Promise<Fea
   const say = options.progress ?? (() => undefined);
   const wantGroup = (g: string): boolean => options.groups === undefined || options.groups.includes(g);
   const wantCase = (id: string): boolean => options.cases === undefined || options.cases.includes(id);
-  const defs = engineCases(waitMs).filter((d) => wantGroup(d.group) && wantCase(d.id));
+  const defs = engineCases(waitMs, options.createProbeEngine).filter((d) => wantGroup(d.group) && wantCase(d.id));
   const rows: FeatureRow[] = [];
   const skipped: string[] = [];
 
@@ -827,6 +946,10 @@ export async function runFeatureSuite(options: FeatureSuiteOptions): Promise<Fea
     const firstEngine = await options.createEngine({ egress: def.egress === true });
     const first = await once(def, firstEngine, 'cold', 0);
     rows.push(first);
+    if (def.once === true) {
+      say(`[${def.group}] ${def.id}: once got=${String(first.got)} reason=${first.reasonCode} ms=${first.elapsedMs}`);
+      continue;
+    }
     // A case the rules or a gate settled makes no request: one row says so. Anything that asked is repeated.
     if (first.calls === 0 && !first.asked) {
       rows[rows.length - 1] = { ...first, phase: 'gate' };

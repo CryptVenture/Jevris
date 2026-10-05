@@ -8,14 +8,20 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
 const provider = await import('../dist/index.js');
-const { createCallMeter, createMockFetch, createSidecarEngine, engineCases, runFeatureSuite, suiteFailures, ENGINE_GROUPS, FAKE_SECRET } = provider;
+const { createCallMeter, createMockFetch, createSidecarEngine, engineCases, runFeatureSuite, suiteFailures, ENGINE_GROUPS, FAKE_SECRET, FEATURE_INVENTORY } = provider;
 
 function harness(t, { fetch = createMockFetch({ scenario: 'valid' }), limits = { maxCalls: 400, maxMicroUsd: 100_000 } } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'jevris-features-'));
   t.after(() => rmSync(home, { recursive: true, force: true }));
   const meter = createCallMeter(fetch, limits);
   const createEngine = async ({ egress }) => createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: meter.fetch, env: {}, budgetLimitMicroUsd: 5_000_000, sourceEgress: () => ({ provenance: 'administrator', sourceEgress: egress ? 'approved-scoped' : 'deny-until-approved' }) });
-  return { meter, createEngine };
+  // The health-probe case drives the circuit breaker, which persists under its home: an engine of its own, on the fetch and the clock the case gives it.
+  const createProbeEngine = async ({ fetch: probeFetch, clock }) => {
+    const probeHome = mkdtempSync(join(tmpdir(), 'jevris-features-probe-'));
+    t.after(() => rmSync(probeHome, { recursive: true, force: true }));
+    return createSidecarEngine({ home: probeHome, credential: 'test-key-not-a-secret', fetch: probeFetch, clock, env: {}, budgetLimitMicroUsd: 5_000_000 });
+  };
+  return { meter, createEngine, createProbeEngine };
 }
 
 test('the case list covers every group, with unique ids and the fixed task shapes', () => {
@@ -32,14 +38,19 @@ test('the case list covers every group, with unique ids and the fixed task shape
 });
 
 test('the whole suite runs offline: Jev-asking cases repeat cold and cached, refusals send nothing, nothing private is in a request', async (t) => {
-  const { meter, createEngine } = harness(t);
+  const { meter, createEngine, createProbeEngine } = harness(t);
   const lines = [];
-  const record = await runFeatureSuite({ meter, createEngine, cold: 2, cached: 2, progress: (l) => lines.push(l) });
+  const record = await runFeatureSuite({ meter, createEngine, createProbeEngine, cold: 2, cached: 2, progress: (l) => lines.push(l) });
   assert.equal(record.schemaVersion, 'jev-features-suite-1');
   assert.deepEqual(record.failures, []);
   assert.equal(record.passed, true);
   assert.equal(record.halted, null);
   assert.deepEqual(record.skipped, []);
+  // The inventory's claim (JEV-0067): the suite covers each engine-level entry, so every spec the inventory lists that is not a
+  // capability (those run through a sidecar: see jev-feature-inventory-coverage.test.mjs) has a row of its own spec in the record.
+  const rowSpecs = new Set(record.rows.map((r) => r.spec));
+  assert.deepEqual(FEATURE_INVENTORY.filter((e) => !/^d-c\d{2}$/.test(e.spec) && !rowSpecs.has(e.spec)).map((e) => e.spec), [], 'an inventory entry with no case in the record');
+  assert.deepEqual(record.rows.filter((r) => r.spec === 'health-probe').map((r) => [r.group, r.id, r.phase, r.got]), [['health-probe', 'health-probe-half-open', 'cold', 'PROBE_OK']], 'the probe runs once, not repeated cold and cached');
   assert.equal(lines.length, new Set(record.rows.map((r) => r.id)).size, 'one progress line per case');
   assert.deepEqual([...new Set(record.groups.map((g) => g.group))].sort(), [...ENGINE_GROUPS].sort());
   const rowsOf = (id) => record.rows.filter((r) => r.id === id);
@@ -89,6 +100,39 @@ test('the repeated-failure cases: which artifact comes next is never asked, with
   assert.deepEqual(suiteFailures([{ id: 'failure-unequal-3-same-call', leaks: 0, calls: 1, failureKind: null, failedCalls: 0 }], null), []);
 });
 
+test('the health probe (JEV-0067): the case opens the circuit with failures, lets the cool-down pass on an injected clock, and the probe it asks restores the circuit; nothing reaches the metered transport', async (t) => {
+  const { meter, createEngine, createProbeEngine } = harness(t);
+  const record = await runFeatureSuite({ meter, createEngine, createProbeEngine, cold: 3, cached: 2, groups: ['health-probe'] });
+  assert.equal(record.passed, true, JSON.stringify(record.failures));
+  assert.equal(record.rows.length, 1, 'one run: a repeat of a case that builds its own engine and clock measures nothing new');
+  const [row] = record.rows;
+  assert.deepEqual([row.group, row.id, row.spec, row.phase, row.expected, row.got, row.agree, row.source, row.reasonCode, row.asked, row.answered], ['health-probe', 'health-probe-half-open', 'health-probe', 'cold', 'PROBE_OK', 'PROBE_OK', true, 'none', 'PROBE_OK', true, true]);
+  // The states the engine went through, read from its own circuit, and the counts of the requests the mock saw.
+  assert.deepEqual(
+    { ...row.detail, failuresToOpen: typeof row.detail.failuresToOpen },
+    { transport: 'conformance-mock', failuresToOpen: 'number', stateOpened: 'open', refusedWithoutCall: true, stateAfterCooldown: 'half-open', probeRequests: 4, probesAnswered: 4, secondProbeInInterval: 'PROBE_RATE_LIMITED', stateAfterFirstProbe: 'observe-only', stateAfterRestore: 'closed', probeCarriesTaskText: false },
+  );
+  assert.ok(row.detail.failuresToOpen >= 1 && row.detail.failuresToOpen <= 8, `the outage opened the circuit after ${String(row.detail.failuresToOpen)} failed decisions`);
+  // Nothing went through the suite's metered transport (the live API in a live run), so the row spends nothing and the meter saw no call.
+  assert.deepEqual([row.calls, row.costMicroUsd, row.inputTokens, row.leaks, meter.totals().calls], [0, 0, 0, 0, 0]);
+  // The record holds numbers and codes only.
+  for (const [key, value] of Object.entries(row.detail)) assert.ok(typeof value === 'number' || typeof value === 'boolean' || (typeof value === 'string' && /^[A-Za-z0-9_-]{1,40}$/.test(value)), `${key}: a number, a flag, or a code`);
+  assert.equal(JSON.stringify(record).includes('Pick a helper'), false, 'the probe case\'s own task text is not in the record');
+  assert.deepEqual(record.groups.map((g) => [g.group, g.cases, g.rows, g.calls]), [['health-probe', 1, 1, 0]]);
+});
+
+test('without an engine for the probe the case says so and the run does not pass; a probe that did not restore the circuit is its own failure code', async (t) => {
+  const { meter, createEngine } = harness(t);
+  const record = await runFeatureSuite({ meter, createEngine, cold: 1, cached: 0, groups: ['health-probe'] });
+  assert.equal(record.rows[0].reasonCode, 'PROBE_ENGINE_NOT_SUPPLIED');
+  assert.equal(record.passed, false);
+  assert.deepEqual(record.failures, ['HEALTH_PROBE_NOT_RESTORED']);
+  const row = (over) => ({ id: 'health-probe-half-open', spec: 'health-probe', got: 'PROBE_OK', leaks: 0, calls: 0, failureKind: null, failedCalls: 0, ...over });
+  assert.deepEqual(suiteFailures([row({})], null), []);
+  assert.deepEqual(suiteFailures([row({ got: 'PROBE_RESTORE_INCOMPLETE' })], null), ['HEALTH_PROBE_NOT_RESTORED']);
+  assert.deepEqual(suiteFailures([row({ got: 'COOLDOWN' })], null), ['HEALTH_PROBE_NOT_RESTORED']);
+});
+
 test('groups and cases can be selected, and a case that needs no model is a gate row', async (t) => {
   const { meter, createEngine } = harness(t);
   const record = await runFeatureSuite({ meter, createEngine, cold: 1, cached: 0, groups: ['security'], cases: ['c51-benign', 'c51-plain-text', 'c49-npm-install'] });
@@ -97,8 +141,8 @@ test('groups and cases can be selected, and a case that needs no model is a gate
 });
 
 test('a call cap halts the run: the cases left are skipped, nothing more is sent and the run does not pass', async (t) => {
-  const { meter, createEngine } = harness(t, { limits: { maxCalls: 3, maxMicroUsd: 100_000 } });
-  const record = await runFeatureSuite({ meter, createEngine, cold: 2, cached: 1 });
+  const { meter, createEngine, createProbeEngine } = harness(t, { limits: { maxCalls: 3, maxMicroUsd: 100_000 } });
+  const record = await runFeatureSuite({ meter, createEngine, createProbeEngine, cold: 2, cached: 1 });
   assert.equal(record.halted, 'CALL_CAP');
   assert.equal(record.totals.calls, 3);
   assert.ok(record.skipped.length > 0, 'cases that did not run are listed');
@@ -107,8 +151,8 @@ test('a call cap halts the run: the cases left are skipped, nothing more is sent
 });
 
 test('a provider that answers 401 halts at the first call and the suite reports it without looping', async (t) => {
-  const { meter, createEngine } = harness(t, { fetch: createMockFetch({ scenario: 'http-401' }) });
-  const record = await runFeatureSuite({ meter, createEngine, cold: 3, cached: 2 });
+  const { meter, createEngine, createProbeEngine } = harness(t, { fetch: createMockFetch({ scenario: 'http-401' }) });
+  const record = await runFeatureSuite({ meter, createEngine, createProbeEngine, cold: 3, cached: 2 });
   assert.equal(record.halted, 'HTTP_401');
   assert.ok(record.totals.calls <= 2, `${String(record.totals.calls)} calls after a 401`);
   assert.equal(record.passed, false);

@@ -11,7 +11,8 @@
  * What it does. Every Jev decision the product makes runs once through its real handler, the real
  * engine and the real packet builders: route slice classification, plan slice labels, check ranking,
  * repeated-failure advice, new-task advice, the intent decisions C01 to C04, C06 and C07, the security decisions C51
- * and C49, and the worker-readiness advice. The capability catalogue (C18 to C72) runs through a real
+ * and C49, and the worker-readiness advice. The circuit breaker's health probe (asked only while the circuit is half-open) runs on an
+ * engine of its own over the conformance mock and an injected clock, in live mode too, so it sends nothing to Jev. The capability catalogue (C18 to C72) runs through a real
  * sidecar, one case per Jev consult site, each reached through its real entry point (an op or a hook event). The hot path (route and plan at the product's 900 ms budget,
  * a concurrent burst, a repeat sequence for the cache hit rate) runs through the same sidecar, and the
  * check ranking and the repeated-failure advice run at their production waits in this process.
@@ -150,12 +151,23 @@ try {
       sourceEgress: () => ({ provenance: 'administrator', sourceEgress: egress ? 'approved-scoped' : 'deny-until-approved' }),
     });
 
+  // The health-probe case drives the circuit breaker with outages the live API cannot be made to give, so it runs on an engine of its own
+  // (its own home: the breaker persists there) over the conformance mock the case supplies and a clock it moves, in live mode too: it sends
+  // nothing to Jev and uses no key (the credential here is a placeholder, and `env: {}` keeps a test provider override out).
+  let probeHomes = 0;
+  const createProbeEngine = async ({ fetch, clock }) => {
+    probeHomes += 1;
+    const probeHome = join(home, `probe-engine-home-${probeHomes}`);
+    for (const dir of ['data', 'state', 'config']) mkdirSync(join(probeHome, dir), { recursive: true });
+    return provider.createSidecarEngine({ home: probeHome, credential: 'probe-case-placeholder', fetch, clock, env: {}, budgetLimitMicroUsd: 5_000_000 });
+  };
+
   const record = { schemaVersion: 'jev-features-suite-1', kind: 'jev-features-suite', mode: mock ? 'mock' : 'live', producedAt: stamp, pinnedModel: PINNED_MODEL };
 
   // ------------------------------------------------------------------------------------------ engine groups
   if (!skip.has('engine')) {
     say(`engine groups: cold ${cold}, cached ${cached}, caps ${maxCalls} calls / ${maxMicroUsd} micro-USD`);
-    record.engine = await provider.runFeatureSuite({ meter, createEngine, cold, cached, ...(groups === undefined ? {} : { groups }), progress: say });
+    record.engine = await provider.runFeatureSuite({ meter, createEngine, createProbeEngine, cold, cached, ...(groups === undefined ? {} : { groups }), progress: say });
     for (const g of record.engine.groups) say(`${g.group.padEnd(17)} cases ${g.cases} rows ${g.rows} calls ${g.calls} uUSD ${g.costMicroUsd} callOk ${g.callOkRate} valid ${g.validatorAcceptRate} agree ${g.agreeRate} cold p50/p95 ${g.cold.p50}/${g.cold.p95} cached p50 ${g.cached.p50} leaks ${g.leaks}`);
   }
 

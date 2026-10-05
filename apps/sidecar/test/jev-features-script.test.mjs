@@ -41,6 +41,8 @@ test('--mock runs every part against the conformance mock and writes an evidence
     // The engine groups.
     assert.ok(record.engine.rows.length > 50);
     assert.equal(record.engine.rows.reduce((n, r) => n + r.leaks, 0), 0);
+    // The circuit breaker's health probe (the one inventory entry only a half-open circuit asks) has its row: driven on an engine of its own, on the mock.
+    assert.deepEqual(record.engine.rows.filter((r) => r.spec === 'health-probe').map((r) => [r.group, r.phase, r.got, r.detail.stateAfterCooldown, r.detail.stateAfterRestore]), [['health-probe', 'cold', 'PROBE_OK', 'half-open', 'closed']]);
     // The capability cases through the sidecar: each reached the call, and none that must reach Jev was refused before sending.
     assert.ok(record.capabilities.rows.length >= 8, `${String(record.capabilities.rows.length)} capability rows`);
     assert.deepEqual(record.capabilities.passes.map((p) => [p.part, p.egress]), [['a', 'denied']]);
