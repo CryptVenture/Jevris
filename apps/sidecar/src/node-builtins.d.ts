@@ -44,8 +44,10 @@ declare const process: {
   getuid?: () => number;
   kill(pid: number, signal?: NodeJS.Signals | 0): boolean;
   on(event: NodeJS.Signals, listener: () => void): unknown;
+  on(event: 'unhandledRejection', listener: (reason: unknown) => void): unknown;
   once(event: NodeJS.Signals, listener: () => void): unknown;
   removeListener(event: NodeJS.Signals, listener: () => void): unknown;
+  removeListener(event: 'unhandledRejection', listener: (reason: unknown) => void): unknown;
   exit(code?: number): never;
   cwd(): string;
   umask(mask?: number): number;

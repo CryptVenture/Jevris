@@ -900,6 +900,31 @@ function microUsd(costUsd: number | null): number | null {
 }
 
 /**
+ * JEV-0068: the reason code of a run whose worker port threw, or answered with no outcome, instead of
+ * returning one (a spawn that failed, an unexpected harness error). The run is a failed run with an
+ * unknown cost, so its reservation stays held until it is reconciled; the task fails with
+ * `worker run failed (WORKER_RUN_FAILED)`, the lease is released and the queue behind it starts.
+ */
+export const WORKER_RUN_FAILED = 'WORKER_RUN_FAILED';
+
+/** The only thing kept of a thrown error: its code when it has the shape of a system or Node code (`ENOENT`), else nothing. Never the message or the stack. */
+function thrownCodeOf(error: unknown): string | null {
+  const code = typeof error === 'object' && error !== null ? Reflect.get(error, 'code') : undefined;
+  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{2,31}$/.test(code) ? code : null;
+}
+
+/** The fixed reason a thrown run's record carries. */
+function thrownRunReason(error: unknown): string {
+  const code = thrownCodeOf(error);
+  return `${WORKER_RUN_FAILED}: the worker port threw before it returned an outcome${code === null ? '' : ` (${code})`}`;
+}
+
+/** The outcome a thrown run is recorded as: failed, with a cost nobody knows (so the reservation is held, not released). */
+function thrownRunOutcome(model: string, reason: string, durationMs: number): WorkerRunOutcome {
+  return { status: 'failed', reason, sessionId: null, requestedModel: model, actualModel: null, costUsd: null, usage: null, turns: null, durationMs };
+}
+
+/**
  * R52: a leased task that is not launched at all (a route through the session's host that did not
  * launch): it blocks with the fixed reason and its lease is released with nothing spent. No owned
  * effect was begun, so there is nothing to settle.
@@ -923,9 +948,37 @@ export async function runLeasedTask(ws: WorkspaceServices, grant: LeaseGrant, op
   settling.set(key, settled);
   try {
     return await runLeasedTaskOnce(ws, grant, options);
+  } catch {
+    // JEV-0068: anything else that throws on the way (a store that fails mid-run, a port's own lookup) must not leave the
+    // task running with its lease held until the lease expires, nor reject the caller's chain. The fenced publish below does
+    // nothing when the run already ended and released its lease, so a throw after the end changes nothing.
+    return await failThrownRun(ws, grant, options);
   } finally {
     if (settling.get(key) === settled) settling.delete(key);
     release();
+  }
+}
+
+/**
+ * The last resort of a run that threw outside the port's own run: the owned effect settles failed with its cost unknown,
+ * the task fails with the fixed reason, and the lease is released with its reservation held as uncertain (nothing spent is
+ * lost, nothing is guessed). Best effort: each step is bounded by the fence, and a store that is gone changes nothing
+ * here (the lease sweep recovers the task when its lease expires).
+ */
+async function failThrownRun(ws: WorkspaceServices, grant: LeaseGrant, options: RunLeasedTaskOptions): Promise<RunLeasedTaskResult> {
+  const now = options.now ?? Date.now;
+  const { lease } = grant;
+  const operationId = effectOperationId(lease.id);
+  try {
+    const settled = ws.store === undefined ? undefined : settleOwnedEffect(ws.store, { operationId, outcome: 'failed', actualMicroUsd: null, nowMs: now() });
+    // A held effect waits for a person, as in a run that ended: the task blocks instead of failing.
+    const held = settled !== undefined && settled.ok && (settled.state === 'held' || settled.state === 'abandoned');
+    const to = held ? 'blocked' : 'failed';
+    const reason = held ? `owned effect ${operationId} is held by the kill switch: reconcile it after clear` : `worker run failed (${WORKER_RUN_FAILED})`;
+    const published = await options.authority.publishFenced(ws.workspaceId, lease.taskId, lease.fencingToken, () => taskTransition(ws, lease.taskId, to, reason, { actor: 'runner', nowMs: now(), patch: { leaseId: null } }), now(), { spend: { actualMicroUsd: null }, reason: held ? 'owned effect held' : 'worker run failed' });
+    return { taskId: lease.taskId, finalState: published.ok ? to : 'unchanged', run: null, reasonCode: !published.ok ? published.reasonCode : held ? 'OWNED_EFFECT_HELD' : WORKER_RUN_FAILED };
+  } catch {
+    return { taskId: lease.taskId, finalState: 'unchanged', run: null, reasonCode: WORKER_RUN_FAILED };
   }
 }
 
@@ -1052,17 +1105,22 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
         controller.abort();
         return;
       }
-      const hb = await options.authority.heartbeat(ws.workspaceId, lease.id, lease.fencingToken, now());
+      // A heartbeat that throws (a store busy for a moment) is not a lost lease: the next beat asks again, and a lease that
+      // really lapsed answers not-ok then. A rejection here would be unhandled and end the sidecar (JEV-0068).
+      const hb = await options.authority.heartbeat(ws.workspaceId, lease.id, lease.fencingToken, now()).catch(() => ({ ok: true }));
       if (!hb.ok) {
         leaseLost = true;
         controller.abort();
       }
-    })();
+    })().catch(() => undefined);
   }, options.heartbeatMs ?? Math.max(1_000, Math.floor(ttl / 3)));
   let outcome: WorkerRunOutcome;
+  /** Set when the port threw (or returned no outcome): the fixed text of that failure. The run is then a failed run with unknown cost. */
+  let threw: string | null = null;
   let binding: Promise<unknown> = Promise.resolve();
+  const startedAtMs = now();
   try {
-    outcome = await options.port.run({
+    const returned = await options.port.run({
       taskId: lease.taskId,
       prompt: options.prompt,
       model: options.model,
@@ -1081,7 +1139,16 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
         binding = bindOwnedSession(ws, lease, sessionId, harness).catch(() => undefined);
       },
     });
+    // A port that answers with no outcome at all is a port that failed: the same path as a throw.
+    if (typeof returned !== 'object' || returned === null || typeof returned.status !== 'string') throw new TypeError('no outcome');
+    outcome = returned;
     await binding;
+  } catch (error) {
+    // A port that throws (a spawn that failed, an unexpected harness error) is a failed run, never a crash: the run ends
+    // like any other failed one (settled, released, recorded, its worktree kept), so the queue behind it starts. Only a
+    // fixed code goes on the record: never the error's text, its stack or a path.
+    threw = thrownRunReason(error);
+    outcome = thrownRunOutcome(options.model, threw, Math.max(0, now() - startedAtMs));
   } finally {
     clearInterval(beat);
     // Only this run's own handle (K6): a newer run of the task may already have registered its own.
@@ -1189,6 +1256,7 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
   // The pre-spawn release (C's note): a refusal before any child started names the dispatching
   // port's own reason code (fixed codes only, never text), so the task says why nothing ran.
   else if (notSpawned) [to, reason] = ['failed', `worker ${outcome.status} before starting (${/^[A-Z][A-Z0-9_]{2,63}(?=:)/.exec(outcome.reason)?.[0] ?? 'REFUSED'})`];
+  else if (threw !== null) [to, reason] = ['failed', `worker run failed (${WORKER_RUN_FAILED})`];
   else [to, reason] = ['failed', `worker ${outcome.status}`];
   const published = await options.authority.publishFenced(
     ws.workspaceId,
@@ -1222,7 +1290,7 @@ async function runLeasedTaskOnce(ws: WorkspaceServices, grant: LeaseGrant, optio
   if (outcome.status === 'completed' && runHarness !== null) await clearRunAccess({ home: ws.home, registry: accessRegistry, harness: runHarness, model: options.model, reportedModel: outcome.actualModel, authMode: runAuth, nowMs: decisionNow(), ...(options.servingHost === undefined ? {} : { servingHost: options.servingHost }) });
   // P11: the task's estimate against what its leases committed, after the release settled the spend.
   await recordTaskEstimate(ws, lease.taskId, now()).catch(() => null);
-  return { taskId: lease.taskId, finalState: published.ok ? to : 'unchanged', run, reasonCode: !published.ok ? published.reasonCode : held ? 'OWNED_EFFECT_HELD' : access !== null && to === 'blocked' ? (access.classification.class === 'overloaded' ? 'PROVIDER_OVERLOADED' : 'ACCESS_LIMITED') : outcome.status.toUpperCase().replace(/-/g, '_') };
+  return { taskId: lease.taskId, finalState: published.ok ? to : 'unchanged', run, reasonCode: !published.ok ? published.reasonCode : held ? 'OWNED_EFFECT_HELD' : access !== null && to === 'blocked' ? (access.classification.class === 'overloaded' ? 'PROVIDER_OVERLOADED' : 'ACCESS_LIMITED') : threw !== null && to === 'failed' ? WORKER_RUN_FAILED : outcome.status.toUpperCase().replace(/-/g, '_') };
 }
 
 /**

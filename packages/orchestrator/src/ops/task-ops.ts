@@ -364,6 +364,8 @@ async function startOwnedWork(
         prompt: workerPrompt(ws, task, escalated?.history),
         decisionNow: () => engineNow(ctx.engine),
       }).then((result) => {
+        // JEV-0068: a run whose worker port threw is a failed run: the code goes in the trace, never the error.
+        if (result.reasonCode === 'WORKER_RUN_FAILED') ctx.trace({ event: 'orchestrator.worker-run-failed', taskId: task.node.id, reasonCode: 'WORKER_RUN_FAILED' });
         // A model found gone: recorded on the machine (or why not), or refused before launch. Codes only.
         const found = result.run?.modelUnavailable;
         if (found !== undefined) ctx.trace({ event: 'orchestrator.model-unavailable', taskId: task.node.id, reasonCode: found.recorded === 'RECORDED' ? found.reasonCode : `RECORD_${found.recorded}`.slice(0, 64) });
@@ -407,7 +409,12 @@ async function startOwnedWork(
             });
     // When a run ends, the freed lease goes to the next queued task (JEV-0008): with more tasks
     // than `maxConcurrentWorkers`, nothing else would ever start them.
-    const run: Promise<unknown> = launched.then(() => drainQueue(ctx, ws, task.node.id)).finally(() => background.delete(run));
+    // JEV-0068: whatever the run did (ended, failed or threw), the slot is free again: the drain runs on every path, and a run
+    // that rejects is traced by its code and never left as an unhandled rejection (which would end the sidecar).
+    const run: Promise<unknown> = launched
+      .catch(() => ctx.trace({ event: 'orchestrator.worker-run-failed', taskId: task.node.id, reasonCode: 'WORKER_RUN_FAILED' }))
+      .then(() => drainQueue(ctx, ws, task.node.id))
+      .finally(() => background.delete(run));
     background.add(run);
   }
   return { leaseIds, reasonCodes, fallback: 'QUEUED' };

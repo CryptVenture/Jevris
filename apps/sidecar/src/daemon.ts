@@ -66,6 +66,23 @@ export const BUILD_CHECK_MS = 30_000;
  */
 export const STALE_BUILD_EXIT_CODE = 75;
 /**
+ * The stop reason, and the exit code (70, EX_SOFTWARE), of a sidecar that stopped because a promise
+ * was rejected and nothing handled it (JEV-0068). Node's default is to end the process on the spot,
+ * with the error's text on stderr and the lock, endpoint and socket files left behind. The sidecar
+ * instead logs the reason code, and an errno-shaped code when the error carries one, stops the way
+ * a signal stops it (files removed, store closed) and exits non-zero, so a service manager starts
+ * it again and a client's next call starts one. It never keeps serving after one: what the rejected
+ * work was doing is unknown, so it is not trusted to have finished or to have left its state whole.
+ */
+export const UNHANDLED_REJECTION_REASON = 'unhandled-rejection';
+export const UNHANDLED_REJECTION_EXIT_CODE = 70;
+
+/** The only part of a rejection that is logged: its code when it has the shape of a system or Node code (`ENOENT`). Never the message or the stack. */
+export function rejectionCode(reason: unknown): string | null {
+  const code = typeof reason === 'object' && reason !== null ? Reflect.get(reason, 'code') : undefined;
+  return typeof code === 'string' && /^[A-Z][A-Z0-9_]{2,31}$/.test(code) ? code : null;
+}
+/**
  * The longest a graceful stop waits for a verification run that began after it was accepted (a
  * request that was in flight while the daemon closed, or one that arrived in the instant between
  * the decision and the close): 30 minutes, the length of a long test run. A stop that finds a run
@@ -157,6 +174,8 @@ export interface SidecarDaemon {
   readonly pipeAcl: 'owner-only' | 'default' | 'not-applicable' | 'pending';
   /** Resolves when the daemon has fully stopped. */
   readonly stopped: Promise<string>;
+  /** The sidecar log this daemon writes (the process entry logs a fault through it). */
+  readonly log: (entry: LogEntry) => void;
   stop(reason: string): Promise<void>;
 }
 
@@ -831,6 +850,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
       return pipeAcl;
     },
     stopped,
+    log,
     stop(reason: string): Promise<void> {
       if (stopping !== undefined) {
         // A signal means stop now: it ends the wait for a verification run (a service manager, or
@@ -843,7 +863,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
         if (buildTimer !== undefined) clearInterval(buildTimer);
         clearInterval(sweepTimer);
         clearInterval(localityTimer);
-        log({ level: 'info', event: 'stopping', reason });
+        log({ level: reason === UNHANDLED_REJECTION_REASON ? 'error' : 'info', event: 'stopping', reason });
         await service.close(5000);
         // A run that began after the stop was accepted is let finish, within a bound. Only a
         // graceful `shutdown` waits: a signal, a forced stop, an idle or stale-build exit (which
@@ -875,7 +895,7 @@ export async function runSidecarMain(options: DaemonOptions & { readonly write?:
   // killing the process with the default action and leaving stale files.
   const signals: NodeJS.Signals[] = ['SIGTERM', 'SIGINT', 'SIGHUP'];
   if (process.platform === 'win32') signals.push('SIGBREAK');
-  let running: { stop(reason: string): Promise<void> } | undefined;
+  let running: SidecarDaemon | undefined;
   let pending: NodeJS.Signals | undefined;
   const handlers = new Map<NodeJS.Signals, () => void>();
   for (const signal of signals) {
@@ -886,8 +906,22 @@ export async function runSidecarMain(options: DaemonOptions & { readonly write?:
     handlers.set(signal, handler);
     process.on(signal, handler);
   }
+  // JEV-0068: a rejection nothing handled stops the sidecar cleanly with its reason code logged (see UNHANDLED_REJECTION_REASON).
+  // One that lands while the daemon is still starting is latched and acted on as soon as it is up.
+  let pendingFault: { readonly code: string | null } | undefined;
+  const faulted = (code: string | null): void => {
+    running?.log({ level: 'error', event: 'unhandled-rejection', reasonCode: 'UNHANDLED_REJECTION', ...(code === null ? {} : { code }) });
+    void running?.stop(UNHANDLED_REJECTION_REASON);
+  };
+  const onRejection = (reason: unknown): void => {
+    const code = rejectionCode(reason);
+    if (running !== undefined) faulted(code);
+    else pendingFault ??= { code };
+  };
+  process.on('unhandledRejection', onRejection);
   const removeHandlers = (): void => {
     for (const [signal, handler] of handlers) process.removeListener(signal, handler);
+    process.removeListener('unhandledRejection', onRejection);
   };
   let started: Awaited<ReturnType<typeof startDaemon>>;
   try {
@@ -904,8 +938,10 @@ export async function runSidecarMain(options: DaemonOptions & { readonly write?:
   const { daemon } = started;
   running = daemon;
   if (pending !== undefined) void daemon.stop(pending);
+  if (pendingFault !== undefined) faulted(pendingFault.code);
   const reason = await daemon.stopped;
   removeHandlers();
+  if (reason === UNHANDLED_REJECTION_REASON) return UNHANDLED_REJECTION_EXIT_CODE;
   return reason === 'stale-build' && options.supervised === true ? STALE_BUILD_EXIT_CODE : 0;
 }
 
