@@ -529,15 +529,23 @@ async function mainServing(ctx: SidecarOpContext, input: RouteRequest, registry:
 }
 
 /**
- * Jev's wait for a slice classification inside a route request: the budget the op was given less 200 ms for the
- * rest of its answer (700 ms of the 900 ms hot budget), and never more than the time left less 100 ms, so a
- * client that has little time left is not made to wait for a call that cannot finish. Derived from the op's own
- * deadline, so a test (or a slower budget class) gives it more or less time without a separate setting.
+ * Jev's wait for a slice classification inside a route request: the hot budget less 200 ms for the rest of the
+ * answer (700 ms of the 900 ms hot budget), and never more than the time left less 100 ms, so a client that has
+ * little time left is not made to wait for a call that cannot finish.
+ *
+ * The hot budget is the smaller of the op's own budget and `hotBudgetMs`, the hot budget the sidecar runs with. A
+ * person's `jevris route` and an MCP tool call ask for the 5 s background budget (so that a loaded host does not fail
+ * the work around the call), and the wait used to be derived from that, about 4.8 s, where the documented wait is 700 ms
+ * and the SSOT's hot-path rule is a 900 ms total for a semantic decision (JEV-0057, JEV-0066): a request a person waits
+ * for is a hot decision whoever sends it. Derived from the budgets and not a constant, so a test run that scales or pins
+ * the sidecar's budgets moves the wait with them, and a direct call with no `hotBudgetMs` (a unit test with a generous
+ * deadline) is bounded by the op's own budget alone.
  */
-function routeSliceWaitMs(budgetMs: number, remainingMs: number): number {
+function routeSliceWaitMs(budgetMs: number, remainingMs: number, hotBudgetMs?: number): number {
   const budget = Number.isFinite(budgetMs) ? Math.floor(budgetMs) : 0;
   const left = Number.isFinite(remainingMs) ? Math.floor(remainingMs) : 0;
-  return Math.max(0, Math.min(budget - 200, left - 100));
+  const hot = typeof hotBudgetMs === 'number' && Number.isFinite(hotBudgetMs) ? Math.floor(hotBudgetMs) : Number.POSITIVE_INFINITY;
+  return Math.max(0, Math.min(Math.min(budget, hot) - 200, left - 100));
 }
 
 /** Below this many ms to wait, Jev is not asked: a call cannot finish. */
@@ -556,18 +564,18 @@ const ROUTE_SLICE_LATE_GRACE_MS = 1_000;
  * `jev.assist` off, a mode below `observe` or the kill switch stopped the answer is that gate however slow the
  * machine is (a person with assist off must never be told "deadline"); only then does too little time count.
  */
-function routeSliceGate(ctx: Pick<SidecarOpContext, 'jevAssist' | 'mode' | 'killSwitchStopped' | 'deadline'>): string | null {
+function routeSliceGate(ctx: Pick<SidecarOpContext, 'jevAssist' | 'mode' | 'killSwitchStopped' | 'deadline' | 'hotBudgetMs'>): string | null {
   if (ctx.killSwitchStopped) return 'SLICE_KILL_SWITCH';
   if (!modeAllows(ctx.mode ?? 'observe', 'record')) return 'SLICE_MODE_OFF';
   if (ctx.jevAssist === 'off') return 'SLICE_ASSIST_OFF';
-  if (routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs()) < ROUTE_SLICE_MIN_WAIT_MS) return 'SLICE_NO_TIME';
+  if (routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs(), ctx.hotBudgetMs) < ROUTE_SLICE_MIN_WAIT_MS) return 'SLICE_NO_TIME';
   return null;
 }
 
 async function classifyRouteSlice(ctx: SidecarOpContext, hints: SliceTaskHints): Promise<SliceClassification> {
   const mode = ctx.mode ?? 'observe';
   const gate = routeSliceGate(ctx);
-  const waitMs = routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs());
+  const waitMs = routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs(), ctx.hotBudgetMs);
   // The engine's own deadline outlives the route's wait by the grace; the route itself stops waiting at `waitMs` (below).
   const intent: IntentContext = { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: Math.max(1, waitMs + ROUTE_SLICE_LATE_GRACE_MS) };
   const engine = engineOf(ctx);

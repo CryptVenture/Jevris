@@ -565,6 +565,8 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
       home: options.home,
       signal: controller.signal,
       deadline,
+      // The hot budget in force, so an op that waits for Jev inside a person's request (a route) holds to it, not to the 5 s of the background class.
+      hotBudgetMs: limits.budgetMs.hot,
       store: options.hooks.storeFor(workspace),
       killSwitchStopped,
       killSwitchNow: () => options.hooks.killSwitchStopped(),

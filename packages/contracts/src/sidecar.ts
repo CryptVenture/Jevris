@@ -234,6 +234,15 @@ export interface SidecarOpContext {
   readonly home: string;
   readonly signal: AbortSignal;
   readonly deadline: SidecarDeadline;
+  /**
+   * The hot budget this sidecar runs with, in ms (900 in the product, scaled or pinned in a test): the most an op that
+   * asks Jev inside a request a person waits for (a route's task slice) waits for the call, less its reserve for the rest
+   * of the answer, whatever budget class the request itself asked for. A person's `jevris route` and an MCP tool call ask
+   * for the 5 s background budget so that a loaded host does not fail the work around the call, and that is not a licence
+   * to hold the answer for 4.8 s for Jev (SSOT: a semantic hot-path decision has a 900 ms total budget, and fallback is
+   * the outcome when it cannot be met). Absent where no sidecar set it (a direct unit call): the op's own budget alone.
+   */
+  readonly hotBudgetMs?: number;
   readonly store: unknown;
   readonly killSwitchStopped: boolean;
   /**
