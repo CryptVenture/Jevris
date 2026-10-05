@@ -220,7 +220,8 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
   //    50 ms, and so is that of the hot commits. On windows-latest the bound is 100 ms (one chunk
   //    took 59 ms there; file writes are slower, and one runner carries the whole suite).
   // 3. Nothing comes near busy_timeout (2 s): the longest maintenance write and the worst hot
-  //    commit are each under 400 ms.
+  //    commit are each under 400 ms (1200 ms on Windows, where a runner stall held a hot commit for
+  //    about 520 ms in CI run 37324140640; a commit that waited for a held lock takes about 2000 ms).
   // Why a percentile, not the longest write: the longest is one sample, and a stalled runner
   // decides it. A 500-row chunk is under 1 ms of work on a quiet host (0.9 ms at most, measured
   // at 52f2beb), yet a macos-latest runner held one for 85 ms at 52f2beb while its worst hot
@@ -248,7 +249,13 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
     // ms (windows-latest at af665fd: a hot commit p90 of 72 ms, a 341 ms chunk, a worst commit of
     // 496 ms) gets the bound this run's own quiet commits earn: 400 ms plus ten of their 90th
     // percentiles. Still far under busy_timeout (2000 ms) wherever a commit costs under ~160 ms.
-    const nearBusy = 400 + 10 * p90(quiet);
+    // windows-latest again (CI run 37324140640): both sweeps' worst hot commit was about 520 ms against a 401 ms bound,
+    // on a runner whose quiet commit p90 was 0.1 ms (the same kind of stall as the 496 ms at af665fd, and it lasted for both
+    // attempts), while the structural checks and the 90th percentiles held. What this bound shows is that nothing comes near
+    // busy_timeout (2000 ms): a commit that really waited for a held lock takes about 2000 ms or is refused. So on Windows
+    // the base is 1200 ms, still far under busy_timeout; elsewhere it stays 400 ms.
+    const nearBusyBase = process.platform === 'win32' ? 1200 : 400;
+    const nearBusy = nearBusyBase + 10 * p90(quiet);
     const bound = writeBound + 2 * p90(quiet);
     const chunkMs = outcome.chunks.map((c) => c.ms);
     const worst = Math.max(...waits);
