@@ -273,7 +273,8 @@ test('one shared deadline: a provider that never answers does not hold the plan;
   assert.ok(requests.length <= 1, `${requests.length} requests for three tasks (one request)`);
   for (const x of body.sliceSuggestions) {
     assert.deepEqual([x.slice, x.source], ['bounded-edit', 'rules'], x.taskId);
-    assert.match(x.reasonCode, /^(PLAN_JEV_DEADLINE|SLICE_JEV_DEADLINE)$/, 'the plan wait or the engine\'s own deadline, whichever came first');
+    // The plan's wait or the engine's own deadline (the same wait), whichever came first: the plan says PLAN_JEV_DEADLINE either way (JEV-0059).
+    assert.equal(x.reasonCode, 'PLAN_JEV_DEADLINE');
   }
   assert.equal(body.valid, true);
 });

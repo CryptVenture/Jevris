@@ -462,9 +462,13 @@ export async function classifyTaskSlice(engine: DecisionEngine | null, hints: Sl
   const evidenceIds = evidenceIdsOf(features, withTitle);
   const asked = await askBoundedDecision(engine, SLICE_CLASSIFY_SPEC_ID, sliceQuestions(), packet, ctx, false);
   if (!asked.ok) return weak(`SLICE_JEV_${asked.reasonCode}`.slice(0, 64), { asked: true, jevDecisionId: asked.decisionId, latencyMs: Math.round(now() - started) });
-  const cacheHit = await cacheHitOf(engine, asked.decisionId);
-  const base = { asked: true, jevDecisionId: asked.decisionId, cacheHit, latencyMs: Math.round(now() - started), rulesAlternative: rulesId, evidenceIds };
-  const judged = judgeSliceAnswer(features, { choice: choiceOf(asked.answers, 'slice'), score: scoreOf(asked.answers, 'risk') }, base);
+  const flags = await recordFlagsOf(engine, asked.decisionId);
+  const base = { asked: true, jevDecisionId: asked.decisionId, cacheHit: flags.cacheHit, latencyMs: Math.round(now() - started), rulesAlternative: rulesId, evidenceIds };
+  const answer: JevSliceAnswer = { choice: choiceOf(asked.answers, 'slice'), score: scoreOf(asked.answers, 'risk') };
+  // A task asked alone is remembered for a plan too (JEV-0058): the plan's batch asks only about shapes nobody has asked. A
+  // cache hit is not remembered anew: its age is not known, and the memory must not outlive the cache it follows.
+  if (answer.choice !== null && flags.memoizable && flags.cacheHit !== true) rememberSliceAnswer(engine, sliceMemoKey(ctx.workspaceId, features, withTitle ? title : ''), answer);
+  const judged = judgeSliceAnswer(features, answer, base);
   return 'weak' in judged ? weak(judged.weak, judged.extra) : finish(judged.final);
 }
 
@@ -516,6 +520,22 @@ function engineNow(engine: DecisionEngine): number {
   }
 }
 
+/** The memory's key for one task shape: the workspace, the features and (egress approved) the screened title. */
+function sliceMemoKey(workspaceId: string, features: SliceFeatures, title: string): string {
+  return JSON.stringify([workspaceId, features, title]);
+}
+
+/** Remembers one fresh answer under the engine's clock, oldest out first; both ways of asking (one task, several) call it. */
+function rememberSliceAnswer(engine: DecisionEngine, memoKey: string, answer: JevSliceAnswer): void {
+  const memo = memoOf(engine);
+  memo.delete(memoKey);
+  memo.set(memoKey, { answer, atMs: engineNow(engine) });
+  if (memo.size > SLICE_MEMO_MAX) {
+    const oldest = memo.keys().next();
+    if (oldest.done !== true) memo.delete(oldest.value);
+  }
+}
+
 export interface SliceBatchItem {
   /** The caller's own key for this task's features (a plan's group key); results come back under it. */
   readonly key: string;
@@ -557,7 +577,7 @@ export async function classifyTaskSliceBatch(engine: DecisionEngine | null, item
       continue;
     }
     const title = egressApproved && typeof item.hints.title === 'string' ? item.hints.title.trim().slice(0, 300) : '';
-    asking.push({ item, features, title, memoKey: JSON.stringify([ctx.workspaceId, features, title]) });
+    asking.push({ item, features, title, memoKey: sliceMemoKey(ctx.workspaceId, features, title) });
   }
   const memo = engine === null ? null : memoOf(engine);
   const nowMs = engine === null ? 0 : engineNow(engine);
@@ -580,7 +600,7 @@ export async function classifyTaskSliceBatch(engine: DecisionEngine | null, item
     const only = chunk[0];
     if (chunk.length === 1 && only !== undefined) return single(only.item);
     try {
-      await askChunk(engine as DecisionEngine, chunk, ctx, now, memo as Map<string, { readonly answer: JevSliceAnswer; readonly atMs: number }>, options.onResult);
+      await askChunk(engine as DecisionEngine, chunk, ctx, now, options.onResult);
     } catch {
       // Left without a result: the caller's rules answer.
     }
@@ -594,7 +614,6 @@ async function askChunk(
   chunk: readonly { readonly item: SliceBatchItem; readonly features: SliceFeatures; readonly title: string; readonly memoKey: string }[],
   ctx: IntentContext,
   now: () => number,
-  memo: Map<string, { readonly answer: JevSliceAnswer; readonly atMs: number }>,
   onResult: (key: string, result: SliceClassification) => void,
 ): Promise<void> {
   const started = now();
@@ -620,14 +639,7 @@ async function askChunk(
   chunk.forEach((entry, i) => {
     const answer: JevSliceAnswer = { choice: choiceOf(asked.answers, `slice${String(i)}`), score: scoreOf(asked.answers, `risk${String(i)}`) };
     // Only an answer the engine itself would have cached is remembered: not one from an observe-only route or a repacked request.
-    if (answer.choice !== null && flags.memoizable) {
-      memo.delete(entry.memoKey);
-      memo.set(entry.memoKey, { answer, atMs: engineNow(engine) });
-      if (memo.size > SLICE_MEMO_MAX) {
-        const oldest = memo.keys().next();
-        if (oldest.done !== true) memo.delete(oldest.value);
-      }
-    }
+    if (answer.choice !== null && flags.memoizable) rememberSliceAnswer(engine, entry.memoKey, answer);
     const base = { asked: true, jevDecisionId: asked.decisionId, cacheHit: flags.cacheHit, latencyMs, rulesAlternative: rulesSlice(entry.features).sliceId, evidenceIds: evidenceIdsOf(entry.features, entry.title.length > 0) };
     const judged = judgeSliceAnswer(entry.features, answer, base);
     onResult(entry.item.key, 'weak' in judged ? weakResult(entry.features, judged.weak, judged.extra) : judged.final);
@@ -642,15 +654,6 @@ async function recordFlagsOf(engine: DecisionEngine, decisionId: string): Promis
     return { cacheHit: record.reasonCodes.includes('CACHE_HIT'), memoizable: !record.reasonCodes.includes('OBSERVE_ONLY_ROUTE') && !record.reasonCodes.includes('PACKET_REPACKED') };
   } catch {
     return { cacheHit: null, memoizable: false };
-  }
-}
-
-async function cacheHitOf(engine: DecisionEngine, decisionId: string): Promise<boolean | null> {
-  try {
-    const record = await engine.lookup(decisionId);
-    return record === null ? null : record.reasonCodes.includes('CACHE_HIT');
-  } catch {
-    return null;
   }
 }
 

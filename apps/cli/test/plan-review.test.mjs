@@ -81,6 +81,32 @@ test('a graph file with requirements and candidates sends them to the plan op, a
   assert.ok(lines.includes('plan p2: rank 1, score 2 of 4') && lines.includes('plan p1: rank 2, score 2 of 4'), out.text);
 });
 
+// JEV-0063: Jev's Score is fractional (hundredths: 2.88, 1.07), so the plan result's review carries one. The result contract
+// refused it, so the sidecar answered PAYLOAD_INVALID and the plan was delivered reduced, with no review printed.
+test('a review with fractional scores is delivered in full and printed with its fractions (JEV-0063)', async (t) => {
+  const box = sandbox(t);
+  const file = join(box.dir, 'graph.json');
+  writeFileSync(file, JSON.stringify({ tasks: [node('T1')], requirements: REQUIREMENTS, candidates: CANDIDATES }));
+  const review = {
+    decomposition: { ...REVIEW.decomposition, coverage: [{ requirementId: 'R1', score: 2.88 }, { requirementId: 'R2', score: 1.07 }] },
+    plans: { ...REVIEW.plans, ranking: [{ planId: 'p2', rank: 1, score: 4 }, { planId: 'p1', rank: 2, score: 0 }] },
+  };
+  const payload = { ...PLAN, review };
+  assert.equal(surfacePayloadContract('plan').validate(payload).ok, true, 'the result contract refused a fractional score');
+  const human = await run(box, ['--graph', file], { ports: fakePorts({ plan: payload }).ports });
+  assert.equal(human.code, 0);
+  const lines = human.text.split('\n');
+  assert.ok(lines.includes('requirement R1: coverage 2.88 of 4') && lines.includes('requirement R2: coverage 1.07 of 4'), human.text);
+  assert.ok(lines.includes('plan p2: rank 1, score 4 of 4') && lines.includes('plan p1: rank 2, score 0 of 4'), human.text);
+  const json = await run(box, ['--graph', file, '--json'], { ports: fakePorts({ plan: payload }).ports });
+  const value = JSON.parse(json.text.trim());
+  assert.equal(value.mode, 'full');
+  assert.deepEqual(value.result.review.decomposition.coverage.map((c) => c.score), [2.88, 1.07]);
+  // A score outside the rubric's 0 to 4 is still a refused result, never printed.
+  const out = { ...payload, review: { ...review, decomposition: { ...review.decomposition, coverage: [{ requirementId: 'R1', score: 4.5 }] } } };
+  assert.equal(surfacePayloadContract('plan').validate(out).ok, false);
+});
+
 test('a plain list of tasks, or a graph with neither, sends no requirements and no candidates, and prints no review', async (t) => {
   const box = sandbox(t);
   const file = join(box.dir, 'graph.json');

@@ -191,6 +191,54 @@ test('a remembered answer lives as long as the engine\'s own decision cache (ten
   assert.deepEqual(after.map((x) => x.cacheHit), [false, false]);
 });
 
+// JEV-0058: a task asked on its own (a plan whose tasks share one shape, or a route) goes the single way, which asks the
+// single-task questions and is answered by the engine's decision cache, but the batch memory only knew batched answers.
+// So a plan that added one task to such a plan asked about the old shape again, in the same request as the new one.
+test('a shape asked alone is remembered as well: a plan that adds one task asks only about the new one, in a request of its own (JEV-0058)', async (t) => {
+  const { engine, requests } = await setup(t, () => ({}));
+  const settings = { assist: 'classify', mode: 'advise', deadlineMs: 60_000, totalMs: 120_000 };
+  const plan = (tasks) => core.suggestPlanSlices(engine, tasks, { workspaceId: 'w-grow', evidenceRevision: 'r1' }, settings);
+  // Four tasks with one shape are one question, asked the single way.
+  const four = [0, 1, 2, 3].map((i) => ({ id: `e${i}`, ...task(0) }));
+  const first = await plan(four);
+  assert.equal(requests.length, 1);
+  assert.deepEqual(Object.keys(requests[0].questions), ['slice', 'risk']);
+  assert.deepEqual(first.map((x) => x.source), ['jev', 'jev', 'jev', 'jev']);
+  // The same four and one new shape: only the new shape is asked, as a single task.
+  const grown = await plan([...four, { id: 'e4', ...task(7) }]);
+  assert.equal(requests.length, 2, 'one new request');
+  assert.deepEqual(Object.keys(requests[1].questions), ['slice', 'risk'], `only the new task is asked; the request carried ${JSON.stringify(Object.keys(requests[1].questions))}`);
+  assert.deepEqual(grown.map((x) => [x.taskId, x.source]), [['e0', 'jev'], ['e1', 'jev'], ['e2', 'jev'], ['e3', 'jev'], ['e4', 'jev']]);
+  assert.deepEqual(grown.slice(0, 4).map((x) => [x.slice, x.risk, x.confidencePercent]), first.map((x) => [x.slice, x.risk, x.confidencePercent]), 'the old shape keeps its answer');
+  // Two new shapes beside the old one: one request of the two new tasks (four questions), none for the old.
+  const more = await plan([...four, { id: 'e5', ...task(8) }, { id: 'e6', ...task(9) }]);
+  assert.equal(requests.length, 3);
+  assert.deepEqual(Object.keys(requests[2].questions), ['slice0', 'risk0', 'slice1', 'risk1']);
+  assert.equal(more.filter((x) => x.source === 'jev').length, 6);
+});
+
+test('a task the route asked is remembered for a plan too, for the same ten minutes as the decision cache and no longer (JEV-0058)', async (t) => {
+  let nowMs = Date.parse('2026-10-04T12:00:00Z');
+  const { engine, requests } = await setup(t, () => ({}), { clock: { now: () => nowMs } });
+  const alone = await core.classifyTaskSlice(engine, task(0), ctx('w-route'), { assist: 'classify', record: false });
+  assert.deepEqual([alone.source, alone.asked, alone.cacheHit], ['jev', true, false]);
+  assert.equal(requests.length, 1);
+  nowMs += 9 * 60 * 1000;
+  const within = await batch(engine, [task(0), task(1)], {}, 'w-route');
+  assert.equal(requests.length, 2, 'one request, for the task nobody had asked');
+  assert.deepEqual(Object.keys(requests[1].questions), ['slice', 'risk']);
+  assert.deepEqual(within.map((x) => [x.source, x.cacheHit]), [['jev', true], ['jev', false]]);
+  nowMs += 2 * 60 * 1000;
+  const after = await batch(engine, [task(0), task(1)], {}, 'w-route');
+  assert.equal(requests.length, 3, 'past the ten minutes of the first answer, the first task is asked again (the second was answered a minute ago and still stands)');
+  assert.deepEqual(Object.keys(requests[2].questions), ['slice', 'risk']);
+  assert.deepEqual(after.map((x) => x.cacheHit), [false, true]);
+  // Another workspace never shares it.
+  const other = await batch(engine, [task(0), task(1)], {}, 'w-route-other');
+  assert.equal(requests.length, 4);
+  assert.deepEqual(other.map((x) => x.cacheHit), [false, false]);
+});
+
 test('a request that fails gives every task in it the rules answer with the reason; the other request is unaffected', async (t) => {
   const { engine } = await setup(t, () => ({}), { fail: (body) => (Object.keys(body.questions).length === 4 ? 422 : null) });
   const r = await batch(engine, Array.from({ length: 8 }, (_, i) => task(i)));

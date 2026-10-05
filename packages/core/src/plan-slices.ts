@@ -210,6 +210,11 @@ function memoryKey(workspaceId: string, taskId: string, tasksExist: boolean, gro
   return createHash('sha256').update(JSON.stringify([workspaceId, taskId, tasksExist, group, declared, r.source, r.sliceId, r.risk, r.reasonCode])).digest('hex').slice(0, 40);
 }
 
+/** The plan's own reason for a result that ran out of the plan's wait; every other result is as the classifier gave it. */
+function planReasonOf(r: SliceClassification): SliceClassification {
+  return r.reasonCode === 'SLICE_JEV_DEADLINE' ? { ...r, reasonCode: 'PLAN_JEV_DEADLINE' } : r;
+}
+
 interface Group {
   readonly key: string;
   readonly features: SliceFeatures;
@@ -311,8 +316,10 @@ export async function suggestPlanSlices(engine: DecisionEngine | null, tasks: re
   } else {
     await Promise.all(runs);
   }
-  // What had answered by now; an answer that arrives after this is not used.
-  const settled = new Map(results);
+  // What had answered by now; an answer that arrives after this is not used. A question that ran out of the plan's wait is the
+  // plan's own `PLAN_JEV_DEADLINE`: the engine is handed that wait as its deadline, so it abstains a moment before the plan's
+  // timer, and its code (`SLICE_JEV_DEADLINE`) is the route's family, not the plan's.
+  const settled = new Map([...results].map(([key, r]) => [key, planReasonOf(r)] as const));
   // A question still out at the deadline, or one that failed: the rules answer, no model.
   for (const g of groups.values()) {
     if (settled.has(g.key)) continue;

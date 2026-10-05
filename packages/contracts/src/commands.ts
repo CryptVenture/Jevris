@@ -78,6 +78,12 @@ const Count = NonNegativeInteger;
 /** A verification evidence handle: `ev:` and the 64-hex digest of the kept output (`jevris evidence get`). */
 export const EVIDENCE_HANDLE_PATTERN = '^ev:[0-9a-f]{64}$';
 const PlanItemId = S.string({ minLength: 1, maxLength: 130, pattern: '^[#A-Za-z0-9][A-Za-z0-9._-]{0,129}$' });
+/**
+ * A review Score on the five-level rubric of C03 and C07: a number from 0 to 4, not a whole number. A Score is the
+ * expectation over the rubric's levels (specification section 2.2, S07), so Jev reports it fractional, in hundredths
+ * (2.88, 1.07). Rounding it would lose information and tie plans that Jev ranked apart.
+ */
+const PlanReviewScore = S.number({ minimum: 0, maximum: 4 });
 
 export const SurfaceSidecarSchema = S.object({
   state: S.enumOf(SIDECAR_STATES),
@@ -705,7 +711,7 @@ export const PlanPayloadSchema = S.object({
         label: S.literal('decomposition-review-score'),
         isFeasibility: S.literal(false),
         issues: S.array(S.object({ id: PlanItemId, code: Code }), { maxItems: 1024 }),
-        coverage: S.array(S.object({ requirementId: PlanItemId, score: S.integer({ minimum: 0, maximum: 4 }) }), { maxItems: 64 }),
+        coverage: S.array(S.object({ requirementId: PlanItemId, score: PlanReviewScore }), { maxItems: 64 }),
         reasonCode: Code,
         decisionId: S.nullable(Id),
       }),
@@ -715,7 +721,7 @@ export const PlanPayloadSchema = S.object({
         label: S.literal('plan-review-score'),
         isFeasibility: S.literal(false),
         reviewRequired: S.literal(true),
-        ranking: S.array(S.object({ planId: PlanItemId, rank: S.integer({ minimum: 1, maximum: 64 }), score: S.nullable(S.integer({ minimum: 0, maximum: 4 })) }), { maxItems: 64 }),
+        ranking: S.array(S.object({ planId: PlanItemId, rank: S.integer({ minimum: 1, maximum: 64 }), score: S.nullable(PlanReviewScore) }), { maxItems: 64 }),
         note: ShortText,
         reasonCode: Code,
         decisionId: S.nullable(Id),
