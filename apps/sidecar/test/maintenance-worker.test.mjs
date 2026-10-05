@@ -11,6 +11,7 @@ import { createRequire } from 'node:module';
 const api = await import('@jevris/store');
 const { sweepInWorker, sweepInline, SWEEP_CHUNK_ROWS, SWEEP_PAUSE_MS } = await import('../dist/maintenance.js');
 const { performance } = await import('node:perf_hooks');
+const { latencyBound } = await import('../../../test/budget-scale.mjs');
 const MAIN = new URL('../dist/main.js', import.meta.url);
 const require = createRequire(import.meta.url);
 const Database = require('better-sqlite3');
@@ -217,10 +218,11 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
   // 1. The sweep is chunked: the 6000 rows went in at least 12 deletes of at most 500 rows each
   //    (SWEEP_CHUNK_ROWS; the first chunks are smaller while the size ramps up from 100).
   // 2. A chunk holds the lock briefly: the 90th percentile of the chunks' lock times is under
-  //    50 ms, and so is that of the hot commits. On windows-latest the bound is 100 ms (one chunk
-  //    took 59 ms there; file writes are slower, and one runner carries the whole suite).
+  //    50 ms, and so is that of the hot commits. Where the run's budget scale is 6 (windows-latest,
+  //    test:slow) the bound is 100 ms (one chunk took 59 ms on windows-latest; file writes are slower,
+  //    and one runner carries the whole suite).
   // 3. Nothing comes near busy_timeout (2 s): the longest maintenance write and the worst hot
-  //    commit are each under 400 ms (1200 ms on Windows, where a runner stall held a hot commit for
+  //    commit are each under 400 ms (1500 ms where the budget scale is 6: a runner stall held a hot commit for
   //    about 520 ms in CI run 37324140640; a commit that waited for a held lock takes about 2000 ms).
   // Why a percentile, not the longest write: the longest is one sample, and a stalled runner
   // decides it. A 500-row chunk is under 1 ms of work on a quiet host (0.9 ms at most, measured
@@ -237,7 +239,6 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
   // not repeatable; a chunking bug is, because it shows in every run. So the structural checks
   // (chunk count, chunk size, rows) run on every attempt and fail at once, and the timing
   // checks fail only when a second, fresh sweep also breaks them.
-  const writeBound = process.platform === 'win32' ? 100 : 50;
   const p90 = (values) => {
     const sorted = [...values].sort((a, b) => a - b);
     return sorted[Math.max(0, Math.ceil(sorted.length * 0.9) - 1)] ?? 0;
@@ -252,11 +253,14 @@ test('a hot write that meets a maintenance chunk waits about one chunk, not busy
     // windows-latest again (CI run 37324140640): both sweeps' worst hot commit was about 520 ms against a 401 ms bound,
     // on a runner whose quiet commit p90 was 0.1 ms (the same kind of stall as the 496 ms at af665fd, and it lasted for both
     // attempts), while the structural checks and the 90th percentiles held. What this bound shows is that nothing comes near
-    // busy_timeout (2000 ms): a commit that really waited for a held lock takes about 2000 ms or is refused. So on Windows
-    // the base is 1200 ms, still far under busy_timeout; elsewhere it stays 400 ms.
-    const nearBusyBase = process.platform === 'win32' ? 1200 : 400;
-    const nearBusy = nearBusyBase + 10 * p90(quiet);
-    const bound = writeBound + 2 * p90(quiet);
+    // busy_timeout (2000 ms): a commit that really waited for a held lock takes about 2000 ms or is refused. So the bound
+    // comes from latencyBound (test/budget-scale.mjs): 400 ms plus ten quiet p90s on a quiet host, six times that where the
+    // run's budget scale is 6 (the Windows runner, and `npm run test:slow` on any host, which injects the same stalls), and
+    // never past 1500 ms, still under busy_timeout. It is not a process.platform branch, because a Mac cannot run the Windows
+    // branch before a push; with the scale the slow-host gate runs the exact bound the Windows runner does. The 90th
+    // percentile bound of a chunk or a hot commit (50 ms, 2 quiet p90s) is capped at 100 ms the same way.
+    const nearBusy = latencyBound(400, { quietMs: p90(quiet), capMs: 1500 });
+    const bound = latencyBound(50, { quietMs: p90(quiet), quietMultiple: 2, capMs: 100 });
     const chunkMs = outcome.chunks.map((c) => c.ms);
     const worst = Math.max(...waits);
     t.diagnostic(

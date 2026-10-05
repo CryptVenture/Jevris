@@ -92,3 +92,28 @@ const { testBudgetScale } = await import('@jevris/contracts');
 export function budgetScaleOf(env = process.env) {
   return testBudgetScale(env);
 }
+
+/**
+ * The bound, in ms, a test puts on the wall-clock latency of a REAL operation (a commit, a request, a start): the bound that
+ * suits a quiet machine, made longer where this run is slower, and never past `capMs`.
+ *
+ *   min(capMs, (baseMs + quietMultiple x quietMs) x scale)
+ *
+ * - `baseMs` is the bound on a quiet developer machine: what the test would assert as a plain number.
+ * - `quietMs` is this run's own quiet measurement (the same operation timed with nothing else running, a 90th percentile of a
+ *   few samples): a runner whose plain commit takes 70 ms gets 10 of those added, so the bound follows the host and still shows
+ *   a lock that was really held, which takes thousands of ms.
+ * - `scale` is the run's budget scale (`budgetScaleOf`): 6 on the Windows CI runner and in `npm run test:slow`, 1 on a
+ *   developer machine. A test never branches on process.platform for this: a Mac cannot run the Windows branch before a push,
+ *   and the scale gives the slow host the longer bound the same way everywhere.
+ * - `capMs` keeps the bound meaningful where the scale would stretch it past what it is there to exclude (a hot commit that
+ *   waited for a held lock takes the store's busy_timeout, 2000 ms; a bound of 2400 would show nothing).
+ *
+ * lint/slow-ci.lint.mjs (`latency-bound`, `platform-bound`) fails a measured latency compared with a fixed number under 2 s or
+ * a Windows-only number that does not come from here. A bound that IS the behaviour under test (a deadline) pins the exact
+ * budgets instead (`exactBudgets`, `EXACT_BUDGET_LIMITS`) and measures with an injected clock.
+ */
+export function latencyBound(baseMs, { quietMs = 0, quietMultiple = 10, capMs = Number.POSITIVE_INFINITY, env = process.env } = {}) {
+  if (!Number.isFinite(baseMs) || baseMs <= 0) throw new RangeError('latencyBound takes a positive base in ms');
+  return Math.min(capMs, (baseMs + quietMultiple * Math.max(0, quietMs)) * budgetScaleOf(env));
+}

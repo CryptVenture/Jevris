@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 /**
- * npm run verify:fresh -- [--overlay <path>...] [--future-days N] [--dir <parent>] [--keep]
+ * npm run verify:fresh -- [--overlay <path>...] [--future-days N] [--slow] [--dir <parent>] [--keep]
  *
  * The verification an agent runs before reporting work as done (CLAUDE.md, verification):
  * - a fresh clone of this checkout's HEAD in a temporary folder;
@@ -16,6 +16,10 @@
  *   not cover: a generated file committed or overlaid out of step with its sources. The overlay is
  *   committed in the clone first, as a baseline, so the check measures what the build changed and
  *   not the overlay itself;
+ * - with --slow, the quick slow-host run follows the test step (npm run test:slow -- --quick, scripts/test-slow.mjs): the
+ *   latency, sidecar, daemon, hook, CLI and acceptance files again, on a host made to behave like the Windows runner (CPU
+ *   burners, the runner's budget scale, slow writes, process starts and git calls, transient write errors, a stalled process
+ *   now and then). Run it before you push: a test that assumes a fast host fails there and not only in CI;
  * - the test step is the suite run once under coverage (scripts/coverage.mjs), so it also fails
  *   when a package falls below its floor in coverage-floors.json, as CI does;
  * - it prints the exact counts and removes the clone.
@@ -44,8 +48,8 @@ import { INSTALL_SCRIPT_PACKAGES } from './ci-cell.mjs';
 
 export const MAIN_ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** The steps, in order. `future` runs only with --future-days. */
-export function verifySteps(futureDays = null) {
+/** The steps, in order. `future` runs only with --future-days, `slow` only with --slow. */
+export function verifySteps(futureDays = null, slow = false) {
   return [
     // As CI installs (scripts/ci-cell.mjs): no install scripts, then the ones dependencies declare.
     { id: 'ci', npm: ['ci', '--ignore-scripts', '--no-audit', '--no-fund'] },
@@ -56,6 +60,8 @@ export function verifySteps(futureDays = null) {
     { id: 'lint', npm: ['run', 'lint'] },
     // The suite once, under coverage, with the per-package floors checked (QA-06).
     { id: 'test', node: ['scripts/coverage.mjs'] },
+    // The quick slow-host run: the clone is built, so it does not build again, and it holds the host lock this run holds.
+    ...(slow ? [{ id: 'slow', node: ['scripts/test-slow.mjs', '--quick', '--no-build'] }] : []),
     { id: 'docs', node: ['scripts/docs.mjs', '--check'] },
     { id: 'pack', npm: ['run', 'check:pack'] },
     ...(futureDays === null ? [] : [{ id: 'future', npm: ['run', 'test:future', '--', '--days', String(futureDays), '--no-build'] }]),
@@ -66,7 +72,7 @@ export function verifySteps(futureDays = null) {
 const GATING = new Set(['ci', 'rebuild', 'build', 'clean']);
 
 export function parseVerifyArgs(argv) {
-  const options = { overlay: [], futureDays: null, dir: null, keep: false };
+  const options = { overlay: [], futureDays: null, dir: null, keep: false, slow: false };
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
     if (arg === '--overlay') {
@@ -88,6 +94,7 @@ export function parseVerifyArgs(argv) {
       options.dir = value;
       i += 1;
     } else if (arg === '--keep') options.keep = true;
+    else if (arg === '--slow') options.slow = true;
     else throw new Error(`unknown argument: ${arg}`);
   }
   return options;
@@ -391,7 +398,7 @@ export async function verifyFresh({ mainRoot = MAIN_ROOT, options, run = runStep
     commitOverlayBaseline(clone);
     write(`verify:fresh: clone of HEAD ${report.head}${plan.length === 0 ? '' : ` plus ${plan.length} overlay path(s): ${plan.map((p) => (p.action === 'remove' ? `-${p.rel}` : p.rel)).join(', ')}`}`);
     let gated = false;
-    for (const step of verifySteps(options.futureDays)) {
+    for (const step of verifySteps(options.futureDays, options.slow)) {
       if (gated) break;
       const started = Date.now();
       const refused = guardCwd(clone, clone, mainRoot, git);
@@ -401,14 +408,14 @@ export async function verifyFresh({ mainRoot = MAIN_ROOT, options, run = runStep
         break;
       }
       const result = await run(step, clone, join(logs, `${step.id}.log`));
-      const counts = ['lint', 'test', 'future'].includes(step.id) ? parseCounts(result.output) : null;
+      const counts = ['lint', 'test', 'slow', 'future'].includes(step.id) ? parseCounts(result.output) : null;
       const detail = step.id === 'pack' ? (/tarball ok: [^\n]*/.exec(result.output)?.[0] ?? null) : step.id === 'test' ? coverageDetail(result.output) : step.id === 'clean' && result.code !== 0 ? cleanDetail(result.output) : null;
       const record = { id: step.id, code: result.code, counts, detail, ms: Date.now() - started };
       report.steps.push(record);
       write(`verify:fresh: ${describeStep(record)}`);
       if (result.code !== 0 && GATING.has(step.id)) gated = true;
     }
-    report.ok = report.steps.length === verifySteps(options.futureDays).length && report.steps.every((step) => step.code === 0);
+    report.ok = report.steps.length === verifySteps(options.futureDays, options.slow).length && report.steps.every((step) => step.code === 0);
   } catch (error) {
     write(`verify:fresh: ${error.message}`);
   } finally {
@@ -427,7 +434,7 @@ async function main(argv) {
     overlayPlan(MAIN_ROOT, options.overlay);
   } catch (error) {
     console.error(`verify:fresh: ${error.message}`);
-    console.error('usage: npm run verify:fresh -- [--overlay <path>...] [--future-days N] [--dir <parent>] [--keep]');
+    console.error('usage: npm run verify:fresh -- [--overlay <path>...] [--future-days N] [--slow] [--dir <parent>] [--keep]');
     return 2;
   }
   // The whole verification is one full suite: it waits its turn for the host suite lock, and

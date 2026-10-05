@@ -7,7 +7,7 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_WINDOWS_CI_BUDGET_SCALE, budgetScaleFor, testEnvironment } from '../scripts/test.mjs';
-import { BUDGET_SCALE_VARIABLE, EXACT_BUDGET_LIMITS, SIDECAR_WAIT_VARIABLE, budgetScaleOf, exactBudgets, slowHostSettings, startWaitMs, withExactBudgets } from './budget-scale.mjs';
+import { BUDGET_SCALE_VARIABLE, EXACT_BUDGET_LIMITS, SIDECAR_WAIT_VARIABLE, budgetScaleOf, exactBudgets, latencyBound, slowHostSettings, startWaitMs, withExactBudgets } from './budget-scale.mjs';
 
 const { defaultRequestTimeoutMs, sidecarWaitMs } = await import('@jevris/sidecar');
 
@@ -114,4 +114,24 @@ test('what slowHostSettings gives is what the product honors: a 60 s sidecar sta
     assert.equal(startWaitMs(own), sidecarWaitMs(5000, own), `startWaitMs mirrors the product's wait for ${wait}`);
   }
   assert.equal(startWaitMs(), startWaitMs(slowHostSettings()));
+});
+
+test('latencyBound is the quiet bound plus ten of this run\'s own quiet measurements, times the run\'s scale, never past its cap', () => {
+  const quiet = { JEVRIS_TEST: '1' };
+  const scaled = { JEVRIS_TEST: '1', [BUDGET_SCALE_VARIABLE]: '6' };
+  // A developer machine: the plain bound, and the host's own commit time added.
+  assert.equal(latencyBound(400, { env: quiet }), 400);
+  assert.equal(latencyBound(400, { quietMs: 2.5, env: quiet }), 425);
+  assert.equal(latencyBound(50, { quietMs: 1, quietMultiple: 2, env: quiet }), 52);
+  // The Windows runner and test:slow (scale 6): six times longer, and the cap keeps it far under what it excludes.
+  assert.equal(latencyBound(400, { env: scaled }), 2400);
+  assert.equal(latencyBound(400, { quietMs: 2.5, capMs: 1500, env: scaled }), 1500);
+  assert.equal(latencyBound(50, { capMs: 100, env: scaled }), 100, 'the cap of a small bound');
+  assert.equal(latencyBound(50, { capMs: 100, env: quiet }), 50, 'a cap above the bound changes nothing');
+  // The scale is read the product\'s way: only under JEVRIS_TEST=1, and a bad value is no scale.
+  assert.equal(latencyBound(400, { env: { [BUDGET_SCALE_VARIABLE]: '6' } }), 400, 'no JEVRIS_TEST, no scale');
+  assert.equal(latencyBound(400, { env: { JEVRIS_TEST: '1', [BUDGET_SCALE_VARIABLE]: 'fast' } }), 400);
+  assert.equal(latencyBound(400, { quietMs: -5, env: quiet }), 400, 'a negative measurement adds nothing');
+  assert.throws(() => latencyBound(0), RangeError);
+  assert.throws(() => latencyBound(Number.NaN), RangeError);
 });

@@ -42,13 +42,18 @@ function repoWithSpaces(t) {
 const SUMMARY = (tests, pass, fail, skipped) => `✔ something\nℹ tests ${tests}\nℹ suites 0\nℹ pass ${pass}\nℹ fail ${fail}\nℹ cancelled 0\nℹ skipped ${skipped}\nℹ todo 0\n`;
 
 test('verify:fresh arguments: repeatable --overlay with one or more paths, --future-days, --dir and --keep; anything else is a usage error', () => {
-  assert.deepEqual(parseVerifyArgs([]), { overlay: [], futureDays: null, dir: null, keep: false });
-  assert.deepEqual(parseVerifyArgs(['--overlay', 'a b.txt', 'c', '--future-days', '365', '--overlay', 'd', '--dir', '/x y', '--keep']), { overlay: ['a b.txt', 'c', 'd'], futureDays: 365, dir: '/x y', keep: true });
+  assert.deepEqual(parseVerifyArgs([]), { overlay: [], futureDays: null, dir: null, keep: false, slow: false });
+  assert.deepEqual(parseVerifyArgs(['--overlay', 'a b.txt', 'c', '--future-days', '365', '--overlay', 'd', '--dir', '/x y', '--keep']), { overlay: ['a b.txt', 'c', 'd'], futureDays: 365, dir: '/x y', keep: true, slow: false });
+  assert.equal(parseVerifyArgs(['--slow']).slow, true, '--slow adds the quick slow-host run');
   for (const bad of [['--overlay'], ['--overlay', '--keep'], ['--future-days', '0'], ['--future-days', 'x'], ['--dir'], ['--bogus']]) assert.throws(() => parseVerifyArgs(bad), Error, bad.join(' '));
   assert.deepEqual(verifySteps().map((s) => s.id), ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'docs', 'pack']);
   assert.deepEqual(verifySteps().find((s) => s.id === 'clean'), { id: 'clean', node: ['scripts/check-clean-tree.mjs'] }, 'the script CI runs after the build');
   assert.deepEqual(verifySteps().slice(0, 2), [{ id: 'ci', npm: ['ci', '--ignore-scripts', '--no-audit', '--no-fund'] }, { id: 'rebuild', npm: ['rebuild', 'esbuild'] }], 'installed as CI installs');
   assert.deepEqual(verifySteps(30).at(-1).npm, ['run', 'test:future', '--', '--days', '30', '--no-build']);
+  // --slow: the quick slow-host run follows the test step, in the clone that is already built, and nothing else changes.
+  assert.deepEqual(verifySteps(null, true).map((s) => s.id), ['ci', 'rebuild', 'build', 'clean', 'lint', 'test', 'slow', 'docs', 'pack']);
+  assert.deepEqual(verifySteps(null, true).find((s) => s.id === 'slow'), { id: 'slow', node: ['scripts/test-slow.mjs', '--quick', '--no-build'] });
+  assert.deepEqual(verifySteps(null, false).map((s) => s.id), verifySteps().map((s) => s.id), 'no --slow, no slow step');
 });
 
 test('verify:fresh runs the suite once under coverage and reports the floors: a package under its floor fails the test step, as in CI (QA-06)', () => {
