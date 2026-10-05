@@ -139,7 +139,7 @@ the whole file, so the easiest way to start one is to set any key with it.
 | `decisions.maxQuestions` | `12` | you | 1 to 12 | yes | no |
 | `decisions.monthlyBudgetMicroUsd` | `5000000` (5 USD) | you (a raise needs you at a terminal; see [The Jev decision budget](#the-jev-decision-budget)) | 0 to 1000000000 whole micro-USD; `0` means no Jev calls (rules-only) | yes (for that workspace only) | yes (`budget.monthlyDecisionMicroUsd`, also in `host.json` and a managed policy) |
 | `decisions.allowUncalibratedActuation` | `false` | nobody | always `false` | no | no |
-| `privacy.sourceEgress` | `deny-until-approved` | administrator | `deny-until-approved`, `approved-scoped` | no | yes (`egress`) |
+| `privacy.sourceEgress` | `deny-until-approved` | you, as your own half of the consent only (raising it to `approved-scoped` needs you at a terminal; see [Source egress has two halves](#source-egress-has-two-halves)); the administrator's half is `jevris egress approve` | `deny-until-approved`, `approved-scoped` | no (a repository file cannot set it) | yes (`egress`) |
 | `privacy.remoteTelemetry` | `off` | you may set `off` only | `off`, `approved-aggregates` | no | yes (forced `off` when `organization.json` denies egress) |
 | `privacy.rawArtifactRetentionDays` | `7` | you | 0 to 365 | no | yes (`retention.rawArtifactRetentionDays`) |
 | `privacy.decisionRetentionDays` | `30` | you | 0 to 3650 | no | yes (`retention.decisionRetentionDays`) |
@@ -161,9 +161,10 @@ the whole file, so the easiest way to start one is to set any key with it.
 | `compaction.rawTranscriptEditing` | `false` | fixed | `false` | no | no |
 | `packs` | `jevris.observability`, `jevris.memory`, `jevris.skill-advice` | pack commands | pack ids | no | no |
 
-Keys that `configure set` refuses explain why. For example, `privacy.sourceEgress` needs
-administrator consent through host policy, and `provider.credentialRef` is managed with
-`jevris credential`.
+Keys that `configure set` refuses explain why. For example, `provider.model` is set by host
+policy, and `provider.credentialRef` is managed with `jevris credential`. `privacy.sourceEgress`
+is not one of them: it is your own half of source-egress consent, and you set it with `configure
+set` at a terminal (see [Source egress has two halves](#source-egress-has-two-halves)).
 
 Some keys are checked and shown, but not yet read by the product in 1.2:
 
@@ -195,6 +196,38 @@ A preference of `approved-scoped` in your file never approves egress on its own.
 `effective.sourceEgress` is the host decision, `effective.sourceEgressSource` is
 `host-policy`, and `effective.sourceEgressPreference` is the file's value, or `null` when no
 valid file sets it. Change the decision with `jevris egress approve` or `jevris egress revoke`.
+
+## Source egress has two halves
+
+Text from your workspace reaches Jev only when both halves of consent are on:
+
+- **The administrator's half** is host policy: `jevris egress approve` at an interactive
+  terminal writes `egress: approved-scoped` to `host.json`. It is what the egress guard enforces
+  on every request, and what `effective.sourceEgress` shows. See
+  [privacy.md](privacy.md#approving-egress).
+- **Your half** is `privacy.sourceEgress` in your own `jevris.config.json`. Advice that quotes
+  your text to Jev (the memory and compaction advice and the on-demand capabilities that quote
+  what you give them; see [privacy.md](privacy.md#what-can-leave-this-machine)) is asked only
+  when your half is `approved-scoped` as well. It never lets text out on its own: with the
+  administrator's half missing, nothing is sent whatever your file says.
+
+Set your half with `jevris configure set privacy.sourceEgress approved-scoped`. That widens what
+may leave the machine, so it is a raise (see [Raising what Jevris may do](#raising-what-jevris-may-do)):
+it needs a person at an interactive terminal who answers `y`, and it is refused before anything is
+asked, with `CHANNEL_REFUSED`, from `--yes`, `--json`, a pipe, a script, a hook, MCP or a test
+run:
+
+```text
+Nothing was changed (CHANNEL_REFUSED): raising privacy.sourceEgress to approved-scoped is your half of the consent for what may leave this machine, so it needs a person at an interactive terminal who answers y (never --yes, --json, MCP, a hook, a script, a pipe or a model's shell).
+```
+
+`jevris configure set privacy.sourceEgress deny-until-approved` lowers it and asks no one. Every
+written change, a raise or a lowering, is recorded in the audit log (`policy.change`, with the key
+and the two values and nothing else; `jevris audit export`). A repository's `.jevris/config.json`
+cannot set it at all (it is ignored with a `NOT_NARROWABLE` issue, as a repository file is not
+consent), and an organization's `egress: deny-until-approved` caps it. Editing the file by hand
+gives the same value, and any program that runs as you can do that; the terminal check is the
+same-user limit described in [security.md](security.md#changes-that-need-a-person-at-a-terminal).
 
 ## The Jev decision budget
 
@@ -305,7 +338,7 @@ The specification says why a floor is not tuned from numbers like these. Choice 
 ## Raising what Jevris may do
 
 A `jevris configure set` that raises `mode`, `routing.managedWorkers`, `routing.mainSession`,
-`routing.firstTry` (`baseline` to `auto`), `jev.assist` (`off` to `classify`), `decisions.monthlyBudgetMicroUsd` or `verification.backgroundAtStop` (`off` to `on`) above its current effective value (your file under the
+`routing.firstTry` (`baseline` to `auto`), `jev.assist` (`off` to `classify`), `decisions.monthlyBudgetMicroUsd`, `verification.backgroundAtStop` (`off` to `on`) or `privacy.sourceEgress` (`deny-until-approved` to `approved-scoped`, your half of source-egress consent) above its current effective value (your file under the
 administrator ceilings) needs a person at an interactive terminal who answers `y`. So does a
 `jevris configure workspace-budget` that raises this workspace's cap or removes it. `configure set` shows the change and asks. It never takes `--yes`, and it refuses
 `--json`, a pipe, a script, a hook, a model's shell and a test run (`JEVRIS_TEST=1`) before it
@@ -317,7 +350,8 @@ Nothing was changed (CHANNEL_REFUSED): raising mode to advise widens what Jevris
 
 For the Jev decision budget the line says what the raise does instead: `raising
 decisions.monthlyBudgetMicroUsd to 8000000 lets Jevris spend more on Jev calls, so it needs a
-person at an interactive terminal ...`. With `--json` the same text is the message of an error
+person at an interactive terminal ...`, and for `privacy.sourceEgress` that it is your half of the
+consent for what may leave this machine. With `--json` the same text is the message of an error
 line whose code is `CHANNEL_REFUSED`.
 MCP never changes settings at all. Lowering, setting the value a key already has, and a dry run
 need no one. The one-time upgrade of the mode (see [Modes](#modes)) and install's defaults are not raises made
