@@ -1800,6 +1800,11 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
    * INT-05: a body that carries `scope` gets `scope.approvedScope` from the plan (D's
    * approvedScopeFor: the task's write scopes, no effects), replacing anything the harness
    * sent; with no approved scope it is removed. The approved scope never comes from a hook.
+   * JEV-0060: so does a proposed tool call (`tool.proposed`, a PreToolUse) that carries an `effect`.
+   * The adapters send a written path as `scope` only after a write has finished, never on the
+   * proposal, yet the permission triage reads `scope.approvedScope` on the proposal (to flag a
+   * write outside the task's paths and to hold the effect classes for the scope-change advice at
+   * the next diff boundary). With no approved scope such a body is left as it came.
    * Every body also gets the sidecar's `hostRouteCertified` (serving hosts R50).
    */
   function withApprovedScope(ctx: SidecarOpContext, sessionId: string | null): SidecarOpContext {
@@ -1821,8 +1826,9 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     }
     const body: Record<string, unknown> = { ...claimed, hostRouteCertified: eventSession === undefined ? false : hostCerts.now(eventSession.harness, eventSession.harnessVersion), ...(repair === undefined ? {} : { repair }) };
     ctx = { ...ctx, body };
-    const scope = body['scope'];
-    if (scope === null || typeof scope !== 'object' || Array.isArray(scope)) return ctx;
+    const claimedScope = plainRecord(body['scope']);
+    const proposedCall = claimedScope === undefined && plainRecord(claimed['envelope'])?.['kind'] === 'tool.proposed' && plainRecord(body['effect']) !== undefined;
+    if (claimedScope === undefined && !proposedCall) return ctx;
     let approved: {
       readonly paths: readonly string[];
       readonly effects: readonly string[];
@@ -1847,7 +1853,9 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
         approved = null;
       }
     }
-    const { approvedScope: _claimed, ...rest } = scope as Record<string, unknown>;
+    // A proposal that carried no scope and has no approved one stays without: no empty scope is invented.
+    if (claimedScope === undefined && approved === null) return ctx;
+    const { approvedScope: _claimed, ...rest } = claimedScope ?? {};
     const merged = approved === null ? rest : { ...rest, approvedScope: approved };
     return { ...ctx, body: { ...body, scope: merged } };
   }
