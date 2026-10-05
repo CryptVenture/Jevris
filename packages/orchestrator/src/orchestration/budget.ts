@@ -140,7 +140,17 @@ export async function onBudgetExhausted(
   }
   const after = budgetUse(ws.host, budgetId) ?? use;
   const free = available(after);
-  const rows = refused.map((r) => ({ taskId: r.taskId, estimateMicroUsd: Math.max(0, Math.trunc(getTask(ws, r.taskId)?.estimateMicroUsd ?? 0)), reasonCode: r.reasonCode }));
+  // JEV-0070: a task keeps the reason of its first refusal for as long as the episode is open. The first refusal that
+  // pauses a pause-all budget is OVER_BUDGET (the reservation did not fit); every later look at the queue meets the paused
+  // budget and would answer BUDGET_PAUSED, which rewrote the same task's reason each time. A task refused for the first time
+  // while the budget is already paused is BUDGET_PAUSED. The budget's own state (paused, its policy) is shown beside the
+  // reasons, not inside them. A task the earlier report listed that still waits stays listed when a later request refused
+  // only other tasks, so its reason is not lost to that request.
+  const earlier = new Map((prior?.open === true ? prior.refused : []).map((r) => [r.taskId, r.reasonCode] as const));
+  const asked = new Set(refused.map((r) => r.taskId));
+  const stillWaiting = [...earlier].filter(([taskId]) => !asked.has(taskId) && ['validated', 'ready'].includes(getTask(ws, taskId)?.node.state ?? ''));
+  const reasoned = [...refused.map((r) => ({ taskId: r.taskId, reasonCode: earlier.get(r.taskId) ?? r.reasonCode })), ...stillWaiting.map(([taskId, reasonCode]) => ({ taskId, reasonCode }))];
+  const rows = reasoned.map((r) => ({ taskId: r.taskId, estimateMicroUsd: Math.max(0, Math.trunc(getTask(ws, r.taskId)?.estimateMicroUsd ?? 0)), reasonCode: r.reasonCode }));
   const suggestions: BudgetSuggestion[] = [];
   const registry = rows.length === 0 ? BUNDLED_MODEL_REGISTRY : ((await loadModelRegistry({ home: ws.home }).catch(() => null)) ?? BUNDLED_MODEL_REGISTRY);
   for (const r of rows) {
