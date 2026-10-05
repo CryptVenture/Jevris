@@ -560,6 +560,18 @@ export function baseSliceOf(key: string): string {
   return at < 0 ? key : key.slice(0, at);
 }
 
+/**
+ * JEV-0055: the baseline model a learning key was learned against, the inverse of
+ * `learningSliceKey`: the model after the separator in `<slice>::<model>`. A bare slice id names
+ * none (null): its baseline is the registry's own (Opus 5.5), so a caller falls back to that.
+ */
+export function keyBaselineOf(key: string): string | null {
+  const at = key.indexOf(LEARNING_KEY_SEPARATOR);
+  if (at < 0) return null;
+  const modelId = key.slice(at + LEARNING_KEY_SEPARATOR.length);
+  return modelId.length > 0 ? modelId : null;
+}
+
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 /** An arm key: a model id, or `model@effort`. */
 const ARM_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}(@(low|medium|high|xhigh|max))?$/;
@@ -2222,8 +2234,10 @@ export function explainSliceLearning(state: LearningState, requestedSliceId: str
     lines.push(`Local ${armLabel(a.modelId, a.effort, options.registry)}: ${String(a.successes)}/${String(a.labelled)} verified (${pct(a.rate)}, 95% ${pct(a.lower)}-${pct(a.upper)}), ${String(a.staleOrCancelled)} stale or cancelled${limits}${usage}, API-equivalent estimate ${a.meanCostMicroUsd === null ? 'n/a' : `$${(a.meanCostMicroUsd / 1e6).toFixed(4)}`} per route.`); // path-hygiene: allow a successes/labelled count, not a path
   }
   if (local.length === 0) lines.push('No local outcomes yet.');
-  // OD-3: the slice's reconciled baseline, else the harness's default, else the registry's.
-  const defaultArmId = options.defaultArmId ?? baselineModelId ?? routeBaseline(options.registry ?? BUNDLED_MODEL_REGISTRY, options.harness ?? null);
+  // OD-3 and JEV-0055: a key's default arm is the baseline the key was learned against (named in
+  // the key, whatever harness the view runs from), else the slice's reconciled baseline, else the
+  // harness's default, else the registry's.
+  const defaultArmId = options.defaultArmId ?? keyBaselineOf(sliceId) ?? baselineModelId ?? routeBaseline(options.registry ?? BUNDLED_MODEL_REGISTRY, options.harness ?? null);
   const economics = sliceEconomics(state, sliceId, defaultArmId);
   if (local.length > 0) for (const a of economics.arms) lines.push(economicsLine(a, armLabelOf(defaultArmId, options.registry)));
   let guard: SliceExplanation['guard'] = null;
