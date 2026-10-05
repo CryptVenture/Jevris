@@ -271,10 +271,6 @@ async function jevStub(scenario, lateMs) {
 }
 
 async function staleResult(d) {
-  // This drill's subject is a deadline: the command must answer from local rules before a Jev answer that arrives 20 s late. A test run on a
-  // slow host lengthens every budget by JEVRIS_TEST_BUDGET_SCALE (the Windows runner sets 6), and the CLI then waits 5 s x 6 = 30 s, longer
-  // than the late answer, so the drill runs at the product's own budgets whatever scale the caller's environment carries.
-  delete d.env.JEVRIS_TEST_BUDGET_SCALE;
   const stub = await jevStub('late', 20_000);
   try {
     d.jevris(['sidecar', 'start'], stub.env);
