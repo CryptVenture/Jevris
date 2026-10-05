@@ -291,7 +291,11 @@ function relativePath(v: unknown, what: string): string {
   return v;
 }
 
-/** A question draft (C67): instructions, at least two options, mandatory evidence ids and an optional threshold. */
+/**
+ * A question draft (C67): instructions, at least two options, mandatory evidence ids and an optional threshold. The threshold is a number
+ * from 0 to 1, or `null` (or left out) for none: the op reads all three the same way, and a candidate that has none where the live
+ * question has one lowers the threshold, which the op refuses as a weaker safety check.
+ */
 function specDraft(v: unknown, what: string): AdviseValue {
   if (!isRaw(v)) refuse(`${what} must be an object { instructions, options, mandatoryEvidence, threshold }.`);
   onlyKeys(v, ['instructions', 'options', 'mandatoryEvidence', 'threshold']);
@@ -303,12 +307,12 @@ function specDraft(v: unknown, what: string): AdviseValue {
     outOptions[id] = t;
   }
   const threshold = v['threshold'];
-  if (threshold !== undefined && (typeof threshold !== 'number' || !Number.isFinite(threshold) || threshold < 0 || threshold > 1)) refuse(`${what}.threshold must be a number from 0 to 1.`);
+  if (threshold !== undefined && threshold !== null && (typeof threshold !== 'number' || !Number.isFinite(threshold) || threshold < 0 || threshold > 1)) refuse(`${what}.threshold must be a number from 0 to 1, or null for none.`);
   return {
     instructions: text(v, 'instructions', 600, true),
     options: outOptions,
     mandatoryEvidence: v['mandatoryEvidence'] === undefined ? [] : words(v['mandatoryEvidence'], `${what}.mandatoryEvidence`, 32, 64),
-    ...(threshold === undefined ? {} : { threshold }),
+    ...(typeof threshold === 'number' ? { threshold } : {}),
   };
 }
 

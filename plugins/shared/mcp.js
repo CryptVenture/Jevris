@@ -15,6 +15,7 @@ var id = (description) => ({ type: "string", pattern: ID, maxLength: 128, descri
 var harnessModel = (description) => ({ type: "string", pattern: HARNESS_MODEL, maxLength: 271, description });
 var text = (maxLength, description) => ({ type: "string", minLength: 1, maxLength, description });
 var tokens = (description) => ({ type: "integer", minimum: 0, maximum: 1e8, description });
+var C67_THRESHOLD = { type: ["number", "null"], minimum: 0, maximum: 1, description: "The decision threshold, 0 to 1; null or omitted for none." };
 function input(properties, required = []) {
   return { type: "object", properties, ...required.length > 0 ? { required } : {}, additionalProperties: false };
 }
@@ -279,8 +280,8 @@ var TOOLS = [
         rollout: input({ stages: { type: "array", items: text(80, "A stage."), maxItems: 16 }, rollbackPlan: text(500, "The rollback step.") }),
         exceptions: { type: "array", minItems: 1, maxItems: 32, items: input({ id: id("An exception id."), resolved: { type: "boolean" } }, ["id"]), description: "C62: approved exceptions." },
         specId: { type: "string", pattern: "^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$", description: "C67: the decision spec the proposal is for." },
-        current: input({ instructions: text(600, "The live question."), options: { type: "object", additionalProperties: text(300, "An option."), minProperties: 2, maxProperties: 32 }, mandatoryEvidence: { type: "array", items: text(64, "An evidence id."), maxItems: 32 }, threshold: { type: "number", minimum: 0, maximum: 1 } }, ["instructions", "options"]),
-        candidate: input({ instructions: text(600, "The proposed question."), options: { type: "object", additionalProperties: text(300, "An option."), minProperties: 2, maxProperties: 32 }, mandatoryEvidence: { type: "array", items: text(64, "An evidence id."), maxItems: 32 }, threshold: { type: "number", minimum: 0, maximum: 1 } }, ["instructions", "options"]),
+        current: input({ instructions: text(600, "The live question."), options: { type: "object", additionalProperties: text(300, "An option."), minProperties: 2, maxProperties: 32 }, mandatoryEvidence: { type: "array", items: text(64, "An evidence id."), maxItems: 32 }, threshold: C67_THRESHOLD }, ["instructions", "options"]),
+        candidate: input({ instructions: text(600, "The proposed question."), options: { type: "object", additionalProperties: text(300, "An option."), minProperties: 2, maxProperties: 32 }, mandatoryEvidence: { type: "array", items: text(64, "An evidence id."), maxItems: 32 }, threshold: C67_THRESHOLD }, ["instructions", "options"]),
         misclassifications: { type: "array", minItems: 1, maxItems: 128, items: input({ expected: id("The option that was expected."), got: id("The option that was given.") }, ["expected"]), description: "C67: answers that were wrong." },
         reports: {
           type: "array",

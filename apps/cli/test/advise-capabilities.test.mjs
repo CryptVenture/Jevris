@@ -97,6 +97,28 @@ test('an oversize input is refused with the limit named; the largest legal input
   assert.match(parse('C67', { specId: 's', current: DRAFT, candidate: DRAFT, writeBranch: true }).message, /Unknown argument "writeBranch"\. Allowed: specId, current, candidate, misclassifications/);
 });
 
+test('C67 takes a threshold of null as none, the same as leaving it out: the CLI validator, the tool schema, the help and the op agree (JEV-0048)', () => {
+  const draft = (threshold) => ({ instructions: 'Which option applies?', options: { a: 'The first.', none: 'None applies.' }, mandatoryEvidence: ['e1'], ...(threshold === undefined ? {} : { threshold }) });
+  const input = (current, candidate) => ({ specId: 'x', current: draft(current), candidate: draft(candidate), misclassifications: [{ expected: 'a', got: 'none' }] });
+  // A threshold of null is none, as is leaving it out: both are accepted, and nothing is forwarded for either (the op reads an absent threshold as none).
+  for (const [current, candidate] of [[null, null], [undefined, null], [null, undefined], [undefined, undefined], [0.6, 0.7], [0, 1]]) {
+    const parsed = parse('C67', input(current, candidate));
+    assert.equal(parsed.ok, true, `current ${String(current)}, candidate ${String(candidate)}: ${JSON.stringify(parsed)}`);
+    assert.equal(Object.hasOwn(parsed.input.input.candidate, 'threshold'), typeof candidate === 'number', 'a number is forwarded, null and nothing are not');
+    assert.equal(Object.hasOwn(parsed.input.input.current, 'threshold'), typeof current === 'number');
+  }
+  // Anything else is still refused, with the contract named.
+  for (const bad of ['0.5', 2, -0.1, true, [], {}]) {
+    const refused = parse('C67', input(0.6, bad));
+    assert.equal(refused.ok, false, `a threshold of ${JSON.stringify(bad)}`);
+    assert.match(refused.message, /\.threshold must be a number from 0 to 1, or null for none\./);
+  }
+  // The tool's schema says the same, so a client that checks a call against it does not refuse a null the validator takes.
+  const schema = TOOLS.find((t) => t.name === 'jevris_advise').inputSchema.properties.input.properties;
+  for (const side of ['current', 'candidate']) assert.deepEqual(schema[side].properties.threshold.type, ['number', 'null'], `${side}.threshold in the tool schema`);
+  assert.match(ADVISE_HELP, /A threshold is a number from 0 to 1; null, or leaving it out, means none/);
+});
+
 test('every key of every id is in the MCP schema of jevris_advise, with nothing else in it, and the tool list stays at 17 tools', () => {
   assert.equal(TOOLS.length, 17);
   const tool = TOOLS.find((t) => t.name === 'jevris_advise');
@@ -159,6 +181,11 @@ test('through a real sidecar: the new ids print plain-text advice and the same J
   const tools = box.jevris(['advise', 'C36', '--input', '{"intent":"read a file","tools":[{"id":"read_file","description":"Read a file","effects":["read"]}],"allowlist":["read_file"],"permittedEffects":["read"]}'], { json: true });
   assert.equal(tools.code, 0, tools.stdout + tools.stderr);
   assert.equal(tools.json.result.capabilityId, 'C36');
+  // A threshold of null is none: the command takes it, as the op does (JEV-0048).
+  const nullThreshold = box.jevris(['advise', 'C67', '--input', JSON.stringify({ specId: 'x', current: { ...DRAFT, threshold: null }, candidate: { ...DRAFT, instructions: 'Which one option applies best?', threshold: null }, misclassifications: [{ expected: 'a', got: 'none' }] })], { json: true });
+  assert.equal(nullThreshold.code, 0, nullThreshold.stdout + nullThreshold.stderr);
+  assert.equal(nullThreshold.json.result.capabilityId, 'C67');
+  assert.notEqual(nullThreshold.json.result.reasonCode, 'SPEC_REQUIRED', 'the draft with a null threshold was read');
   const campaign = box.jevris(['advise', 'C70', '--input', '{"campaignId":"camp1","modules":["lib-a","lib-b"]}'], { json: true });
   assert.equal(campaign.code, 0, campaign.stdout + campaign.stderr);
   assert.equal(campaign.json.result.requiresApproval, true);

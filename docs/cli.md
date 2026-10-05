@@ -822,8 +822,10 @@ Usage: jevris advise <capability> [--task <id>] [--input <json> | --input-file <
 
 Advice from Jevris's orchestration, retrieval, verification and research capabilities, built
 from the task graph, receipts, git and the workspace files. Advice only: nothing is started,
-run, changed or approved. A capability that quotes text you give it (an intent, a finding, a
-contract) asks Jev about it only when source egress is approved; otherwise the rules answer.
+run, changed or approved. A capability whose question is about text you or the workspace give it
+(an intent, a query, a command, a finding, a requirement, an incident id, a contract)
+asks Jev about it only when source egress is approved; otherwise the rules answer and nothing is
+sent. C32, C44, C46, C47, C69 and C72 judge counts and flags alone, and ask Jev either way.
 
 Capabilities:
   C25  DAG dependency suggestions (input: planId)
@@ -850,6 +852,11 @@ Capabilities:
   C69  Cross-model disagreement triage (input: reports)
   C70  Project-wide change campaign (input: campaignId, modules, contract, canary, waveSize)
   C72  Constrained and embedded development next step
+
+C67 compares two drafts of a question, each { instructions, options, mandatoryEvidence, threshold }.
+A threshold is a number from 0 to 1; null, or leaving it out, means none, and a candidate with none
+where the current draft has one is refused as lowering a safety check. A draft that holds a secret
+is refused with SECRET_BLOCKED, and nothing is sent or stored.
 
 Options:
   --task <id>          The task the advice is for

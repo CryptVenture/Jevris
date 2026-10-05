@@ -343,6 +343,29 @@ test('C67 writes a proposal to a jevris/proposals branch without touching HEAD o
   }
 });
 
+test('C67 reads a threshold of null as none, the same as leaving it out; a candidate with none where the live draft has one lowers it (JEV-0048)', async () => {
+  const f = await fixture();
+  try {
+    const base = { instructions: 'Which family fits the request?', options: { bugfix: 'A defect fix.', feature: 'New behaviour.', none: 'No family fits.' }, mandatoryEvidence: ['request'] };
+    const better = { ...base, options: { ...base.options, refactor: 'Restructure without behaviour change.' } };
+    const asNull = ok(await f.advise('C67', { specId: 'triage', current: { ...base, threshold: null }, candidate: { ...better, threshold: null } }));
+    const absent = ok(await f.advise('C67', { specId: 'triage', current: base, candidate: better }));
+    for (const advice of [asNull, absent]) {
+      assert.equal(advice.verb, 'report', 'a proposal is prepared when neither draft has a threshold');
+      assert.match(advice.recommendation, /^triage-/);
+    }
+    assert.equal(asNull.reasonCode, absent.reasonCode, 'null and absent are read the same way');
+    assert.deepEqual(safetyRegressions({ ...base, threshold: null }, { ...better, threshold: null }), []);
+    assert.deepEqual(safetyRegressions({ ...base, threshold: null }, { ...better, threshold: 0.6 }), [], 'adding a threshold lowers nothing');
+    assert.deepEqual(safetyRegressions({ ...base, threshold: 0.7 }, { ...better, threshold: null }), ['lowers the decision threshold'], 'dropping one does');
+    const refused = ok(await f.advise('C67', { specId: 'triage', current: { ...base, threshold: 0.7 }, candidate: { ...better, threshold: null } }));
+    assert.deepEqual([refused.verb, refused.reasonCode], ['pause', 'SAFETY_REGRESSION']);
+    assert.ok(refused.ranked.some((r) => r.label === 'lowers the decision threshold'));
+  } finally {
+    f.done();
+  }
+});
+
 test('C68 evaluates candidates in parallel isolated worktrees, removes them, and never runs an external effect (RSH-07)', async () => {
   const f = await fixture({ 'src/a.txt': 'hello\n' });
   try {
