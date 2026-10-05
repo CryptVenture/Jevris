@@ -54,14 +54,16 @@ workflow('W04', 'A parallel monorepo migration', async ({ then, sandbox, evidenc
   ]);
   await ownedWorkers(box);
   const client = await box.mcp();
+  // One look at the task, or, with `until`, the look that finds that state: a lease, a worker, a verification run and a restart's sweep each
+  // take what a slow host's process starts, git calls and disk give them, so the wait is on the state (the bound only ends a task that
+  // never gets there, and the caller's assertion then names the state it did reach).
   const task = async (taskId, until) => {
-    let result;
-    for (let i = 0; i < 150; i += 1) {
-      result = (await client.callTool({ name: 'jevris_get_task', arguments: { taskId } })).structuredContent?.result;
-      if (until === undefined || result?.task?.state === until) break;
+    const giveUpAt = Date.now() + 120_000;
+    for (;;) {
+      const result = (await client.callTool({ name: 'jevris_get_task', arguments: { taskId } })).structuredContent?.result;
+      if (until === undefined || result?.task?.state === until || Date.now() > giveUpAt) return result;
       await sleep(100);
     }
-    return result;
   };
   const worktrees = (taskId) => box.git('worktree', 'list', '--porcelain').stdout.split('\n').filter((line) => line.startsWith(`branch refs/heads/jevris/${taskId}-`));
   const head = () => box.git('rev-parse', 'HEAD').stdout.trim();
@@ -118,7 +120,7 @@ workflow('W04', 'A parallel monorepo migration', async ({ then, sandbox, evidenc
     assert.equal(worktrees('L').length, 1);
     assert.equal((await verifySettled(box, ['--task', 'L'], { task: 'L' })).code, 0, 'verify --task L failed');
     for (const id of ['A', 'B', 'L']) {
-      const done = await task(id);
+      const done = await task(id, 'verified');
       assert.equal(done.task.state, 'verified', `${id} is ${done.task.state}`);
       assert.equal(done.receipts[0].fresh, true);
     }
@@ -156,6 +158,9 @@ workflow('W04', 'A parallel monorepo migration', async ({ then, sandbox, evidenc
     assert.equal(box.jevris(['plan', '--submit', '--graph', plan, '--budget', 'migration-d', '--limit-micro-usd', '2000000', '--authorization', box.authorizeBudget('migration-d'), '--yes'], { json: true }).json?.leaseIds?.length, 1, 'D was not leased');
     assert.equal((await task('D', 'awaiting-evidence'))?.task?.state, 'awaiting-evidence');
     assert.equal((await verifySettled(box, ['--task', 'D'], { task: 'D' })).code, 0, 'verify --task D failed');
+    // The integration takes verified tasks: D is verified when its state says so, not when the verify answer was read (the slow-host gate: `integrate D` answered
+    // `blocked` where this expects `conflicts`, and `integrate A B L` answered TASK_NOT_VERIFIED).
+    assert.equal((await task('D', 'verified'))?.task?.state, 'verified');
     // Someone changes the same line on main after D's worktree was made.
     box.write('work/packages/b/index.mjs', 'export const b = 5;\n');
     box.git('commit', '-q', '-am', 'hotfix b on main');
@@ -235,6 +240,6 @@ workflow('W04', 'A parallel monorepo migration', async ({ then, sandbox, evidenc
     assert.deepEqual(current.receipts, [], 'a worker result became evidence');
     const verify = await verifySettled(box, ['--task', 'E'], { task: 'E' });
     assert.equal(verify.code, 0, `verify --task E: ${verify.stdout}`);
-    assert.equal((await task('E')).task.state, 'verified');
+    assert.equal((await task('E', 'verified')).task.state, 'verified');
   });
 });

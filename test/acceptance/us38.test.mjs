@@ -68,10 +68,13 @@ story('US38', async ({ then, sandbox, evidence }) => {
     const run = await verifySettled(box, ['--check', 'batch'], { checks: ['batch'] });
     evidence(run.json);
     assert.equal(run.code, 0, `verify failed: ${run.stdout} ${run.stderr}`);
-    // An answer that holds the result says the command ran the check; one that came first says it was still running (verify-run.mjs),
-    // and the receipt asserted below is then the runner's all the same.
-    if (run.settled) assert.equal(run.json.result.ran, true);
+    // `ran` is not asserted: it says whether the run ended inside the command's answer window, and a loaded host's run ends after it, with its
+    // receipt already written and the answer already reading it as verified (`ran: false`, nothing running; verify-run.mjs). What proves the
+    // check went through the runner is the receipt: the manifest was approved a moment ago, nothing else has run it, and a runner receipt is
+    // `rcpt-` (an imported CI receipt is `rcpt-ci-`).
     assert.equal(run.json.result.readiness, 'verified');
-    assert.match(run.json.result.checks[0].receiptId, /^rcpt-/);
+    assert.equal(run.json.result.checks[0].outcome, 'passed');
+    assert.equal(run.json.result.checks[0].fresh, true);
+    assert.match(run.json.result.checks[0].receiptId, /^rcpt-(?!ci-)/);
   });
 });

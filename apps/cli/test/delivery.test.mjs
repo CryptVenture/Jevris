@@ -8,6 +8,7 @@ import { createHash, generateKeyPairSync } from 'node:crypto';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { load, sandbox } from '../../../test/acceptance/lib.mjs';
+import { verifySettled } from '../../../test/acceptance/verify-run.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
 
 const pass = [process.execPath, '-e', 'process.exit(0)'];
@@ -26,6 +27,16 @@ async function approve(box, checks) {
   box.write('work/jevris.checks.json', { schemaVersion: 'jevris-checks-1', checks });
   const approved = await box.approveChecks();
   assert.equal(approved.code, 0, approved.reason);
+}
+
+// A test that goes on to import or to read receipts runs its check through `verifySettled`, and goes on after the run has ended. `jevris verify`
+// answers inside a window of its request and the run goes on after it, and the run ends with a freshness pass: it demotes a receipt imported
+// meanwhile (a CI receipt carries the committed tree's revision and the workspace has its manifest file untracked), so ci-triage found no current
+// CI failure and answered NO_CI_FAILURES on a slow host, where the same test passes on a fast one.
+async function runCheck(box, id) {
+  const run = await verifySettled(box, ['--check', id], { checks: [id] });
+  assert.equal(run.code, 0, `${id} did not pass locally: ${run.stdout} ${run.stderr}`);
+  return run;
 }
 
 function delivery(box, report, ...argv) {
@@ -65,7 +76,7 @@ test('pr-readiness is assembled from receipts and the task graph, and opening or
   assert.equal(existsSync(join(data, 'pr-body.md')), false);
 
   // After the check passes on this revision: ready, and still nothing is opened.
-  assert.equal(box.jevris(['verify', '--check', 'unit'], { json: true }).json.result.readiness, 'verified');
+  assert.equal((await runCheck(box, 'unit')).json.result.readiness, 'verified');
   const after = delivery(box, 'pr-readiness');
   assert.equal(after.code, 0);
   assert.equal(after.json.result.recommendation, 'ready');
@@ -105,7 +116,7 @@ test('ci-triage routes a failing CI receipt from its evidence and changes nothin
 
   // CI failed 'unit' on this revision; the same check passes locally at the same revision.
   await approve(box, [{ id: 'unit', argv: pass }]);
-  box.jevris(['verify', '--check', 'unit']);
+  await runCheck(box, 'unit');
   const { privateKey, publicKey } = generateKeyPairSync('ed25519');
   const pub = box.write('keys/ci.pub.pem', publicKey.export({ type: 'spki', format: 'pem' }).toString());
   assert.equal((await box.trustIssuer('gh-actions', pub, { repository: 'acme/app' })).code, 0);
@@ -151,7 +162,7 @@ test('migrations need a rehearsal record and explicit approval for destructive s
   assert.deepEqual([unrehearsed.json.result.verb, unrehearsed.json.result.recommendation, unrehearsed.json.result.requiresApproval], ['pause', 'rehearse', true]);
   assert.deepEqual(unrehearsed.json.result.ranked.map((item) => item.id), ['migrations/002_drop.sql:1', 'migrations/002_drop.sql:2']);
   await approve(box, [{ id: 'migration-rehearsal', argv: pass }]);
-  box.jevris(['verify', '--check', 'migration-rehearsal']);
+  await runCheck(box, 'migration-rehearsal');
   const rehearsed = delivery(box, 'migrations', '--migrations', 'migrations/002_drop.sql');
   assert.equal(rehearsed.json.result.recommendation, 'approve-destructive', 'a rehearsal does not approve destructive steps');
   assert.equal(rehearsed.json.result.requiresApproval, true);

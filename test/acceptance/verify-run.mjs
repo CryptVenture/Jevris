@@ -12,12 +12,15 @@
  * failure of CI run 37159176084). So:
  *
  * - the command is asked once;
- * - when its answer already holds every check's outcome (none running or queued), that answer is
- *   the answer, exactly as before, and nothing more is asked of a fast host;
- * - otherwise the story waits until the sidecar says no verification run is under way
- *   (`jevris sidecar status`, `verificationRuns` 0), then reads the same checks through the
- *   read-only status tool (`jevris_verify`), which has the shape of a verify answer and runs
- *   nothing.
+ * - the story then waits until the sidecar says no verification run is under way
+ *   (`jevris sidecar status`, `verificationRuns` 0). A run ends after the answer that lists its
+ *   checks: its receipts are in, but a task's run still has its state to move to verified and the
+ *   next wave to lease, and a story that reads the task or integrates right after the answer found
+ *   `verifying` or `TASK_NOT_VERIFIED` on a slow host (W04);
+ * - when the answer already holds every check's outcome (none running, queued or stale), that
+ *   answer is the answer, exactly as before;
+ * - otherwise the story reads the same checks through the read-only status tool (`jevris_verify`),
+ *   which has the shape of a verify answer and runs nothing.
  *
  * The result is shaped like a `box.jevris(..., { json: true })` result, so a story's assertions on
  * `result.json.result.checks`, `.readiness`, `.missing` and the exit `code` stay as they were:
@@ -35,10 +38,17 @@ import { repoRoot } from './lib.mjs';
 /** The longest the story waits for a run to end. */
 const RUN_BOUND_MS = 120_000;
 
-/** Whether a verify answer already holds the final outcome of every check it lists. */
+/**
+ * Whether a verify answer already holds the final outcome of every check it lists. A check listed
+ * as STALE is not final either: when even the status read after the run missed the answer window,
+ * the answer lists the approved checks from their last receipts, shown as STALE "since their
+ * freshness was not confirmed" (docs/verification.md), beside `ran: true` and the receipt the run
+ * has just written (the W04 failure of the slow-host gate: `verify --task A` answered
+ * not-verified with the passing receipt STALE, while the task went on to be verified).
+ */
 export function answerSettled(answer) {
   const checks = answer.json?.result?.checks;
-  return Array.isArray(checks) && checks.every((check) => check.reasonCode !== 'RUNNING' && check.reasonCode !== 'QUEUED');
+  return Array.isArray(checks) && checks.every((check) => check.reasonCode !== 'RUNNING' && check.reasonCode !== 'QUEUED' && check.reasonCode !== 'STALE');
 }
 
 /** Waits until the sandbox's sidecar reports no verification run under way. */
@@ -71,8 +81,8 @@ async function statusClient(box) {
  */
 export async function verifySettled(box, args, { checks, task } = {}) {
   const first = box.jevris(['verify', ...args], { json: true });
-  if (answerSettled(first)) return { ...first, first, settled: true };
   await runsEnded(box);
+  if (answerSettled(first)) return { ...first, first, settled: true };
   const client = await statusClient(box);
   const input = task !== undefined ? { taskId: task } : checks !== undefined ? { checkIds: checks } : {};
   const status = (await client.callTool({ name: 'jevris_verify', arguments: input })).structuredContent?.result;

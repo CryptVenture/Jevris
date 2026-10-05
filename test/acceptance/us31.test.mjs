@@ -71,7 +71,11 @@ story('US31', async ({ then, sandbox, evidence }) => {
   const scenario = async (name, during, inputTokens) => {
     const jev = lateJev(inputTokens);
     const home = join(box.dir, `home-${name}`);
-    const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: jev.fetch, env: {}, sourceEgress: () => ({ provenance: 'administrator', sourceEgress: 'approved-scoped' }) });
+    // The two decisions of the new-task advice reserve and settle against one budget file, and the file's lock gives up at 2 s and sends the call
+    // to rules with BUDGET_LOCKED (the product's own bound, which the sidecar never changes). A write that stalls while the lock is held makes
+    // the other decision wait that long, so a story with calls side by side gives the lock a long wait (`budgetLockTimeoutMs`, a test seam,
+    // as plan-questions-in-flight.test.mjs does): a fresh decision that never went out is what the 3 !== 4 of the slow-host gate counted.
+    const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: jev.fetch, env: {}, budgetLockTimeoutMs: 120_000, sourceEgress: () => ({ provenance: 'administrator', sourceEgress: 'approved-scoped' }) });
     // The product's handler for the new-task trigger, with its background work kept so the story can wait for it.
     const store = new provider.PendingAdviceStore();
     const tracked = [];

@@ -62,14 +62,18 @@ story('US20', async ({ then, sandbox, evidence }) => {
     });
     assert.equal(submitted.leaseIds.length, 1);
     const first = submitted.leaseIds[0];
-    for (let i = 0; i < 1_200 && !orchestrator.ownedSessions(ws).some((s) => s.taskId === 'T1' && s.state === 'running'); i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+    // Each wait is on the state, with a bound that only ends a worker that never gets there: a lease, a worktree and a worker take what a slow host's git gives them.
+    const until = async (reached) => {
+      for (const giveUpAt = Date.now() + 120_000; !reached() && Date.now() < giveUpAt; ) await new Promise((resolve) => setTimeout(resolve, 25));
+    };
+    await until(() => orchestrator.ownedSessions(ws).some((s) => s.taskId === 'T1' && s.state === 'running'));
     // The old lease expires into reconciliation; a person reconciles and a new fenced lease runs.
     holderDead = true;
     const reconciled = await op('task.reconcile', { taskId: 'T1', resolution: 'abandoned' });
     holderDead = false;
     evidence(reconciled);
     assert.deepEqual([reconciled.reconciled, reconciled.reasonCode, reconciled.taskState], [true, 'LEASE_RECONCILED', 'leased']);
-    for (let i = 0; i < 1_200 && orchestrator.getTask(ws, 'T1')?.node.state !== 'awaiting-evidence'; i += 1) await new Promise((resolve) => setTimeout(resolve, 25));
+    await until(() => orchestrator.getTask(ws, 'T1')?.node.state === 'awaiting-evidence');
     assert.equal(orchestrator.getTask(ws, 'T1').node.state, 'awaiting-evidence', 'the new lease\'s worker did not finish');
     assert.notEqual(orchestrator.getTask(ws, 'T1').leaseId ?? null, first);
     // Now the old worker returns.
@@ -89,7 +93,16 @@ story('US20', async ({ then, sandbox, evidence }) => {
       // The integration takes the task's current change, never the stale worker's.
       const done = await op('task.complete', { taskId: 'T1' });
       assert.equal(done.task.state, 'verified', `task.complete: ${JSON.stringify(done)}`);
-      const integration = await op('integration.run', { taskIds: ['T1'] });
+      // The op answers with its `running` report when the integration is still going as the answer falls due, and the run goes on:
+      // `integration.get` shows how it ends, which is what `jevris integrate` follows. A slow host's git and checks take what they take
+      // (the slow-host gate answered `running` here), so the story follows it the same way, until the report leaves `running`.
+      let integration = await op('integration.run', { taskIds: ['T1'] });
+      for (const giveUpAt = Date.now() + 120_000; (integration.report?.state ?? integration.state) === 'running' && Date.now() < giveUpAt; ) {
+        await new Promise((resolve) => setTimeout(resolve, 100));
+        const followed = await op('integration.get', { integrationId: (integration.report ?? integration).id });
+        assert.equal(followed.reports.length, 1, JSON.stringify(followed));
+        integration = followed.reports[0];
+      }
       evidence(integration);
       assert.equal(integration.report?.state ?? integration.state, 'ready', JSON.stringify(integration));
       const report = integration.report ?? integration;
