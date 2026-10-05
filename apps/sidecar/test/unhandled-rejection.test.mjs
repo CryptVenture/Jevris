@@ -26,6 +26,12 @@ async function started(logs, onStart = () => undefined) {
   }
   assert.equal(answer.ok, true, JSON.stringify(answer));
   const added = process.listeners('unhandledRejection').filter((listener) => !before.includes(listener));
+  if (added.length !== 1) {
+    // Never leave a sidecar running behind a failed assertion: it would keep the test process alive.
+    await sidecarRequest({ home, op: 'shutdown', scope: 'cli', body: {} });
+    await running;
+    rmSync(home, { recursive: true, force: true });
+  }
   assert.equal(added.length, 1, 'a running sidecar installs one unhandled-rejection listener');
   onStart();
   return { home, running, listener: added[0], before };
