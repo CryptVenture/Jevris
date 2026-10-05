@@ -103,7 +103,10 @@ Options:
   <decision-id>       The decision to explain (from jevris status)
   --slice <id>        Also show that task slice's route learning: active, advice only or pinned,
                       the policy version, the signed baseline prior and the local outcomes
-                      apart, and why (see jevris route learning status)
+                      apart, and why (see jevris route learning status). Take the id from that
+                      list: a baseline other than Opus 5.5 learns under <slice>::<model>, for
+                      example bounded-edit::gpt-6.1-sol, and each key compares its arms with
+                      its own baseline
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line (the command's contract)

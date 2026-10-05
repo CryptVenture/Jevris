@@ -491,7 +491,8 @@ export const ExplainPayloadSchema = S.object({
        */
       learning: S.object(
         {
-          sliceId: Id,
+          // A route-learning key (JEV-0055): a slice id, or `<slice>::<baseline model>`.
+          sliceId: S.string({ pattern: '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$', notPatterns: SECRET_PATTERNS }),
           mode: S.enumOf(['advise', 'auto', 'pinned'] as const),
           version: Count,
           lines: S.array(text(1000), { maxItems: 64 }),

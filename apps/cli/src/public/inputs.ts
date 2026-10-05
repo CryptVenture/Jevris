@@ -105,6 +105,8 @@ export type InputResult<K extends SurfaceOperation> =
   | { readonly ok: false; readonly message: string };
 
 export const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/** A route-learning key (JEV-0055): a slice id, or `<slice>::<baseline model>` as `jevris route learning status` lists it. */
+export const LEARNING_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 /** An evidence selection id as the store names it (P10, D). */
 export const SELECTION_ID = /^[A-Za-z][A-Za-z0-9_-]{0,63}$/;
 export const MODEL = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?$/;
@@ -602,7 +604,7 @@ const PARSERS: { readonly [K in SurfaceOperation]: (raw: Raw) => OpInputs[K] } =
   explain(raw) {
     onlyKeys(raw, ['decisionId', 'sliceId']);
     const decisionId = pattern(raw, 'decisionId', ID, 'a decision id', true);
-    const sliceId = pattern(raw, 'sliceId', ID, 'a slice id', false);
+    const sliceId = pattern(raw, 'sliceId', LEARNING_KEY, 'a slice id or a learning key (<slice>::<model>)', false);
     return sliceId === null ? { decisionId } : { decisionId, sliceId };
   },
   route(raw) {

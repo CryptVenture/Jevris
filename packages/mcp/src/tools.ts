@@ -27,6 +27,8 @@ export interface ToolSpec {
 }
 
 const ID = '^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$';
+/** A route-learning key (contracts LEARNING_KEY_PATTERN): a slice id, or `<slice>::<baseline model>` as `jevris route learning status` lists it. */
+const LEARNING_KEY = '^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$';
 /** A model id as a harness reports it (G20; contracts HARNESS_MODEL_ID_PATTERN): provider/model and [1m] too. */
 const HARNESS_MODEL = '^(?:[a-z0-9][a-z0-9._-]{0,63}/){0,2}[A-Za-z0-9][A-Za-z0-9._-]{0,127}(?::[0-9]{1,8})?(?:\\[1m\\])?$';
 /** An evidence handle: the only kind Jevris issues (contracts EVIDENCE_HANDLE_PATTERN). */
@@ -62,7 +64,7 @@ export const TOOLS: readonly ToolSpec[] = [
     inputSchema: input(
       {
         decisionId: id('The decision id, as shown by jevris_status.'),
-        sliceId: id("A task slice (such as bounded-edit): the trace then shows that slice's route learning (mode, policy version and why)."),
+        sliceId: { type: 'string', pattern: LEARNING_KEY, maxLength: 128, description: "A task slice (such as bounded-edit), or a route-learning key such as bounded-edit::gpt-6.1-sol as `jevris route learning status` lists it (a baseline other than Opus 5.5 learns under its own key): the trace then shows that slice's route learning (mode, policy version and why)." },
       },
       ['decisionId'],
     ),

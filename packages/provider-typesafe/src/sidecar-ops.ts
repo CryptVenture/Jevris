@@ -325,6 +325,8 @@ export function explainPayload(decisionId: string, record: DecisionRecord | null
 }
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+/** A route-learning key (JEV-0055): a slice id, or `<slice>::<baseline model>`. */
+const LEARNING_KEY = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
 const routeOnce = new AdviceOnce();
 /** Main-route advice already recorded, per workspace and advice key. */
 const routeRecorded = new AdviceOnce();
@@ -794,7 +796,7 @@ async function handleExplain(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
   const decisionId = decisionIdOf(ctx, ['decisionId', 'sliceId']);
   if (decisionId === null) return fail('INVALID_REQUEST', 'send { decisionId, sliceId? }');
   const rawSlice = plain(ctx.body) ? ctx.body['sliceId'] : undefined;
-  if (rawSlice !== undefined && rawSlice !== null && (typeof rawSlice !== 'string' || !ID.test(rawSlice))) return fail('INVALID_REQUEST', 'sliceId must be an id');
+  if (rawSlice !== undefined && rawSlice !== null && (typeof rawSlice !== 'string' || !LEARNING_KEY.test(rawSlice))) return fail('INVALID_REQUEST', 'sliceId must be a slice id or a learning key');
   const sliceId = typeof rawSlice === 'string' ? rawSlice : null;
   if (!isDecisionId(decisionId)) {
     // A syntactically foreign id cannot name a decision; answer not-found in the contract shape.
