@@ -73,3 +73,24 @@ for (const [launcher, harness] of [['kilo', 'kilocode'], ['opencode', 'opencode'
     assert.deepEqual(linesOf(send(plugin.chat(sid, 'a last message here'))), [], 'and the redelivery took nothing again');
   });
 }
+
+test('kilo: the waiting line and the orchestrator\'s own loop advice both wait out the orientation message, and come together at the next one, in subscriber-name order', { timeout: 120_000, skip: managedHostSkip() }, async (t) => {
+  const box = await sandbox(t);
+  assert.equal(box.startSidecar().code, 0, 'the sidecar did not start');
+  await certifyHooks(box, { harness: 'kilocode', version: VERSION });
+  const send = (native) => box.hook('kilo', native, SLOW);
+  const sid = `two-${uid()}`;
+  const command = `npm run two-lines-${uid()}`;
+  // The same bash failure four times: the repeated-failure line, and the orchestrator's once-only line that the loop earns.
+  for (let i = 0; i < 4; i += 1) assert.deepEqual(linesOf(send(plugin.bashFailure(sid, command))), []);
+  assert.deepEqual(linesOf(send(plugin.sessionCreated(sid))), []);
+
+  const first = linesOf(send(plugin.chat(sid, 'where are we with this work now')));
+  assert.deepEqual(first.filter((line) => !ORIENTATION.test(line)), [], `the first message shows the context alone: ${JSON.stringify(first)}`);
+
+  const second = linesOf(send(plugin.chat(sid, 'and what about the next step here')));
+  assert.equal(second.length, 2, `both lines come at the next message: ${JSON.stringify(second)}`);
+  assert.match(second[0], /^Jevris: this failure has come back \d+ times/, 'the decision engine\'s line first');
+  assert.doesNotMatch(second[1], /come back/, 'then the orchestrator\'s');
+  assert.deepEqual(linesOf(send(plugin.chat(sid, 'one more thing about this'))), [], 'each is shown once');
+});
