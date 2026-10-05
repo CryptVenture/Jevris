@@ -32,11 +32,13 @@ function countAfter(codes: readonly string[], prefix: string): number | null {
 /**
  * The explain lines for a recorded check ranking: what was ranked, which source ordered it and
  * why, whether Jev was asked and answered, the evidence, and that no check is dropped. Null when
- * the record is not one.
+ * the record is not one: the engine's own record of the Jev call (and of a cache hit) carries the
+ * same spec id but not the ranker's `RANK_SOURCE_` code, and is explained as a provider call.
  */
 export function checkRelevanceLines(record: { readonly specId: string; readonly reasonCodes: readonly string[]; readonly durationMs?: number | null; readonly proposedAction: { readonly kind: string; readonly evidenceIds?: readonly string[] } }): string[] | null {
   if (record.specId !== CHECK_RELEVANCE_SPEC_ID) return null;
   const codes = record.reasonCodes;
+  if (!codes.some((code) => code.startsWith('RANK_SOURCE_'))) return null;
   const source = codeAfter(codes, 'RANK_SOURCE_');
   const shape = codeAfter(codes, 'RANK_SHAPE_');
   const first = codeAfter(codes, 'RANK_FIRST_');

@@ -28,11 +28,13 @@ function codeAfter(codes: readonly string[], prefix: string): string | null {
 /**
  * The explain lines for a recorded slice classification: what was asked, what answered, the
  * confidence, whether the cache answered, how long it took, and the rules alternative. Null when
- * the record is not one.
+ * the record is not one: the engine's own record of the Jev call (and of a cache hit) carries the
+ * same spec id but not the classifier's `SLICE_SOURCE_` code, and is explained as a provider call.
  */
 export function sliceAssistLines(record: { readonly specId: string; readonly reasonCodes: readonly string[]; readonly durationMs?: number | null; readonly proposedAction: { readonly kind: string; readonly evidenceIds?: readonly string[] } }): string[] | null {
   if (record.specId !== SLICE_CLASSIFY_SPEC_ID) return null;
   const codes = record.reasonCodes;
+  if (!codes.some((code) => code.startsWith('SLICE_SOURCE_'))) return null;
   const source = codeAfter(codes, 'SLICE_SOURCE_');
   const used = codeAfter(codes, 'SLICE_ID_');
   const risk = codeAfter(codes, 'RISK_');

@@ -26,6 +26,7 @@
 import { sliceAssistLines } from './slice-explain.js';
 import { checkRelevanceLines } from './check-relevance-explain.js';
 import { liveAdviceLines } from './live-advice-explain.js';
+import { adviceJevUse } from './advice-jev-use.js';
 import { randomUUID } from 'node:crypto';
 import { join } from 'node:path';
 import type { ManagedRouteRequest } from './route-evaluate.js';
@@ -1057,6 +1058,23 @@ const BILLING_TEXT: Readonly<Record<BillingBasis, string>> = {
 };
 
 /**
+ * The Provider line. A record that shows a provider call names the model and the usage (or says the
+ * usage is unknown). An adviser's summary of a run (see `advice-jev-use.ts`) makes no call of its own
+ * and says so only when no question was asked: when Jev was asked, the question is its own decision
+ * record with the model and the usage, and the line says that instead of "no provider call was made",
+ * which the same text's "(asked Jev, ...)" would contradict.
+ */
+function providerLine(record: DecisionRecord): string {
+  const showsCall = record.modelResolved !== null || record.usage !== null || record.billingBasis !== 'no-provider-call' || (record.providerCalls ?? 0) > 0;
+  const use = showsCall ? null : adviceJevUse(record);
+  if (use === 'asked') return 'Provider: none on this record, which is the summary of a run. Jev was asked, and each question is its own decision record, which shows whether a call went out, the model and the usage.';
+  if (use === 'cache-hit') return 'Provider: no provider call was made; the decision cache answered. The call that filled the cache is its own decision record.';
+  const model = record.modelResolved === null ? 'no model answered' : `model ${record.modelResolved}`;
+  const usage = record.usage === null ? '' : `, ${record.usage.inputTokens} input and ${record.usage.outputTokens} output tokens`;
+  return `Provider: ${model}${usage}; ${BILLING_TEXT[record.billingBasis]}.`;
+}
+
+/**
  * A plain explanation of one decision. It states what was decided and why, and never claims a
  * success probability, savings or verification.
  */
@@ -1067,9 +1085,7 @@ export function explainDecision(record: DecisionRecord): string {
   if (record.proposedAction.kind === 'abstain') lines.push(`Proposed action: none (abstain, ${record.proposedAction.reasonCode}).`);
   else if (record.proposedAction.kind === 'route-worker') lines.push(`Proposed action: route-worker (model ${record.proposedAction.modelId} for task ${record.proposedAction.taskId}).`);
   else lines.push(`Proposed action: ${record.proposedAction.kind}.`);
-  const model = record.modelResolved === null ? 'no model answered' : `model ${record.modelResolved}`;
-  const usage = record.usage === null ? '' : `, ${record.usage.inputTokens} input and ${record.usage.outputTokens} output tokens`;
-  lines.push(`Provider: ${model}${usage}; ${BILLING_TEXT[record.billingBasis]}.`);
+  lines.push(providerLine(record));
   if (record.failureKind !== undefined) lines.push(`Failure kind: ${record.failureKind}.`);
   if (record.egressFindings !== undefined && record.egressFindings.length > 0) {
     const where = record.egressFindings.slice(0, 4).map((f) => `${f.ruleId} in ${f.field === '' ? 'the packet' : f.field}${f.start === null ? '' : ` at offset ${f.start}, length ${f.length ?? 0}`}`);
