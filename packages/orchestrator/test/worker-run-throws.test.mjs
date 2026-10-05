@@ -11,6 +11,7 @@ import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { jevrisPaths } from '@jevris/platform';
 import { DEFAULT_CONFIG, approveManifests, drainBackgroundWorkers, getTask, leaseAuthorityFor, manifestHash, openWorkspace, parseManifest, runLeasedTask, scheduleTasks, scriptedWorkerPort, selfIdentity, setTaskOpDeps, sidecarOps, submitPlan, workerRuns } from '../dist/index.js';
+import { taskView } from '../dist/ops/task-ops.js';
 import { closeTestStore, testStore } from './store-fixture.mjs';
 import { tempDir } from './temp-dirs.mjs';
 
@@ -123,6 +124,11 @@ for (const [name, failure] of Object.entries(FAILURES)) {
       assert.equal(t1.node.leaseId ?? null, null, 'the failed task holds no lease');
       const history = JSON.stringify(t1);
       assert.match(history, /worker run failed \(WORKER_RUN_FAILED\)/);
+      // The place the documentation sends a person to read why (docs/troubleshooting.md): `jevris_get_task` shows the code, and only the code (JEV-0074).
+      const view = taskView(f.ws, 'T1');
+      assert.equal(view.task.state, 'failed');
+      assert.equal(view.task.stateReason, 'WORKER_RUN_FAILED', JSON.stringify(view.task));
+      assert.doesNotMatch(JSON.stringify(view), /worker run failed|the worker port threw/, 'a reason code, never the recorded text');
       // Its run is recorded, failed, with a cost nobody knows and the effect settled (never left pending).
       const [run] = workerRuns(f.ws, 'T1');
       assert.ok(run !== undefined, 'the run is on record');

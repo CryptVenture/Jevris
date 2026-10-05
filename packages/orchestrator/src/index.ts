@@ -94,7 +94,7 @@ export * from './orchestration/integration-reverts.js';
 export * from './orchestration/subagent-runs.js';
 export * from './settings/config.js';
 export * from './settings/managed-policy.js';
-export { PLAN_SUBMIT_MAX_TASKS, WORKER_ROUTE_FEATURE, candidateScopesFor, certifiedWorkerRoute, drainBackgroundWorkers, engineNow, parsePlanSubmission, providerConsentOf, readPlanSubmission, relaunchEscalated, setTaskOpDeps, taskView } from './ops/task-ops.js';
+export { PLAN_SUBMIT_MAX_TASKS, WORKER_ROUTE_FEATURE, candidateScopesFor, certifiedWorkerRoute, drainBackgroundWorkers, engineNow, parsePlanSubmission, providerConsentOf, readPlanSubmission, relaunchEscalated, setTaskOpDeps, taskStateReason, taskView } from './ops/task-ops.js';
 export type { PlanSubmitPayload, TaskReconcilePayload } from './ops/task-ops.js';
 export * from './orchestration/loops.js';
 export * from './capabilities/consult.js';

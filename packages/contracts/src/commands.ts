@@ -967,7 +967,10 @@ const TaskSchema = S.object({
   acceptanceCheckIds: Ids(),
 },
 {
-  /** Why a blocked task waits, as a reason code (for example DEPENDENCY_CANCELLED); absent when none is recorded (JEV-0035). */
+  /**
+   * Why a task is blocked, failed or cancelled, as a reason code (for example DEPENDENCY_CANCELLED, or WORKER_RUN_FAILED for a failed worker run); the code a
+   * recorded reason names, never its text. Absent when the reason has no code or none is recorded (JEV-0035, JEV-0074).
+   */
   stateReason: S.string({ pattern: '^[A-Z][A-Z0-9_]{0,63}$' }),
 });
 

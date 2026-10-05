@@ -40,8 +40,31 @@ const CONTRACT_ID = new RegExp(ID_PATTERN);
 export type Respond = (ctx: SidecarOpContext, surface: 'task.get' | 'task.submit', body: unknown) => SidecarOpOutcome;
 export type WorkspaceOf = (ctx: SidecarOpContext) => WorkspaceServices | undefined;
 
+const REASON_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;
+/** A reason that leads with its code: `HOST_ROUTE_NOT_LAUNCHED: ...`, `ACCESS_LIMITED: usage-window on ...`. */
+const LEADING_REASON_CODE = /^([A-Z][A-Z0-9_]{2,63}): /;
+/** A reason that ends with its code: `worker run failed (WORKER_RUN_FAILED)`, `model m is not available here (MODEL_GONE via claude)`. */
+const TRAILING_REASON_CODE = /\(([A-Z][A-Z0-9_]{2,63})(?: via [A-Za-z0-9._-]{1,64})?\)$/;
+
+/**
+ * Why a task is blocked, failed or cancelled, as a reason code, for `task.get` (JEV-0074). The task's recorded reason is
+ * a sentence that Jevris writes, and some of those carry a harness's or a run's detail (a path, a scope, a time), so the
+ * view never shows the sentence: only the code the sentence names, in one of the three shapes Jevris writes them in. A
+ * blocked or failed task whose reason is `DEPENDENCY_CANCELLED`, `ACCESS_LIMITED: ...` or `worker run failed (WORKER_RUN_FAILED)`
+ * shows that code. A reason with no code (`worker failed`, `wrote outside allowed paths: ...`) shows nothing. A cancelled
+ * task shows its reason only when the whole reason is a code (`RECONCILED_ABANDONED`): the rest is a person's own words.
+ * Any other state shows nothing, as before.
+ */
+export function taskStateReason(state: string, reason: string | null): string | undefined {
+  if (reason === null || (state !== 'blocked' && state !== 'failed' && state !== 'cancelled')) return undefined;
+  if (REASON_CODE.test(reason)) return reason;
+  if (state === 'cancelled') return undefined;
+  return LEADING_REASON_CODE.exec(reason)?.[1] ?? TRAILING_REASON_CODE.exec(reason)?.[1];
+}
+
 export function taskView(ws: WorkspaceServices, taskId: string) {
   const task = getTask(ws, taskId);
+  const code = task === undefined ? undefined : taskStateReason(task.node.state, task.stateReason);
   const receipts = ws.receipts
     .list(ws.workspaceId, { taskId })
     .filter((r) => CONTRACT_ID.test(r.receipt.id) && CONTRACT_ID.test(r.receipt.checkId))
@@ -60,8 +83,8 @@ export function taskView(ws: WorkspaceServices, taskId: string) {
             requirementIds: [...task.node.requirementIds],
             dependencyIds: [...task.node.dependencyIds],
             acceptanceCheckIds: [...task.node.acceptanceCheckIds],
-            // Why a blocked task waits (DEPENDENCY_CANCELLED, LEASE_EXPIRED ...); only a reason code, never free text.
-            ...(task.node.state === 'blocked' && task.stateReason !== null && /^[A-Z][A-Z0-9_]{0,63}$/.test(task.stateReason) ? { stateReason: task.stateReason } : {}),
+            // Why a task is blocked, failed or cancelled (DEPENDENCY_CANCELLED, LEASE_EXPIRED, WORKER_RUN_FAILED ...); only a reason code, never free text.
+            ...(code === undefined ? {} : { stateReason: code }),
           },
     receipts,
     worker: workerView(ws, taskId),
