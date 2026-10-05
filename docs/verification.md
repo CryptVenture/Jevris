@@ -260,6 +260,14 @@ or more is joined, hashed, parsed and given its distilled view in a separate wor
 the sidecar goes on answering meanwhile. If that thread cannot start or does not answer, the same
 work runs in the sidecar itself, with the same result.
 
+Jevris reads the revision (HEAD and the changed files) with `git`, for a capsule at PreCompact, a
+restore, a Stop reminder and a handoff. Starting a process blocks the thread that starts it (on
+Windows the operating system creates it inside the call, and a loaded runner took seconds), so the
+sidecar starts every `git` process from a small pool of worker threads and its own event loop never
+waits for one. A call goes to the pool once a worker has said it is ready; before that, with no pool
+(the CLI), or when a worker fails, ends or does not answer, the same call runs in the calling thread
+with the same result.
+
 ## 5. Completion
 
 A task is verified only when every mandatory check has a current, passing receipt. `unknown`
