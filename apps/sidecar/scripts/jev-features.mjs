@@ -36,7 +36,9 @@
  * and by the sidecar itself for the sidecar parts; it is never printed, logged, put in argv or in the
  * record. Everything runs in a temporary home: the real ~/.jevris is never read or written. The run
  * stops at the first 401, 402 or 403, or three 429s in a row, or at a cap. The record holds numbers
- * and codes only.
+ * and codes only: `recordViolations` (packages/provider-typesafe/src/features-record.ts) checks every
+ * string in it against the field's allow-list before it is written, so free text (a recommendation that
+ * names a module path, an error message) cannot reach it.
  */
 import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from 'node:fs';
@@ -315,6 +317,10 @@ try {
   record.environment = { os: process.platform, arch: process.arch, node: process.version };
   const text = `${JSON.stringify(record, null, 2)}\n`;
   if (containsSecret(text)) throw new Error('the evidence record held something secret-shaped; not written');
+  // The record is numbers and codes only: a string at a field that is not a code or a fixed case title (a recommendation naming a module path, a message) refuses the write.
+  const { CASES: allCases } = await import('./jev-feature-cases.mjs');
+  const textual = provider.recordViolations(record, { titles: allCases.map((c) => c.title) });
+  if (textual.length > 0) throw new Error(`the evidence record held text where it holds codes (${textual.slice(0, 3).join('; ')}); not written`);
   const out = option('--evidence', join(jevrisPaths().data, 'evidence', `jev-features-${stamp.replace(/[:.]/g, '-')}.json`));
   mkdirSync(dirname(out), { recursive: true });
   const written = await durableWrite(out, text);

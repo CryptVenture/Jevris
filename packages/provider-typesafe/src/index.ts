@@ -40,5 +40,7 @@ export type { AnswerStat, CallMeter, Distribution, ExchangeObserver, MeterLimits
 export { ENGINE_GROUPS, FAKE_SECRET, FAILURE_CASES, FAILURE_NO_REQUEST_IDS, FEATURE_SUITE_SCHEMA, RANK_SHAPES, SLICE_SHAPES, TASK_PROMPTS, answerDistributions, engineCases, runFeatureSuite, suiteFailures, summarizeGroup } from './features-suite.js';
 export type { CaseDef, CaseOutcome, EngineGroup, FeatureRow, FeatureSuiteOptions, FeatureSuiteRecord, GroupSummary, RowPhase } from './features-suite.js';
 export { IDLE_SOCKET_MS, MAX_SOCKETS, SPARE_SOCKET_MS, closePrewarmed, nodeFetch, prewarmConnection, prewarmedConnections } from './node-fetch.js';
+export { recordViolations } from './features-record.js';
+export type { RecordCheckOptions } from './features-record.js';
 export { FEATURE_INVENTORY, OP_ONLY_ENTRY, inventoryByWiring } from './features-inventory.js';
 export type { InventoryEntry, InventoryWiring } from './features-inventory.js';

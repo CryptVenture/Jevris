@@ -26,7 +26,7 @@ test('without JEVRIS_LIVE_JEV or --mock the script does nothing and says how to 
   assert.match(refused.stderr, /refusing a live run inside a test process/);
 });
 
-test('--mock runs every part against the conformance mock and writes an evidence record of numbers and codes', { skip: managedHostSkip() }, () => {
+test('--mock runs every part against the conformance mock and writes an evidence record of numbers and codes', { skip: managedHostSkip() }, async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jev-features-script-')));
   try {
     const evidence = join(dir, 'evidence', 'features.json');
@@ -56,7 +56,10 @@ test('--mock runs every part against the conformance mock and writes an evidence
     assert.ok(record.hotEngine['check-ranking'].cold.n > 0 && record.hotEngine['repeated-failure'].cold.n > 0);
     // Spend is bounded and counted.
     assert.ok(record.spent.engineCalls > 0 && record.spent.halted === null);
-    // Numbers and codes only: no key, no fake secret.
+    // Numbers and codes only: every string is a code or a fixed label at a field that is listed for it (JEV-0049), and there is no key and no fake secret.
+    const { recordViolations } = await import('@jevris/provider-typesafe');
+    const { CASES } = await import('../scripts/jev-feature-cases.mjs');
+    assert.deepEqual(recordViolations(record, { titles: CASES.map((c) => c.title) }), []);
     const text = JSON.stringify(record);
     for (const forbidden of ['mock-key', 'jev-features-mock-key', 'Bearer', 'ghp_']) assert.equal(text.includes(forbidden), false, forbidden);
   } finally {

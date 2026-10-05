@@ -70,7 +70,9 @@ test('the whole suite runs offline: Jev-asking cases repeat cold and cached, ref
   assert.equal(record.rows.reduce((n, r) => n + r.leaks, 0), 0, 'no title, path, prompt or tool text was in a request');
   assert.ok(record.totals.calls > 0 && record.totals.costMicroUsd > 0);
   assert.ok(record.distributions.choiceConfidence.n > 0 && record.distributions.scoreConfidence.n > 0 && record.distributions.noulCertainty.n > 0);
-  // The record is numbers and codes: no key, no request text, no fake secret.
+  // The record is numbers and codes: no key, no request text, no fake secret. Every string in a row is a code or a label at a field that is listed
+  // for it (features-record.ts): a free-text field added to a row fails here (JEV-0049; the negative controls are in features-record.test.mjs).
+  assert.deepEqual(provider.recordViolations({ engine: record }), [], 'a string in the record is not a code or a fixed label');
   const text = JSON.stringify(record);
   assert.equal(text.includes('test-key-not-a-secret'), false);
   assert.equal(text.includes(FAKE_SECRET), false, 'the refused token is not in the record');

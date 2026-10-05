@@ -84,6 +84,11 @@ export async function latestDecisionOf(core, home, specId) {
   return best === null ? null : best.id;
 }
 
+/** The first of `candidates` that is a code (letters, digits and underscores), else `UNKNOWN`: a failure goes in the record by code, never as a message. */
+function codeOf(...candidates) {
+  return candidates.find((value) => typeof value === 'string' && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(value)) ?? 'UNKNOWN';
+}
+
 /** The default summary of an op answer: the fields the capability advice and the memory ops share. */
 export function summarizeResult(result) {
   const body = result !== null && typeof result === 'object' && result.advice !== null && typeof result.advice === 'object' ? result.advice : result;
@@ -151,7 +156,7 @@ export async function runCases(input) {
   const rows = [];
   for (const c of cases) {
     if (input.only !== undefined && !input.only(c.id)) continue;
-    const row = { id: c.id, title: c.title, expectAsked: c.expectAsked !== false, egressNeeded: c.egressNeeded === true, ok: false, attempts: 1, requests: 0, source: null, reasonCode: null, decisionId: null, verb: null, recommendation: null, elapsedMs: 0, failure: null, usage: null, costMicroUsd: null, durationMs: null, jevReasonCodes: [], answerProbabilities: [] };
+    const row = { id: c.id, title: c.title, expectAsked: c.expectAsked !== false, egressNeeded: c.egressNeeded === true, ok: false, attempts: 1, requests: 0, source: null, reasonCode: null, decisionId: null, verb: null, recommendationLength: null, elapsedMs: 0, failure: null, usage: null, costMicroUsd: null, durationMs: null, jevReasonCodes: [], answerProbabilities: [] };
     try {
       for (const step of c.steps ?? []) {
         if (step.files !== undefined) {
@@ -169,7 +174,7 @@ export async function runCases(input) {
         }
         const { answer: stepResult } = await askSidecarCounted(sidecar, { home, op: step.op, scope: step.scope ?? 'cli', workspace: work, body: step.body ?? {}, timeoutMs }, { attempts });
         if (!stepResult.ok && step.optional !== true) {
-          row.failure = `step ${step.op}: ${stepResult.reasonCode ?? stepResult.reason}`;
+          row.failure = `step ${step.op}: ${codeOf(stepResult.reasonCode, stepResult.reason)}`;
           break;
         }
         // A hook event's subscriber that is slow is queued and runs on after the answer: the call must not start beside it.
@@ -213,13 +218,19 @@ export async function runCases(input) {
         row.requests = requestCount() - before;
         if (answer.ok) {
           row.ok = true;
-          Object.assign(row, (c.summarize ?? summarizeResult)(answer.result));
+          // The record holds numbers and codes only (features-record.ts): a recommendation is free text (a module path, a skill or tool name), so the
+          // row keeps how long it is, which says whether the capability recommended anything, and not the text.
+          const { recommendation, ...summary } = (c.summarize ?? summarizeResult)(answer.result);
+          Object.assign(row, summary, { recommendationLength: typeof recommendation === 'string' ? recommendation.length : null });
         } else {
-          row.failure = `${c.call.op}: ${answer.reasonCode ?? answer.reason}`;
+          row.failure = `${c.call.op}: ${codeOf(answer.reasonCode, answer.reason)}`;
         }
       }
     } catch (error) {
-      row.failure = `threw: ${String(error?.message ?? error).slice(0, 120)}`;
+      // The row (and so the record) names the kind of error by code; the message may quote workspace text, so it goes to stderr only.
+      const code = typeof error?.code === 'string' && /^[A-Z0-9_]{1,40}$/.test(error.code) ? `:${error.code}` : '';
+      row.failure = `threw: ${/^[A-Za-z]{1,40}$/.test(String(error?.name)) ? String(error.name) : 'Error'}${code}`;
+      process.stderr.write(`jev-feature-driver: ${c.id} threw: ${String(error?.message ?? error).slice(0, 200)}\n`);
     }
     // A case on a hook event or an op that does not name its Jev decision: the newest decision of its spec in the journal.
     const decision = await decisionOf(input, c, row.decisionId, row.requests);
