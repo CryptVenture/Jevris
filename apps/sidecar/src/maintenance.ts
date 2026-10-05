@@ -13,6 +13,9 @@
  * The worker is the sidecar's own entry file started again as a worker (main.ts checks
  * `workerData`), so the bundle needs no second entry. Without a worker script (an in-process
  * daemon in tests) or when the worker cannot start, the caller runs the same chunked sweep inline.
+ *
+ * Stopping the worker never cuts it off inside the load of the SQLite addon (see "the native load"
+ * below): a thread ended there takes the whole sidecar down with SIGABRT.
  */
 import { Worker, isMainThread, parentPort, workerData } from 'node:worker_threads';
 
@@ -56,6 +59,76 @@ export type SweepOutcome =
 interface WorkerData {
   readonly jevrisMaintenance: 1;
   readonly job: SweepJob;
+  /** The native-load state both threads read and write (see "the native load"). */
+  readonly load: SharedArrayBuffer;
+}
+
+// ------------------------------------------------------------------ the native load
+
+/**
+ * Why a stop waits for the worker's native load, and never ends the thread inside it.
+ *
+ * `worker.terminate()` that lands while the worker is loading the SQLite addon (the first
+ * `require('better-sqlite3')`, inside `openMaintenanceStore`) aborts the whole process: the addon's
+ * initialiser meets the pending termination, node-addon-api cannot build its error and Node prints
+ * `FATAL ERROR: Error::New napi_get_last_error_info` and raises SIGABRT. The window is a few
+ * milliseconds on an idle host and much longer on a loaded one, where the worker's thread waits for
+ * a CPU or for pages of the addon. A sidecar stopped within the first second of its life (a start
+ * followed at once by `jevris sidecar stop`, `uninstall` or `data delete`) is still booting the
+ * worker, so it died that way before it removed its endpoint file, and the next `jevris doctor`
+ * showed "not-running" with a last run that "ended without cleaning up" until something started a
+ * sidecar again.
+ *
+ * Both threads share one Int32 and move it with Atomics, so neither needs the other's event loop:
+ *   idle -> loading   the worker, just before the load (it did not see `declined`)
+ *   loading -> loaded the worker, when `openMaintenanceStore` returned (whatever it returned)
+ *   idle -> declined  the sidecar, when it stops a worker that has not begun the load: the worker
+ *                     never starts it, and ending the thread any time is safe
+ * A stop that finds the worker `loading` waits (at most NATIVE_LOAD_WAIT_MS) for `loaded`, then
+ * ends the thread: the sweep after the load is the design (its open chunk rolls back).
+ */
+export const NATIVE_LOAD = { idle: 0, loading: 1, loaded: 2, declined: 3 } as const;
+/** The most a stop waits for a worker that is inside the native load; a load that takes longer is ended anyway. */
+export const NATIVE_LOAD_WAIT_MS = 5000;
+const NATIVE_LOAD_POLL_MS = 2;
+
+function loadState(shared: unknown): Int32Array | undefined {
+  return shared instanceof SharedArrayBuffer && shared.byteLength >= 4 ? new Int32Array(shared) : undefined;
+}
+
+/**
+ * Worker side: call just before the first thing that loads the addon. False when the sidecar has
+ * already asked the worker to stop: do not load it, and let the thread end. With no shared state (a
+ * worker started by older code) it is true and nothing is recorded.
+ */
+export function enterNativeLoad(shared: unknown): boolean {
+  const state = loadState(shared);
+  if (state === undefined) return true;
+  return Atomics.compareExchange(state, 0, NATIVE_LOAD.idle, NATIVE_LOAD.loading) !== NATIVE_LOAD.declined;
+}
+
+/** Worker side: call when the load is over, whether it succeeded or not. */
+export function leaveNativeLoad(shared: unknown): void {
+  const state = loadState(shared);
+  if (state !== undefined) Atomics.store(state, 0, NATIVE_LOAD.loaded);
+}
+
+/**
+ * Sidecar side: ends the worker thread without ever ending it inside the native load, unless the
+ * load outlasts `loadWaitMs`. Resolves when the thread has been told to end. `exited` says the
+ * worker has already gone.
+ */
+async function endWorker(worker: Worker, shared: SharedArrayBuffer, exited: () => boolean, loadWaitMs: number): Promise<void> {
+  const state = new Int32Array(shared);
+  if (Atomics.compareExchange(state, 0, NATIVE_LOAD.idle, NATIVE_LOAD.declined) === NATIVE_LOAD.loading) {
+    const until = Date.now() + loadWaitMs;
+    while (Atomics.load(state, 0) === NATIVE_LOAD.loading && !exited() && Date.now() < until) await new Promise((resolve) => setTimeout(resolve, NATIVE_LOAD_POLL_MS));
+  }
+  try {
+    await worker.terminate();
+  } catch {
+    // already gone
+  }
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -96,7 +169,14 @@ export async function runMaintenanceWorker(): Promise<void> {
   let answer: SweepOutcome;
   try {
     const api: StoreModule = await import('@jevris/store');
-    const store = api.openMaintenanceStore({ path: data.job.path, hostScope: data.job.hostScope });
+    // Declined: the sidecar is stopping and has not waited for a load, so none begins and the thread ends.
+    if (!enterNativeLoad(data.load)) return;
+    let store: ReturnType<StoreModule['openMaintenanceStore']>;
+    try {
+      store = api.openMaintenanceStore({ path: data.job.path, hostScope: data.job.hostScope });
+    } finally {
+      leaveNativeLoad(data.load);
+    }
     if (!store.ok) {
       answer = { ok: false, reason: store.reason, where: 'worker' };
     } else {
@@ -114,19 +194,24 @@ export async function runMaintenanceWorker(): Promise<void> {
 
 export interface RunningSweep {
   readonly done: Promise<SweepOutcome>;
-  /** Stops the worker (sidecar shutdown); its open chunk rolls back. */
+  /**
+   * Stops the worker (sidecar shutdown); its open chunk rolls back. A worker that is loading the
+   * SQLite addon is waited for first, so the stop never aborts the process (see "the native load").
+   */
   stop(): Promise<void>;
 }
 
 /**
  * Starts the sweep in a worker running `script` (the sidecar entry). Answers the worker's outcome,
  * or a refusal: MAINTENANCE_WORKER_UNAVAILABLE (it did not start), MAINTENANCE_WORKER_FAILED (it
- * exited without an answer) or MAINTENANCE_WORKER_TIMEOUT.
+ * exited without an answer) or MAINTENANCE_WORKER_TIMEOUT. A stop waits at most `loadWaitMs` for a
+ * worker that is loading the SQLite addon (see "the native load").
  */
-export function sweepInWorker(script: string | URL, job: SweepJob, timeoutMs: number = SWEEP_WORKER_TIMEOUT_MS): RunningSweep {
+export function sweepInWorker(script: string | URL, job: SweepJob, timeoutMs: number = SWEEP_WORKER_TIMEOUT_MS, loadWaitMs: number = NATIVE_LOAD_WAIT_MS): RunningSweep {
   let worker: Worker;
+  const load = new SharedArrayBuffer(4);
   try {
-    worker = new Worker(script, { workerData: { jevrisMaintenance: 1, job } satisfies WorkerData });
+    worker = new Worker(script, { workerData: { jevrisMaintenance: 1, job, load } satisfies WorkerData });
   } catch {
     return { done: Promise.resolve({ ok: false, reason: 'MAINTENANCE_WORKER_UNAVAILABLE', where: 'worker' }), stop: async () => undefined };
   }
@@ -135,6 +220,10 @@ export function sweepInWorker(script: string | URL, job: SweepJob, timeoutMs: nu
     settle = resolve;
   });
   let settled = false;
+  let exited = false;
+  let ending: Promise<void> | undefined;
+  /** Ends the thread once, never inside the native load. */
+  const end = (): Promise<void> => (ending ??= endWorker(worker, load, () => exited, loadWaitMs));
   const finish = (outcome: SweepOutcome): void => {
     if (settled) return;
     settled = true;
@@ -143,7 +232,7 @@ export function sweepInWorker(script: string | URL, job: SweepJob, timeoutMs: nu
   };
   const timer = setTimeout(() => {
     finish({ ok: false, reason: 'MAINTENANCE_WORKER_TIMEOUT', where: 'worker' });
-    void worker.terminate();
+    void end();
   }, timeoutMs);
   timer.unref();
   worker.on('message', (message: unknown) => {
@@ -151,16 +240,15 @@ export function sweepInWorker(script: string | URL, job: SweepJob, timeoutMs: nu
     else finish({ ok: false, reason: 'MAINTENANCE_WORKER_FAILED', where: 'worker' });
   });
   worker.on('error', () => finish({ ok: false, reason: 'MAINTENANCE_WORKER_FAILED', where: 'worker' }));
-  worker.on('exit', () => finish({ ok: false, reason: 'MAINTENANCE_WORKER_FAILED', where: 'worker' }));
+  worker.on('exit', () => {
+    exited = true;
+    finish({ ok: false, reason: 'MAINTENANCE_WORKER_FAILED', where: 'worker' });
+  });
   return {
     done,
     async stop() {
       finish({ ok: false, reason: 'MAINTENANCE_STOPPED', where: 'worker' });
-      try {
-        await worker.terminate();
-      } catch {
-        // already gone
-      }
+      await end();
     },
   };
 }
