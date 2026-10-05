@@ -254,15 +254,22 @@ export function openTelemetry(input: TelemetryInput): Telemetry {
   /** Writers whose file is closed but whose last write has not landed yet; their drops still count. */
   const draining = new Set<LineWriter>();
   let droppedByClosed = 0;
+  /** Day files being closed (a day change, or a stop) whose last lines are not on disk yet: `close()` waits for all of them. */
+  const closingDays = new Set<Promise<void>>();
 
-  /** Closes the day's file once its queued lines are written (never under a pending write). */
-  function closeDay(): Promise<void> {
+  /**
+   * Closes the day's file once its queued lines are written (never under a pending write). A stop
+   * writes what is still queued synchronously (a transient error waited out); a day change, which is
+   * on a request, passes `blocking: false` so the old day's last lines go through the asynchronous
+   * write and the request never waits on the disk.
+   */
+  function closeDay(blocking = true): Promise<void> {
     const handle = fd;
     const closing = writer;
     fd = undefined;
     writer = undefined;
     if (handle === undefined) return Promise.resolve();
-    return new Promise<void>((resolve) => {
+    const closed = new Promise<void>((resolve) => {
       const shut = (): void => {
         try {
           closeSync(handle);
@@ -278,9 +285,12 @@ export function openTelemetry(input: TelemetryInput): Telemetry {
       if (closing === undefined) shut();
       else {
         draining.add(closing);
-        closing.drainThen(shut);
+        closing.drainThen(shut, { blocking });
       }
     });
+    closingDays.add(closed);
+    void closed.then(() => closingDays.delete(closed));
+    return closed;
   }
   let diagnosticCache: { state: DiagnosticState; readAtMs: number } | undefined;
 
@@ -304,7 +314,7 @@ export function openTelemetry(input: TelemetryInput): Telemetry {
   function fileFor(ms: number): number | undefined {
     const date = utcDate(ms);
     if (fd !== undefined && date === fdDate) return fd;
-    if (fd !== undefined) closeDay();
+    if (fd !== undefined) closeDay(false);
     if (!dirOk) return undefined;
     const path = join(traceDir, `trace-${date}.jsonl`);
     try {
@@ -434,7 +444,9 @@ export function openTelemetry(input: TelemetryInput): Telemetry {
     opaqueId,
     dropped: () => droppedLines + droppedByClosed + [...draining].reduce((sum, w) => sum + w.dropped(), 0) + (writer?.dropped() ?? 0),
     close() {
-      return waitAtMost(TRACE_CLOSE_WAIT_MS, closeDay());
+      // The open day's file, and any earlier day's whose last write a day change left to the background.
+      const last = closeDay();
+      return waitAtMost(TRACE_CLOSE_WAIT_MS, Promise.all([last, ...closingDays]));
     },
   };
 }

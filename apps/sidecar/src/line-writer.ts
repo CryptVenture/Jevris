@@ -14,6 +14,10 @@
  * - `flushSync` writes what is queued at once, for shutdown; a chunk that is waiting out a failed
  *   write goes first. `drainThen` and `drained` wait for the write in flight, for a trace file that
  *   is being closed and for a stop that must not return before its lines are on disk.
+ * - A synchronous write (`flushSync`, and `drainThen` with nothing in flight) waits out the same
+ *   transient error, with the same tries and waits, so a stop that is awaited leaves no line behind.
+ *   Its wait blocks the caller, which only a shutdown or a flush may do: a caller on a request passes
+ *   `{ blocking: false }` to `drainThen` and the chunk goes through the asynchronous write instead.
  */
 import { appendFile, appendFileSync, rename, renameSync, statSync, unlink, unlinkSync, write, writeSync } from 'node:fs';
 
@@ -32,8 +36,11 @@ export interface LineWriter {
   /**
    * Writes what is queued, then runs `fn` once no write is in flight (at once, or when the one in
    * flight completes, retries included), so a file descriptor is never closed under a pending write.
+   * What is queued, with no write in flight, is written synchronously (a transient error waited out,
+   * at most 75 ms) unless `blocking` is false: then it goes through the asynchronous write, with its
+   * asynchronous retries, and `fn` runs when that is over. A caller on a request path passes false.
    */
-  drainThen(fn: () => void): void;
+  drainThen(fn: () => void, options?: { readonly blocking?: boolean }): void;
   /** `drainThen` as a promise: resolves once every line accepted so far is written or given up on. */
   drained(): Promise<void>;
 }
@@ -53,6 +60,27 @@ const codeOf = (error: unknown): string | undefined => (typeof error === 'object
 
 function sleepSync(ms: number): void {
   Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+}
+
+/**
+ * Runs `attempt`, one synchronous write, until it lands or is given up on: a transient error is
+ * waited out as the asynchronous write waits it out (the first try, then four more after 5, 10, 20
+ * and 40 ms: at most 75 ms in all), and any other error, or the last try's, gives up at once.
+ *
+ * The wait blocks the calling thread, so only a shutdown or a flush may call this: `flushSync` (the
+ * process is ending, no turn of the event loop is left to retry on) and the close of a file at a
+ * stop (`drainThen`, which `telemetry.close()` awaits). A request never reaches it.
+ */
+function writeSyncWithRetry(attempt: () => void): boolean {
+  for (let n = 0; ; n += 1) {
+    try {
+      attempt();
+      return true;
+    } catch (error) {
+      if (n + 1 >= APPEND_TRIES || !RETRIABLE.has(codeOf(error) ?? '')) return false;
+      sleepSync(backoffMs(n));
+    }
+  }
 }
 
 /**
@@ -179,8 +207,14 @@ function createWriter(target: Target, initialSize: number, options: { readonly m
     setImmediate(flush);
   };
 
-  const drainThen = (fn: () => void): void => {
+  const drainThen = (fn: () => void, options: { readonly blocking?: boolean } = {}): void => {
     if (!inFlight) {
+      if (options.blocking === false && queue.length > 0) {
+        // On a request path: start the asynchronous write now; `fn` runs when it is over, retries included.
+        waiters.push(fn);
+        flush();
+        return;
+      }
       flushNow();
       fn();
       return;
@@ -317,15 +351,7 @@ export function pathLineWriter(path: string, rotateBytes: number, options: { rea
         }
         // Shutdown only (the log is never flushed synchronously on a request): a transient error is
         // waited out here as the asynchronous append waits it out.
-        for (let n = 0; ; n += 1) {
-          try {
-            fs.appendFileSync(path, chunk, { mode: 0o600 });
-            return true;
-          } catch (error) {
-            if (n + 1 >= APPEND_TRIES || !RETRIABLE.has(codeOf(error) ?? '')) return false;
-            sleepSync(backoffMs(n));
-          }
-        }
+        return writeSyncWithRetry(() => fs.appendFileSync(path, chunk, { mode: 0o600 }));
       } catch {
         return false;
       }
@@ -357,9 +383,14 @@ export function fdLineWriter(fd: number, initialSize: number, options: { readonl
       fs.write(fd, chunk, done);
     },
     writeSync(chunk) {
+      // Shutdown and flush only (see `writeSyncWithRetry`): `flushSync`, and the close of the file at a
+      // stop. A day change closes the old file with `drainThen(fn, { blocking: false })`, which writes
+      // through the asynchronous path above, so no request waits here. A transient error is waited out
+      // exactly as the asynchronous write waits it out, or the stop returns with a line missing.
       try {
-        fs.writeSync(fd, chunk);
-        return true;
+        return writeSyncWithRetry(() => {
+          fs.writeSync(fd, chunk);
+        });
       } catch {
         return false;
       }
