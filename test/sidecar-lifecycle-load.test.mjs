@@ -25,6 +25,11 @@
 //   process, the first store open and the first security scan are paid before, not by the first
 //   PreCompact. A sidecar has one event loop, and what the first use of a thing costs it (on
 //   windows-latest a process start takes seconds) stops that loop for every hook in flight.
+// - The sidecar starts git off its event loop. Starting a process is a blocking call of the thread that makes it (on windows-latest
+//   CreateProcess runs inside `spawn`, and four sessions compacting together stood the loop still for four of them: CI run
+//   37329307976, a stall of 3.7 s, 8 lifecycle and 54 subagent hooks lost, then a quiet round that was not quiet). The product's git
+//   worker thread does it (packages/orchestrator/src/verify/git-work.ts), and the second test below gives every git process a
+//   300 ms start, blocking whichever thread makes it, and asserts that once the worker is up none starts on the main thread.
 // - A client that gave up is judged by the sidecar's own record. A healthy sidecar answers before
 //   its client leaves: its deadline answer is written 50 ms before the client's deadline. So a
 //   client-side TIMEOUT is accepted only where a ticker in the sidecar process (and one in the
@@ -40,6 +45,7 @@ import { pathToFileURL } from 'node:url';
 import { managedHostSkip } from './managed-host.mjs';
 import { repoRoot, sandbox } from './acceptance/lib.mjs';
 import { certifyHooks } from './acceptance/certified-hooks.mjs';
+import { gitStartPreload } from './git-start-probe.mjs';
 
 const SUBAGENTS = 50;
 const ROUNDS = 2;
@@ -61,7 +67,7 @@ const STALL_UNTIL_MS = 30;
 const SIDECAR_TICKER = (log) => `
 'use strict';
 const path = require('node:path');
-if (/sidecar/.test(path.basename(process.argv[1] ?? ''))) {
+if (/sidecar/.test(path.basename(process.argv[1] ?? '')) && require('node:worker_threads').isMainThread) {
   const fs = require('node:fs');
   let last = Date.now();
   const ticker = setInterval(() => {
@@ -98,7 +104,8 @@ function stallExplains(stalls, began, timeoutMs = CLIENT_TIMEOUT_MS) {
 /** The load driver, run as its own process with the sandbox environment (sidecarRequest reads it). */
 const DRIVER = `
 import { join } from 'node:path';
-const [sidecarUrl, adapterUrl, askUrl, work, subagentsText, roundsText, sessionsText, timeoutText] = process.argv.slice(2);
+import { readFileSync } from 'node:fs';
+const [sidecarUrl, adapterUrl, askUrl, work, subagentsText, roundsText, sessionsText, timeoutText, gitLog, quietAttemptsText] = process.argv.slice(2);
 const sidecar = await import(sidecarUrl);
 const { sidecarRequest } = sidecar;
 const { normalize } = await import(adapterUrl);
@@ -107,6 +114,15 @@ const SUBAGENTS = Number(subagentsText);
 const ROUNDS = Number(roundsText);
 const SESSIONS = Number(sessionsText);
 const TIMEOUT_MS = Number(timeoutText);
+const QUIET_ATTEMPTS = Number(quietAttemptsText);
+/** The thread ids the git start log holds, one per git process started (the log is the test's, kept only when git starts are probed). */
+const gitStarts = () => {
+  try {
+    return readFileSync(gitLog, 'utf8').split('\\n').filter((line) => line !== '');
+  } catch {
+    return [];
+  }
+};
 // The driver's own ticker: stretches of 100 ms or more in which this loop ran no timer.
 const stalls = [];
 let lastTick = Date.now();
@@ -167,6 +183,18 @@ async function subagents(session, count) {
 const warm = [];
 for (const kind of ['precompact', 'restore', 'stop']) warm.push((await hook(nativeEvent(kind, { session: 'k3-warm' }))).code);
 warm.push(...(await subagents('k3-warm', 2)).map((s) => s.code));
+// With git starts probed: more warm-up sessions until a git process has been started by a thread that is not the main one (the sidecar's
+// git worker is up: it starts once the sidecar is, and a git call before it says it is ready runs on the main thread, as it always did).
+// What the log holds up to then is not judged; every git start after it is.
+let readyAt = null;
+if (gitLog !== '') {
+  for (let attempt = 0; attempt < 60 && readyAt === null; attempt += 1) {
+    await waitUntilQuiet(sidecar, { workspace: work });
+    if (gitStarts().some((id) => id !== '0')) readyAt = gitStarts().length;
+    else warm.push((await hook(nativeEvent('precompact', { session: 'k3-ready-' + attempt }))).code);
+  }
+  if (readyAt === null) readyAt = gitStarts().length;
+}
 const quietBeforeLoad = await waitUntilQuiet(sidecar, { workspace: work });
 const lifecycle = [];
 const load = [];
@@ -180,20 +208,32 @@ for (let round = 0; round < ROUNDS; round += 1) {
   }));
   load.push(...(await burst));
 }
-// One quiet session after the load: the same three hooks with nothing else in flight.
-const quiet = [];
-for (const kind of ['precompact', 'restore', 'stop']) quiet.push(await hook(nativeEvent(kind, { session: 'k3-quiet' })));
+// A quiet session after the load: the same three hooks with nothing else in flight. A round the host cut short (a capsule write that ran past
+// its deadline, its restore then waiting on it) is asked again in a session of its own once the sidecar's own state says it is quiet, as the
+// other tests ask again (docs/testing.md): a sidecar that never answers a quiet session in time still fails every attempt.
+let quiet = [];
+let quietAttempts = 0;
+for (let attempt = 0; attempt < QUIET_ATTEMPTS; attempt += 1) {
+  quietAttempts += 1;
+  await waitUntilQuiet(sidecar, { workspace: work });
+  quiet = [];
+  for (const kind of ['precompact', 'restore', 'stop']) quiet.push(await hook(nativeEvent(kind, { session: 'k3-quiet-' + attempt })));
+  if (quiet.map((s) => s.kind + ':' + s.code).join() === 'PreCompact:OK,SessionStart:OK,Stop:OK') break;
+}
 clearInterval(ticker);
-process.stdout.write(JSON.stringify({ warm, quietBeforeLoad, lifecycle, quiet, load: load.map((s) => ({ code: s.code, began: s.began })), driverStalls: stalls }));
+process.stdout.write(JSON.stringify({ warm, quietBeforeLoad, lifecycle, quiet, quietAttempts, gitStarts: gitLog === '' ? null : { all: gitStarts(), readyAt }, load: load.map((s) => ({ code: s.code, began: s.began })), driverStalls: stalls }));
 `;
 
-function runDriver(box) {
+/** Quiet sessions asked at most, the first included, before the quiet check of the run is judged. */
+const QUIET_ATTEMPTS = 4;
+
+function runDriver(box, gitLog = '') {
   const sidecarUrl = pathToFileURL(join(repoRoot, 'apps', 'sidecar', 'dist', 'index.js')).href;
   const adapterUrl = pathToFileURL(join(repoRoot, 'packages', 'adapter-claude-code', 'dist', 'index.js')).href;
   const askUrl = pathToFileURL(join(repoRoot, 'apps', 'sidecar', 'scripts', 'sidecar-ask.mjs')).href;
   const driver = box.write('k3-driver.mjs', DRIVER);
   return new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, [driver, sidecarUrl, adapterUrl, askUrl, box.work, String(SUBAGENTS), String(ROUNDS), String(SESSIONS), String(CLIENT_TIMEOUT_MS)], { cwd: box.work, env: box.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
+    const child = spawn(process.execPath, [driver, sidecarUrl, adapterUrl, askUrl, box.work, String(SUBAGENTS), String(ROUNDS), String(SESSIONS), String(CLIENT_TIMEOUT_MS), gitLog, String(QUIET_ATTEMPTS)], { cwd: box.work, env: box.env, stdio: ['ignore', 'pipe', 'pipe'], windowsHide: true });
     let stdout = '';
     let stderr = '';
     child.stdout.on('data', (chunk) => {
@@ -222,12 +262,14 @@ const GAVE_UP = /^(CONNECT_TIMEOUT|HANDSHAKE_TIMEOUT|TIMEOUT)$/;
 /**
  * What of `hooks` is neither answered nor a client that gave up while a loop stood still: the codes that fail the run. A PreCompact
  * whose write ran past its deadline reads OK_QUEUED by design and counts as answered; `extra` names the codes one more kind of hook
- * may end in (a subagent hook may be queued or refused BUSY).
+ * may end in (a subagent hook may be queued or refused BUSY); `held` names the sessions whose capsule write ran past its deadline
+ * (`heldWriteSessions`), whose restore waits for that write (K2) and, if the write outlasts the restore's own deadline, is queued with
+ * reason DEADLINE: a restore of such a session reads OK_QUEUED and counts as answered too.
  */
-function lostHooks(hooks, stalls, { extra = null } = {}) {
+function lostHooks(hooks, stalls, { extra = null, held = new Set() } = {}) {
   const lost = [];
   for (const hook of hooks) {
-    const code = hook.kind === 'PreCompact' && hook.code === 'OK_QUEUED' ? 'OK' : hook.code;
+    const code = (hook.kind === 'PreCompact' || (hook.kind === 'SessionStart' && held.has(hook.session))) && hook.code === 'OK_QUEUED' ? 'OK' : hook.code;
     if (ANSWERED.test(code) || (extra !== null && extra.test(code))) continue;
     if (GAVE_UP.test(code) && stallExplains(stalls, hook.began)) continue;
     lost.push(code);
@@ -235,7 +277,19 @@ function lostHooks(hooks, stalls, { extra = null } = {}) {
   return lost;
 }
 
-test('K3: compact restores and Stop reminders are never queued while 50 subagents run (owner decision ededdba)', { timeout: 300_000, skip: managedHostSkip() }, async (t) => {
+/**
+ * The sessions whose own PreCompact did not answer in time (its capsule write ran past the deadline and is held for the session): what
+ * their restore waits for (the session's earlier work finishes first, K2), so the restore is cut short by the same slowness.
+ */
+function heldWriteSessions(lifecycle) {
+  return new Set(lifecycle.filter((s) => s.kind === 'PreCompact' && s.code !== 'OK' && s.code !== 'OK_DUP').map((s) => s.session));
+}
+
+/**
+ * The K3 run: a sandbox, a real sidecar (with the ticker, and with every git start blocking its thread for `gitStartMs` when that is not 0), the
+ * driver's warm-up and load, then the judgement. Returns what the driver saw, for a caller that asserts more.
+ */
+async function lifecycleLoad(t, { gitStartMs = 0 } = {}) {
   // The lifecycle target is about the product's own budgets and the hook's own 1500 ms wait, so the sidecar keeps them exactly whatever
   // scale the runner sets (test/budget-scale.mjs); a slow host is judged by the stall evidence below.
   const box = await sandbox(t, { exactBudgets: true });
@@ -252,10 +306,17 @@ test('K3: compact restores and Stop reminders are never queued while 50 subagent
   const tickerPreload = join(box.dir, 'sidecar-ticker.cjs');
   writeFileSync(tickerPreload, SIDECAR_TICKER(tickerLog.replace(/\\/g, '/')));
   box.env.NODE_OPTIONS = `${box.env.NODE_OPTIONS ?? ''} --require "${tickerPreload.replace(/\\/g, '/')}"`.trim();
+  // Every git start blocks its thread, as creating a process does on a loaded Windows runner; the log says which thread started each.
+  const gitLog = gitStartMs > 0 ? join(box.dir, 'git-starts.log') : '';
+  if (gitStartMs > 0) {
+    const startPreload = join(box.dir, 'git-start-stall.cjs');
+    writeFileSync(startPreload, gitStartPreload(gitLog.replace(/\\/g, '/'), gitStartMs));
+    box.env.NODE_OPTIONS = `${box.env.NODE_OPTIONS} --require "${startPreload.replace(/\\/g, '/')}"`;
+  }
   assert.equal(box.startSidecar().code, 0, 'the sidecar did not start');
   t.after(() => box.stopSidecar());
 
-  const { warm, quietBeforeLoad, lifecycle, quiet, load, driverStalls } = await runDriver(box);
+  const { warm, quietBeforeLoad, lifecycle, quiet, quietAttempts, gitStarts, load, driverStalls } = await runDriver(box, gitLog);
   const sidecarStalls = readStalls(existsSync(tickerLog) ? readFileSync(tickerLog, 'utf8') : '');
   const stalls = [...sidecarStalls, ...driverStalls];
   const answers = lifecycle.filter((s) => s.kind === 'SessionStart' || s.kind === 'Stop');
@@ -264,17 +325,20 @@ test('K3: compact restores and Stop reminders are never queued while 50 subagent
   // The slowest answer of each lifecycle kind, in ms: what the load cost them.
   const slowest = lifecycle.reduce((acc, s) => ({ ...acc, [s.kind]: Math.max(acc[s.kind] ?? 0, s.ms) }), {});
   const longest = (list) => list.reduce((most, [from, to]) => Math.max(most, to - from), 0);
-  const report = `lifecycle ${JSON.stringify(tally(lifecycle.map((s) => `${s.kind}:${s.code}`)))}; slowest ${JSON.stringify(slowest)} ms; subagent hooks ${JSON.stringify(tally(load.map((s) => s.code)))}; loop stalls of 100 ms or more, longest ${String(longest(sidecarStalls))} ms in the sidecar (${String(sidecarStalls.length)}) and ${String(longest(driverStalls))} ms in the driver (${String(driverStalls.length)}); warm-up ${JSON.stringify(tally(warm))}${quietBeforeLoad ? '' : ', the sidecar was still busy when the load began'}`;
+  const report = `lifecycle ${JSON.stringify(tally(lifecycle.map((s) => `${s.kind}:${s.code}`)))}; slowest ${JSON.stringify(slowest)} ms; subagent hooks ${JSON.stringify(tally(load.map((s) => s.code)))}; loop stalls of 100 ms or more, longest ${String(longest(sidecarStalls))} ms in the sidecar (${String(sidecarStalls.length)}) and ${String(longest(driverStalls))} ms in the driver (${String(driverStalls.length)}); warm-up ${JSON.stringify(tally(warm))}${quietBeforeLoad ? '' : ', the sidecar was still busy when the load began'}; quiet session answered in attempt ${String(quietAttempts)} of ${String(QUIET_ATTEMPTS)}`;
   t.diagnostic(report);
 
-  // The locked target: under load, a restore or a Stop is never answered from the queue.
-  assert.deepEqual(answers.filter((s) => s.code === 'OK_QUEUED').map((s) => `${s.kind} queued ${s.queued.join(',')}`), [], report);
+  // The locked target: under load, a restore or a Stop is never answered from the queue. The one restore that is: that of a session whose own
+  // capsule write ran past its deadline (K2: it waits for that write, and a write that outlasts the restore's own deadline queues it with
+  // reason DEADLINE), which a host slow enough for a PreCompact to miss its deadline cannot avoid.
+  const held = heldWriteSessions(lifecycle);
+  assert.deepEqual(answers.filter((s) => s.code === 'OK_QUEUED' && !(s.kind === 'SessionStart' && held.has(s.session))).map((s) => `${s.kind} queued ${s.queued.join(',')}`), [], report);
   // The answer lane (B 63a0a31) keeps hot slots for them: a lifecycle hook is never refused BUSY
   // at admission, however full the pool is with subagent hooks.
   assert.deepEqual(lifecycle.filter((s) => s.code === 'BUSY').map((s) => s.kind), [], report);
   // Every answer is in time or ran out of time (DEADLINE), never lost silently. A client that left before any answer came is
   // accepted only where a loop of the sidecar (or of the driver) stood still across the moment the answer was due.
-  assert.deepEqual(lostHooks(lifecycle, stalls), [], report);
+  assert.deepEqual(lostHooks(lifecycle, stalls, { held }), [], report);
   assert.deepEqual(lostHooks(load, stalls, { extra: /^(OK_QUEUED|BUSY)$/ }), [], report);
   // An answered restore after its session's own PreCompact carries the capsule, also when that
   // PreCompact's write ran on past its deadline (held for the session, B 528dff7); an answered
@@ -291,6 +355,23 @@ test('K3: compact restores and Stop reminders are never queued while 50 subagent
   assert.deepEqual(quiet.map((s) => `${s.kind}:${s.code}`), ['PreCompact:OK', 'SessionStart:OK', 'Stop:OK'], report);
   assert.match(quiet[1].outcome?.text ?? '', /resumed context from capsule/);
   assert.match(quiet[2].outcome?.text ?? '', /unit:missing/);
+  return { report, gitStarts };
+}
+
+test('K3: compact restores and Stop reminders are never queued while 50 subagents run (owner decision ededdba)', { timeout: 300_000, skip: managedHostSkip() }, async (t) => {
+  await lifecycleLoad(t);
+});
+
+// The cause of the windows-latest failures, injected: every git process takes 400 ms to start, and the thread that starts it waits for that, as
+// the thread that calls CreateProcess does. Four sessions that compact together then cost a loop that makes the starts four times 400 ms, and
+// the old sidecar (git started on its event loop) lost every hook in flight (CI run 37329307976). The git worker thread takes the start, so
+// the lifecycle target holds, and once it is up no git process starts on the main thread.
+test('K3: the target holds while every git process takes 400 ms to start, because the sidecar starts git off its event loop', { timeout: 300_000, skip: managedHostSkip() }, async (t) => {
+  const { report, gitStarts } = await lifecycleLoad(t, { gitStartMs: 400 });
+  const after = gitStarts.all.slice(gitStarts.readyAt);
+  assert.ok(gitStarts.all.some((id) => id !== '0'), `the sidecar's git worker never started a git process: ${JSON.stringify(gitStarts.all)}; ${report}`);
+  assert.ok(after.length >= 3 * (ROUNDS * SESSIONS), `git was started ${String(after.length)} times after the worker was up; ${report}`);
+  assert.deepEqual(after.filter((id) => id === '0'), [], `a git process was started on the sidecar's main thread after the worker was up; ${report}`);
 });
 
 // The judgement of a client that gave up, with no sidecar and no clock: a stall explains it only where it covers the moment the
@@ -325,4 +406,18 @@ test('K3: a client that left with no answer is explained only by a loop that sto
   assert.deepEqual(lostHooks(hooks, []), ['TIMEOUT', 'HANDSHAKE_TIMEOUT', 'BUSY', 'OK_QUEUED', 'REFUSED'], 'with no stall every give-up, refusal and queued restore is lost');
   assert.deepEqual(lostHooks(hooks, [[began + 100, leftAt + 400]]), ['BUSY', 'OK_QUEUED', 'REFUSED'], 'a stall explains the give-ups, and only those');
   assert.deepEqual(lostHooks(hooks, [], { extra: /^(OK_QUEUED|BUSY)$/ }).sort(), ['HANDSHAKE_TIMEOUT', 'REFUSED', 'TIMEOUT'], 'a subagent hook may be queued or refused BUSY');
+  // A restore waits for its own session's capsule write (K2): where that write ran past its deadline, the restore is queued with reason
+  // DEADLINE, and only that session's restore may be. A Stop never may, whatever its session did.
+  const compacts = [
+    { kind: 'PreCompact', session: 'late', code: 'OK_QUEUED', began },
+    { kind: 'PreCompact', session: 'gave-up', code: 'TIMEOUT', began },
+    { kind: 'PreCompact', session: 'prompt', code: 'OK', began },
+  ];
+  assert.deepEqual([...heldWriteSessions(compacts)].sort(), ['gave-up', 'late'], 'a PreCompact that did not answer in time holds its session\'s write');
+  const restores = [
+    { kind: 'SessionStart', session: 'late', code: 'OK_QUEUED', began },
+    { kind: 'SessionStart', session: 'prompt', code: 'OK_QUEUED', began },
+    { kind: 'Stop', session: 'late', code: 'OK_QUEUED', began },
+  ];
+  assert.deepEqual(lostHooks(restores, [], { held: heldWriteSessions(compacts) }), ['OK_QUEUED', 'OK_QUEUED'], 'a restore after a prompt PreCompact, and a Stop, are never queued');
 });

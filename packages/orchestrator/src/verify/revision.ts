@@ -6,12 +6,12 @@
  * outside a check's inputs leaves its receipt current, and an edit inside invalidates it.
  * Unknown dependency relationships (no declared scope) fall back to the whole tree.
  */
-import { spawn, type ChildProcess } from 'node:child_process';
 import { readdir, stat } from 'node:fs/promises';
 import { join, relative } from 'node:path';
-import { resolveExecutable } from '@jevris/platform';
 import { sha256, stableJson } from '../util.js';
 import { hashFilesAsync, snapshotBudget, type HashBudget } from './file-hash.js';
+import { findGit, gitEnv, runGitProcess, type GitRequest, type GitResult } from './git-process.js';
+import { runGitOffLoop } from './git-work.js';
 
 export const LOCKFILES = [
   'package-lock.json',
@@ -34,99 +34,34 @@ export const LOCKFILES = [
 const MAX_FILES = 20_000;
 const SKIP_DIRS = new Set(['.git', 'node_modules', '.jevris', 'dist', 'target', '.venv', '__pycache__', '.next', 'build']); // path-hygiene: allow workspace-relative directory names
 
-export interface GitResult {
-  readonly ok: boolean;
-  readonly stdout: string;
-  /** git's own message, when the port captured it (for reporting a git failure). */
-  readonly stderr?: string;
-}
+export type { GitResult } from './git-process.js';
 
 /**
  * How the orchestrator runs git. Asynchronous: a git process never holds the sidecar's event
  * loop, so a slow repository cannot stall other requests or a subscriber's slice timer (A's
- * triage, 2026-09-27).
+ * triage, 2026-09-27). The sidecar goes further and makes the process off its loop thread as well
+ * (`git-work.ts`): starting a process blocks the thread that starts it.
  */
 export interface GitPort {
   run(args: readonly string[], cwd: string): Promise<GitResult>;
 }
 
-function gitEnv(): { readonly [key: string]: string | undefined } {
-  const keep = ['PATH', 'Path', 'PATHEXT', 'SystemRoot', 'HOME', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA', 'TEMP', 'TMP', 'LANG'];
-  const env: { [key: string]: string | undefined } = { GIT_TERMINAL_PROMPT: '0', GIT_OPTIONAL_LOCKS: '0' };
-  for (const key of keep) if (process.env[key] !== undefined) env[key] = process.env[key];
-  return env;
-}
-
-/** The most git output kept; more fails the call (as spawnSync's maxBuffer did). */
-const GIT_MAX_BUFFER = 256 * 1024 * 1024;
-/** The most of git's own message kept. */
-const ERR_KEEP = 1024 * 1024;
-
-function decode(chunks: readonly Uint8Array[], total: number): string {
-  const bytes = new Uint8Array(total);
-  let at = 0;
-  for (const chunk of chunks) {
-    if (at + chunk.length > total) break;
-    bytes.set(chunk, at);
-    at += chunk.length;
-  }
-  return new TextDecoder().decode(bytes.subarray(0, at));
-}
-
 /**
  * git without a shell, off the event loop: the call resolves when git exits, and a call past
- * `timeoutMs` kills git and resolves not ok. It never rejects.
+ * `timeoutMs` kills git and resolves not ok. It never rejects. In the sidecar the process is
+ * started by the git worker thread (`runGitOffLoop`); everywhere else, and whenever the worker is
+ * not up, in this thread.
  */
 export function nodeGit(timeoutMs = 30_000, extraEnv: { readonly [key: string]: string } = {}, program?: { readonly command: string; readonly prefixArgs?: readonly string[] }): GitPort {
   // `program` is a test seam: a stand-in git (for example node running a script), never set in product code.
-  const resolved = program?.command ?? resolveExecutable('git') ?? 'git';
-  const prefix = program?.prefixArgs ?? [];
+  const command = program?.command ?? null;
+  const prefixArgs = program?.prefixArgs ?? [];
   return {
-    run(args, cwd) {
-      return new Promise<GitResult>((resolve) => {
-        let child: ChildProcess;
-        try {
-          child = spawn(resolved, [...prefix, '-c', 'core.quotepath=off', ...args], { shell: false, windowsHide: true, cwd, env: { ...gitEnv(), ...extraEnv }, stdio: ['ignore', 'pipe', 'pipe'] });
-        } catch {
-          resolve({ ok: false, stdout: '', stderr: '' });
-          return;
-        }
-        const out: Uint8Array[] = [];
-        const err: Uint8Array[] = [];
-        let outBytes = 0;
-        let errBytes = 0;
-        let failed = false;
-        let settled = false;
-        const finish = (ok: boolean) => {
-          if (settled) return;
-          settled = true;
-          clearTimeout(timer);
-          resolve({ ok: ok && !failed, stdout: decode(out, outBytes), stderr: decode(err, Math.min(errBytes, ERR_KEEP)) });
-        };
-        const stop = () => {
-          failed = true;
-          try {
-            child.kill('SIGKILL');
-          } catch {
-            // already gone
-          }
-        };
-        const timer = setTimeout(() => {
-          stop();
-          finish(false);
-        }, timeoutMs);
-        child.stdout?.on('data', (chunk: Uint8Array) => {
-          outBytes += chunk.length;
-          if (outBytes > GIT_MAX_BUFFER) stop();
-          else out.push(chunk);
-        });
-        child.stderr?.on('data', (chunk: Uint8Array) => {
-          if (errBytes + chunk.length <= ERR_KEEP) err.push(chunk);
-          errBytes += chunk.length;
-        });
-        child.on('error', () => finish(false));
-        child.on('close', (code) => finish(code === 0));
-      });
+    async run(args, cwd) {
+      const request: GitRequest = { command, prefixArgs, args, cwd, env: { ...gitEnv(), ...extraEnv }, timeoutMs };
+      const found = command ?? findGit(request.env);
+      const offLoop = await runGitOffLoop(request, found);
+      return offLoop ?? runGitProcess(request, found);
     },
   };
 }

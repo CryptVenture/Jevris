@@ -272,7 +272,7 @@ declare module 'node:worker_threads' {
   }
   export const parentPort: MessagePort | null;
   export class Worker {
-    constructor(filename: string | URL, options?: { readonly workerData?: unknown });
+    constructor(filename: string | URL, options?: { readonly workerData?: unknown; readonly eval?: boolean });
     on(event: 'message', listener: (value: unknown) => void): this;
     on(event: 'error', listener: (error: unknown) => void): this;
     on(event: 'exit', listener: (code: number) => void): this;

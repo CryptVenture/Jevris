@@ -1,4 +1,4 @@
-import { isOutputWorker, recordLaunchUmask, runOutputWorker, setOutputWorkerScript } from '@jevris/orchestrator';
+import { enableGitWorkers, isOutputWorker, recordLaunchUmask, runOutputWorker, setOutputWorkerScript, warmGitWorkers } from '@jevris/orchestrator';
 import { runSidecarMain } from './daemon.js';
 import { isMaintenanceWorker, runMaintenanceWorker } from './maintenance.js';
 
@@ -7,6 +7,9 @@ import { isMaintenanceWorker, runMaintenanceWorker } from './maintenance.js';
  *   node sidecar.mjs [--home <dir>] [--idle-ms <n>] [--supervised]
  * Files it creates start owner-only on POSIX (umask 077).
  */
+
+/** How long after it starts the sidecar starts its git worker threads. */
+export const GIT_WORKER_WARM_DELAY_MS = 300;
 
 export interface MainArgs {
   readonly home?: string;
@@ -79,6 +82,11 @@ if (isMaintenanceWorker()) {
   runOutputWorker();
 } else if (invokedDirectly()) {
   setOutputWorkerScript(new URL(import.meta.url));
+  // git starts its processes from worker threads, so creating one (a blocking call, seconds on a loaded Windows runner) never stands
+  // the event loop still. The pool starts once the sidecar is up, so it does not compete with it for the CPU; a git call before a
+  // worker is ready runs on the main thread, as it always did.
+  enableGitWorkers(true);
+  setTimeout(warmGitWorkers, GIT_WORKER_WARM_DELAY_MS).unref();
   const code = await sidecarMain(process.argv.slice(2));
   process.exit(code);
 }
