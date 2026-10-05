@@ -55,7 +55,8 @@ test('SR-19: configure set of a value above the effective one needs confirmed (a
   // Owner decision 2026-09-29: the Jev decision budget is a spend key whose raise needs a person too.
   // Owner decision 2026-09-30: so is turning on background verification at Stop, and turning first-try routing back on.
   // Owner decision 2026-10-01: so is turning Jev assist back on.
-  assert.deepEqual([...AUTHORITY_KEYS].sort(), ['decisions.monthlyBudgetMicroUsd', 'jev.assist', 'mode', 'routing.firstTry', 'routing.mainSession', 'routing.managedWorkers', 'verification.backgroundAtStop']);
+  // JEV-0050: so is raising privacy.sourceEgress, your own half of the consent for what may leave the machine.
+  assert.deepEqual([...AUTHORITY_KEYS].sort(), ['decisions.monthlyBudgetMicroUsd', 'jev.assist', 'mode', 'privacy.sourceEgress', 'routing.firstTry', 'routing.mainSession', 'routing.managedWorkers', 'verification.backgroundAtStop']);
   const h = home({ ...DEFAULT_CONFIG, mode: 'advise' });
   await migrateModeDefault({ home: h.home });
   assert.equal(raisesAuthority({ home: h.home }, 'mode', 'bounded-auto'), true);
