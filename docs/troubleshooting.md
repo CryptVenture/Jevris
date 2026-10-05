@@ -67,6 +67,8 @@ sidecar: not-running (degraded); kill switch clear. The Jevris sidecar's last ru
 
 With `--json`, the same facts are in the `sidecar` object: `state`, `degraded`, `pid`, `version`, `uptimeMs`, `endpoint`, `store`, `killSwitch` and `message`.
 
+A last run that "ended without cleaning up" means the sidecar's process is gone but its endpoint file was left in the run folder: it crashed, was killed, or died during a stop. The next hook or command starts a sidecar and replaces the file. The sidecar's own stop does not leave one: it closes its socket, waits for a verification run that began after the stop was accepted, closes its state (this ends the store's maintenance worker, and a worker that is still loading the SQLite addon is waited for first, at most 5 s, because ending a thread inside that load aborts the whole process), and only then removes its endpoint, pid, locality and key files and its socket, and releases its lock. If it keeps happening, read `sidecar.log` in the logs folder of the Jevris home: a `stopping` line with no `stopped` line after it means the process ended during the stop. On macOS a `node` crash report from the same second in `~/Library/Logs/DiagnosticReports`, with `Error::New napi_get_last_error_info` and a `WorkerThread` loading `darwin-arm64.node`, is that worker being ended inside the addon's load (a sidecar stopped within about a second of its start, on a loaded host, was the one way this happened; the stop now waits for the load).
+
 Doctor reads the machine's access-limit record directly, without a sidecar, and prints what is paused in the words of `jevris route limits`:
 
 ```text
