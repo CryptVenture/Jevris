@@ -27,11 +27,42 @@
 
 export const BUDGET_SCALE_VARIABLE = 'JEVRIS_TEST_BUDGET_SCALE';
 
+/** The variable that sets the CLI's sidecar autostart wait under a test run (`sidecarWaitMs` in apps/sidecar/src/client.ts). */
+export const SIDECAR_WAIT_VARIABLE = 'JEVRIS_SIDECAR_WAIT_MS';
+
+/** The most the product honors for it, and the wait a test gives when the runner's own is not set (`SIDECAR_TEST_WAIT_MAX_MS`). */
+export const SIDECAR_START_WAIT_MS = 60_000;
+
 /**
  * The product's op budgets and connection timers, pinned: what a deadline test gives an in-process
  * daemon as `limits` (`{ maxConnections: 2, ...EXACT_BUDGET_LIMITS }` to set others as well).
  */
 export const EXACT_BUDGET_LIMITS = Object.freeze({ budgetMs: Object.freeze({ hot: 900, background: 5000 }), answerBudgetMs: 4000, helloMs: 2000, frameMs: 2000 });
+
+/**
+ * The slow-host settings the runner gives every test process (`testEnvironment` in scripts/test.mjs), for a child whose
+ * environment a test builds by hand: `{ PATH, HOME, ..., ...slowHostSettings() }`. A hand-built environment has none of
+ * them, and the product then runs on its own defaults: a spawned CLI waits 5 s for a sidecar to start and answers "starting;
+ * this call ran rules-only" (exit 1) when a loaded host takes longer (windows-latest, CI run 37293344243), and a request it
+ * names no timeout for waits 5 s, not the scaled wait. The variables act only with JEVRIS_TEST=1, which is why that is set;
+ * JEVRIS_SIDECAR_WAIT_MS alone does nothing. The runner's own wait (at most 60 s) and scale pass through, so a run with
+ * JEVRIS_TEST_BUDGET_SCALE=1 or 12 gives the child the same. A child whose subject is a deadline wraps the result in
+ * `exactBudgets(...)`. A child whose environment is `{ ...process.env, ... }` already has all of this.
+ */
+export function slowHostSettings(env = process.env) {
+  const own = env[SIDECAR_WAIT_VARIABLE];
+  const scale = env[BUDGET_SCALE_VARIABLE];
+  return {
+    JEVRIS_TEST: '1',
+    [SIDECAR_WAIT_VARIABLE]: typeof own === 'string' && /^\d{1,9}$/.test(own) ? own : String(SIDECAR_START_WAIT_MS),
+    ...(typeof scale === 'string' && scale !== '' ? { [BUDGET_SCALE_VARIABLE]: scale } : {}),
+  };
+}
+
+/** How long a spawned CLI may wait for a sidecar to start with `settings` (`slowHostSettings()`): the product's clamp of the setting. */
+export function startWaitMs(settings = slowHostSettings()) {
+  return Math.min(SIDECAR_START_WAIT_MS, Number(settings[SIDECAR_WAIT_VARIABLE]));
+}
 
 /** A copy of `env` with no budget scale, for a child that must run on the product's exact budgets. */
 export function exactBudgets(env = process.env) {

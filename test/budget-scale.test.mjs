@@ -7,7 +7,9 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { DEFAULT_WINDOWS_CI_BUDGET_SCALE, budgetScaleFor, testEnvironment } from '../scripts/test.mjs';
-import { BUDGET_SCALE_VARIABLE, EXACT_BUDGET_LIMITS, budgetScaleOf, exactBudgets, withExactBudgets } from './budget-scale.mjs';
+import { BUDGET_SCALE_VARIABLE, EXACT_BUDGET_LIMITS, SIDECAR_WAIT_VARIABLE, budgetScaleOf, exactBudgets, slowHostSettings, startWaitMs, withExactBudgets } from './budget-scale.mjs';
+
+const { defaultRequestTimeoutMs, sidecarWaitMs } = await import('@jevris/sidecar');
 
 const root = join(fileURLToPath(new URL('.', import.meta.url)), '..');
 const text = (...parts) => readFileSync(join(root, ...parts), 'utf8');
@@ -86,4 +88,30 @@ test('withExactBudgets takes the scale out of this process for the call, and put
     if (before === undefined) delete process.env[BUDGET_SCALE_VARIABLE];
     else process.env[BUDGET_SCALE_VARIABLE] = before;
   }
+});
+
+test('slowHostSettings gives a child whose environment a test builds by hand the runner\'s own: the test marker, the start wait and the scale, and nothing else of this process', () => {
+  assert.deepEqual(slowHostSettings({}), { JEVRIS_TEST: '1', [SIDECAR_WAIT_VARIABLE]: '60000' }, 'no runner: the 60 s wait, no scale');
+  assert.deepEqual(
+    slowHostSettings({ [SIDECAR_WAIT_VARIABLE]: '45000', [BUDGET_SCALE_VARIABLE]: '6', PATH: '/bin', HOME: '/h', JEVRIS_HOME: '/h' }),
+    { JEVRIS_TEST: '1', [SIDECAR_WAIT_VARIABLE]: '45000', [BUDGET_SCALE_VARIABLE]: '6' },
+    'the runner\'s wait and scale pass through; no other variable does',
+  );
+  assert.deepEqual(slowHostSettings({ [SIDECAR_WAIT_VARIABLE]: 'soon', [BUDGET_SCALE_VARIABLE]: '' }), { JEVRIS_TEST: '1', [SIDECAR_WAIT_VARIABLE]: '60000' }, 'a malformed wait and an empty scale are no value');
+  assert.deepEqual(slowHostSettings(), slowHostSettings(process.env), 'it reads this process by default');
+});
+
+test('what slowHostSettings gives is what the product honors: a 60 s sidecar start wait and the scaled request wait, where the same child with nothing, or with the wait variable alone, gets the product\'s 5 s', () => {
+  const settings = slowHostSettings({ [BUDGET_SCALE_VARIABLE]: '6' });
+  assert.equal(sidecarWaitMs(5000, {}), 5000, 'a bare environment: the product\'s own wait');
+  assert.equal(sidecarWaitMs(5000, { [SIDECAR_WAIT_VARIABLE]: '60000' }), 5000, 'the wait variable alone does nothing: the product reads it only under JEVRIS_TEST=1');
+  assert.equal(sidecarWaitMs(5000, settings), 60_000);
+  assert.equal(defaultRequestTimeoutMs('cli', {}), 5000);
+  assert.equal(defaultRequestTimeoutMs('cli', settings), 30_000, 'a `sidecar status` request waits 5 s times the scale');
+  assert.equal(defaultRequestTimeoutMs('cli', exactBudgets(settings)), 5000, 'a deadline test pins it');
+  for (const wait of ['2000', '45000', '60000', '999999999']) {
+    const own = slowHostSettings({ [SIDECAR_WAIT_VARIABLE]: wait });
+    assert.equal(startWaitMs(own), sidecarWaitMs(5000, own), `startWaitMs mirrors the product's wait for ${wait}`);
+  }
+  assert.equal(startWaitMs(), startWaitMs(slowHostSettings()));
 });

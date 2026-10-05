@@ -8,7 +8,7 @@ import { testFiles } from './test-hygiene.lint.mjs';
 /**
  * Slow CI servers. The owner's rule (2026-09-30): a test must pass on a slow, loaded runner.
  * The Windows cells of the CI matrix run the whole suite in 25 to 40 minutes, start a process in
- * seconds and answer a git call in seconds. Four patterns failed there, or nearly did, because a
+ * seconds and answer a git call in seconds. Five patterns failed there, or nearly did, because a
  * test assumed a fast machine; each is a finding here.
  *
  *   poll-bound   A fixed-count polling loop whose total wait (count x sleep) is under 10 s:
@@ -23,10 +23,20 @@ import { testFiles } from './test-hygiene.lint.mjs';
  *                (windows-latest DEADLINE in approved-scope INT-05 and security-subscriber GOV-12).
  *   exact-time   An assertion that names a step's exact run time, such as "(0s)" (verify:fresh
  *                printed "(1s)" on a slow runner).
+ *   bare-env     A test that starts a real sidecar from a child process whose environment it builds
+ *                by hand (`{ PATH, HOME, USERPROFILE, JEVRIS_SIDECAR_ENTRY }`), with no slow-host
+ *                setting. A hand-built environment has none of the runner's (JEVRIS_TEST,
+ *                JEVRIS_SIDECAR_WAIT_MS, the budget scale), so the spawned CLI waits the product's 5 s
+ *                for the start and answers "The Jevris sidecar is starting; this call ran
+ *                rules-only." (windows-latest, CI run 37293344243, runtime-commands.test.mjs).
+ *                JEVRIS_SIDECAR_WAIT_MS alone is not enough: the product reads it only under
+ *                JEVRIS_TEST=1. It is a net, not a proof: it reads one file's text and looks for an
+ *                object literal with no spread, so an environment built any other way is not seen.
  *
  * How to fix: raise the bound to a generous one (30 s or more; the loop or the wait ends as
  * soon as the condition holds, so a fast machine pays nothing), wait for the condition instead
- * of sleeping, or compare without the time text. A real-time bound that IS the behaviour under
+ * of sleeping, or compare without the time text. For a hand-built child environment, spread
+ * `slowHostSettings()` (test/budget-scale.mjs) into it, or pass `--wait-ms 60000`. A real-time bound that IS the behaviour under
  * test is driven by an injected clock or a deliberately stalled fake, not by a tight real
  * deadline. Asserting an elapsed-time window under 2 s is QA-05 (wall-clock.lint.mjs).
  *
@@ -54,6 +64,22 @@ const EXACT_TIME = /\(\d+s\)/;
 const STARTS_DAEMON = /\bstartDaemon\(|\bwithDaemon\(/;
 const HOT_REQUEST = /scope: 'hook'|budget: 'hot'/;
 const RAISED_BUDGET = /budgetMs:\s*\{\s*hot:\s*([\d_]+)/g;
+const CHILD_PROCESS = /from ['"]node:child_process['"]/;
+const STARTS_SIDECAR = /['"]sidecar['"],\s*['"](?:start|restart)['"]|\bJEVRIS_SIDECAR_ENTRY\s*:/;
+const OBJECT_LITERAL = /\{[^{}]{0,600}\}/g;
+/** Anything that gives the child a start wait, or no start at all: the settings helper, the variable, autostart off, a `--wait-ms` of 10 s or more. */
+const WAIT_SETTING = /slowHostSettings\(|JEVRIS_SIDECAR_WAIT_MS|JEVRIS_SIDECAR_AUTOSTART|['"]--wait-ms['"],\s*['"]\d{5,}['"]/;
+
+/** Where the first hand-built environment literal starts (no spread; PATH with HOME or USERPROFILE, or a sidecar entry), or -1. */
+function handBuiltEnv(text) {
+  for (const m of text.matchAll(OBJECT_LITERAL)) {
+    const literal = m[0];
+    if (literal.includes('...')) continue;
+    const clean = /\bPATH\b\s*:/.test(literal) && /\b(?:HOME|USERPROFILE)\b\s*:/.test(literal);
+    if (clean || /\bJEVRIS_SIDECAR_ENTRY\s*:/.test(literal)) return m.index;
+  }
+  return -1;
+}
 
 /** Findings in one file's text: [{ rule, line, detail }]. */
 export function slowFindings(text) {
@@ -78,6 +104,10 @@ export function slowFindings(text) {
   text.split('\n').forEach((line, index) => {
     if (/\bassert|\bok\(/.test(line) && EXACT_TIME.test(line)) out.push({ rule: 'exact-time', line: index + 1, detail: line.trim().slice(0, 80) });
   });
+  if (CHILD_PROCESS.test(text) && STARTS_SIDECAR.test(text) && !WAIT_SETTING.test(text)) {
+    const at = handBuiltEnv(text);
+    if (at >= 0) out.push({ rule: 'bare-env', line: lineOf(text, at), detail: 'a child with a hand-built environment starts a sidecar and has no slow-host setting' });
+  }
   return out;
 }
 
@@ -92,8 +122,8 @@ function findings() {
   return out.sort();
 }
 
-test('no test assumes a fast machine: no short polling bound, wait deadline, sidecar start wait or exact run time (slow CI)', () => {
-  assert.deepEqual(findings(), [], 'raise the bound to 30 s or more, wait for the condition, or compare without the time text (lint/slow-ci.lint.mjs)');
+test('no test assumes a fast machine: no short polling bound, wait deadline, sidecar start wait, exact run time or bare child environment (slow CI)', () => {
+  assert.deepEqual(findings(), [], 'raise the bound to 30 s or more, wait for the condition, compare without the time text, or give a hand-built child environment slowHostSettings() (lint/slow-ci.lint.mjs)');
 });
 
 test('every allowlist entry still names a finding, so a fixed file leaves the list', () => {
@@ -125,4 +155,27 @@ test('the detector flags short polling loops, wait deadlines, start waits and ex
   assert.deepEqual(rules(daemon(', limits: { budgetMs: { hot: 60_000, background: 60_000 } }')), []);
   assert.deepEqual(rules("await startDaemon({ home }); sidecarRequest({ op: 'status', scope: 'cli' });"), []);
   assert.deepEqual(rules("const SUMMARY = 'test: FAILED (exit 1) 10 tests (2s)';"), []);
+});
+
+test('the detector flags a hand-built child environment that starts a sidecar with no slow-host setting, and passes every way of giving it one', () => {
+  const rules = (text) => slowFindings(text).map((f) => f.rule);
+  const spawn = "import { spawnSync } from 'node:child_process';\n";
+  // The environment of runtime-commands.test.mjs when CI run 37293344243 failed on it.
+  const old = `${spawn}const env = { PATH: process.env.PATH ?? '', HOME: home, USERPROFILE: home, TMPDIR: tmpdir(), JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN };\nrunCli(['sidecar', 'start', '--home', home], env);`;
+  assert.deepEqual(rules(old), ['bare-env']);
+  assert.equal(slowFindings(old)[0].line, 2);
+  assert.deepEqual(rules(`${spawn}const env = { PATH, HOME: home, JEVRIS_SIDECAR_ENTRY: ENTRY };\nrun(['sidecar', 'restart']);`), ['bare-env']);
+  assert.deepEqual(rules(`${spawn}spawnSync(node, [bin], { env: { PATH, USERPROFILE: home, JEVRIS_SIDECAR_ENTRY: ENTRY } });`), ['bare-env'], 'the entry alone names a sidecar to start');
+  // Each way of giving the child a start wait, or no start, passes.
+  assert.deepEqual(rules(old.replace('JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN }', 'JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN, ...slowHostSettings() }')), []);
+  assert.deepEqual(rules(old.replace('JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN }', "JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN, JEVRIS_TEST: '1', JEVRIS_SIDECAR_WAIT_MS: '60000' }")), []);
+  assert.deepEqual(rules(old.replace("'--home', home]", "'--home', home, '--wait-ms', '60000']")), []);
+  assert.deepEqual(rules(old.replace('JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN }', "JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN, JEVRIS_SIDECAR_AUTOSTART: '0' }")), []);
+  assert.deepEqual(rules(old.replace("{ PATH: process.env.PATH ?? ''," , '{ ...process.env,')), [], 'the runner\'s environment is inherited');
+  // What it is not about: a child that starts no sidecar, a start in this process, an environment built from the runner's.
+  assert.deepEqual(rules(`${spawn}spawnSync(file, ['--version'], { env: { PATH: '/usr/bin:/bin', HOME: home, JEVRIS_TEST: '1' } });`), []);
+  assert.deepEqual(rules(old.replace(spawn, '')), [], 'no child process in the file: main() runs in this process, with the runner\'s environment');
+  assert.deepEqual(rules(`${spawn}const env = { ...process.env, HOME: home, JEVRIS_HOME: home };\nrun(['sidecar', 'start', '--home', home], env);`), []);
+  // A short explicit wait is the start-wait rule's finding, and still no wait setting here.
+  assert.deepEqual(rules(old.replace("'--home', home]", "'--home', home, '--wait-ms', '3000']")), ['start-wait', 'bare-env']);
 });

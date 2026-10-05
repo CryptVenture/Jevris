@@ -5,6 +5,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { slowHostSettings, startWaitMs } from '../../../test/budget-scale.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
 
 const { main } = await import('../dist/cli.js');
@@ -66,17 +67,26 @@ test('jevris sidecar status|start|stop|restart work through the CLI and report a
 const CLI_MAIN = join(here, '..', 'dist', 'cli.js');
 const ENTRY = `const { main } = await import(${JSON.stringify(pathToFileURL(CLI_MAIN).href)}); process.exit(await main(process.argv.slice(1)));`;
 
+// The child's environment is built by hand, so it has none of the settings the runner gives a test process. Without them
+// the CLI waits the product's 5 s for a sidecar to start, and on a loaded host (windows-latest, CI run 37293344243) it
+// answered "The Jevris sidecar is starting; this call ran rules-only." with exit 1. `slowHostSettings()` gives it the
+// runner's own: JEVRIS_TEST=1 (the wait variable acts only under it), the 60 s start wait, and the budget scale that also
+// lengthens the 5 s a `sidecar status` request waits. None of this is the subject, so no budget is pinned.
+const SLOW_HOST = slowHostSettings();
+// A call is never ended before the start wait it may use is over, and then has time to start node and finish.
+const CLI_TIMEOUT_MS = startWaitMs(SLOW_HOST) + 30_000;
+
 function runCli(args, env) {
   return spawnSync(process.execPath, ['--input-type=module', '-e', ENTRY, ...args], {
     env,
     encoding: 'utf8',
-    timeout: 20_000,
+    timeout: CLI_TIMEOUT_MS,
   });
 }
 
 test('jevris sidecar start, status and stop answer from a real CLI process (IPC-13, IPC-16)', () => {
   const home = realpathSync(mkdtempSync(join(tmpdir(), 'jvp-')));
-  const env = { PATH: process.env.PATH ?? '', HOME: home, USERPROFILE: home, TMPDIR: tmpdir(), JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN };
+  const env = { PATH: process.env.PATH ?? '', HOME: home, USERPROFILE: home, TMPDIR: tmpdir(), JEVRIS_SIDECAR_ENTRY: SIDECAR_MAIN, ...SLOW_HOST };
   try {
     let run = runCli(['sidecar', 'start', '--home', home], env);
     assert.equal(run.status, 0, `${run.stdout}${run.stderr}`);
