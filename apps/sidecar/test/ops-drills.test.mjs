@@ -46,6 +46,21 @@ test('every operations drill passes against the built product: crash, read-only 
   }
 });
 
+test('the stale-result drill runs at the product\'s own budgets in a run whose budget scale is the Windows runner\'s (OBS-05, windows-latest)', { skip: managedHostSkip() }, async () => {
+  // The drill's subject is a deadline: the command answers from local rules before a Jev answer that arrives 20 s late. The Windows runner
+  // lengthens every test budget six times (JEVRIS_TEST_BUDGET_SCALE=6), and the CLI then waited 30 s for the sidecar: 30433 ms, a failed
+  // drill on all three windows-latest cells (CI run 37357475972). The scale is given here whatever the host's own, so a fast host fails
+  // the same way. The drill drops it from its own environment.
+  const home = realpathSync(mkdtempSync(join(tmpdir(), 'jod-')));
+  try {
+    const env = { ...process.env, JEVRIS_TEST: '1', JEVRIS_TEST_BUDGET_SCALE: '6' };
+    const result = await runDrill('stale-result', { packageDir: repo, home, env, bin: join(repo, 'bin', 'jevris.mjs') });
+    assert.equal(result.passed, true, result.detail);
+  } finally {
+    rmSync(home, { recursive: true, force: true, maxRetries: 3 });
+  }
+});
+
 test('an unknown drill is a failure, not an exception', async () => {
   const result = await runDrill('not-a-drill', { packageDir: repo, home: tmpdir(), env: process.env, bin: join(repo, 'bin', 'jevris.mjs') });
   assert.equal(result.passed, false);
