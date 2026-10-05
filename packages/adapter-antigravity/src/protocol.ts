@@ -32,6 +32,18 @@ export const EVENT_TIMEOUTS: Readonly<Record<(typeof REGISTERED_EVENTS)[number],
   Stop: 5,
 };
 
+/**
+ * The error text of a PostToolUse, or null when the call did not fail. A call failed when its
+ * `error` is text with something in it. The text is free text, so unlike an id or a path it is not
+ * held to one short control-character-free line: a real tool error has several lines, colour codes
+ * and any length (the hook's input cap already bounds it). The text never travels: the failure
+ * record keeps only closed codes and a one-way digest of its normalized form (`failureFeatures`,
+ * which also reads no more than its own cap, and `failureEvidence`), the same as for every other harness.
+ */
+function errorTextOf(value: unknown): string | null {
+  return typeof value === 'string' && value.trim().length > 0 ? value : null;
+}
+
 function inferName(input: Record<string, unknown>): string | null {
   const named = own(input, 'event');
   if (typeof named === 'string' && Object.hasOwn(EVENTS, named)) return named;
@@ -53,7 +65,7 @@ export function normalize(native: unknown, context: NormalizeContext = {}): Norm
   if (spec === undefined) return refuse('UNKNOWN_EVENT', name.slice(0, 64));
   const toolCall = own(input, 'toolCall');
   const tool = isPlainObject(toolCall) ? toolCall : null;
-  const error = field(own(input, 'error'), 4096);
+  const error = errorTextOf(own(input, 'error'));
   const workspaces = own(input, 'workspacePaths');
   const firstWorkspace = Array.isArray(workspaces) ? field(workspaces[0], 4096) : null;
   const kind = name === 'PostToolUse' && error !== null ? 'tool.failed' : spec.kind;
