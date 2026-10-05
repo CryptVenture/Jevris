@@ -303,14 +303,14 @@ A worker starts only when all of these hold:
 - the kill switch is clear;
 - the task has a model to run (below).
 
-Otherwise the task is queued (`QUEUED`, or `QUEUED_NO_MODEL` when workers are automatic but no model is found for the task).
+Otherwise the task is queued, with no lease. The `reasonCode` of a submit says why: `QUEUED` (workers are not automatic, or a prerequisite is not verified yet), `QUEUED_NO_MODEL` (workers are automatic but no model is found for the task) or `CAP_REACHED` (every worker slot is busy). [settings.md](settings.md#workers) lists them all.
 
 At launch, two more checks apply. The harness must hold a sign-in for the model's provider. The provider must have consent where it needs one ([privacy.md](privacy.md#consent-per-model-provider)). A run that fails either check is refused before it starts (see [Which harness runs it](#which-harness-runs-it)).
 
 After a submit, later work starts on its own under the same conditions:
 
 - When a task is verified, the tasks that were waiting on it start. So the next wave of the plan needs no new submit.
-- When a worker ends, or you cancel a task with `jevris task cancel`, its slot is free and the next queued task starts. At most `orchestration.maxConcurrentWorkers` (default 2) run at once, so a plan with more independent tasks than that needs no second submit. The kill switch is read again at that moment: if it was turned on while the worker ran, nothing new starts.
+- When a worker ends, or you cancel a task with `jevris task cancel`, its slot is free and the next queued task starts. At most `orchestration.maxConcurrentWorkers` (default 2) run at once, so a plan with more independent tasks than that needs no second submit. The kill switch is read again at that moment: if it was turned on while the worker ran, nothing new starts. A submit takes the slots that are free when it arrives, and `leaseIds` lists only those. Tasks queued earlier take their slots one after another as workers end, and `jevris status` lists a worker only once its task holds a lease, so a count of leases taken just after queued tasks were allowed to start can be lower than the slots that looked free. Wait until the earlier queued tasks have started, or cancel them, before counting on a free slot.
 - Cancelling a task cancels nothing else. A queued task that waits on a cancelled one is marked `blocked` with the reason `DEPENDENCY_CANCELLED`, which `jevris_get_task` shows as `stateReason`.
 - When `recover` finds a failed owned task failing the same way again, Jevris relaunches it once on the next stronger model the task approved. This is the one bounded escalation. A new passing check result is still the only way it completes.
 

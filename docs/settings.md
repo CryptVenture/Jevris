@@ -284,10 +284,29 @@ In `bounded-auto`, route learning changes a worker's model or effort only on low
 and only after this workspace has 12 of its own outcomes on each arm. Every other route keeps
 the task's approved model, as advice. See [routing.md](routing.md#risk-class).
 
-Otherwise a submitted task is queued and reported as `QUEUED`. A task that names no model is
-`QUEUED_NO_MODEL` only when no eligible model is found. With orchestration enabled and
-`routing.managedWorkers` at `observe` or `advise`, the router still records which model it
-would have chosen for a task that names one, and nothing is started.
+Otherwise a submitted task is queued. A queued task is accepted (`accepted: true`) with no
+lease (`leaseIds` is empty), and the `reasonCode` of `jevris_submit_task` says why it waits.
+`jevris_get_task` shows it `ready` or `validated` (not yet promoted), never `leased` or
+`running`:
+
+| `reasonCode` | The task |
+|---|---|
+| `LEASED` | was not queued: a worker was leased and started (its id is in `leaseIds`) |
+| `QUEUED` | waits because workers are not automatic (the conditions above), or because a prerequisite in `dependencyIds` is not verified yet |
+| `QUEUED_NO_MODEL` | names no model, and no eligible model is found |
+| `QUEUED_WORKER_UNSUPPORTED` | has a model, but no worker port loads on this machine |
+| `CAP_REACHED` | waits because `orchestration.maxConcurrentWorkers` (default 2) workers already run; it starts when a slot frees, with no second submit |
+| `RESOURCE_BUSY` | waits because a resource it declares is held by a running worker |
+| `OVER_BUDGET` | waits because its reservation does not fit what is left of its root budget (`jevris budget status`) |
+| `BUDGET_PAUSED` | waits because its root budget is paused (`jevris budget update <id> --resume`) |
+
+`CAP_REACHED` is a different reason from `QUEUED` on purpose: `QUEUED` sends you to the
+conditions above, and a busy cap needs nothing changed. Other lease refusals can appear for a
+task that was queued while another request took its slot (`NOT_READY`, `ALREADY_LEASED`) or with
+a control service (`CONTROL_UNAVAILABLE`, `CONTROL_SERVICE_REQUIRED`); the task is queued in
+each case. With orchestration enabled and `routing.managedWorkers` at `observe` or `advise`, the
+router still records which model it would have chosen for a task that names one, and nothing is
+started.
 
 `routing.modelListing` (default `on`) lets the sidecar ask each installed harness which models
 it offers, from the harness's own model listing. Only model ids are kept, and no model is

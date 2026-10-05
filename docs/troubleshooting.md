@@ -244,7 +244,10 @@ harness opencode: installed; ...; not covered yet: <version> is outside the reco
 
 | Reason | What to do |
 | --- | --- |
-| `QUEUED` | Owned workers are not automatic: see [settings.md](settings.md#workers). |
+| `QUEUED` | Owned workers are not automatic, or the task waits for a prerequisite that is not verified yet: see [settings.md](settings.md#workers). |
+| `CAP_REACHED` | Every worker slot is busy (`orchestration.maxConcurrentWorkers`, default 2). The task is queued and starts when a slot frees; nothing needs changing. |
+| `RESOURCE_BUSY` | A resource the task declares is held by a running worker. It starts when that worker ends. |
+| `OVER_BUDGET`, `BUDGET_PAUSED` | The task's root budget has no room for its reservation, or is paused. `jevris budget status <id>` says why; `jevris budget update <id> --resume` resumes a paused one. |
 | `QUEUED_NO_MODEL` | The task names no model, and no model was found for it: no installed harness reaches a registry model with a sign-in it holds and consent allows. Name a model in the plan, or sign in to a harness. |
 | `unsupported: install ... and run jevris install --harness <name>` | No installed harness can run the task's model. Install the one named. |
 | `workers.json: <problem>; owned workers are refused until it is fixed` (doctor) | Fix `workers.json` in the Jevris config folder. See [routing.md](routing.md#stating-the-mode-workersjson). |
