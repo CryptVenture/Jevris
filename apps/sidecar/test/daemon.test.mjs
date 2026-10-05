@@ -7,6 +7,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { EXACT_BUDGET_LIMITS } from '../../../test/budget-scale.mjs';
 
 const { startDaemon: startDaemonOnce, loadOps, DuplicateOpError, sidecarRequest, ensureSidecar, stopSidecarProcess, probeSidecar, NonceCache, runtimeFiles, sweepStaleFallbackSockets, sidecarWaitMs, SIDECAR_TEST_WAIT_MAX_MS } =
   await import('../dist/index.js');
@@ -557,7 +558,8 @@ test("D's answer replay, rule 2: a retry while the first is in flight waits for 
     if (clockCalls === releaseAtCall) setImmediate(() => release());
     return Date.now();
   };
-  await withDaemon({ subscribers, eventClock }, async ({ home }) => {
+  // The retry's event is 750 ms old against the product's 900 ms hot budget: the exact budget is the subject (test/budget-scale.mjs).
+  await withDaemon({ subscribers, eventClock, limits: EXACT_BUDGET_LIMITS }, async ({ home }) => {
     const root = join(home, 'ws');
     mkdirSync(root);
     const send = (key, extra = {}) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, body: { deliveryKey: key, envelope: { kind: 'PreToolUse' } }, ...extra });

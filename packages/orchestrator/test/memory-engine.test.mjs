@@ -5,6 +5,7 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { withExactBudgets } from '../../../test/budget-scale.mjs';
 import {
   CONTEXT_FEATURE,
   assembleCapsule,
@@ -168,7 +169,8 @@ test('the engine deadline never outlives the op budget: with little time left th
     const nearlySpent = await consultScore(e, { ...base, remainingMs: 1_000 });
     assert.equal(nearlySpent.source, 'jev', 'the engine still answers');
     assert.ok(calls[0].spec.deadlineMs <= 1_000 - DEADLINE_MARGIN_MS, String(calls[0].spec.deadlineMs));
-    await consultScore(e, { ...base });
+    // The default wait is the product's exact 5 s whatever scale the runner sets (test/budget-scale.mjs).
+    await withExactBudgets(() => consultScore(e, { ...base }));
     assert.equal(calls[1].spec.deadlineMs, 5_000, 'without a budget the default deadline stands');
     await consultScore(e, { ...base, remainingMs: 60_000, deadlineMs: 2_000 });
     assert.equal(calls[2].spec.deadlineMs, 2_000);

@@ -21,6 +21,10 @@
  *   CLAUDE_CONFIG_DIR, JEVRIS_HOME).
  * - JEVRIS_TEST=1 and a preload that blocks @napi-rs/keyring keep every test process, and
  *   every child it spawns, away from the OS keychain.
+ * - JEVRIS_TEST_BUDGET_SCALE scales the sidecar's op budgets and the hook's deadline in the test
+ *   processes only (budgetScaleFor): 6 on Windows under CI, nothing elsewhere, the caller's own
+ *   value always winning. A slow runner then cannot turn a stall into a DEADLINE; a test about a
+ *   deadline pins its budgets (test/budget-scale.mjs).
  * - No test may start a real harness binary (claude, kilo, opencode, codex, agy): a real
  *   `claude` under a temp HOME asks the macOS keychain for its login (a dialog), makes a
  *   paid model call and can leave MCP servers running. The runner puts a directory of stub
@@ -622,10 +626,38 @@ export function withStubPath(env, stubDir) {
   return { ...env, [key]: typeof current === 'string' && current.length > 0 ? `${stubDir}${delimiter}${current}` : stubDir };
 }
 
+/**
+ * The scale the product puts on its op budgets in a test run (JEVRIS_TEST_BUDGET_SCALE, read only
+ * under JEVRIS_TEST=1; `testBudgetScale` in packages/contracts). The sidecar's 900 ms hot and 5 s
+ * background budgets and the hook's 4 s deadline are right for a developer's machine and wrong for
+ * a Windows CI runner that stalls for seconds on a journal fsync or a first process start: the
+ * product then correctly answers DEADLINE and a test that only wanted the answer fails. So a run
+ * on Windows under CI scales them by DEFAULT_WINDOWS_CI_BUDGET_SCALE. macOS and Linux get nothing
+ * by default (their runners are fast, and the real budgets stay exercised there). A caller's own
+ * JEVRIS_TEST_BUDGET_SCALE always wins, so `1` turns the default off and a larger number forces a
+ * scale anywhere. Returns the value to set, or undefined to leave the variable out.
+ *
+ * Only the suite's own test processes get it (main below). `testEnvironment`, which the scripts
+ * that start a product of their own build their child environments from (the benchmark, the load
+ * and drill scripts, pack-smoke, the docs generator), strips it: they measure or drive the
+ * product's real budgets. A test about a deadline pins its budgets (test/budget-scale.mjs).
+ */
+export const DEFAULT_WINDOWS_CI_BUDGET_SCALE = '6';
+
+export function budgetScaleFor(callerEnv = process.env, platform = process.platform) {
+  const own = callerEnv.JEVRIS_TEST_BUDGET_SCALE;
+  if (typeof own === 'string' && own.length > 0) return own;
+  const ci = callerEnv.CI;
+  if (platform === 'win32' && typeof ci === 'string' && ci.length > 0) return DEFAULT_WINDOWS_CI_BUDGET_SCALE;
+  return undefined;
+}
+
 export function testEnvironment(tempHome, realHome, stubDir, tempDir) {
   const base = stubDir === undefined ? process.env : withStubPath(process.env, stubDir);
+  const { JEVRIS_TEST_BUDGET_SCALE: _suiteScale, ...inherited } = base;
   return {
-    ...base,
+    // The test budget scale is the suite run's own (main), never a script's child's: see budgetScaleFor.
+    ...inherited,
     // A private temp dir per run: whatever a test forgets to remove goes when the run ends.
     ...(tempDir === undefined ? {} : { TMPDIR: tempDir, TMP: tempDir, TEMP: tempDir }),
     ...(stubDir === undefined
@@ -860,6 +892,8 @@ async function main(argv) {
         ...(guard ? { JEVRIS_GUARD_REAL_HOME: realHome, JEVRIS_HOME_WRITE_LEDGER: homeLedger, JEVRIS_GUARD_REAL_ROOTS: JSON.stringify(realRoots) } : {}),
         // This runner's own setting: a test that starts a runner of its own never inherits it.
         JEVRIS_TEST_ARGV_BUDGET: undefined,
+        // The test budget scale (budgetScaleFor): on Windows under CI, or the caller's own number.
+        JEVRIS_TEST_BUDGET_SCALE: budgetScaleFor(process.env),
       },
       stdio: 'inherit',
       shell: false,

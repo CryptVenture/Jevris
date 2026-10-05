@@ -14,7 +14,8 @@ const MAX_ATTEMPTS = 4;
 
 async function outage(t, sandbox, scenario) {
   const provider = await startJevStub(t, { scenario, lateMs: 120_000 });
-  const box = await sandbox({ env: provider.env });
+  // The subject is the fallback inside the product's own budgets, so the sidecar keeps them exactly whatever scale the runner sets (test/budget-scale.mjs).
+  const box = await sandbox({ env: provider.env, exactBudgets: true });
   assert.equal(box.startSidecar().code, 0, 'sidecar did not start');
   const timed = (fn) => {
     const started = Date.now();

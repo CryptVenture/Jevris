@@ -8,7 +8,7 @@
  *
  * Every consult is advice: it grants nothing, applies nothing and certifies nothing.
  */
-import { DecisionSpecContract, MAX_QUESTIONS, questionHash, type DecisionSpec, type JevQuestions } from '@jevris/contracts';
+import { DecisionSpecContract, MAX_QUESTIONS, questionHash, testScaledMs, type DecisionSpec, type JevQuestions } from '@jevris/contracts';
 import { safeText, sha256 } from '../util.js';
 
 export type ConsultSource = 'jev' | 'rules';
@@ -101,6 +101,13 @@ function engineOf(engine: unknown): EngineLike | null {
 
 /** Time kept back from the engine to build and send the answer. */
 export const DEADLINE_MARGIN_MS = 150;
+/**
+ * The longest a consult waits for the engine when its caller names no deadline: the background budget
+ * (5 s), which is the most any sidecar op has left, so in the product the op's remaining time always
+ * ends the wait first. A test run's budget scale (JEVRIS_TEST_BUDGET_SCALE) lengthens the background
+ * budget, and this cap with it, so the engine is not cut short at 5 s inside a 30 s op.
+ */
+const CONSULT_DEFAULT_DEADLINE_MS = 5_000;
 
 function specFor(base: ConsultBase, questions: JevQuestions): DecisionSpec | null {
   const spec = {
@@ -110,7 +117,7 @@ function specFor(base: ConsultBase, questions: JevQuestions): DecisionSpec | nul
     evidenceRequirements: [],
     // The engine settles inside the op's own budget: its deadline never outlives the time the
     // request has left (less a margin to answer), so the caller gets this decision, not a timeout.
-    deadlineMs: Math.max(1, Math.min(base.deadlineMs ?? 5_000, 600_000, base.remainingMs === undefined ? Infinity : Math.floor(base.remainingMs - DEADLINE_MARGIN_MS))),
+    deadlineMs: Math.max(1, Math.min(base.deadlineMs ?? testScaledMs(CONSULT_DEFAULT_DEADLINE_MS, process.env), 600_000, base.remainingMs === undefined ? Infinity : Math.floor(base.remainingMs - DEADLINE_MARGIN_MS))),
     fallback: 'rules-only' as const,
     calibrationId: null,
   };

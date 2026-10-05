@@ -62,7 +62,8 @@ story('US32', async ({ t, then, sandbox, evidence }) => {
 
   // A third decision whose usage never comes back: Jev hangs past the deadline.
   const hangStub = await startJevStub(t, { scenario: 'late', lateMs: 120_000 });
-  const hung = await sandbox({ env: hangStub.env });
+  // The abandon at the deadline is the subject, so this sidecar keeps the product's exact budgets whatever scale the runner sets (test/budget-scale.mjs).
+  const hung = await sandbox({ env: hangStub.env, exactBudgets: true });
   assert.equal(hung.startSidecar().code, 0);
   const lost = hung.jevris(recoverArgs('c1'));
   hung.stopSidecar();

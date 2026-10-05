@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync, realpathSync, statSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
-import { EXPLICIT_BASE_URL, ACCESS_USAGE_STATUS_HARNESSES, ACCESS_USAGE_STATUS_MAX_READINGS, ACCESS_USAGE_STATUS_MAX_WINDOWS, HARNESS_IDS, ID_PATTERN, MAIN_SESSION_MODES, MODEL_ID_PATTERN, containsSecret, servingHostOf, SIDECAR_BUDGET_MS, SIDECAR_CLIENT_SCOPES, TURN_HARNESSES, surfacePayloadContract, modeAllows, type JevrisConfig, type Mode } from '@jevris/contracts';
+import { EXPLICIT_BASE_URL, ACCESS_USAGE_STATUS_HARNESSES, ACCESS_USAGE_STATUS_MAX_READINGS, ACCESS_USAGE_STATUS_MAX_WINDOWS, HARNESS_IDS, ID_PATTERN, MAIN_SESSION_MODES, MODEL_ID_PATTERN, containsSecret, servingHostOf, sidecarBudgetsMs, SIDECAR_CLIENT_SCOPES, testScaledMs, TURN_HARNESSES, surfacePayloadContract, modeAllows, type JevrisConfig, type Mode } from '@jevris/contracts';
 import type { OpenedStore } from '@jevris/store';
 import type {
   SidecarAdviceAdherence,
@@ -39,7 +39,7 @@ export { hostScopeId } from './host-scope.js';
 import { liveHarnessOf, recordDelivery, reverifyHarnesses, type LiveCertificationPorts } from './live-certification.js';
 import { LATENCY_FLUSH_MS, createLatencyCounters } from './latency-counters.js';
 import { IDLE_QUIET_MS, MODEL_OFFER_CHECK_MS, createModelOfferRefresher, defaultModelOfferPorts, type ModelOfferPorts } from './model-offer.js';
-import type { LogEntry, ServiceHooks, SidecarService, WorkspaceResolver } from './service.js';
+import { effectiveLimits, type LogEntry, type ServiceHooks, type SidecarService, type WorkspaceResolver } from './service.js';
 import { createAdmission, createBackgroundExecutor, type Admission, type AdmissionLimits, type BackgroundExecutor, type BackgroundJob, type ExecutorDepth } from './admission.js';
 import { DIAGNOSTIC_DEFAULT_MS, DIAGNOSTIC_MAX_MS, openTelemetry, writeStatusLine, type StatusLineBody, type Telemetry } from './telemetry.js';
 
@@ -331,6 +331,13 @@ export interface HealthBody {
   readonly uptimeMs: number;
   readonly connections: number;
   readonly inFlight: number;
+  /**
+   * The op budgets in force, in ms: 900 hot, 5000 background and 4000 on the answer lane in the
+   * product. Only a test run (JEVRIS_TEST=1 with JEVRIS_TEST_BUDGET_SCALE) scales them, and
+   * `budgetScale` then says by how much; it is 1 everywhere else.
+   */
+  readonly budgetMs: { readonly hot: number; readonly background: number; readonly answer: number };
+  readonly budgetScale: number;
   readonly workspaces: number;
   readonly store: {
     readonly state: 'ok' | 'absent' | 'unavailable';
@@ -586,7 +593,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       log({ level: 'error', event: 'store-unavailable' });
     }
   }
-  const sliceCapMs = typeof input.subscriberSliceMs === 'number' && input.subscriberSliceMs > 0 ? input.subscriberSliceMs : SUBSCRIBER_SLICE_CAP_MS;
+  const sliceCapMs = typeof input.subscriberSliceMs === 'number' && input.subscriberSliceMs > 0 ? input.subscriberSliceMs : testScaledMs(SUBSCRIBER_SLICE_CAP_MS, process.env);
   /** The last measured synchronous prefix of each subscriber, in ms. */
   const syncCostMs = new Map<string, number>();
   // GOV-10: every transport-level egress refusal is an audit row (reason code and field count, no content).
@@ -773,7 +780,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       body: {},
       home,
       signal: accessResumeStop.signal,
-      deadline: createDeadline(SIDECAR_BUDGET_MS.background, monotonicClock),
+      deadline: createDeadline(sidecarBudgetsMs(process.env).background, monotonicClock),
       store: storeFor(workspace),
       killSwitchStopped: killSwitch,
       ...(adherence !== undefined ? { adviceAdherence: adherence } : {}),
@@ -935,6 +942,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
 
   async function health(): Promise<HealthBody> {
     const now = Date.now();
+    const budgets = service?.budgets ?? effectiveLimits(undefined, process.env).budgets;
     return {
       pid: process.pid,
       version: jevrisPackage().version,
@@ -947,6 +955,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       uptimeMs: service === undefined ? 0 : now - service.startedAtMs,
       connections: service?.connections() ?? 0,
       inFlight: service?.inFlight() ?? 0,
+      budgetMs: { hot: budgets.hot, background: budgets.background, answer: budgets.answer },
+      budgetScale: budgets.scale,
       workspaces: registry.size,
       store: storeHealth(),
       killSwitch: (await readKillSwitch(home)) ? 'stopped' : 'clear',
@@ -1864,7 +1874,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       body,
       home,
       signal: unwantedSignal(),
-      deadline: createDeadline(SIDECAR_BUDGET_MS.background, monotonicClock),
+      deadline: createDeadline(sidecarBudgetsMs(process.env).background, monotonicClock),
       store: storeFor(workspace),
       killSwitchStopped: false,
       mode: effectiveModeFor(home, workspace.root),

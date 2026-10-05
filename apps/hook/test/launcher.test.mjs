@@ -7,6 +7,7 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { guardStdin } from '../../../scripts/child-stdin.mjs';
+import { exactBudgets } from '../../../test/budget-scale.mjs';
 
 const { runLauncher, parseLauncherArgs, chooseOutcome, deadlineMs, outcomeOf } = await import('../dist/launcher.js');
 const { ADAPTERS } = await importAdapters();
@@ -66,6 +67,19 @@ test('arguments: --harness is required and must be a launcher name', () => {
   assert.equal(deadlineMs({ JEVRIS_HOOK_DEADLINE_MS: '10' }), 100);
   assert.equal(deadlineMs({ JEVRIS_HOOK_DEADLINE_MS: '999999' }), 4000);
   assert.equal(deadlineMs({ JEVRIS_HOOK_DEADLINE_MS: 'soon' }), 1500);
+});
+
+test('a test run scales the hook deadline with JEVRIS_TEST_BUDGET_SCALE, its ceiling too, and only under JEVRIS_TEST=1', () => {
+  const scaled = { JEVRIS_TEST: '1', JEVRIS_TEST_BUDGET_SCALE: '6' };
+  assert.equal(deadlineMs({ ...scaled, JEVRIS_HOOK_DEADLINE_MS: '4000' }), 24_000);
+  assert.equal(deadlineMs({ ...scaled, JEVRIS_HOOK_DEADLINE_MS: '999999' }), 24_000, 'the 4000 ms ceiling scales as well');
+  assert.equal(deadlineMs({ ...scaled, JEVRIS_HOOK_DEADLINE_MS: '10' }), 600);
+  assert.equal(deadlineMs(scaled), 9000, 'the 1500 ms default scales');
+  assert.equal(deadlineMs({ ...scaled, JEVRIS_TEST_BUDGET_SCALE: '1' }), 1500);
+  assert.equal(deadlineMs({ ...scaled, JEVRIS_TEST_BUDGET_SCALE: '99' }), 1500, 'a value out of range is a scale of 1');
+  // The variable alone does nothing: a hook outside a test run keeps its product deadline.
+  assert.equal(deadlineMs({ JEVRIS_TEST_BUDGET_SCALE: '6', JEVRIS_HOOK_DEADLINE_MS: '4000' }), 4000);
+  assert.equal(deadlineMs({ JEVRIS_TEST_BUDGET_SCALE: '6' }), 1500);
 });
 
 test('every mapped Claude event is forwarded to the event op with scope hook and a hot budget', async () => {
@@ -283,12 +297,13 @@ test('JEVRIS_SIDECAR_AUTOSTART=0: the launcher never starts the sidecar; a runni
   assert.deepEqual(other.calls.map((c) => c.kind), ['request']);
 });
 
+// The launcher's own deadline and watchdog are the subject of these runs: the product's exact budgets, whatever scale the runner sets (test/budget-scale.mjs).
 function runBin(argv, { input, env = {}, keepOpen = false } = {}) {
   return new Promise((resolve) => {
     const home = mkdtempSync(join(tmpdir(), 'jevris-hook-'));
     const child = guardStdin(
       spawn(process.execPath, [BIN, ...argv], {
-        env: { ...process.env, JEVRIS_HOME: home, JEVRIS_HOOK_OBSERVE_ONLY: '1', ...env },
+        env: { ...exactBudgets(process.env), JEVRIS_HOME: home, JEVRIS_HOOK_OBSERVE_ONLY: '1', ...env },
         stdio: ['pipe', 'pipe', 'pipe'],
       }),
     );

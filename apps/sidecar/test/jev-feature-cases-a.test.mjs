@@ -27,10 +27,11 @@ const PRIMITIVE = { C25: 'choice', C26: 'choice', C28: 'noul', C30: 'noul', C33:
  * asked for (`workerRuns`): in `advise` no owned worker starts, so a plan step leaves its tasks queued
  * and no worker port is ever loaded.
  */
-async function startPass(t, { egress, workerRuns, stubOptions }) {
+async function startPass(t, { egress, workerRuns, stubOptions, exactBudgets }) {
   // `confident`: the stub's answers clear the consult floors (confidence 0.6, margin 0.15), so "asked" and "answered from Jev" mean the same thing here.
   const stub = await startJevStub(t, stubOptions ?? { scenario: 'confident' });
-  const box = await sandbox(t, { env: stub.env });
+  // A pass whose subject is a deadline passes `exactBudgets`: its sidecar keeps the product's budgets whatever scale the runner sets.
+  const box = await sandbox(t, { env: stub.env, ...(exactBudgets === true ? { exactBudgets: true } : {}) });
   const work = join(box.dir, 'ws');
   writeWorkspace(work, FILES);
   await preparePart({ home: box.home, work, egress, mode: workerRuns === undefined ? 'advise' : 'bounded-auto' });
@@ -414,7 +415,8 @@ test('probe: an id the question contract refuses is sent under a safe key and ma
 // op's five-second budget and answer DEADLINE, with no advice at all. The assertion is on the outcome
 // (the op answered, from fewer requests than candidates), not on how long it took.
 test('probe: C34 with a slow Jev stops asking when time is short and still answers', { skip: managedHostSkip(), timeout: 600_000 }, async (t) => {
-  const pass = await startPass(t, { egress: 'denied', stubOptions: { scenario: 'late', lateMs: 700 } });
+  // The op's own five-second budget is the subject, so this pass keeps it exactly (test/budget-scale.mjs).
+  const pass = await startPass(t, { egress: 'denied', stubOptions: { scenario: 'late', lateMs: 700 }, exactBudgets: true });
   const slow = join(pass.box.dir, 'ws-slow');
   const files = {};
   for (let i = 0; i < 10; i += 1) files[`src/retry${String(i)}.ts`] = `export function retryBackoff${String(i)}() { return ${String(i)}; } // retry backoff payment client\n`;

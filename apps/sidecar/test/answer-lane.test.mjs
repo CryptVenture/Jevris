@@ -5,6 +5,7 @@ import net from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
+import { EXACT_BUDGET_LIMITS } from '../../../test/budget-scale.mjs';
 
 // The answer lane (owner decision ededdba; D's K3 load test): a hook's SessionStart, Stop or
 // PreCompact event is admitted from hot slots kept for it, so a full hot pool never answers it
@@ -161,7 +162,8 @@ test('an answer-lane event may use the hook deadline, not only the 900 ms hot bu
   // A subscriber that needs 300 ms, reached by an event whose hook started 800 ms earlier (a
   // loaded host's process start): inside the hot budget only 100 ms would be left.
   const slow = { name: 'slow-answer', handle: async () => (await new Promise((resolve) => setTimeout(resolve, 300)), { answered: true }) };
-  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers: [slow], log: () => undefined });
+  // The subject is the budget: the product's exact 900 ms hot and 4 s answer-lane budgets, whatever scale the runner sets (test/budget-scale.mjs).
+  const started = await startDaemon({ home, packageOps: false, idleMs: 0, subscribers: [slow], limits: EXACT_BUDGET_LIMITS, log: () => undefined });
   assert.equal(started.ok, true, started.ok ? '' : started.message);
   try {
     const registered = await sidecarRequest({ home, op: 'workspace.register', scope: 'hook', workspace: root });

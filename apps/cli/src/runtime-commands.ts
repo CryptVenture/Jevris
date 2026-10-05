@@ -137,9 +137,21 @@ async function sidecarStatus(home: string | undefined, json: boolean, write: Wri
     ...localityLines(h['locality']),
     `kill switch: ${String(h['killSwitch'])}`,
     `decisions: ${h['engine'] === 'ready' ? 'Jev ready' : 'rules-only'}`,
+    ...budgetLines(h['budgetMs'], h['budgetScale']),
   ];
   out(write, `${lines.join('\n')}\n`);
   return 0;
+}
+
+/**
+ * The op budgets the sidecar runs with (an older sidecar reports none). A test run may scale
+ * them (JEVRIS_TEST_BUDGET_SCALE), and then the line says so; the product's own are 900, 5000 and 4000.
+ */
+function budgetLines(budgetMs: unknown, budgetScale: unknown): string[] {
+  const b = (budgetMs ?? {}) as Record<string, unknown>;
+  if (typeof b['hot'] !== 'number' || typeof b['background'] !== 'number' || typeof b['answer'] !== 'number') return [];
+  const scaled = typeof budgetScale === 'number' && budgetScale > 1 ? ` (test run: budgets scaled by ${String(budgetScale)})` : '';
+  return [`budgets: hot ${b['hot']} ms, background ${b['background']} ms, answer lane ${b['answer']} ms${scaled}`];
 }
 
 function num(value: unknown): number {

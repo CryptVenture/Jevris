@@ -236,7 +236,9 @@ function lostHooks(hooks, stalls, { extra = null } = {}) {
 }
 
 test('K3: compact restores and Stop reminders are never queued while 50 subagents run (owner decision ededdba)', { timeout: 300_000, skip: managedHostSkip() }, async (t) => {
-  const box = await sandbox(t);
+  // The lifecycle target is about the product's own budgets and the hook's own 1500 ms wait, so the sidecar keeps them exactly whatever
+  // scale the runner sets (test/budget-scale.mjs); a slow host is judged by the stall evidence below.
+  const box = await sandbox(t, { exactBudgets: true });
   box.write('work/jevris.checks.json', {
     schemaVersion: 'jevris-checks-1',
     checks: [{ id: 'unit', argv: [process.execPath, '-e', '0'], mandatory: true, resultFormat: 'exit-code', requirementIds: ['R-1'], description: 'unit' }],

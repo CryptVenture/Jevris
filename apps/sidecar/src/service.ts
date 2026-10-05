@@ -6,6 +6,9 @@ import {
   SIDECAR_BUDGET_MS,
   SIDECAR_CLIENT_DEADLINE_MARGIN_MS,
   SIDECAR_CLIENT_SCOPES,
+  sidecarBudgetsMs,
+  testBudgetScale,
+  testScaledMs,
   type SidecarAdviceAdherence,
   type SidecarBudgetClass,
   type SidecarClientKind,
@@ -113,6 +116,37 @@ export const DEFAULT_LIMITS: ServiceLimits = {
   budgetMs: SIDECAR_BUDGET_MS,
 };
 
+/** The op budgets a service runs with, and the test scale that produced them (1 outside a test run). */
+export interface EffectiveBudgets {
+  readonly hot: number;
+  readonly background: number;
+  readonly answer: number;
+  readonly scale: number;
+}
+
+/**
+ * The limits a service runs with. A caller's explicit `limits` win. Of the rest, the op budgets
+ * (900 ms hot, 5 s background, 4 s on the answer lane) and the hello and frame timers are the
+ * product's, times the test budget scale under a test run (JEVRIS_TEST=1 and JEVRIS_TEST_BUDGET_SCALE;
+ * `testBudgetScale` in contracts): a runner that stalls for seconds must not turn a stall into a
+ * closed connection or a DEADLINE the product was right to answer. Setting `limits.budgetMs` pins the
+ * op budgets exactly (the scale is then not applied to them, and the answer lane follows the hot
+ * budget, as it always did, unless `answerBudgetMs` is set); `helloMs` and `frameMs` pin themselves.
+ */
+export function effectiveLimits(explicit: Partial<ServiceLimits> | undefined, env: { readonly [key: string]: string | undefined }): { readonly limits: ServiceLimits; readonly budgets: EffectiveBudgets } {
+  const scale = testBudgetScale(env);
+  const limits: ServiceLimits = {
+    ...DEFAULT_LIMITS,
+    helloMs: testScaledMs(DEFAULT_LIMITS.helloMs, env),
+    frameMs: testScaledMs(DEFAULT_LIMITS.frameMs, env),
+    budgetMs: sidecarBudgetsMs(env),
+    ...(explicit ?? {}),
+  };
+  const pinned = explicit?.budgetMs !== undefined;
+  const answer = explicit?.answerBudgetMs ?? (pinned ? limits.budgetMs.hot : testScaledMs(ANSWER_BUDGET_MS, env));
+  return { limits, budgets: { hot: limits.budgetMs.hot, background: limits.budgetMs.background, answer, scale: pinned ? 1 : scale } };
+}
+
 export interface LogEntry {
   readonly level: 'info' | 'warn' | 'error';
   readonly event: string;
@@ -198,6 +232,8 @@ export interface SidecarService {
   /** Stops accepting, waits up to drainMs for in-flight work, then aborts it. */
   close(drainMs?: number): Promise<void>;
   readonly closing: boolean;
+  /** The op budgets in force (the product's, or the test run's scaled ones; see effectiveLimits). */
+  readonly budgets: EffectiveBudgets;
 }
 
 interface Pending {
@@ -209,8 +245,8 @@ function outcomeFail(reasonCode: string, message?: string): SidecarOpOutcome {
 }
 
 export async function startService(options: ServiceOptions): Promise<SidecarService> {
-  const limits: ServiceLimits = { ...DEFAULT_LIMITS, ...(options.limits ?? {}) };
-  const answerBudgetMs = options.limits?.answerBudgetMs ?? (options.limits?.budgetMs !== undefined ? limits.budgetMs.hot : ANSWER_BUDGET_MS);
+  const { limits, budgets } = effectiveLimits(options.limits, process.env);
+  const answerBudgetMs = budgets.answer;
   const admission: Admission =
     options.admission ?? createAdmission({ hot: Math.max(1, limits.maxInFlight - Math.floor(limits.maxInFlight / 4)), background: Math.max(1, Math.floor(limits.maxInFlight / 4)) });
   const bootKey = options.bootKey ?? new Uint8Array(randomBytes(32));
@@ -609,6 +645,7 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
     startedAtMs,
     connections: () => sockets.size,
     inFlight: () => pending.size + admission.counts().overrun,
+    budgets,
     nonceCacheSize: () => nonces.size,
     get closing() {
       return closing;

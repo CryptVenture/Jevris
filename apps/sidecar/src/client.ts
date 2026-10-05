@@ -11,6 +11,7 @@ import type {
   SidecarRequestInput,
   SidecarRequestResult,
 } from '@jevris/contracts';
+import { testScaledMs } from '@jevris/contracts';
 import { detectLocality } from './locality.js';
 import { askServiceToStart, defaultServiceRun, serviceInputForHome, serviceUnitState, type ServiceInput, type ServicePlatform, type ServiceRun } from './service-units.js';
 // P8: the hook launcher appends its deadline misses through this client entry (E's bin.ts).
@@ -62,7 +63,19 @@ function isForeign(files: RuntimeFiles, endpoint: SidecarEndpointFile | undefine
   return foreignSidecar(files, endpoint, ownLocalityId(), Date.now()) !== undefined;
 }
 
+/**
+ * How long a request waits when its caller names no timeout. A test run (JEVRIS_TEST=1 with
+ * JEVRIS_TEST_BUDGET_SCALE) multiplies it, so a CLI command is not answered "reduced mode" by a
+ * client that left at 5 s while the sidecar, whose background budget the scale lengthened to match,
+ * was still answering. A timeout a caller names (the hook launcher's deadline, a command's own) is
+ * never scaled here.
+ */
 const DEFAULT_TIMEOUT: { readonly [K in SidecarClientKind]: number } = { hook: 900, mcp: 5000, cli: 5000 };
+
+/** The wait of a request that names no timeout: the client kind's own, times the test budget scale under a test run. */
+export function defaultRequestTimeoutMs(kind: SidecarClientKind, env: { readonly [key: string]: string | undefined } = process.env): number {
+  return testScaledMs(DEFAULT_TIMEOUT[kind], env);
+}
 const SPAWN_LOCK_STALE_MS = 10_000;
 /**
  * The "not running" answer. Where a start is allowed it says the sidecar starts on demand; with
@@ -187,7 +200,7 @@ function remaining(deadlineAt: number): number {
 export async function sidecarRequest(input: SidecarRequestInput): Promise<SidecarRequestResult> {
   const kind = input.scope;
   if (kind !== 'cli' && kind !== 'hook' && kind !== 'mcp') return fail('refused', 'Unknown client kind.', 'UNKNOWN_CLIENT');
-  const timeoutMs = input.timeoutMs ?? DEFAULT_TIMEOUT[kind];
+  const timeoutMs = input.timeoutMs ?? defaultRequestTimeoutMs(kind);
   const deadlineAt = Date.now() + timeoutMs;
   const files = runtimeFiles(input.home !== undefined ? { home: input.home } : {});
   const endpoint = readEndpoint(files);

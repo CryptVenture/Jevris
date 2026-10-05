@@ -234,6 +234,9 @@ try {
     }
     if (!skip.has('hot')) {
       say(`hot path: ${hotCount} cold requests per op through the sidecar`);
+      // The hot path is measured at the product's real 900 ms budget: a test run's budget scale (JEVRIS_TEST_BUDGET_SCALE, which a mock
+      // run under `npm test` may inherit) never reaches this sidecar.
+      delete process.env.JEVRIS_TEST_BUDGET_SCALE;
       const dir = await startSidecar('hot', hotMicroUsd);
       const workspace = join(dir, 'work');
       mkdirSync(workspace, { recursive: true });

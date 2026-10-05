@@ -10,6 +10,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { guardStdin } from '../../../scripts/child-stdin.mjs';
 import { readLive } from '../../../test/live-files.mjs';
+import { exactBudgets } from '../../../test/budget-scale.mjs';
 
 const { hookLatencyFile, parseHookLatencyLine } = await import('@jevris/sidecar/client');
 const claude = await import('@jevris/adapter-claude-code');
@@ -23,9 +24,10 @@ function withHome(t) {
   return home;
 }
 
+// The launcher's own deadline is the subject of these runs, so it has the product's exact budgets whatever scale the runner sets (test/budget-scale.mjs).
 function runBin(home, argv, { input, env = {}, keepOpen = false } = {}) {
   return new Promise((resolve) => {
-    const child = guardStdin(spawn(process.execPath, [BIN, ...argv], { env: { ...process.env, JEVRIS_HOME: home, ...env }, stdio: ['pipe', 'pipe', 'pipe'] }));
+    const child = guardStdin(spawn(process.execPath, [BIN, ...argv], { env: { ...exactBudgets(process.env), JEVRIS_HOME: home, ...env }, stdio: ['pipe', 'pipe', 'pipe'] }));
     let stdout = '';
     child.stdout.on('data', (c) => (stdout += c));
     child.stderr.on('data', () => {});

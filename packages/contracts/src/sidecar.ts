@@ -46,6 +46,45 @@ export type SidecarBudgetClass = 'hot' | 'background';
 
 export const SIDECAR_BUDGET_MS: { readonly [K in SidecarBudgetClass]: number } = { hot: 900, background: 5000 };
 
+/** The most the test budget scale may be. */
+export const TEST_BUDGET_SCALE_MAX = 20;
+
+/**
+ * The scale a test run puts on the sidecar's time budgets and the hook launcher's deadline, so a
+ * slow runner cannot turn a stall into a failure. It is read from one variable, and only when
+ * `JEVRIS_TEST` is `1` (the test-process marker scripts/test.mjs sets): outside a test run the
+ * variable is ignored completely and the scale is 1, the product's own budgets. A value that is
+ * not a number from 1 to 20 (up to two decimals) is also 1. This function is the only code that
+ * reads the variable (lint/budget-scale.lint.mjs); every other reader asks it, passing the
+ * environment, so contracts stays free of `process`.
+ *
+ * The scale multiplies the hot, background and answer-lane budgets, a connection's hello and frame
+ * timers, a subscriber's slice, a capability consult's default wait, the default timeout of a client
+ * request that names none, and the hook deadline with its 4000 ms ceiling, together, so their ratios
+ * hold. A sidecar request still ends at the smaller of its budget and the client's deadline
+ * less the margin (IPC-15), so a larger budget never makes the sidecar answer after the client has
+ * left. A test about a deadline keeps its exact budgets by setting `limits.budgetMs` itself, or by
+ * clearing the variable in the environment it gives a spawned process (test/budget-scale.mjs).
+ */
+export function testBudgetScale(env: { readonly [key: string]: string | undefined }): number {
+  if (env['JEVRIS_TEST'] !== '1') return 1;
+  const raw = env['JEVRIS_TEST_BUDGET_SCALE'];
+  if (raw === undefined || !/^\d{1,2}(?:\.\d{1,2})?$/.test(raw)) return 1;
+  const scale = Number(raw);
+  return scale >= 1 && scale <= TEST_BUDGET_SCALE_MAX ? scale : 1;
+}
+
+/** `ms` times the test budget scale, rounded: a test run's longer budget, or `ms` itself outside one. */
+export function testScaledMs(ms: number, env: { readonly [key: string]: string | undefined }): number {
+  const scale = testBudgetScale(env);
+  return scale === 1 ? ms : Math.round(ms * scale);
+}
+
+/** The op budgets in force for this environment: the product's, times the test budget scale. */
+export function sidecarBudgetsMs(env: { readonly [key: string]: string | undefined }): { readonly [K in SidecarBudgetClass]: number } {
+  return { hot: testScaledMs(SIDECAR_BUDGET_MS.hot, env), background: testScaledMs(SIDECAR_BUDGET_MS.background, env) };
+}
+
 /** Time kept back from a client's deadline for the answer to travel and be written (IPC-15). */
 export const SIDECAR_CLIENT_DEADLINE_MARGIN_MS = 50;
 

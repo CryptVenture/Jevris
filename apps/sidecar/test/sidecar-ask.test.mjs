@@ -262,7 +262,8 @@ syncBuiltinESMExports();
 
 test('against a real sidecar an idle sidecar reads as quiet; and a call it really cuts short is answered on the next attempt, once the disk is back', { skip: managedHostSkip(), timeout: 600_000 }, async (t) => {
   const stub = await startJevStub(t, { scenario: 'confident' });
-  const box = await sandbox(t, { env: stub.env });
+  // The held-up writes must outlast the sidecar's budget, so the sidecar keeps the product's exact budgets whatever scale the runner sets (test/budget-scale.mjs).
+  const box = await sandbox(t, { env: stub.env, exactBudgets: true });
   const flag = join(box.dir, 'stall.flag').replace(/\\/g, '/');
   const preload = join(box.dir, 'stall-journal.cjs').replace(/\\/g, '/');
   writeFileSync(preload, STALL(flag, 1500));

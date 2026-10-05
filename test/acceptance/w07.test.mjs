@@ -24,7 +24,8 @@ function timed(fn) {
 
 workflow('W07', 'Jev unavailable or the developer goes offline', async ({ t, then, sandbox, evidence }) => {
   const down = await startJevStub(t, { scenario: 'http-529' });
-  const box = await sandbox();
+  // The subject is the engine meeting its deadline, so the sidecar keeps the product's exact budgets whatever scale the runner sets (test/budget-scale.mjs).
+  const box = await sandbox({ exactBudgets: true });
   const { jevrisPaths } = await load('platform');
   const paths = jevrisPaths({ home: box.home, env: box.env });
   const circuitFile = join(paths.state, 'jev-circuit.json');

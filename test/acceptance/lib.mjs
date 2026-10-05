@@ -33,6 +33,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 import { removeTree, windowsProcesses } from '../../scripts/remove-tree.mjs';
 import { withStubPath, writeHarnessStubs } from '../../scripts/test.mjs';
 import { managedHostSkip } from '../managed-host.mjs';
+import { budgetScaleOf, exactBudgets } from '../budget-scale.mjs';
 
 export const repoRoot = fileURLToPath(new URL('../..', import.meta.url));
 
@@ -97,6 +98,11 @@ function parseJson(text) {
  * A fresh sandbox: temporary home and git-marked workspace, the runner's environment minus any
  * Jevris or harness setting, and helpers that drive the product inside it. Cleaned up when the
  * test ends (the sidecar is stopped first).
+ *
+ * The runner's test budget scale (JEVRIS_TEST_BUDGET_SCALE, test/budget-scale.mjs) is kept, so the
+ * sandbox's sidecar and hooks run on the scaled budgets a slow runner needs. A story whose subject
+ * is a deadline passes `exactBudgets: true`: the sandbox then has no scale, and its sidecar, hook
+ * and CLI keep the product's exact budgets.
  */
 export async function sandbox(t, options = {}) {
   const target = product(options.root);
@@ -106,13 +112,15 @@ export async function sandbox(t, options = {}) {
   mkdirSync(home);
   mkdirSync(join(work, '.git'), { recursive: true });
   // The runner's JEVRIS_SIDECAR_WAIT_MS is kept: it acts only in a test run, and lets a loaded
-  // host's slower sidecar cold start (Windows) outlast the CLI's product wait.
-  const env = {};
+  // host's slower sidecar cold start (Windows) outlast the CLI's product wait. So is its
+  // JEVRIS_TEST_BUDGET_SCALE, unless the story pins its budgets (exactBudgets).
+  const kept = {};
   for (const [key, value] of Object.entries(process.env)) {
     if (typeof value !== 'string') continue;
-    if (/^(JEVRIS_|CLAUDE_|CODEX_|XDG_)/.test(key) && !/^JEVRIS_(TEST|NO_LIVE_HARNESS|HARNESS_STUB_DIR|STUB_LOG|SIDECAR_WAIT_MS)$/.test(key)) continue;
-    env[key] = value;
+    if (/^(JEVRIS_|CLAUDE_|CODEX_|XDG_)/.test(key) && !/^JEVRIS_(TEST|NO_LIVE_HARNESS|HARNESS_STUB_DIR|STUB_LOG|SIDECAR_WAIT_MS|TEST_BUDGET_SCALE)$/.test(key)) continue;
+    kept[key] = value;
   }
+  const env = options.exactBudgets === true ? exactBudgets(kept) : kept;
   // Defence in depth: scripts/test.mjs already puts its harness stubs first on PATH; a story run
   // any other way (node --test <file>) gets its own, so no real claude, codex, kilo, opencode or
   // agy can start. The product also refuses a login probe outside the real home.
@@ -151,9 +159,12 @@ export async function sandbox(t, options = {}) {
       return { ...out, json: json ? parseJson(out.stdout) : null };
     },
     /** Runs the hook launcher for one harness with a native event on stdin. */
-    hook(harness, native, { event, extraEnv = {}, timeoutMs = 20_000 } = {}) {
+    hook(harness, native, { event, extraEnv = {}, timeoutMs } = {}) {
       const args = ['--harness', harness, ...(event !== undefined ? ['--event', event] : [])];
-      const out = run(target.hook, args, { env: { ...env, JEVRIS_HOOK_DEBUG: '1', ...extraEnv }, cwd: work, input: typeof native === 'string' ? native : JSON.stringify(native), timeoutMs });
+      const hookEnv = { ...env, JEVRIS_HOOK_DEBUG: '1', ...extraEnv };
+      // The process may run up to the hook's own deadline (4 s at most, times the runner's budget scale), so its bound grows with the scale.
+      const bound = timeoutMs ?? 20_000 + 4000 * (budgetScaleOf(hookEnv) - 1);
+      const out = run(target.hook, args, { env: hookEnv, cwd: work, input: typeof native === 'string' ? native : JSON.stringify(native), timeoutMs: bound });
       const reason = /jevris-hook \S+ (\S+)/.exec(out.stderr)?.[1] ?? null;
       return { ...out, reason };
     },

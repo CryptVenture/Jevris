@@ -14,7 +14,7 @@
  * observation. `JEVRIS_HOOK_OBSERVE_ONLY=1` forces observation.
  */
 import { sessionAccessOf } from './session-access.js';
-import { HARNESS_INPUT_CAP, HookOutcomeContract, RouteTurnPayloadContract, stillRunningText, type HarnessIntent, type HookOutcome, type LauncherName, type NormalizeContext, type NormalizeResult, type NormalizedHarnessEvent } from '@jevris/contracts';
+import { HARNESS_INPUT_CAP, HookOutcomeContract, RouteTurnPayloadContract, stillRunningText, testScaledMs, type HarnessIntent, type HookOutcome, type LauncherName, type NormalizeContext, type NormalizeResult, type NormalizedHarnessEvent } from '@jevris/contracts';
 
 export interface HarnessAdapter {
   normalize(native: unknown, context?: NormalizeContext): NormalizeResult;
@@ -266,11 +266,17 @@ export function parseLauncherArgs(argv: readonly string[]): LauncherArgs | null 
   return { harness: harness as LauncherName, event: event ?? null };
 }
 
-/** The hard deadline, from JEVRIS_HOOK_DEADLINE_MS clamped to 100..4000 ms. */
+/**
+ * The hard deadline, from JEVRIS_HOOK_DEADLINE_MS clamped to 100..4000 ms. A test run (JEVRIS_TEST=1
+ * with JEVRIS_TEST_BUDGET_SCALE) multiplies the clamped value, so a runner that stalls for seconds
+ * does not end a hook the sidecar would have answered; the sidecar's budgets scale with it, and
+ * its answer still comes before this deadline (testBudgetScale in contracts). Outside a test run
+ * the scale is 1.
+ */
 export function deadlineMs(env: { readonly [key: string]: string | undefined }): number {
   const raw = env['JEVRIS_HOOK_DEADLINE_MS'];
   const parsed = typeof raw === 'string' && /^\d{1,6}$/.test(raw) ? Number(raw) : DEFAULT_DEADLINE_MS;
-  return Math.min(MAX_DEADLINE_MS, Math.max(MIN_DEADLINE_MS, parsed));
+  return testScaledMs(Math.min(MAX_DEADLINE_MS, Math.max(MIN_DEADLINE_MS, parsed)), env);
 }
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
