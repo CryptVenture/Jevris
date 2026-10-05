@@ -544,6 +544,14 @@ function routeSliceWaitMs(budgetMs: number, remainingMs: number): number {
 const ROUTE_SLICE_MIN_WAIT_MS = 150;
 
 /**
+ * How long past the wait the engine lets an abandoned classification run, so a late answer still warms the cache (the
+ * default of every other abandon path). The engine's clock starts before its journal and budget writes, which can take
+ * longer than the wait on a slow disk; with a deadline equal to the wait the engine ended the call at its own deadline
+ * before the request had left, and the route could never warm the cache on such a host.
+ */
+const ROUTE_SLICE_LATE_GRACE_MS = 1_000;
+
+/**
  * The reason a route's slice is not asked of Jev, or null when it may be. Gates come first and the clock last: with
  * `jev.assist` off, a mode below `observe` or the kill switch stopped the answer is that gate however slow the
  * machine is (a person with assist off must never be told "deadline"); only then does too little time count.
@@ -560,7 +568,8 @@ async function classifyRouteSlice(ctx: SidecarOpContext, hints: SliceTaskHints):
   const mode = ctx.mode ?? 'observe';
   const gate = routeSliceGate(ctx);
   const waitMs = routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs());
-  const intent: IntentContext = { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: Math.max(1, waitMs) };
+  // The engine's own deadline outlives the route's wait by the grace; the route itself stops waiting at `waitMs` (below).
+  const intent: IntentContext = { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: Math.max(1, waitMs + ROUTE_SLICE_LATE_GRACE_MS) };
   const engine = engineOf(ctx);
   // A gate that applies is the answer's reason, so Jev is not asked and the classifier says why (`skipAsk`). The
   // advisory record is still written when the mode and the kill switch allow it, but never waited for past the wait.

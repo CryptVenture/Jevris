@@ -1634,14 +1634,30 @@ test('a restore waits for its own session\'s capsule write, which ran past its d
   });
 });
 
+/** Waits for a state, with a generous bound; the wait ends as soon as it holds. */
+async function untilState(condition, what) {
+  const stop = performance.now() + 30_000;
+  while (!condition() && performance.now() < stop) await new Promise((resolve) => setTimeout(resolve, 10));
+  assert.equal(condition(), true, `${what} held before the generous bound`);
+}
+
 test('a later tool event of a session with work still running queues behind it, in order (K2)', { skip: managedHostSkip() }, async () => {
+  // The first event's work is held by a gate the test opens after the second event was answered, so "still running" is a state
+  // the test makes, not a race against this machine's speed (CI run 37256110597, macOS: a 300 ms sleep was over before the
+  // loaded runner sent the second event, and the second ran at once instead of queueing).
   const order = [];
+  let firstStarted = false;
+  let open;
+  const gate = new Promise((resolve) => (open = resolve));
   const subscribers = [
     {
       name: 'orc',
       handle: async (ctx) => {
         const n = ctx.body.envelope.payload.n;
-        if (n === 1) await new Promise((resolve) => setTimeout(resolve, 300));
+        if (n === 1) {
+          firstStarted = true;
+          await gate;
+        }
         order.push(n);
         return { hookOutcome: { kind: 'observe' } };
       },
@@ -1651,12 +1667,19 @@ test('a later tool event of a session with work still running queues behind it, 
     const root = join(home, 'ws');
     mkdirSync(root);
     const send = (n) => sidecarRequest({ home, op: 'event', scope: 'hook', workspace: root, timeoutMs: 30_000, budget: 'hot', body: { deliveryKey: `k-order-${n}`, envelope: { schemaVersion: '1.0', harness: 'claude', nativeEventName: 'PostToolUse', kind: 'tool.finished', sessionId: 's1', model: null, payload: { n }, dedupKey: `order-${n}` } } });
-    const first = await send(1);
-    assert.deepEqual(first.result.results.orc, { queued: true });
-    const second = await send(2);
-    assert.deepEqual(second.result.results.orc, { queued: true }, 'it waits behind the first');
-    for (let i = 0; i < 1_500 && order.length < 2; i += 1) await new Promise((resolve) => setTimeout(resolve, 20));
-    assert.deepEqual(order, [1, 2]);
+    try {
+      const first = await send(1);
+      assert.deepEqual(first.result.results.orc, { queued: true });
+      await untilState(() => firstStarted, 'the first event\'s work started');
+      const second = await send(2);
+      assert.deepEqual(second.result.results.orc, { queued: true }, 'it waits behind the first');
+      assert.deepEqual(order, [], 'the first is held and the second has not run ahead of it');
+      open();
+      await untilState(() => order.length === 2, 'both events\' work finished');
+      assert.deepEqual(order, [1, 2]);
+    } finally {
+      open();
+    }
     void daemon;
   });
 });

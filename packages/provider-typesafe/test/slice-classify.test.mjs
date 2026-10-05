@@ -302,6 +302,30 @@ test('route op: the Jev wait comes from the op\'s own budget and the time the cl
   assert.equal(requests.length, 1);
 });
 
+/** Waits for a state, with a generous bound; the wait ends as soon as it holds. */
+async function until(condition, what) {
+  const stop = performance.now() + 30_000;
+  while (!condition() && performance.now() < stop) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.equal(condition(), true, `${what} held before the generous bound`);
+}
+
+/**
+ * Every `decide` the engine receives is seen first: `deadlineMs` is the call's own deadline (the spec's) and `give` may replace
+ * the engine's clock for it. The engine's clock starts before its journal and budget writes, so on a host whose disk stalls for
+ * seconds a call can be ended at its own deadline before the request has left: that is a slow disk, not a budget, and a test
+ * about something else gives the call a deadline no stall can use up (the 60 s of its sibling tests).
+ */
+function watchDecide(engine, { give = null } = {}) {
+  const seen = [];
+  const original = engine.decide.bind(engine);
+  engine.decide = (request, options) => {
+    seen.push({ deadlineMs: request.spec.deadlineMs });
+    return original(request, give === null ? options : { ...options, deadline: give });
+  };
+  return seen;
+}
+const LONG_ENGINE_DEADLINE = { remainingMs: () => 60_000, expired: () => false };
+
 test('route op: a Jev that does not answer is abandoned at the wait (700 ms of the 900 ms hot budget) and the route answers with the rules slice', async (t) => {
   // The one test of the real wait: the hot budget of 900 ms, the call held by the test and released only after the route
   // has answered. It says what happened (the route returned while Jev had not answered), not how long it took.
@@ -310,16 +334,31 @@ test('route op: a Jev that does not answer is abandoned at the wait (700 ms of t
     release = resolve;
   });
   const { home, engine, requests, answered } = await setup(t, JEV_FIX, { hold });
+  watchDecide(engine, { give: LONG_ENGINE_DEADLINE });
   try {
     const out = await route(home, { currentModel: 'claude-opus-5', task: SOURCE_TASK }, engine, { deadline: fixedDeadline(900) });
-    assert.equal(requests.length, 1, 'Jev was asked');
-    assert.equal(answered(), 0, 'and had not answered when the route returned');
+    assert.equal(answered(), 0, 'Jev had not answered when the route returned');
     assert.equal(out.slice.source, 'rules');
     assert.equal(out.slice.sliceId, 'bounded-edit');
     assert.match(out.slice.reasonCode, /^SLICE_(JEV_)?DEADLINE$/);
+    // The request leaves after the engine's journal and budget writes, which on a slow disk take longer than the route's wait
+    // (CI run 37256110597, Windows): the route returned first, so "Jev was asked" is a state to wait for, not a fact at the return.
+    await until(() => requests.length === 1, 'Jev was asked');
+    assert.equal(answered(), 0, 'and it still had not answered: the test holds it');
   } finally {
     release();
   }
+});
+
+test('route op: the engine\'s own deadline for the classification outlives the route\'s wait by the late grace, so an abandoned call is still sent and still warms the cache', async (t) => {
+  // The abandon paths of the live advisers give the engine the wait plus a 1 s grace. The route's wait of 700 ms (900 less 200)
+  // was the engine's whole deadline too, so on a host whose journal and budget writes took longer the engine ended the call
+  // at its own deadline before the request had left, and the late answer never reached the cache.
+  const { home, engine } = await setup(t, JEV_FIX);
+  const seen = watchDecide(engine);
+  await route(home, { currentModel: 'claude-opus-5', task: SOURCE_TASK }, engine, { deadline: fixedDeadline(900) });
+  await until(() => seen.length === 1, 'the classification reached the engine');
+  assert.equal(seen[0].deadlineMs, 700 + 1000, 'the wait (700 ms) plus the 1 s grace of the other abandon paths');
 });
 
 test('explain shows the classification: what was asked, what answered, the rules alternative and the evidence', async (t) => {
