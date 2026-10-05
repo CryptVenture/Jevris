@@ -10,6 +10,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sandbox } from '../../../test/acceptance/lib.mjs';
+import { untilShown, warmHooks } from '../../../test/acceptance/hook-settled.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
 
 const { runLauncher } = await import('../dist/launcher.js');
@@ -192,15 +193,20 @@ test('through a real sidecar: two identical failed tool calls with a multi-line 
       assert.deepEqual(linesOf(out), []);
     }
   };
-  const invocation = (conversationId) => box.hook('agy', inWorkspace(box, { ...base, conversationId, invocationNum: (step += 1), initialNumSteps: 10 }), { ...SLOW, event: 'PreInvocation' });
+  const invocation = (conversationId) => inWorkspace(box, { ...base, conversationId, invocationNum: (step += 1), initialNumSteps: 10 });
+  const pre = { ...SLOW, event: 'PreInvocation' };
+  // The sidecar defers a subscriber that was slow on the event before (a cold first event on a slow host), and a deferred
+  // answer shows and takes nothing: warm it first, and take the first invocation that was not deferred (test/acceptance/hook-settled.mjs).
+  warmHooks(box, 'agy', () => invocation(`warm-${process.pid}-${(step += 1)}`), pre);
+  const shows = (hook) => linesOf(hook).some((line) => RULES.test(line));
 
   const multiline = `conv-multi-${process.pid}`;
   failTwice(multiline, `npm run multiline-${process.pid}`, TEXTS['colour codes']);
-  const shown = linesOf(invocation(multiline));
-  assert.equal(shown.filter((line) => RULES.test(line)).length, 1, `the line is the ephemeral message before the next invocation: ${JSON.stringify(shown)}`);
-  assert.deepEqual(linesOf(invocation(multiline)), [], 'once');
+  const shown = untilShown(box, 'agy', () => invocation(multiline), shows, pre);
+  assert.equal(linesOf(shown.hook).filter((line) => RULES.test(line)).length, 1, `the line is the ephemeral message before the next invocation: ${shown.hook.stdout}`);
+  assert.deepEqual(linesOf(box.hook('agy', invocation(multiline), pre)), [], 'once');
 
   const huge = `conv-huge-${process.pid}`;
   failTwice(huge, `npm run huge-${process.pid}`, `exit status 1\n${'  at step (/w/src/a.js:3:9)\n'.repeat(40_000)}`);
-  assert.equal(linesOf(invocation(huge)).filter((line) => RULES.test(line)).length, 1, 'a 1 MB error is the same failure twice');
+  assert.equal(linesOf(untilShown(box, 'agy', () => invocation(huge), shows, pre).hook).filter((line) => RULES.test(line)).length, 1, 'a 1 MB error is the same failure twice');
 });

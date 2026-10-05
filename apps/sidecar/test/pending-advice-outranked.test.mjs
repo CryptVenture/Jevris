@@ -15,6 +15,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { sandbox } from '../../../test/acceptance/lib.mjs';
 import { certifyHooks } from '../../../test/acceptance/certified-hooks.mjs';
+import { untilShown, warmHooks } from '../../../test/acceptance/hook-settled.mjs';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
 
 const VERSION = '7.8.1';
@@ -40,12 +41,16 @@ function linesOf(hook) {
 }
 
 const SLOW = { extraEnv: { JEVRIS_HOOK_DEADLINE_MS: '4000' } };
+const named = (hook) => `${hook.reason}: ${hook.stdout.trim().slice(0, 200) || '(empty)'}`;
+/** Warms the sidecar's subscribers on throwaway sessions (see test/acceptance/hook-settled.mjs): a cold first event can get the next one deferred. */
+const warm = (box, launcher) => warmHooks(box, launcher, () => plugin.chat(`warm-${uid()}`, 'warming the sidecar up before the test reads anything'), SLOW);
 
 for (const [launcher, harness] of [['kilo', 'kilocode'], ['opencode', 'opencode']]) {
   test(`${launcher}: a repeated-failure line that lost its message to the orientation context is shown at the next message, once`, { timeout: 120_000, skip: managedHostSkip() }, async (t) => {
     const box = await sandbox(t);
     assert.equal(box.startSidecar().code, 0, 'the sidecar did not start');
     await certifyHooks(box, { harness, version: VERSION });
+    warm(box, launcher);
     const send = (native) => box.hook(launcher, native, SLOW);
     const sid = `ctx-${launcher}-${uid()}`;
     const command = `npm run held-${uid()}`;
@@ -55,22 +60,25 @@ for (const [launcher, harness] of [['kilo', 'kilocode'], ['opencode', 'opencode'
     // A new session's orientation is held for its first message, where it will be the context.
     assert.deepEqual(linesOf(send(plugin.sessionCreated(sid))), []);
 
-    const first = linesOf(send(plugin.chat(sid, 'where are we with this work now')));
-    assert.equal(first.length, 1, `the first message shows the context alone: ${JSON.stringify(first)}`);
+    const firstHook = send(plugin.chat(sid, 'where are we with this work now'));
+    const first = linesOf(firstHook);
+    assert.equal(first.length, 1, `the first message shows the context alone: ${named(firstHook)}`);
     assert.match(first[0], ORIENTATION, 'a certified context outranks the explain');
 
-    // The line the context outranked was not shown, so it is still held: the next message shows it.
-    const messageId = `msg_${uid()}`;
-    const second = send(plugin.chat(sid, 'and what about the next step here', messageId));
-    assert.deepEqual(linesOf(second).filter((line) => FAILURE_LINE.test(line)).length, 1, `the line is shown at the next message: ${second.stdout}`);
-    assert.doesNotMatch(second.stdout, /Jevris is on here/, 'the orientation was sent once');
+    // The line the context outranked was not shown, so it is still held: the next message shows it. A message the sidecar deferred
+    // (a slow host) shows nothing and takes nothing, so the first one that is answered is the one.
+    const shown = untilShown(box, launcher, (n) => plugin.chat(sid, `and what about the next step here ${n}`), (hook) => linesOf(hook).some((line) => FAILURE_LINE.test(line)), SLOW);
+    assert.equal(linesOf(shown.hook).filter((line) => FAILURE_LINE.test(line)).length, 1, `the line is shown at the next message: ${named(shown.hook)}`);
+    assert.doesNotMatch(shown.hook.stdout, /Jevris is on here/, 'the orientation was sent once');
 
     // A line shown once is not shown again, by a later message or by a redelivery of the message that showed it.
-    assert.deepEqual(linesOf(send(plugin.chat(sid, 'one more thing about this'))), [], 'shown once');
-    const replay = send(plugin.chat(sid, 'and what about the next step here', messageId));
+    const later = send(plugin.chat(sid, 'one more thing about this'));
+    assert.deepEqual(linesOf(later), [], `shown once: ${named(later)}`);
+    const replay = box.hook(launcher, shown.native, SLOW);
     assert.equal(replay.reason, 'DUPLICATE_REPLAYED', replay.stderr);
-    assert.deepEqual(linesOf(replay).filter((line) => FAILURE_LINE.test(line)).length, 1, 'a redelivery gets the answer the first delivery got');
-    assert.deepEqual(linesOf(send(plugin.chat(sid, 'a last message here'))), [], 'and the redelivery took nothing again');
+    assert.equal(linesOf(replay).filter((line) => FAILURE_LINE.test(line)).length, 1, 'a redelivery gets the answer the first delivery got');
+    const last = send(plugin.chat(sid, 'a last message here'));
+    assert.deepEqual(linesOf(last), [], `and the redelivery took nothing again: ${named(last)}`);
   });
 }
 
@@ -78,6 +86,7 @@ test('kilo: the waiting line and the orchestrator\'s own loop advice both wait o
   const box = await sandbox(t);
   assert.equal(box.startSidecar().code, 0, 'the sidecar did not start');
   await certifyHooks(box, { harness: 'kilocode', version: VERSION });
+  warm(box, 'kilo');
   const send = (native) => box.hook('kilo', native, SLOW);
   const sid = `two-${uid()}`;
   const command = `npm run two-lines-${uid()}`;
@@ -85,12 +94,15 @@ test('kilo: the waiting line and the orchestrator\'s own loop advice both wait o
   for (let i = 0; i < 4; i += 1) assert.deepEqual(linesOf(send(plugin.bashFailure(sid, command))), []);
   assert.deepEqual(linesOf(send(plugin.sessionCreated(sid))), []);
 
-  const first = linesOf(send(plugin.chat(sid, 'where are we with this work now')));
-  assert.deepEqual(first.filter((line) => !ORIENTATION.test(line)), [], `the first message shows the context alone: ${JSON.stringify(first)}`);
+  const firstHook = send(plugin.chat(sid, 'where are we with this work now'));
+  const first = linesOf(firstHook);
+  assert.deepEqual(first.filter((line) => !ORIENTATION.test(line)), [], `the first message shows the context alone: ${named(firstHook)}`);
 
-  const second = linesOf(send(plugin.chat(sid, 'and what about the next step here')));
-  assert.equal(second.length, 2, `both lines come at the next message: ${JSON.stringify(second)}`);
+  const shown = untilShown(box, 'kilo', (n) => plugin.chat(sid, `and what about the next step here ${n}`), (hook) => linesOf(hook).length > 0, SLOW);
+  const second = linesOf(shown.hook);
+  assert.equal(second.length, 2, `both lines come at the next message: ${named(shown.hook)}`);
   assert.match(second[0], /^Jevris: this failure has come back \d+ times/, 'the decision engine\'s line first');
   assert.doesNotMatch(second[1], /come back/, 'then the orchestrator\'s');
-  assert.deepEqual(linesOf(send(plugin.chat(sid, 'one more thing about this'))), [], 'each is shown once');
+  const later = send(plugin.chat(sid, 'one more thing about this'));
+  assert.deepEqual(linesOf(later), [], `each is shown once: ${named(later)}`);
 });
