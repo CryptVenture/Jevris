@@ -780,6 +780,21 @@ async function awaitServiceStart(ports: ReturnType<typeof sidecarPorts>, home: s
 const SERVICE_FIX = 'Run `jevris service status` to see why, and `jevris service install` to register it again.';
 
 /**
+ * What `sidecar restart` of a service-run sidecar prints when the service manager did not pass `serviceReady`, or undefined when it did (JEV-0073).
+ * A sidecar that is alive but silent, with a unit installed for this home, is the service's: it gets start's refusal (the pid, nothing stopped).
+ * `unitInstalled` is the unit file read from disk (`serviceInstalledFor`), not what the manager answered: launchd and systemd are asked about a unit
+ * that is on disk, so a manager that cannot be reached answers `unknown`, but Task Scheduler is asked only whether the task exists, so on Windows the
+ * same failure answers `not-installed`, as a task that was never registered does. With no unit for this home the sidecar is not the service's, and
+ * the answer says the service could not be reached.
+ */
+export function restartManagerRefusal(ready: { readonly ok: boolean; readonly manager: string; readonly message: string } | undefined, silentPid: number | undefined, unitInstalled: boolean): string | undefined {
+  if (ready !== undefined && ready.ok) return undefined;
+  if (silentPid !== undefined && ready !== undefined && unitInstalled) return silentServiceRefusal(ready.manager, false, silentPid, 'restart');
+  const why = ready?.message ?? 'There is no service manager on this platform.';
+  return `sidecar restart refused (SERVICE_UNREACHABLE): the sidecar runs under a service manager and it could not be reached. ${why} Nothing was stopped. ${SERVICE_FIX}\n`;
+}
+
+/**
  * The refusal for a service-run sidecar that is alive but does not answer (F3-04): the one sentence and code a hook, a command and an MCP call
  * carry, for `sidecar start` and `sidecar restart` alike (JEV-0073). A restart says nothing was stopped.
  */
@@ -817,13 +832,9 @@ async function sidecarLifecycle(sub: 'stop' | 'restart' | 'start', parsed: Parse
     // Check the manager before anything is stopped: a refusal leaves the running sidecar alone.
     const { input, exec } = service();
     const ready = managerPossible ? sidecar.serviceReady(input, exec) : undefined;
-    if (ready === undefined || !ready.ok) {
-      if (silentPid !== undefined && ready !== undefined && ready.state === 'unknown') {
-        out(write, silentServiceRefusal(ready.manager, false, silentPid, 'restart'));
-        return 1;
-      }
-      const why = ready?.message ?? 'There is no service manager on this platform.';
-      out(write, `sidecar restart refused (SERVICE_UNREACHABLE): the sidecar runs under a service manager and it could not be reached. ${why} Nothing was stopped. ${SERVICE_FIX}\n`);
+    const refusal = restartManagerRefusal(ready, silentPid, silentPid !== undefined && sidecar.serviceInstalledFor(home));
+    if (refusal !== undefined) {
+      out(write, refusal);
       return 1;
     }
     // A sidecar that does not answer cannot be asked to stop, so the stop would be a signal that its shutdown guard never sees (a verification

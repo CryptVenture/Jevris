@@ -8,6 +8,12 @@
 // socket nobody listens on, read by the product's own probe, and the product's own stop (a real signal to a real pid). The service manager is a stand-in
 // in each state: it refuses the start, it cannot be reached, or it accepts the start and brings nothing up. HOME points at a temporary folder (the unit file
 // lands there, never in the real home) and no sidecar is started.
+//
+// Windows differs from launchd and systemd in what "the manager cannot be reached" looks like: the product asks Task Scheduler only whether the task
+// exists (`schtasks /Query`), so a manager that cannot be reached answers `not-installed`, where launchd and systemd answer `unknown` for a unit that is
+// on disk. The first CI run of this file failed on every Windows cell because the restart read `unknown` as the only sign of an unreachable manager.
+// The test of that difference runs the product's own `serviceReady` for each of the three platforms with the platform and the manager's answers injected,
+// so it holds on every host; the rest runs on this host's own manager commands.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn } from 'node:child_process';
@@ -16,7 +22,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { managedHostSkip } from '../../../test/managed-host.mjs';
 
-const { runRuntimeCommand } = await import('../dist/runtime-commands.js');
+const { restartManagerRefusal, runRuntimeCommand } = await import('../dist/runtime-commands.js');
 const sidecar = await import('@jevris/sidecar');
 
 const SUPPORTED = ['darwin', 'linux', 'win32'].includes(process.platform);
@@ -121,6 +127,11 @@ async function installUnit(home) {
 }
 
 const starts = (events) => events.filter((event) => event.startsWith('exec ') && isStart(event.slice(5).split(' '))).length;
+/** The service input of the product for another platform (its own paths under a temporary account), and what its manager answers. */
+const inputFor = (dir, platform) =>
+  sidecar.serviceInputForHome({ home: join(dir, `home-${platform}`), command: [join(dir, 'sidecar-entry.js')], platform, osHome: join(dir, `account-${platform}`), env: {} });
+const answeringExec = (platform, input) => (_file, args) => (platform === 'win32' && args[0] === '/Query' && args.includes('/XML') ? { status: 0, stdout: sidecar.planService(input).unitText, stderr: '' } : { status: 0, stdout: '', stderr: '' });
+const unreachableExec = () => ({ status: 1, stdout: '', stderr: 'unreachable' });
 const SENTENCE = (code, pid) => new RegExp(`\\(${code}\\), and the sidecar the service runs \\(pid ${String(pid)}\\) is alive but did not answer, so no second sidecar was started\\.`);
 
 for (const [manager, code] of [['refuses', 'SERVICE_START_REFUSED'], ['down', 'SERVICE_UNREACHABLE']]) {
@@ -206,5 +217,57 @@ test('the sidecar that answers is unchanged: a restart of an answering supervise
     assert.match(result.text, /sidecar: running \(restarted by /);
     const order = events.filter((event) => event === 'stop' || (event.startsWith('exec ') && isStart(event.slice(5).split(' '))));
     assert.deepEqual(order.map((event) => (event === 'stop' ? 'stop' : 'start')), ['stop', 'start'], `an answering sidecar is stopped first and the manager is asked once: ${events.join(' | ')}`);
+  });
+});
+
+test('the manager that cannot be reached reads differently on each platform, and the restart refuses on all three when a unit is installed for the home (Windows reads not-installed, JEV-0073)', async () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'jvr-silp-')));
+  try {
+    const pid = 4242;
+    const unreachable = {};
+    for (const platform of ['darwin', 'linux', 'win32']) {
+      const input = inputFor(dir, platform);
+      // No unit for this home: the manager's answer is not-installed on every platform, and a silent sidecar is not the service's.
+      const none = sidecar.serviceReady(input, unreachableExec);
+      assert.deepEqual([none.ok, none.state], [false, 'not-installed'], platform);
+      assert.equal(sidecar.serviceUnitState(input), 'not-installed', platform);
+      const noUnit = restartManagerRefusal(none, pid, false);
+      assert.match(noUnit, /^sidecar restart refused \(SERVICE_UNREACHABLE\)/, platform);
+      assert.match(noUnit, /Nothing was stopped\./, platform);
+      assert.equal(noUnit.includes('is alive but did not answer'), false, `${platform}: no unit for the home, so a silent sidecar does not read as the service's`);
+      // The unit is registered (the product's own install writes it), and then the manager cannot be reached.
+      assert.equal(sidecar.installService(input, answeringExec(platform, input)).ok, true, platform);
+      assert.equal(sidecar.serviceUnitState(input), 'installed', platform);
+      assert.deepEqual(restartManagerRefusal(sidecar.serviceReady(input, answeringExec(platform, input)), pid, true), undefined, `${platform}: a manager that answers is not a refusal`);
+      const down = sidecar.serviceReady(input, unreachableExec);
+      assert.equal(down.ok, false, platform);
+      unreachable[platform] = down.state;
+      const refusal = restartManagerRefusal(down, pid, sidecar.serviceUnitState(input) === 'installed');
+      assert.match(refusal, SENTENCE('SERVICE_UNREACHABLE', pid), `${platform}: ${refusal}`);
+      assert.match(refusal, /Nothing was stopped\./, platform);
+      assert.match(refusal, /`jevris service status`, then `jevris sidecar restart`/, platform);
+      // The same sentence `start` gives, apart from what a restart adds.
+      assert.equal(refusal.replace(' Nothing was stopped.', ''), restartManagerRefusal(down, pid, true).replace(' Nothing was stopped.', ''), platform);
+      // A sidecar that is not alive-and-silent (no pid) is judged as before, even with the unit installed.
+      assert.match(restartManagerRefusal(down, undefined, true), /^sidecar restart refused \(SERVICE_UNREACHABLE\)/, platform);
+    }
+    assert.deepEqual(unreachable, { darwin: 'unknown', linux: 'unknown', win32: 'not-installed' }, 'launchd and systemd are asked about a unit on disk; Task Scheduler only whether the task exists');
+    assert.equal(restartManagerRefusal(undefined, 4242, true).includes('There is no service manager on this platform.'), true, 'no service manager on the platform');
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('no unit for this home: a silent supervised endpoint is not the service\'s, so restart says the service could not be reached and stops nothing, and does not name the sidecar as the service\'s', SKIP, async () => {
+  await withScene(async ({ home, silentSidecar }) => {
+    const pid = await silentSidecar();
+    const s = stage('', 'down');
+    const result = await run(['sidecar', 'restart', '--home', home, '--wait-ms', '60000'], s.hooks);
+    assert.equal(result.code, 1, result.text);
+    assert.match(result.text, /^sidecar restart refused \(SERVICE_UNREACHABLE\)/);
+    assert.match(result.text, /Nothing was stopped\./);
+    assert.equal(result.text.includes('is alive but did not answer'), false, result.text);
+    assert.equal(alive(pid), true, 'the sidecar was signalled');
+    assert.ok(!s.events.includes('ensure'));
   });
 });
