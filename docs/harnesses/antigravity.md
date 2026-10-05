@@ -173,7 +173,12 @@ The hooks only observe:
   invocation (at most the four newest, for up to an hour), once.
 - A PostToolUse that carries an `error` gives the content-free failure record behind
   repeated-failure advice (closed codes and one-way digests that stay on this machine, never the
-  error text, the command or a path). PostToolUse shows nothing, so when the same failure comes
+  error text, the command or a path). The error is free text: several lines, Windows line ends,
+  colour codes and any length are all a failure (the hook cuts a string that would not fit its input
+  limit, and the failure rules read the first 20,000 characters, with spacing, paths, hex ids and
+  numbers folded, so the same failure with other line numbers is the same failure), and only its first
+  line is kept as evidence. An `error` that is empty, blank or not text means the call did not fail.
+  PostToolUse shows nothing, so when the same failure comes
   back the one advice line (which evidence would help most next, or that the repair attempts are
   used up) is held for the session and sent as the ephemeral message before the next invocation,
   once. The ephemeral message is part of the model's input, so the model reads the line. Until

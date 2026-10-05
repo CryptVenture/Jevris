@@ -190,7 +190,7 @@ up) waits for your next message and is added to that turn's system prompt, once.
 reads the `chat.message` text of the first message of a session, only with source egress approved. Its answer comes after the turn
 has started, so it is shown with your next message. Both are advice only: they never block a message or a tool call and rewrite nothing (see
 [settings.md](../settings.md#jev-assist)). Unlike a Claude Code or Codex `systemMessage`, the line is added to the system prompt, so the model reads it. A line that
-has to wait is kept in the sidecar's memory for up to 10 minutes, never on disk, and is dropped if it is not shown in that time or the sidecar restarts. Only the first
+has to wait is kept in the sidecar's memory for up to 10 minutes, never on disk, and is dropped if it is not shown in that time or the sidecar restarts. A message that carries the new session's orientation line shows that line alone; a waiting line it outranked is not taken, and comes with the next message. Only the first
 message of a session is read for new-task advice, so a first message of fewer than 4 words (`NEW_TASK_TOO_SHORT`) uses up the session's one chance.
 
 A `session.compacted` event carries no summary, so there is no compaction omission check (C20) here. A session saves its capsule with `jevris_checkpoint`, which also gives compaction-readiness advice (C19) when it is told how full the context is.
