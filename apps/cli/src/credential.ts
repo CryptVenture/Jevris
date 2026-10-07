@@ -35,6 +35,8 @@ export interface RulesOnlyCredential {
   readonly diagnostic: string;
   /** Why an opted-in credential source was refused (GOV-07). A reason code only, never content. */
   readonly refused?: OptInRefusal;
+  /** Why the OS keystore could not be used, when it threw. A closed code only, never the binding's message. */
+  readonly keystoreFailure?: KeystoreFailureCode;
 }
 
 export type ResolvedProviderCredential = ExplicitClientFields | RulesOnlyCredential;
@@ -85,10 +87,11 @@ function missingDiagnostic(): string {
   return diagnostic.explanation;
 }
 
-function rulesOnly(): RulesOnlyCredential {
+function rulesOnly(keystoreFailure?: KeystoreFailureCode): RulesOnlyCredential {
   return {
     mode: 'rules-only',
     diagnostic: missingDiagnostic(),
+    ...(keystoreFailure !== undefined ? { keystoreFailure } : {}),
   };
 }
 
@@ -361,7 +364,12 @@ const REFUSAL_TEXT: Readonly<Record<OptInRefusal, string>> = {
   malformed: 'the file must hold one key on one line',
 };
 
-/** One plain line for doctor and the sidecar log. It names the rule, never the contents. */
+/** The rule an opt-in refusal broke, as a clause. Fixed text, never the contents. */
+export function optInRefusalClause(reason: OptInRefusal): string {
+  return REFUSAL_TEXT[reason];
+}
+
+/** One plain line for the sidecar log and `credential status`. It names the rule, never the contents. */
 export function optInRefusalText(reason: OptInRefusal): string {
   return `jevris: the opt-in credential source was refused: ${REFUSAL_TEXT[reason]}. Jevris continues rules-only.`;
 }
@@ -413,13 +421,15 @@ async function insideGitWorkTree(realFile: string): Promise<boolean> {
 }
 
 /**
- * Reads an opted-in source under the GOV-07 rules. The only place that opens the file.
- * The value is returned to the caller and never written anywhere.
+ * Applies the GOV-07 rules to an opted-in source, and reads it when `readContents` is set.
+ * The only place that opens the file. The value is returned to the caller and never written
+ * anywhere. With `readContents` off no key byte is read: the file is checked and left alone.
  */
-export async function readOptInCredential(
+async function openOptIn(
   source: OptInSource,
-  host?: OptInHost,
-): Promise<{ readonly secret: string } | { readonly refused: OptInRefusal }> {
+  host: OptInHost | undefined,
+  readContents: boolean,
+): Promise<{ readonly secret: string | undefined } | { readonly refused: OptInRefusal }> {
   const platform = host?.platform ?? process.platform;
   if (platform === 'win32') return { refused: 'unsupported-platform' };
   const uid = currentUid(host);
@@ -464,6 +474,7 @@ export async function readOptInCredential(
     if (opened.uid !== uid) return { refused: 'not-owner' };
     if ((opened.mode & 0o077) !== 0) return { refused: 'group-or-world-access' };
     if (opened.size > STDIN_CAP) return { refused: 'too-large' };
+    if (!readContents) return { secret: undefined };
     const buffer = new Uint8Array(STDIN_CAP + 1);
     let total = 0;
     while (total < buffer.byteLength) {
@@ -483,14 +494,39 @@ export async function readOptInCredential(
   }
 }
 
-async function fromOptIn(options: ResolveCredentialOptions | undefined): Promise<ResolvedProviderCredential | undefined> {
+/** Reads an opted-in source under the GOV-07 rules. The value is returned and never written anywhere. */
+export async function readOptInCredential(
+  source: OptInSource,
+  host?: OptInHost,
+): Promise<{ readonly secret: string } | { readonly refused: OptInRefusal }> {
+  const result = await openOptIn(source, host, true);
+  if ('refused' in result) return result;
+  return result.secret === undefined ? { refused: 'malformed' } : { secret: result.secret };
+}
+
+/**
+ * Whether an opted-in source passes every GOV-07 rule that does not need its contents
+ * (type, owner, mode, folder, work tree, size). No key byte is read, so doctor can use it.
+ */
+export async function inspectOptInSource(
+  source: OptInSource,
+  host?: OptInHost,
+): Promise<{ readonly ok: true } | { readonly refused: OptInRefusal }> {
+  const result = await openOptIn(source, host, false);
+  return 'refused' in result ? result : { ok: true };
+}
+
+async function fromOptIn(
+  options: ResolveCredentialOptions | undefined,
+  keystoreFailure: KeystoreFailureCode | undefined,
+): Promise<ResolvedProviderCredential | undefined> {
   const env = options?.optInEnv;
   if (env === undefined) return undefined;
   const source = optInSourceOf(env);
   if (source === undefined) return undefined;
-  if ('refused' in source) return { ...rulesOnly(), refused: source.refused };
+  if ('refused' in source) return { ...rulesOnly(keystoreFailure), refused: source.refused };
   const read = await readOptInCredential(source, options?.optInHost);
-  if ('refused' in read) return { ...rulesOnly(), refused: read.refused };
+  if ('refused' in read) return { ...rulesOnly(keystoreFailure), refused: read.refused };
   options?.onSource?.(source.kind);
   return clientFields(read.secret);
 }
@@ -500,6 +536,7 @@ export async function resolveProviderCredential(
   options?: ResolveCredentialOptions,
 ): Promise<ResolvedProviderCredential> {
   let keystoreFailed = false;
+  let keystoreFailure: KeystoreFailureCode | undefined;
   try {
     const port = await open(HOST_SECRET_SERVICE, HOST_SECRET_ACCOUNT);
     const value = await port.get();
@@ -507,13 +544,14 @@ export async function resolveProviderCredential(
       options?.onSource?.('keychain');
       return clientFields(value);
     }
-  } catch {
+  } catch (error) {
     keystoreFailed = true;
+    keystoreFailure = keystoreFailureOf(error, options?.optInHost?.platform) ?? undefined;
   }
   // GOV-07: the keychain is the default; an explicit opt-in is read only when it has no key.
-  const optedIn = await fromOptIn(options);
+  const optedIn = await fromOptIn(options, keystoreFailure);
   if (optedIn !== undefined) return optedIn;
-  if (keystoreFailed) return rulesOnly();
+  if (keystoreFailed) return rulesOnly(keystoreFailure);
   const name = options?.installerEnvName;
   if (!installerAllowed(name)) return rulesOnly();
   const readEnv = options?.readEnv;
@@ -590,6 +628,192 @@ export class KeyringUnavailableError extends Error {
   constructor() {
     super('keyring-binding-unavailable');
   }
+}
+
+/**
+ * Why the OS keystore could not be used, from what the binding threw. Only a closed code is
+ * kept: the binding's own message can carry bus names and paths, so it is never printed,
+ * logged or stored. The classification reads the message to pick a code and then forgets it.
+ */
+export type KeystoreFailureCode = 'KEYSTORE_BINDING' | 'KEYSTORE_NO_SERVICE' | 'KEYSTORE_LOCKED' | 'KEYSTORE_FAILED';
+
+const LOCKED_MESSAGE = /locked|dismissed|denied|not allowed|cancel|user interaction|authori[sz]ation|permission/;
+const NO_SERVICE_MESSAGE = /dbus|d-bus|session bus|org\.freedesktop\.secrets|secret service/;
+
+export function keystoreFailureOf(error: unknown, platform: string = process.platform): KeystoreFailureCode | null {
+  // A test run blocks the keystore on purpose; that is not a failure of the machine.
+  if (error instanceof KeyringBlockedError) return null;
+  if (error instanceof KeyringUnavailableError) return 'KEYSTORE_BINDING';
+  const message = error instanceof Error ? error.message.toLowerCase() : '';
+  if (LOCKED_MESSAGE.test(message)) return 'KEYSTORE_LOCKED';
+  if (platform === 'linux' && NO_SERVICE_MESSAGE.test(message)) return 'KEYSTORE_NO_SERVICE';
+  return 'KEYSTORE_FAILED';
+}
+
+/** What went wrong, as a clause that fits after "jevris: ". Fixed text per code and OS. */
+export function keystoreFailureClause(code: KeystoreFailureCode, platform: string = process.platform): string {
+  switch (code) {
+    case 'KEYSTORE_BINDING':
+      return 'the OS keyring binding could not be loaded';
+    case 'KEYSTORE_NO_SERVICE':
+      return 'no Secret Service (GNOME Keyring or KWallet) is running for this session, so there is no OS keyring to hold a key';
+    case 'KEYSTORE_LOCKED':
+      return platform === 'darwin'
+        ? 'the login keychain is locked or access was denied'
+        : platform === 'win32'
+          ? 'Windows Credential Manager refused access'
+          : 'the Secret Service is locked or refused access';
+    case 'KEYSTORE_FAILED':
+      return platform === 'linux'
+        ? 'the Secret Service did not accept the request'
+        : platform === 'darwin'
+          ? 'the macOS Keychain did not accept the request'
+          : platform === 'win32'
+            ? 'Windows Credential Manager did not accept the request'
+            : 'the OS keystore did not accept the request';
+  }
+}
+
+/** The way out, in plain steps. On Linux it is the owner-only key file; elsewhere the keystore itself. */
+export function keystoreFailureRemedy(code: KeystoreFailureCode, platform: string = process.platform): readonly string[] {
+  if (platform === 'linux') {
+    return [
+      ...(code === 'KEYSTORE_LOCKED' ? ['Unlock the keyring in your login session and run the command again, or use a key file:'] : ['On a headless server, CI or WSL, use an owner-only key file instead:']),
+      '  1. save the key on one line in a file only you can read (mode 600, in a folder only you can write, outside any git work tree);',
+      '  2. name it where the sidecar starts: export JEVRIS_CREDENTIAL_FILE=/absolute/path/to/the/file (or JEVRIS_CREDENTIAL_SYSTEMD=<name> under systemd);',
+      '  3. run "jevris sidecar restart", then "jevris credential status". Jevris never searches for a key file, so the variable must name it.',
+    ];
+  }
+  if (platform === 'darwin') return ['Unlock the login keychain, run "jevris credential set" again and choose Allow.'];
+  if (platform === 'win32') return ['Credential Manager is per user: run Jevris as the user that runs your harness.'];
+  return ['Run "jevris doctor" for details.'];
+}
+
+/**
+ * Printed after "refused" when `credential set` could not store the key. When a key source is
+ * already named in this environment it points at `credential status` instead of the setup steps.
+ */
+export function credentialSetRefusalLines(
+  code: KeystoreFailureCode,
+  platform: string = process.platform,
+  optInConfigured = false,
+): readonly string[] {
+  const first = `jevris: the key was not stored: ${keystoreFailureClause(code, platform)} (${code}).`;
+  if (optInConfigured) {
+    return [first, 'A key source is already named by JEVRIS_CREDENTIAL_FILE or JEVRIS_CREDENTIAL_SYSTEMD in this environment: run "jevris credential status" to see whether it is used.'];
+  }
+  return [first, ...keystoreFailureRemedy(code, platform)];
+}
+
+/** Printed after "refused" when the input itself was not a storable key. */
+export const CREDENTIAL_INPUT_REFUSED =
+  'jevris: no key was stored: the key is read from standard input or a hidden prompt and must be one line of 1 to 4096 bytes with no NUL byte.';
+
+/** The harness view of a report: presence and the plain diagnostic, never the key. */
+export function credentialViewFor(report: CredentialReport): HarnessCredentialView {
+  return viewFor(report.presence);
+}
+
+/**
+ * The opt-in variables of an environment, for `credential status`. Under a test run none is
+ * read (the same rule as the sidecar), so a developer's shell variable never reaches a test.
+ */
+export function optInEnvOf(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): Readonly<Record<string, string | undefined>> {
+  if (keyringBlockedInTests(env)) return {};
+  return {
+    [CREDENTIAL_FILE_ENV]: env[CREDENTIAL_FILE_ENV],
+    [CREDENTIAL_SYSTEMD_ENV]: env[CREDENTIAL_SYSTEMD_ENV],
+    CREDENTIALS_DIRECTORY: env.CREDENTIALS_DIRECTORY,
+  };
+}
+
+export interface CredentialReport {
+  readonly presence: 'present' | 'missing';
+  /** Which source supplies the key; null when none does. */
+  readonly source: CredentialSource | null;
+  readonly keystoreFailure: KeystoreFailureCode | null;
+  /** True when JEVRIS_CREDENTIAL_FILE or JEVRIS_CREDENTIAL_SYSTEMD names a source. */
+  readonly optInConfigured: boolean;
+  readonly optInRefused: OptInRefusal | null;
+}
+
+/**
+ * What the sidecar would find if it started in this environment: the same resolver, with the
+ * key dropped. `credential status` prints this so it never disagrees with the sidecar.
+ */
+export async function credentialReport(
+  open: OpenHostSecret,
+  options?: Pick<ResolveCredentialOptions, 'optInEnv' | 'optInHost'>,
+): Promise<CredentialReport> {
+  let source: CredentialSource | null = null;
+  const resolved = await resolveProviderCredential(open, {
+    ...(options?.optInEnv !== undefined ? { optInEnv: options.optInEnv } : {}),
+    ...(options?.optInHost !== undefined ? { optInHost: options.optInHost } : {}),
+    onSource: (found) => {
+      source = found;
+    },
+  });
+  const optInConfigured = options?.optInEnv !== undefined && optInSourceOf(options.optInEnv) !== undefined;
+  if ('apiKey' in resolved) {
+    return { presence: 'present', source, keystoreFailure: null, optInConfigured, optInRefused: null };
+  }
+  return {
+    presence: 'missing',
+    source: null,
+    keystoreFailure: resolved.keystoreFailure ?? null,
+    optInConfigured,
+    optInRefused: resolved.refused ?? null,
+  };
+}
+
+const SOURCE_VARIABLE: Readonly<Record<'file' | 'systemd-creds', string>> = {
+  file: CREDENTIAL_FILE_ENV,
+  'systemd-creds': CREDENTIAL_SYSTEMD_ENV,
+};
+
+/**
+ * The lines `credential status` prints after present or missing, beyond the key's presence:
+ * which opt-in source supplies it, or why the keystore or the opt-in source did not. Empty on
+ * a host where the keystore works, so the plain keychain output is unchanged.
+ */
+export function credentialStatusLines(report: CredentialReport, platform: string = process.platform): readonly string[] {
+  if (report.presence === 'present') {
+    if (report.source === 'file' || report.source === 'systemd-creds') {
+      return [`source: ${SOURCE_VARIABLE[report.source]} (the OS keyring has no key for it to override)`];
+    }
+    return [];
+  }
+  const lines: string[] = [];
+  if (report.keystoreFailure !== null) {
+    lines.push(`jevris: ${keystoreFailureClause(report.keystoreFailure, platform)} (${report.keystoreFailure}).`);
+  }
+  if (report.optInRefused !== null) lines.push(optInRefusalText(report.optInRefused));
+  else if (report.keystoreFailure !== null && !report.optInConfigured) lines.push(...keystoreFailureRemedy(report.keystoreFailure, platform));
+  return lines;
+}
+
+/**
+ * The sidecar's status advice while it has no Jev key. The default is the plain "run
+ * credential set"; where that cannot work (the keystore failed, or an opt-in source was
+ * refused) it says what to do instead, because pointing at the failing command is a dead end.
+ */
+export function noCredentialAdvice(input: {
+  readonly keystoreFailure?: KeystoreFailureCode | undefined;
+  readonly optInRefused?: OptInRefusal | undefined;
+  readonly platform?: string | undefined;
+}): string {
+  const platform = input.platform ?? process.platform;
+  if (input.optInRefused !== undefined) {
+    return `The opt-in Jev key source was refused (${input.optInRefused}): ${REFUSAL_TEXT[input.optInRefused]}; decisions run rules-only. Fix it, then run \`jevris sidecar restart\`.`;
+  }
+  const failure = input.keystoreFailure;
+  if (failure === undefined) return 'No Jev credential is configured; decisions run rules-only. Run `jevris credential set`.';
+  const clause = keystoreFailureClause(failure, platform);
+  return platform === 'linux'
+    ? `No Jev key is available: ${clause} (${failure}); decisions run rules-only. Name an owner-only key file with JEVRIS_CREDENTIAL_FILE in the sidecar's environment (docs/security.md), then run \`jevris sidecar restart\`.`
+    : `No Jev key is available: ${clause} (${failure}); decisions run rules-only. Fix the keystore and run \`jevris credential set\`.`;
 }
 
 export type KeyringBindingStatus = 'loaded' | 'unavailable' | 'not-probed';

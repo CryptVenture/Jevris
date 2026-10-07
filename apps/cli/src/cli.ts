@@ -4,14 +4,23 @@ import { isPacksPath, jevrisPaths, migrateLegacyLayout, resolveHome } from '@jev
 import { buildShadowReport, recordRecommendationFeedback, recordShadowComparison } from '@jevris/core';
 import {
   clearHostSecret,
-  credentialStatus,
+  CREDENTIAL_INPUT_REFUSED,
+  credentialReport,
+  credentialSetRefusalLines,
+  credentialStatusLines,
+  credentialViewFor,
   emitCredentialStatus,
   KEYRING_UNAVAILABLE,
+  keystoreFailureClause,
+  keystoreFailureOf,
   KeyringUnavailableError,
   openHostEntry,
+  optInEnvOf,
+  optInSourceOf,
   readConsoleSecret,
   setHostSecret,
   type OpenHostSecret,
+  type OptInHost,
 } from './credential.js';
 import { sqliteProbe } from './host-health.js';
 import { runGatesCommand } from './gate-records.js';
@@ -310,6 +319,9 @@ export async function main(
     readonly afterConfigRead?: (path: string) => void | Promise<void>;
     readonly openKeyring?: OpenHostSecret;
     readonly readStdin?: () => Uint8Array | Promise<Uint8Array>;
+    /** Test seams for `credential status`: the opt-in environment and the platform to judge by. */
+    readonly optInEnv?: Readonly<Record<string, string | undefined>>;
+    readonly optInHost?: OptInHost;
     readonly fetch?: () => unknown;
     readonly readCitedFile?: (path: string) => Uint8Array | 'missing' | Promise<Uint8Array | 'missing'>;
   },
@@ -627,6 +639,8 @@ async function runCredential(
     | {
         readonly openKeyring?: OpenHostSecret;
         readonly readStdin?: () => Uint8Array | Promise<Uint8Array>;
+        readonly optInEnv?: Readonly<Record<string, string | undefined>>;
+        readonly optInHost?: OptInHost;
       }
     | undefined,
 ): Promise<number> {
@@ -638,19 +652,36 @@ async function runCredential(
   const sink = (text: string): void => {
     emit(write, text);
   };
+  const platform = hooks?.optInHost?.platform ?? process.platform;
+  const optInEnv = hooks?.optInEnv ?? optInEnvOf();
+  const optInConfigured = optInSourceOf(optInEnv) !== undefined;
+  /** "refused", then why: the word a script matches comes first and the reason follows it. */
+  const refusedBecause = (lines: readonly string[]): number => {
+    emit(write, `refused\n${lines.join('\n')}\n`);
+    return 2;
+  };
   if (sub === 'clear') {
     try {
       await clearHostSecret(open);
-    } catch {
-      return emitCredentialStatus({ presence: 'missing', diagnostic: null }, sink);
+    } catch (error) {
+      const code = keystoreFailureOf(error, platform);
+      const shown = emitCredentialStatus({ presence: 'missing', diagnostic: null }, sink);
+      if (code !== null) sink(`jevris: nothing was removed: ${keystoreFailureClause(code, platform)} (${code}).\n`);
+      return shown;
     }
     await recordCliAudit('credential.remove');
-    return emitCredentialStatus(await credentialStatus(open), sink);
+    const after = await credentialReport(open, { optInEnv, ...(hooks?.optInHost !== undefined ? { optInHost: hooks.optInHost } : {}) });
+    const shown = emitCredentialStatus(credentialViewFor(after), sink);
+    for (const line of credentialStatusLines(after, platform)) sink(`${line}\n`);
+    if (optInConfigured) {
+      sink('jevris: JEVRIS_CREDENTIAL_FILE or JEVRIS_CREDENTIAL_SYSTEMD names a key source in this environment. Jevris never deletes that file; remove it yourself to remove the key it holds.\n');
+    }
+    return shown;
   }
   if (sub === 'set') {
     const reader = hooks?.readStdin;
     const loaded = reader !== undefined ? await reader() : await readConsoleSecret();
-    if (!(loaded instanceof Uint8Array)) return refused(write);
+    if (!(loaded instanceof Uint8Array)) return refusedBecause([CREDENTIAL_INPUT_REFUSED]);
     let outcome: 'present' | 'refused';
     try {
       outcome = await setHostSecret(loaded, open);
@@ -660,15 +691,21 @@ async function runCredential(
         emit(write, `${KEYRING_UNAVAILABLE}\n`);
         return 2;
       }
-      return refused(write);
+      // Any other keystore failure says which kind it was and what to do, from fixed text: the
+      // binding's own message is never printed.
+      const code = keystoreFailureOf(error, platform);
+      return code === null ? refused(write) : refusedBecause(credentialSetRefusalLines(code, platform, optInConfigured));
     }
-    if (outcome !== 'present') return refused(write);
+    if (outcome !== 'present') return refusedBecause([CREDENTIAL_INPUT_REFUSED]);
     await recordCliAudit('credential.set');
     emit(write, 'present\n');
     return 0;
   }
-  const view = await credentialStatus(open);
-  return emitCredentialStatus(view, (text) => {
-    emit(write, text);
-  });
+  // status: what the sidecar would find if it started in this environment, keystore first.
+  const report = await credentialReport(open, { optInEnv, ...(hooks?.optInHost !== undefined ? { optInHost: hooks.optInHost } : {}) });
+  const shown = emitCredentialStatus(credentialViewFor(report), sink);
+  if (shown === 0) {
+    for (const line of credentialStatusLines(report, platform)) sink(`${line}\n`);
+  }
+  return shown;
 }

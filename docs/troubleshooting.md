@@ -142,18 +142,37 @@ The prebuilt binary for your platform did not load. Usually the Node version cha
 
 ## The keychain is unavailable
 
-`jevris credential set` or `status` reports that the keychain cannot be reached, and decisions run rules-only.
+`jevris credential set` or `status` reports that the keychain cannot be reached, and decisions run rules-only. The command names the cause with a reason code, from fixed text; it never prints the keychain's own message.
 
-- **Linux over SSH, in a container or on a server.** The Jev key lives in the Secret Service (GNOME Keyring or KWallet), which needs a D-Bus session and an unlocked keyring. A headless session usually has neither. Either run Jevris from a desktop session, or start one for the shell:
+| Code | Meaning |
+| --- | --- |
+| `KEYSTORE_NO_SERVICE` | Linux: no Secret Service (GNOME Keyring or KWallet) answers on this session's D-Bus. Typical over SSH, in a container or on a server. |
+| `KEYSTORE_LOCKED` | The keychain is locked, or access was denied or dismissed. |
+| `KEYSTORE_FAILED` | The keychain answered with an error that is none of these. |
+| `KEYSTORE_BINDING` | The keyring binding did not load; see [A native module does not load](#a-native-module-does-not-load). |
+
+`credential set` then prints `refused`, the code and the way out, and stores nothing. `credential status` reads the keychain and then the opt-in key file (below) the way the sidecar does, so it shows what the sidecar would find if it started in this shell; `jevris status` gives the same cause and advice while the sidecar has no key. A key that is not one line of 1 to 4096 bytes also prints `refused`, with that rule, before the keychain is asked anything.
+
+- **Linux over SSH, in a container or on a server.** Without a Secret Service the supported way is an owner-only key file that you name; Jevris never searches for one.
+
+  ```sh
+  mkdir -p ~/.config/jevris-secrets && chmod 700 ~/.config/jevris-secrets
+  read -rs -p 'Jev key: ' KEY && (umask 077; printf '%s\n' "$KEY" > ~/.config/jevris-secrets/jev.key); unset KEY
+  export JEVRIS_CREDENTIAL_FILE="$HOME/.config/jevris-secrets/jev.key"   # also in your shell profile
+  jevris credential status     # present, then: source: JEVRIS_CREDENTIAL_FILE
+  jevris sidecar restart
+  ```
+
+  The key is read from the hidden prompt, so it is on no command line and in no shell history (`read -rs` is bash; in another shell use any command that writes one line to the file without the key on a command line). The sidecar reads the file when it starts, from the environment it starts in: a harness started from a shell that has the variable passes it on. A sidecar run by `jevris service install` does not inherit your shell, so give the unit the variable: `systemctl --user edit jevris-sidecar.service`, add `[Service]` and `Environment=JEVRIS_CREDENTIAL_FILE=/home/you/.config/jevris-secrets/jev.key`, then `jevris sidecar restart`. The file must be a regular file you own with mode `600`, in a folder only you can write, and no folder above it may hold a `.git` entry (a dotfiles repository in your home folder counts: put the file somewhere else). If it is refused, `jevris credential status` and `jevris doctor` (`credentialSource:`) name the rule it broke; see [security.md](security.md#headless-machines-the-opt-in-key-file) for the full list and the systemd credential form (`JEVRIS_CREDENTIAL_SYSTEMD`).
+
+  Or give the session a keyring instead, which needs a D-Bus session and an unlocked keyring, and the sidecar must start inside that session to read from it:
 
   ```sh
   sudo apt-get install gnome-keyring dbus-user-session     # Debian and Ubuntu
   dbus-run-session -- sh -c 'printf "%s" "$KEYRING_PASSWORD" | gnome-keyring-daemon --unlock >/dev/null; jevris credential set'
   ```
-
-  The key is then readable only inside a session with that keyring unlocked. Where no keyring can run (headless Linux, CI, WSL), you can instead name an owner-only key file or a systemd credential with `JEVRIS_CREDENTIAL_FILE` or `JEVRIS_CREDENTIAL_SYSTEMD`; see [security.md](security.md#the-jev-key). Jevris never searches for a key file by itself.
 - **macOS.** A locked login keychain prompts once. If you chose "Deny", run `jevris credential set` again and allow access.
-- **Windows.** Credential Manager is per user. Running the harness as another user (or from a service) needs the key stored for that user.
+- **Windows.** Credential Manager is per user. Running the harness as another user (or from a service) needs the key stored for that user. The opt-in key file is not available on Windows.
 
 Without a key Jevris keeps working rules-only, which is a supported mode.
 

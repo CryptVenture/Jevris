@@ -443,6 +443,7 @@ async function loadEngine(
   onEgressRefused: (reasonCode: string, fields: number) => void = () => undefined,
   providerConsent?: (provider: string) => unknown,
   budgetLimits?: BudgetLimitReaders,
+  onNoCredential: (advice: string) => void = () => undefined,
 ): Promise<unknown> {
   let provider: unknown;
   try {
@@ -474,6 +475,10 @@ async function loadEngine(
       log({ level: 'warn', event: 'credential-opt-in-refused', reasonCode: resolved.refused });
     }
     credential = 'apiKey' in resolved && typeof resolved.apiKey === 'string' ? resolved.apiKey : null;
+    // Status says why there is no key, and does not point a headless machine at a command that cannot work.
+    if (credential === null) {
+      onNoCredential(cred.noCredentialAdvice({ keystoreFailure: 'keystoreFailure' in resolved ? resolved.keystoreFailure : undefined, optInRefused: 'refused' in resolved ? resolved.refused : undefined }));
+    }
   } catch {
     credential = null;
   }
@@ -605,10 +610,14 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     const written = api.appendAudit(store, { kind: 'egress.decision', actor: 'sidecar', channel: 'sidecar', atMs: Date.now(), detail: { decision: 'refused', reasonCode, fields } });
     if (!written.ok) log({ level: 'warn', event: 'audit-refused', kind: 'egress.decision', reason: written.reason });
   };
+  /** Why the engine has no Jev key, once known; the plain advice until then. */
+  let noCredentialAdvice: string | null = null;
   const loadedEngine =
     input.engine !== undefined
       ? input.engine
-      : await loadEngine(home, log, auditEgress, providerConsentReader(() => (store !== undefined && api !== undefined ? { store, api } : undefined)), budgetLimitReaders(home, (workspaceId) => registry.get(workspaceId)?.root ?? null));
+      : await loadEngine(home, log, auditEgress, providerConsentReader(() => (store !== undefined && api !== undefined ? { store, api } : undefined)), budgetLimitReaders(home, (workspaceId) => registry.get(workspaceId)?.root ?? null), (advice) => {
+          noCredentialAdvice = advice;
+        });
   // Each engine action that settles a decision mirrors it into the store before the op
   // answers, so `status` lists it at once; the periodic archive stays the catch-up path.
   // Owner decision 0eb319de: each record carries the mode it was made under, not the engine's default.
@@ -1249,7 +1258,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       storeState !== 'ok'
         ? current.store.diagnostic
         : current.engine === 'rules-only'
-          ? 'No Jev credential is configured; decisions run rules-only. Run `jevris credential set`.'
+          ? (noCredentialAdvice ?? 'No Jev credential is configured; decisions run rules-only. Run `jevris credential set`.')
           : (circuitDisabledReason(engine) ?? budgetSpentReason(budget) ?? providerDownReason(recent, Date.now()));
     const workspaceView = workspaceStatusOf(ctx);
     const modelPin = statusModelPin(bodyRecord(ctx)['modelPin']);

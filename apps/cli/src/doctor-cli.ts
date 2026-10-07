@@ -23,6 +23,8 @@ import { maybeReverify, type ReverifyOptions, type ReverifyState } from './rever
 import { managedHookPolicies, managedPolicyLine, type ManagedHookPolicy } from './managed-policy.js';
 import { accessLimitsDoctorLines, accessUsageDoctorLines } from './access-limits-doctor.js';
 import { jevCircuitDoctorLines } from './jev-circuit-doctor.js';
+import { credentialSourceDoctorLines } from './credential-doctor.js';
+import { optInEnvOf } from './credential.js';
 import { consentDoctorLines } from './consent-command.js';
 import { modelAvailabilityDoctorLines, modelAvailabilityView } from './model-availability.js';
 import { eligibilityDoctorLines, modelListingLine, modelListingSetting } from './model-offer.js';
@@ -535,6 +537,8 @@ export async function runDoctorCommand(input: DoctorCommandInput, write: (text: 
   lines.push(...(await accessUsageDoctorLines(input.home, Date.now())));
   // Jev disabled after a billing, account or key refusal (ea2af91a): from a running sidecar's status only.
   lines.push(...(await jevCircuitDoctorLines(input.home, input.jevStatus)));
+  // GOV-07: the opt-in Jev key source, when this environment names one (never read, never the keystore).
+  lines.push(...(await credentialSourceDoctorLines(optInEnvOf(process.env))));
   // R30: which registry routing reads (the administrator override shows), and consent per provider.
   lines.push(...(await consentDoctorLines(input.home, input.consentStatus)));
   // B's private-file rule: every entry under the Jevris folders, not only the top level.

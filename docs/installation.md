@@ -151,7 +151,7 @@ jevris credential status        # stored or not, never the key itself
 jevris credential clear
 ```
 
-Only the local Jevris sidecar reads the key. Without a key, or when the keychain is unavailable (for example a Linux server with no Secret Service), Jevris keeps working rules-only. See [troubleshooting.md](troubleshooting.md#the-keychain-is-unavailable). On headless Linux, CI or WSL you can opt in to an owner-only key file or a systemd credential instead; see [security.md](security.md#the-jev-key).
+Only the local Jevris sidecar reads the key. Without a key, or when the keychain is unavailable (for example a Linux server with no Secret Service), Jevris keeps working rules-only; `jevris credential set` then says why it could not store the key and what to do instead, and `jevris credential status` shows which source supplies a key. See [troubleshooting.md](troubleshooting.md#the-keychain-is-unavailable). On headless Linux, CI or WSL you can opt in to an owner-only key file or a systemd credential instead; see [security.md](security.md#the-jev-key).
 
 The Jev key is only for Jevris's own decisions. Your harnesses keep their own sign-in.
 

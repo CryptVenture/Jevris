@@ -1233,6 +1233,14 @@ Manages the Jev key in the operating-system keychain. set reads the key from sta
 (a hidden prompt on a terminal), never from arguments or the environment. status prints
 present or missing and never the key. clear removes it.
 
+Where the keychain cannot be used (a Linux server with no Secret Service, a locked keychain),
+set prints refused with the reason code (KEYSTORE_NO_SERVICE, KEYSTORE_LOCKED, KEYSTORE_FAILED)
+and what to do, and stores nothing. On headless Linux, CI and WSL the key can come from an
+owner-only file you name with JEVRIS_CREDENTIAL_FILE (or a systemd credential,
+JEVRIS_CREDENTIAL_SYSTEMD); Jevris never searches for one and set never writes it. status
+reads the keychain and then that source the way the sidecar does, and prints which one
+supplied the key or the rule it broke.
+
 reenable lets Jev decide again after the provider refused billing (402) or the account (403);
 until then Jevris decides rules-only, and jevris status and jevris doctor show why. Run it
 once the cause is fixed at the provider. It needs a person at an interactive terminal (no --yes, no --json),

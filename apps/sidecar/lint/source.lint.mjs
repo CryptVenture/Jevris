@@ -79,6 +79,14 @@ test('the sidecar passes only the three GOV-07 opt-in variables, and none under 
   assert.deepEqual(names, ['CREDENTIALS_DIRECTORY', 'JEVRIS_CREDENTIAL_FILE', 'JEVRIS_CREDENTIAL_SYSTEMD']);
 });
 
+test('the status advice for a missing Jev key comes from the credential module, so a machine with no keyring is not sent to the command that cannot work (GOV-07)', () => {
+  const source = src('state.ts');
+  assert.match(source, /cred\.noCredentialAdvice\(\{/, 'loadEngine asks the credential module why there is no key');
+  assert.match(source, /noCredentialAdvice \?\? 'No Jev credential is configured; decisions run rules-only\. Run `jevris credential set`\.'/, 'status keeps the plain text when nothing says otherwise');
+  const status = source.slice(source.indexOf('async function statusBody('));
+  assert.equal(/(?<!\?)\? 'No Jev credential is configured/.test(status.slice(0, status.indexOf('const workspaceView'))), false, 'status does not hard-code the plain text');
+});
+
 test('only the sidecar resolves the Jev credential: no other product source calls resolveProviderCredential (GOV-06)', async () => {
   const { readdirSync, statSync } = await import('node:fs');
   const { join, relative, sep } = await import('node:path');

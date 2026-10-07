@@ -158,6 +158,9 @@ export function doctorLineSeverity(line: string): DoctorSeverity | null {
       // the cause, then runs the command the line names. Decisions go on rules-only meanwhile.
       if (key === 'jev budget') return body.includes('BUDGET_ZERO') ? 'info' : 'action';
       return key === 'jev' ? 'action' : null;
+    case 'credentialSource':
+      // The opt-in Jev key source (GOV-07): a file that passes the owner-only checks works; a refused one names its fix.
+      return body.startsWith('refused') ? 'action' : 'ok';
     case 'settings':
       // The effective mode and the layer that set it is a fact; a problem with a policy file that
       // caps it (refused as an authority, unreadable or invalid) names its fix.

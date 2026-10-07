@@ -32,7 +32,7 @@ Who else can read it, per OS:
 | macOS | Login keychain | Processes running as you. The keychain may ask you to allow a program that did not create the item; once you choose "Always Allow", that program reads it without asking. |
 | Windows | Credential Manager (generic credential) | Any process running as your user. Windows does not prompt. |
 | Linux desktop | Secret Service (GNOME Keyring, KWallet) | Any process in your unlocked login session. |
-| Linux headless, CI, containers, WSL without a keyring | none, unless you opt in (below) | Without the opt-in, Jevris stores no key, decisions run rules-only and `jevris doctor` says so. Jevris never looks for a key in files, the repository or `.env`. |
+| Linux headless, CI, containers, WSL without a keyring | none, unless you opt in (below) | Without the opt-in, Jevris stores no key and decisions run rules-only; `jevris credential set` says why it cannot store one, and `jevris status` says why there is no key. Jevris never looks for a key in files, the repository or `.env`. |
 
 ### Headless machines: the opt-in key file
 
@@ -56,6 +56,18 @@ Jevris refuses the file, and stays rules-only, when any of these is true:
 - the host is Windows (use Credential Manager there).
 
 Jevris checks the file again on the open descriptor, so a swap between the check and the read is refused.
+
+To set it up, write the key on one line into a file only you can read, name it, and check it (the key never goes on a command line):
+
+```sh
+mkdir -p ~/.config/jevris-secrets && chmod 700 ~/.config/jevris-secrets
+read -rs -p 'Jev key: ' KEY && (umask 077; printf '%s\n' "$KEY" > ~/.config/jevris-secrets/jev.key); unset KEY
+export JEVRIS_CREDENTIAL_FILE="$HOME/.config/jevris-secrets/jev.key"
+jevris credential status
+jevris sidecar restart
+```
+
+`jevris credential set` never writes this file: it stores into the OS keystore only, and on a machine with none it says so and prints these steps. `jevris credential status` resolves the key the way the sidecar does, keystore first and then the named source, so it prints `present` with `source: JEVRIS_CREDENTIAL_FILE` (or `JEVRIS_CREDENTIAL_SYSTEMD`) when that source supplies the key, and the rule the file broke when it is refused. `jevris credential clear` clears the keystore only and says so; Jevris never deletes the file. `jevris doctor` adds one `credentialSource:` line whenever the environment names a source: it checks everything that does not need the contents (type, owner, mode, folder, work tree, size), reads no key byte and does not open the keystore, so a file with a malformed body passes doctor and is refused by `credential status`. Both read the environment of the shell you run them in; the sidecar reads its own, and a sidecar run by `jevris service install` does not inherit your shell (see [troubleshooting.md](troubleshooting.md#the-keychain-is-unavailable) for the unit setting).
 
 The sidecar log records only which source supplied the key (`credential-source`) or a reason code (`credential-opt-in-refused`). The key itself is never logged, echoed or written anywhere. Both variables hold a path or a name, never a key, so they reach the sidecar; the key variables listed above are still removed.
 
