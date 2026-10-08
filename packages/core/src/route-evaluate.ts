@@ -503,6 +503,8 @@ export interface ManagedTierRequest {
   readonly signals: TierSignals;
   readonly text?: string | null;
   readonly jevAssist?: 'off' | 'classify';
+  /** The person's own half of source-egress consent; the text is offered only with it and the administrator's approval. */
+  readonly personEgress?: boolean;
 }
 
 export type CandidateScopes = { readonly [modelId: string]: { readonly harness: string; readonly authMode: 'api-key' | 'subscription' | 'unknown' } | null };
@@ -760,7 +762,7 @@ async function judgeWorkerTier(
       use.engine,
       { signals: tier.signals, eligible, baselineModelId: use.baselineModelId, volume: use.volume, ...(tier.text === undefined ? {} : { text: tier.text }) },
       { workspaceId: request.workspaceId, evidenceRevision: WORKSPACE_REVISIONS.current(request.workspaceId), taskId: request.taskId, deadlineMs: TIER_WAIT_MS },
-      { assist: tier.jevAssist === 'off' ? 'off' : 'classify', now: () => use.now(), ...(gate === undefined ? {} : { skipAsk: gate }) },
+      { assist: tier.jevAssist === 'off' ? 'off' : 'classify', now: () => use.now(), personEgress: tier.personEgress === true, ...(gate === undefined ? {} : { skipAsk: gate }) },
     );
   } catch {
     return null;

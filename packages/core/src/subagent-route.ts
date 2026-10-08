@@ -343,7 +343,9 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
       } else {
         if (input.risk.level === 'high') return abstain('RISK_HIGH', sliceId);
         const rung = input.risk.level === 'low' ? tier.lowModelId : tier.midModelId;
-        if (rung === null) return abstain('NOT_CHEAPER', sliceId);
+        // JEV-0078: no rung below the session can be the alias's own doing, when the installed Claude Code is too old for the cheaper
+        // family's alias (the proof withheld it): say so, as for the alias default, instead of "nothing is cheaper".
+        if (rung === null) return withheldByAliasVersion(input, input.risk.level) ?? abstain('NOT_CHEAPER', sliceId);
         modelId = rung;
         basis = input.risk.source === 'jev' ? 'risk-jev' : 'risk-rule';
       }
@@ -373,7 +375,7 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
     if (!aliasNewestOfFamily(input.registry, model, input.nowMs)) return abstain('ALIAS_NOT_NEWEST', sliceId);
     // Amended 2026-10-08: on an older Claude Code (or one whose version is unknown) the alias still means an older model.
     const needs = aliasNeedsClaudeCode(model, input.harnessVersion ?? null);
-    if (needs !== null) return { outcome: 'abstain', reasonCode: 'ALIAS_VERSION_OLD', sliceId, text: aliasVersionOldText(alias, input.harnessVersion ?? null, needs) };
+    if (needs !== null) return aliasVersionOld(sliceId, alias, input.harnessVersion ?? null, needs);
     // Owner decision 2026-10-08 (amends DOMAINS 3f090fa): no path skips the eligibility rule. For
     // Claude Code the list carries the HARNESS_ALIAS proof; null (an administrator's account check
     // decides, or the caller has none) is not checked here, as on the other harnesses.
@@ -476,6 +478,26 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
 /** How a launch's type reads in the route text. */
 function riskClassText(subagentClass: SubagentClass, type: string): string {
   return subagentClass === 'read-only' ? 'read-only type' : subagentClass === 'general-purpose' ? 'general-purpose type' : `custom type ${type}`;
+}
+
+/** ALIAS_VERSION_OLD, with the plain sentence for the person. Whether to say it is the caller's: an unknown version is not a reason to say "update" (JEV-0077). */
+function aliasVersionOld(sliceId: string | null, alias: string, harnessVersion: string | null, since: string): SubagentRouteAdvice {
+  return { outcome: 'abstain', reasonCode: 'ALIAS_VERSION_OLD', sliceId, text: aliasVersionOldText(alias, harnessVersion, since) };
+}
+
+/**
+ * JEV-0078: the tier ladder has no rung below the session for a launch of this risk, and the family the launch's risk calls for
+ * (haiku for low, sonnet for medium) is a cheaper registry model whose alias the installed Claude Code does not yet resolve to
+ * it. Then the ladder is empty because of the Claude Code version, which is what the person should hear. Null otherwise.
+ */
+function withheldByAliasVersion(input: SubagentRouteInput, level: 'low' | 'medium'): SubagentRouteAdvice | null {
+  if (SUBAGENT_ROUTE_ACTUATORS[input.harness as HarnessId]?.carries !== 'alias') return null;
+  const target = newestUsableOfFamily(input.registry, RISK_ROUTE_FAMILY[level], input.nowMs);
+  const alias = target === null ? null : aliasOf(target.family);
+  if (target === null || alias === null || !aliasNewestOfFamily(input.registry, target, input.nowMs)) return null;
+  const needs = aliasNeedsClaudeCode(target, input.harnessVersion ?? null);
+  if (needs === null || !cheaperThanSession(input.registry, target, input.sessionModel, input.nowMs, input.harness)) return null;
+  return aliasVersionOld(subagentSliceId(input.subagentType ?? ''), alias, input.harnessVersion ?? null, needs);
 }
 
 /** The newest usable registry release of an Anthropic family: what Claude Code's alias of that name means. Null when there is none. */

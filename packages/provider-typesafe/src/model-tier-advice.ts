@@ -29,7 +29,7 @@
  * The line is advice: it says nothing was changed, never claims Jevris switched anything, and carries no prompt, no title, no
  * path and no failure text, only model names, a fixed phrase and codes. At most 500 characters.
  */
-import { UNKNOWN_SESSION_ID, MODEL_TIER_SPEC_ID, CLAUDE_CODE_SUBAGENT_ALIASES, SLICE_VERBS, aliasMeansModel, aliasNeedsClaudeCode, aliasNewestOfFamily, aliasVersionOldText, buildTierLadder, harnessHasDefault, loadModelRegistry, readPins, readSessionTier, registryModel, routeBaseline, rulesTier, tierSignalsOf, type SessionTierMemo, type SliceRisk, type SliceVerb, type TierLadder, type TierSignals } from '@jevris/core';
+import { UNKNOWN_SESSION_ID, MODEL_TIER_SPEC_ID, CLAUDE_CODE_SUBAGENT_ALIASES, SLICE_VERBS, aliasMeansModel, aliasNeedsClaudeCode, aliasNewestOfFamily, aliasVersionOldText, buildTierLadder, claudeCodeVersionOf, harnessHasDefault, loadModelRegistry, readPins, readSessionTier, registryModel, routeBaseline, rulesTier, tierSignalsOf, type SessionTierMemo, type SliceRisk, type SliceVerb, type TierLadder, type TierSignals } from '@jevris/core';
 import { modeAllows, type ModelRegistry } from '@jevris/contracts';
 import type { HookProposal, TriggerHandler, TriggerHandlerInput } from './sidecar-subscribers.js';
 import { adviceIgnored, openAdvice } from './advice-adherence.js';
@@ -126,6 +126,8 @@ export function switchCommandFor(harness: string, registry: ModelRegistry, model
 function subagentAliasNoteFor(registry: ModelRegistry, modelId: string, nowMs: number, claudeCodeVersion: string | null): string | null {
   const model = registryModel(registry, modelId);
   if (model === null || model.provider !== 'anthropic' || !(CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(model.family)) return null;
+  // An unknown or unparseable version is not a reason to say "update": the line stays silent about it (JEV-0077).
+  if (claudeCodeVersionOf(claudeCodeVersion) === null) return null;
   const since = aliasNeedsClaudeCode(model, claudeCodeVersion);
   if (since === null || !aliasNewestOfFamily(registry, model, nowMs)) return null;
   return aliasVersionOldText(model.family, claudeCodeVersion, since);

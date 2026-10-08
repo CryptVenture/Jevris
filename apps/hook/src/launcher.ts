@@ -14,7 +14,7 @@
  * observation. `JEVRIS_HOOK_OBSERVE_ONLY=1` forces observation.
  */
 import { sessionAccessOf } from './session-access.js';
-import { HARNESS_INPUT_CAP, HookOutcomeContract, RouteTurnPayloadContract, stillRunningText, testScaledMs, type HarnessIntent, type HookOutcome, type LauncherName, type NormalizeContext, type NormalizeResult, type NormalizedHarnessEvent } from '@jevris/contracts';
+import { HARNESS_INPUT_CAP, HookOutcomeContract, containsSecret, RouteTurnPayloadContract, stillRunningText, testScaledMs, type HarnessIntent, type HookOutcome, type LauncherName, type NormalizeContext, type NormalizeResult, type NormalizedHarnessEvent } from '@jevris/contracts';
 
 export interface HarnessAdapter {
   normalize(native: unknown, context?: NormalizeContext): NormalizeResult;
@@ -64,7 +64,7 @@ export interface LauncherSidecar {
           readonly home?: string;
           readonly op: 'event';
           readonly workspace?: string;
-          readonly body: { readonly envelope: NormalizedHarnessEvent; readonly deliveryKey: string; readonly harnessVersion?: string; readonly authMode?: SessionAuthMode; readonly showsExplain: boolean } & HarnessIntent;
+          readonly body: { readonly envelope: NormalizedHarnessEvent; readonly deliveryKey: string; readonly harnessVersion?: string; readonly authMode?: SessionAuthMode; readonly pins?: { readonly modelPin: string; readonly effortPin: null }; readonly showsExplain: boolean } & HarnessIntent;
           readonly scope: 'hook';
           readonly timeoutMs: number;
           readonly eventAtMs: number;
@@ -165,6 +165,20 @@ export function sessionAuthMode(harness: LauncherName, env: { readonly [key: str
   if (envSet(env, 'ANTHROPIC_AUTH_TOKEN') || envSet(env, 'ANTHROPIC_API_KEY')) return 'api-key';
   if (envSet(env, 'CLAUDE_CODE_OAUTH_TOKEN')) return 'subscription';
   return null;
+}
+
+const MODEL_PIN = /^[A-Za-z0-9][A-Za-z0-9._:\-[\]]{0,127}$/;
+
+/**
+ * JEV-0080: the model the person pinned in Claude Code (`ANTHROPIC_MODEL`, which Jevris never changes; docs/mcp.md), read from the
+ * environment this hook runs in, since the sidecar cannot see it. A pin only ever silences routing advice and stops a subagent
+ * rewrite, so the sidecar takes it from the hook. Other harnesses name no such variable: null. A value that is not a model name,
+ * or looks like a secret, is none.
+ */
+export function sessionModelPin(harness: LauncherName, env: { readonly [key: string]: string | undefined }): string | null {
+  if (harness !== 'claude') return null;
+  const pin = env['ANTHROPIC_MODEL']?.trim();
+  return typeof pin === 'string' && MODEL_PIN.test(pin) && !containsSecret(pin) ? pin : null;
 }
 
 /** A harness-supplied version token, or null (the field is then omitted). */
@@ -669,6 +683,7 @@ async function runDelivery(
   const harnessVersion = suppliedVersion(deps, args.harness, native);
   // G21: the session's sign-in, so a subagent route can leave out models this account cannot use.
   const authMode = sessionAuthMode(args.harness, deps.env);
+  const modelPin = sessionModelPin(args.harness, deps.env);
   // G2 (agreed with D): whether this harness can show an explain outcome on this event, from the
   // adapter's own renderer, so D does not spend a reminder where it cannot be shown.
   const showsExplain = showsExplainOn(adapter, event);
@@ -701,7 +716,7 @@ async function runDelivery(
       op: 'event',
       ...(workspace !== undefined ? { workspace } : {}),
       // The decision inputs (INT-01..05) ride next to the envelope, never inside it.
-      body: { envelope, deliveryKey: event.dedupKey, ...(harnessVersion === null ? {} : { harnessVersion }), ...(authMode === null ? {} : { authMode }), showsExplain, ...intent },
+      body: { envelope, deliveryKey: event.dedupKey, ...(harnessVersion === null ? {} : { harnessVersion }), ...(authMode === null ? {} : { authMode }), ...(modelPin === null ? {} : { pins: { modelPin, effortPin: null } }), showsExplain, ...intent },
       scope: 'hook',
       timeoutMs: left,
       eventAtMs: startedAtMs,

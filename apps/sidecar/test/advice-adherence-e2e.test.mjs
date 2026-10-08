@@ -103,7 +103,8 @@ test('P5 through the sidecar: advice not followed twice in a session is not repe
       ws = (await sidecarRequest({ home, op: 'workspace.register', workspace: repo, scope: 'cli' })).result.id;
       const view = started.daemon.state.storeFor({ id: ws, root: realpathSync(repo) });
       assert.equal(store.adviceOverrides(view, { sessionId: 's1', adviceKind: 'main-route', slice: SLICE, advisedModel: 'claude-sonnet-5' }), 2);
-      assert.equal(store.adviceOverrides(view, { sessionId: 's2', adviceKind: 'main-route', slice: SLICE, advisedModel: 'claude-sonnet-5' }), 0);
+      // A new session starts at 0: its first line is open and not yet followed (1, JEV-0081), below the limit of 2, so it was shown.
+      assert.equal(store.adviceOverrides(view, { sessionId: 's2', adviceKind: 'main-route', slice: SLICE, advisedModel: 'claude-sonnet-5' }), 1);
     } finally {
       await started.daemon.stop('test');
     }

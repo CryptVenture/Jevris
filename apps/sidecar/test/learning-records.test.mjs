@@ -202,7 +202,7 @@ test("C's advice handlers get an advice-adherence port on the op context, bound 
     try {
       const res = await sidecarRequest({ home, op: 'test.adherence', scope: 'hook', timeoutMs: 60_000, workspace: repo, body: {} });
       assert.equal(res.ok, true, JSON.stringify(res));
-      assert.deepEqual(res.result, { port: true, opened: [true, true, false], overrides: 1 }, 'the second advice closed the first as no-change');
+      assert.deepEqual(res.result, { port: true, opened: [true, true, false], overrides: 2 }, 'the second advice closed the first as no-change, and is itself open and not followed (JEV-0081)');
     } finally {
       await started.daemon.stop('test');
     }

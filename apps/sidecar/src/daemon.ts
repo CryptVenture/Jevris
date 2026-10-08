@@ -681,6 +681,7 @@ export async function startDaemon(options: DaemonOptions = {}): Promise<DaemonSt
         engine: state.engine,
         modeOf: (workspace) => state.modeOf(workspace),
         jevAssistOf: (workspace) => state.jevAssistOf(workspace),
+        sourceEgressPreferenceOf: (workspace) => state.sourceEgressPreferenceOf(workspace),
         trace: (entry: SidecarTraceEvent & { readonly ws: string; readonly op: string }) => {
           state.trace(entry);
         },

@@ -19,6 +19,7 @@ import { scriptedWorkerPort } from '../orchestration/test-worker.js';
 import { onBudgetExhausted } from '../orchestration/budget.js';
 import { recordDuplicateRevert } from '../capabilities/orchestration.js';
 import { latestCapsule } from '../memory/capsule.js';
+import { egressPreferenceApproved } from '../memory/consult-gate.js';
 import { restoreText } from '../memory/audit.js';
 import { sliceVolume } from '../orchestration/estimates.js';
 import { drainIntegrationReverts } from '../orchestration/integration-reverts.js';
@@ -248,7 +249,7 @@ type RouteManagedWorker = (input: {
   /** R52: route.host certified for the worker's harness (the certify record). */
   readonly hostRouteCertified?: boolean;
   /** Tiered routing (owner decision 2026-10-08): the task's content-free difficulty signals; C judges the tier over the models the launch accepts. */
-  readonly tier?: { readonly signals: ReturnType<typeof tierSignalsOf>; readonly text?: string | null; readonly jevAssist?: 'off' | 'classify' };
+  readonly tier?: { readonly signals: ReturnType<typeof tierSignalsOf>; readonly text?: string | null; readonly jevAssist?: 'off' | 'classify'; readonly personEgress?: boolean };
 }) => Promise<{ readonly launched: boolean; readonly reasonCode?: string; readonly learning?: unknown; readonly effort?: string | null; readonly tier?: unknown }>;
 
 /** The slice's measured task volume for the route request (P11, C's `taskVolume`), when there is enough of it. */
@@ -823,7 +824,7 @@ function tierRequestOf(ctx: SidecarOpContext, ws: WorkspaceServices, task: NonNu
       planDepth: depth,
       baselineRunFailed,
     });
-    return { signals, text: task.title, jevAssist: ctx.jevAssist === 'off' ? 'off' : 'classify' };
+    return { signals, text: task.title, jevAssist: ctx.jevAssist === 'off' ? 'off' : 'classify', personEgress: egressPreferenceApproved(ctx, ws) };
   } catch {
     return undefined;
   }

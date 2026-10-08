@@ -271,6 +271,12 @@ export interface SidecarOpContext {
    * rules-only. Absent where no sidecar resolved it (a direct unit call): treated as `classify`.
    */
   readonly jevAssist?: 'off' | 'classify';
+  /**
+   * The person's own half of source-egress consent for this workspace (`privacy.sourceEgress` in the effective configuration):
+   * `approved-scoped` is their preference to let screened text out, and never lets any out on its own (the administrator's
+   * approval, which the engine reads, is the other half). Absent where no sidecar resolved it: treated as not approved.
+   */
+  readonly sourceEgressPreference?: 'deny-until-approved' | 'approved-scoped';
   /** Content-free trace line (OBS-01). Keys and values are bounded; no source, no secret. */
   trace(event: SidecarTraceEvent): void;
 }

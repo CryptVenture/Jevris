@@ -389,6 +389,11 @@ export interface ModelTierOptions {
   readonly now?: () => number;
   /** Do not ask Jev: the answer is the rules' and carries this reason code (a gate that applies). */
   readonly skipAsk?: string;
+  /**
+   * The person's own half of source-egress consent (`privacy.sourceEgress: approved-scoped`). The task text is offered only when this
+   * AND the administrator's approval (the engine's) hold, as for every other decision that quotes text (JEV-0079). Absent: not given.
+   */
+  readonly personEgress?: boolean;
 }
 
 export interface ModelTierInput {
@@ -483,8 +488,9 @@ export async function judgeModelTier(engine: DecisionEngine | null, input: Model
   if (rules.settled) return finish(ruleDecision(input, ladder, rules, { reasons: ['TIER_RULES_SURE'] }));
   const skip = options.skipAsk !== undefined ? (REASON_CODE.test(options.skipAsk) ? options.skipAsk : 'TIER_ASSIST_OFF') : options.assist === 'off' ? 'TIER_ASSIST_OFF' : engine === null ? 'PROVIDER_NOT_CONFIGURED' : null;
   if (skip !== null || engine === null) return finish(ruleDecision(input, ladder, rules, { reasons: [skip ?? 'PROVIDER_NOT_CONFIGURED'] }));
-  // The task text goes as one screened span only with source egress approved (the engine's gate is `decideEgress`).
-  const egressApproved = (engine.sourceEgress?.() ?? 'denied') === 'approved';
+  // The task text goes as one screened span only with BOTH halves of source egress consent: the administrator's approval (the
+  // engine's gate is `decideEgress`) and the person's own preference, which the caller reads (JEV-0079).
+  const egressApproved = options.personEgress === true && (engine.sourceEgress?.() ?? 'denied') === 'approved';
   const text = typeof input.text === 'string' ? input.text.trim().slice(0, TEXT_MAX_CHARS) : '';
   const withText = egressApproved && text.length > 0;
   const range = allowedRange(rules, ladder, input.signals, withText);

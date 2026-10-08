@@ -505,6 +505,25 @@ test('G21: a Claude hook sends the session sign-in the environment shows, by Cla
   assert.equal(Object.hasOwn(plain.calls.find((call) => call.kind === 'request').body, 'authMode'), false, 'unknown is left out');
 });
 
+test('JEV-0080: a Claude hook sends the model pin ANTHROPIC_MODEL names (never another harness, never a secret-like or malformed value), so the routing line and the subagent rewrite stand down', async () => {
+  const { sessionModelPin } = await import('../dist/launcher.js');
+  assert.equal(sessionModelPin('claude', { ANTHROPIC_MODEL: 'claude-sonnet-5-5' }), 'claude-sonnet-5-5');
+  assert.equal(sessionModelPin('claude', { ANTHROPIC_MODEL: ' opus[1m] ' }), 'opus[1m]', 'an alias with the context suffix, trimmed');
+  assert.equal(sessionModelPin('claude', {}), null);
+  assert.equal(sessionModelPin('claude', { ANTHROPIC_MODEL: '' }), null, 'an empty variable is not a pin');
+  assert.equal(sessionModelPin('claude', { ANTHROPIC_MODEL: 'has space' }), null);
+  assert.equal(sessionModelPin('claude', { ANTHROPIC_MODEL: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789' }), null, 'a key is no model');
+  assert.equal(sessionModelPin('codex', { ANTHROPIC_MODEL: 'claude-sonnet-5-5' }), null, 'only Claude Code names this variable');
+
+  const agent = fixture(claude, 'claude.pre-agent');
+  const pinned = fakeSidecar();
+  await runLauncher(args('claude'), JSON.stringify(agent.native), deps(pinned.sidecar, { ANTHROPIC_MODEL: 'claude-sonnet-5-5' }), Date.now());
+  assert.deepEqual(pinned.calls.find((call) => call.kind === 'request').body.pins, { modelPin: 'claude-sonnet-5-5', effortPin: null });
+  const plain = fakeSidecar();
+  await runLauncher(args('claude'), JSON.stringify(agent.native), deps(plain.sidecar), Date.now());
+  assert.equal(Object.hasOwn(plain.calls.find((call) => call.kind === 'request').body, 'pins'), false, 'no pin is left out');
+});
+
 test('G2: every event request says whether the harness can show an explain there, from the adapter renderer', async () => {
   const cases = [
     ['claude', claude, 'claude.stop', true],

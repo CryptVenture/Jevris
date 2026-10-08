@@ -124,6 +124,27 @@ test('a later revert, retry or incomplete run overturns a pass; a pass overturns
   s.closeStore(store);
 });
 
+test('JEV-0081: advice still open counts as not followed from the next evaluation on, unless the session already runs the advised model, so a line stops after two ignored lines, not three', () => {
+  const { store } = openHost();
+  const view = s.workspaceView(store, 'wAbc');
+  const advised = { sessionId: 's1', adviceKind: 'main-route', slice: 'edit-small', advisedModel: 'claude-opus-5-5' };
+  const overrides = () => s.adviceOverrides(view, advised);
+  assert.equal(s.recordSession(view, { sessionId: 's1', harness: 'claude', actualModel: 'claude-sonnet-5-5', state: 'active', atMs: 10, source: 'session.started' }).ok, true);
+  assert.equal(overrides(), 0, 'nothing delivered yet');
+  assert.equal(s.openAdvice(view, { decisionId: 'b1', ...advised, atMs: 20 }).ok, true);
+  assert.equal(overrides(), 1, 'the first line is open and the session still runs Sonnet: one ignored line');
+  assert.equal(s.openAdvice(view, { decisionId: 'b2', ...advised, atMs: 30 }).ok, true);
+  assert.equal(overrides(), 2, 'b1 closed as no-change, b2 is open: two ignored lines, so the limit of two is reached before a third line');
+  // A session that already runs the advised model has followed it: the model change resolves the open advice, none counts.
+  assert.equal(s.recordSession(view, { sessionId: 's1', harness: 'claude', actualModel: 'claude-opus-5-5', state: 'active', atMs: 40, source: 'model.changed' }).ok, true);
+  assert.equal(s.adviceAdherenceFor(view, 'b2').verdict, 'followed');
+  assert.equal(overrides(), 1, 'only the earlier no-change remains');
+  // An open advice whose advised model is the one the session runs is not counted even before the change event is seen.
+  assert.equal(s.openAdvice(view, { decisionId: 'b3', ...advised, atMs: 50, currentModel: 'claude-opus-5-5' }).ok, true);
+  assert.equal(overrides(), 1);
+  s.closeStore(store);
+});
+
 test('session model changes are appended and resolve model advice: followed, overridden, no change, unknown; overrides count per session (P5)', () => {
   const { store } = openHost();
   const view = s.workspaceView(store, 'wAbc');
@@ -144,7 +165,7 @@ test('session model changes are appended and resolve model advice: followed, ove
   advise('a3', 'claude-haiku-5', 60);
   assert.deepEqual(advise('a4', 'claude-haiku-5', 70), { ok: true, closed: 1 });
   assert.deepEqual([s.adviceAdherenceFor(view, 'a3').verdict, s.adviceAdherenceFor(view, 'a3').resolvedBy], ['no-change', 'next-advice']);
-  assert.equal(s.adviceOverrides(view, { sessionId: 's1', adviceKind: 'main-route', slice: 'edit-small', advisedModel: 'claude-haiku-5' }), 2, 'overridden plus no-change');
+  assert.equal(s.adviceOverrides(view, { sessionId: 's1', adviceKind: 'main-route', slice: 'edit-small', advisedModel: 'claude-haiku-5' }), 3, 'overridden plus no-change, plus the advice still open that the session has not followed (JEV-0081)');
   assert.equal(s.adviceOverrides(view, { sessionId: 's2', adviceKind: 'main-route', slice: 'edit-small', advisedModel: 'claude-haiku-5' }), 0, 'a new session starts at 0');
   // The session end closes the open advice.
   s.recordSession(view, { sessionId: 's1', harness: 'claude', state: 'ended', atMs: 80, source: 'session.ended' });

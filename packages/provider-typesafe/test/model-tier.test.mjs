@@ -88,7 +88,7 @@ const SMALL = { hints: { title: TITLE, paths: ['src/label.ts'], checkIds: ['test
 const LOCKFILE = { hints: { title: TITLE, paths: ['package-lock.json'], checkIds: ['test'] } };
 
 function judge(engine, baselineModelId, input, { text = TITLE, models = eligible(), options = {} } = {}) {
-  return core.judgeModelTier(engine, { signals: core.tierSignalsOf(input), eligible: models, baselineModelId, volume: core.DEFAULT_TASK_VOLUME, ...(text === null ? {} : { text }) }, CTX, { assist: 'classify', ...options });
+  return core.judgeModelTier(engine, { signals: core.tierSignalsOf(input), eligible: models, baselineModelId, volume: core.DEFAULT_TASK_VOLUME, ...(text === null ? {} : { text }) }, CTX, { assist: 'classify', personEgress: true, ...options });
 }
 
 test('Jev is asked one Choice over generic labels in price order, with the candidates described by registry facts; an accepted pick is the tier, labelled as Jev\'s suggestion', async (t) => {
@@ -145,6 +145,29 @@ test('egress denied: no task text and not even a withheld span go out; approved:
   assert.deepEqual([refused.tier, refused.basis, refused.asked, refused.textSent], ['baseline', 'tier-rule', true, false]);
   assert.ok(refused.reasonCodes.some((c) => /^TIER_JEV_/.test(c)), JSON.stringify(refused.reasonCodes));
   assert.equal(JSON.stringify(refused).includes(provider.FAKE_SECRET), false);
+});
+
+test('JEV-0079: the task text needs BOTH halves of consent: the administrator\'s approval alone, or the person\'s preference alone, sends no text and no evidence at all', async (t) => {
+  // Administrator approved, the person\'s own preference still deny-until-approved: nothing quoted goes out.
+  const adminOnly = await setup(t, pick('B'), { sourceEgress: APPROVED });
+  const a = await judge(adminOnly.engine, SONNET, PLAIN, { options: { personEgress: false } });
+  assert.equal(a.textSent, false);
+  assert.equal(adminOnly.requests.length, 1, 'the features-only question is still asked');
+  assert.deepEqual([adminOnly.requests[0].state.untrustedEvidence, adminOnly.requests[0].state.withheldEvidence], [[], []], 'no evidence at all');
+  assert.equal(JSON.stringify(adminOnly.requests).includes('zebra'), false);
+  // The caller gives no word for the person\'s half: the same.
+  const unsaid = await setup(t, pick('B'), { sourceEgress: APPROVED });
+  const u = await judge(unsaid.engine, SONNET, PLAIN, { options: { personEgress: undefined } });
+  assert.equal(u.textSent, false);
+  assert.deepEqual(unsaid.requests[0].state.untrustedEvidence, []);
+  // The person\'s preference alone (the administrator denies): nothing either.
+  const personOnly = await setup(t, pick('B'), { sourceEgress: DENIED });
+  assert.equal((await judge(personOnly.engine, SONNET, PLAIN, { options: { personEgress: true } })).textSent, false);
+  assert.deepEqual(personOnly.requests[0].state.untrustedEvidence, []);
+  // Both halves: the title goes as one screened span.
+  const both = await setup(t, pick('B'), { sourceEgress: APPROVED });
+  assert.equal((await judge(both.engine, SONNET, PLAIN, { options: { personEgress: true } })).textSent, true);
+  assert.equal(both.requests[0].state.untrustedEvidence.length, 1);
 });
 
 test('the floors: below 0.6 confidence or a 0.15 margin the rules\' tier stands; unknown, a label outside the set and a provider error too', async (t) => {

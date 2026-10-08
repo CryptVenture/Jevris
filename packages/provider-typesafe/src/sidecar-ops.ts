@@ -672,7 +672,7 @@ async function routeTier(ctx: SidecarOpContext, input: RouteRequest, registry: M
     const gate = ctx.killSwitchStopped ? 'TIER_KILL_SWITCH' : !modeAllows(mode, 'record') ? 'TIER_MODE_OFF' : ctx.jevAssist === 'off' ? 'TIER_ASSIST_OFF' : waitMs < ROUTE_SLICE_MIN_WAIT_MS ? 'TIER_NO_TIME' : null;
     const intent: IntentContext = { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: Math.max(1, waitMs + ROUTE_SLICE_LATE_GRACE_MS) };
     const judged = { signals: tierSignalsOf({ hints: input.task }), eligible: eligible.eligible, baselineModelId: baseline, volume: input.remaining ?? eligible.settings.defaultTaskVolume, ...(typeof input.task.title === 'string' ? { text: input.task.title } : {}) };
-    const run = judgeModelTier(engineOf(ctx), judged, intent, { assist: 'classify', record: modeAllows(mode, 'record') && !ctx.killSwitchStopped, ...(gate === null ? {} : { skipAsk: gate }) });
+    const run = judgeModelTier(engineOf(ctx), judged, intent, { assist: 'classify', record: modeAllows(mode, 'record') && !ctx.killSwitchStopped, personEgress: ctx.sourceEgressPreference === 'approved-scoped', ...(gate === null ? {} : { skipAsk: gate }) });
     let timer: ReturnType<typeof setTimeout> | undefined;
     const late = new Promise<'late'>((resolve) => {
       timer = setTimeout(() => resolve('late'), waitMs + 50);

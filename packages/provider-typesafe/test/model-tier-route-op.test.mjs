@@ -17,6 +17,7 @@ const contracts = await import('@jevris/contracts');
 const ops = Object.fromEntries(provider.sidecarOps.map((def) => [def.op, def]));
 const NOW = Date.parse('2026-10-08T12:00:00Z');
 const DENIED = () => ({ provenance: 'administrator', sourceEgress: 'deny-until-approved' });
+const APPROVED = () => ({ provenance: 'administrator', sourceEgress: 'approved-scoped' });
 const HARD = { title: 'rework the zebra login flow', paths: ['src/auth/login.ts'], checkIds: ['test'] };
 const PLAIN = { title: 'adjust the zebra pagination', paths: ['src/page.ts', 'src/list.ts'], checkIds: ['test'] };
 
@@ -40,7 +41,7 @@ function scriptedFetch(label) {
   return { fetch, requests };
 }
 
-async function setup(t, { label = 'B', listings = [] } = {}) {
+async function setup(t, { label = 'B', listings = [], sourceEgress = DENIED } = {}) {
   const home = mkdtempSync(join(tmpdir(), 'jevris-tier-op-'));
   let tracker = null;
   t.after(async () => {
@@ -52,7 +53,7 @@ async function setup(t, { label = 'B', listings = [] } = {}) {
   });
   for (const [harness, models] of listings) assert.equal(await core.recordModelListing(home, { harness, authMode: 'api-key', result: { ok: true, version: null, models }, nowMs: NOW }), true);
   const script = scriptedFetch(label);
-  const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {}, sourceEgress: DENIED });
+  const engine = await provider.createSidecarEngine({ home, credential: 'test-key-not-a-secret', fetch: script.fetch, env: {}, sourceEgress });
   tracker = trackEngine(engine);
   return { home, engine, requests: script.requests };
 }
@@ -102,6 +103,27 @@ test('route op: Jev may choose among the candidates; the answer is labelled as J
   assert.deepEqual([asked[0].state.untrustedEvidence, asked[0].state.withheldEvidence], [[], []]);
   const text = core.explainDecision(await engine.lookup(out.tier.decisionId));
   assert.match(text, /Model tier: step up/);
+});
+
+test('JEV-0079: the route sends the task title only with the administrator\'s approval AND the person\'s own privacy.sourceEgress preference', async (t) => {
+  const listings = [['claude', ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5']]];
+  const asked = async (preference) => {
+    const { home, engine, requests } = await setup(t, { label: 'C', listings, sourceEgress: APPROVED });
+    const out = await route(home, { currentModel: 'claude-sonnet-5-5', harness: 'claude', authMode: 'api-key', task: PLAIN }, engine, preference === undefined ? {} : { sourceEgressPreference: preference });
+    const model = requests.filter((r) => 'model' in r.questions);
+    assert.equal(model.length, 1, 'the tier question is asked either way');
+    return { out, evidence: model[0].state.untrustedEvidence, wire: JSON.stringify(model) };
+  };
+  // The administrator approved, the person\'s half is the default (or absent): features only, no evidence at all.
+  for (const preference of [undefined, 'deny-until-approved']) {
+    const half = await asked(preference);
+    assert.deepEqual(half.evidence, [], String(preference));
+    assert.equal(half.wire.includes('zebra'), false, String(preference));
+  }
+  // Both halves: one screened span of the title.
+  const both = await asked('approved-scoped');
+  assert.equal(both.evidence.length, 1);
+  assert.ok(both.wire.includes('adjust the zebra pagination'));
 });
 
 test('route op: no task, a pinned model or an unregistered session model gives no tier; Claude Code with no reported model uses its own default', async (t) => {

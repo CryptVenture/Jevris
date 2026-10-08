@@ -177,6 +177,8 @@ export interface ServiceHooks {
    * Absent: not narrowed here (ops treat it as `classify`).
    */
   jevAssistOf?(workspace: SidecarWorkspace): 'off' | 'classify';
+  /** The person's own half of source-egress consent for a workspace (`privacy.sourceEgress`), read per request. Absent: not approved. */
+  sourceEgressPreferenceOf?(workspace: SidecarWorkspace): 'deny-until-approved' | 'approved-scoped';
   trace(entry: SidecarTraceEvent & { readonly ws: string; readonly op: string }): void;
   /**
    * OBS-01, OBS-02: a request's receipt (after authentication) and its outcome, rejected
@@ -530,6 +532,7 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
     // SSOT §4.2: in off, no Jev call. The explicit asks for Jev are refused; the rest run without one.
     const mode = options.hooks.modeOf?.(workspace);
     const jevAssist = options.hooks.jevAssistOf?.(workspace);
+    const sourceEgressPreference = options.hooks.sourceEgressPreferenceOf?.(workspace);
     const off = mode !== undefined && !modeAllows(mode, 'record');
     if (off && MODE_OFF_REFUSED_OPS.includes(input.op)) return outcomeFail(MODE_OFF_REASON, modeOffMessage(input.op));
     const budgetMs = input.answer ? answerBudgetMs : limits.budgetMs[definition.budget === 'background' ? 'background' : input.budget];
@@ -573,6 +576,7 @@ export async function startService(options: ServiceOptions): Promise<SidecarServ
       ...(adherence !== undefined ? { adviceAdherence: adherence } : {}),
       ...(mode !== undefined ? { mode } : {}),
       ...(jevAssist !== undefined ? { jevAssist } : {}),
+      ...(sourceEgressPreference !== undefined ? { sourceEgressPreference } : {}),
       engine: off ? engineWhenOff(options.hooks.engine) : options.hooks.engine,
       trace(event) {
         options.hooks.trace({ ...event, ws: workspace.id, op: input.op, rid: input.id, client: input.kind });

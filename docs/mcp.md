@@ -158,7 +158,7 @@ Current mode, sidecar state, decision health, model pin, active workers, queued 
 - **Arguments:** none.
 - **Result:** the status report, the same one `jevris status --json` prints. In it:
   - `jevrisMode` is the effective mode for this workspace: your `mode` setting, lowered by any ceiling above it (the repository's `.jevris/config.json`, `organization.json`, `host.json` or a managed policy). It is the value `jevris configure` shows, and `modeSource` names where it comes from (see [settings.md](settings.md));
-  - `routing.modelPin` is the model you pinned in the harness (`ANTHROPIC_MODEL`), which Jevris never changes; `null` when none is set;
+  - `routing.modelPin` is the model you pinned in the harness (`ANTHROPIC_MODEL`), which Jevris never changes; `null` when none is set. The CLI and the Claude Code hook each send it, because the sidecar cannot read the session's environment;
   - `activeWorkers` lists the ids of this workspace's owned tasks that are leased or running;
   - `queuedTasks` is how many of this workspace's owned tasks are queued: in state `ready` or `validated`, waiting for a lease or a prerequisite. It is a count, and absent (or `null`) when the sidecar did not count. Between one worker ending and the next queued task being leased, `activeWorkers` is empty while `queuedTasks` is above 0, so the queue is idle only when `queuedTasks` is 0 and `activeWorkers` is empty. The hand-over has no time bound: wait on the two values, not on a delay.
 

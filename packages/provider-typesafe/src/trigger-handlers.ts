@@ -14,6 +14,7 @@ import {
   readModelOffer,
   seenSpellings,
   noteSubagentRoute,
+  claudeCodeVersionOf,
   subagentSliceId,
   SUBAGENT_ROUTE_ACTUATORS,
   locallyEligibleFor,
@@ -254,7 +255,11 @@ function aliasVersionNoticeFirst(workspaceId: string, sessionId: string): boolea
  */
 export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<HookProposal | null> {
   const signal = input.ctx.signal as { readonly aborted?: boolean };
-  if (signal.aborted === true) return null;
+  // A run whose answer is no longer wanted does no work, except in observe: there every subscriber runs after the answer, with
+  // an answer signal that is aborted from the start, to record the counterfactual (docs/routing.md "the decision is recorded").
+  // This handler commits no consuming effect, and nothing it proposes is shown or applied in observe.
+  const showsAdvice = input.ctx.mode === undefined || modeAllows(input.ctx.mode, 'show-advice');
+  if (signal.aborted === true && showsAdvice) return null;
   const payload = plain(input.event.payload) ? input.event.payload : {};
   const subagentType = typeof payload['subagentType'] === 'string' ? payload['subagentType'] : null;
   const explicitModel = typeof payload['requestedModel'] === 'string' && payload['requestedModel'].length > 0;
@@ -376,7 +381,7 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
   if (advice.outcome !== 'propose') {
     note('abstained', advice.reasonCode);
     // Amended 2026-10-08: on a Claude Code too old for the alias no alias is set; the person is told once per session, in plain words. An UNKNOWN version stays silent: not knowing is not a reason to say "update".
-    return advice.reasonCode === 'ALIAS_VERSION_OLD' && advice.text !== undefined && typeof input.harnessVersion === 'string' && input.harnessVersion.length > 0 && aliasVersionNoticeFirst(input.envelope.workspaceId, input.envelope.sessionId)
+    return advice.reasonCode === 'ALIAS_VERSION_OLD' && advice.text !== undefined && claudeCodeVersionOf(input.harnessVersion) !== null && aliasVersionNoticeFirst(input.envelope.workspaceId, input.envelope.sessionId)
       ? { hookOutcome: { kind: 'explain', text: advice.text }, reasonCode: advice.reasonCode, commit: () => true }
       : null;
   }

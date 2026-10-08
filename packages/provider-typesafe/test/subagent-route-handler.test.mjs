@@ -114,6 +114,28 @@ test('subagent route: abstains (the hook stays silent) without evidence, with an
   await silent('no evidence and a high-risk launch', ctx(bare, agentEvent({ subagentType: 'code-reviewer', toolInputBytes: 9000, toolInputKeys: ['prompt'] })), 'RISK_HIGH');
 });
 
+test('JEV-0076/0082: in observe the run after the answer (its answer signal is aborted from the start) still judges the launch and traces it, and shows nothing', async (t) => {
+  const dir = await home(t);
+  const gone = new AbortController();
+  gone.abort();
+  const run = async (mode) => {
+    const traces = [];
+    const result = await subscriber(certified).handle({ ...ctx(dir, agentEvent({ subagentType: 'Explore' }), { signal: gone.signal, traces }), mode });
+    return { result, routed: traces.filter((e) => e.event === 'subagent-route').map((e) => e.reasonCode) };
+  };
+  // docs/routing.md Delivery: "In observe nothing is shown and the decision is recorded."
+  const observed = await run('observe');
+  assert.deepEqual(observed.result.hookOutcome, { kind: 'observe' });
+  assert.equal(observed.result.reasonCode, 'MODE_DOES_NOT_ADVISE');
+  assert.deepEqual(observed.routed, ['SUBAGENT_ROUTE_LEARNED'], 'the launch was judged and traced');
+  // Where the mode shows advice, an answer no longer wanted still does no work.
+  for (const mode of ['advise', 'bounded-auto']) {
+    const wasted = await run(mode);
+    assert.deepEqual(wasted.result.hookOutcome, { kind: 'observe' }, mode);
+    assert.deepEqual(wasted.routed, [], `${mode}: no work for an unwanted answer`);
+  }
+});
+
 test('subagent route: prompt text never reaches the answer or the trace, and no learning outcome is recorded', async (t) => {
   const dir = await home(t);
   const traces = [];
@@ -272,5 +294,30 @@ test('amended 2026-10-08: Claude Code 2.1.292 maps `haiku` to Haiku 4.5, so no a
   for (const version of ['2.1.293', '2.1.294']) {
     const routed = await at(version, `sess-${version}`);
     assert.deepEqual([routed.hookOutcome.kind, routed.hookOutcome.model], ['route', HAIKU], version);
+  }
+});
+
+test('JEV-0078: with no learned route, a Sonnet session on Claude Code 2.1.292 (no `haiku` alias yet) is told once per session to update, instead of silence', async (t) => {
+  const dir = await home(t, { active: false });
+  const traces = [];
+  const at = (harnessVersion, sessionId) => subscriber(certified).handle(ctx(dir, { ...agentEvent({ subagentType: 'Explore', toolInputBytes: 600 }, { model: 'claude-sonnet-5-5' }), sessionId }, { traces, harnessVersion }));
+  const old = await at('2.1.292', 'sess-292');
+  assert.deepEqual(old.hookOutcome, { kind: 'explain', text: 'Claude Code 2.1.292 may map the haiku alias to an older model; update to 2.1.293 or later (or name the model by its id) so the alias means the current one.' });
+  assert.equal(old.reasonCode, 'ALIAS_VERSION_OLD');
+  assert.equal((await at('2.1.292', 'sess-292')).hookOutcome.kind, 'observe', 'said once for the session');
+  assert.deepEqual(traces.filter((e) => e.event === 'subagent-route').map((e) => e.reasonCode), ['ALIAS_VERSION_OLD', 'ALIAS_VERSION_OLD']);
+  // From 2.1.293 the alias means Haiku 5.5 and the launch is routed.
+  const routed = await at('2.1.293', 'sess-293');
+  assert.deepEqual([routed.hookOutcome.kind, routed.hookOutcome.model], ['route', HAIKU]);
+});
+
+test('JEV-0077: a version Jevris cannot read as x.y.z says nothing at all (only a known, too-old version is told to update)', async (t) => {
+  for (const learned of [true, false]) {
+    const dir = await home(t, { active: learned });
+    const traces = [];
+    for (const harnessVersion of ['latest', '2.1', 'v2', 'abc.def.ghi', 'canary', '2.1.x', 'garbage', '']) {
+      const answer = await subscriber(certified).handle(ctx(dir, { ...agentEvent({ subagentType: 'Explore', toolInputBytes: 600 }, { model: 'claude-sonnet-5-5' }), sessionId: `sess-${learned}-${harnessVersion}` }, { traces, harnessVersion }));
+      assert.deepEqual(answer.hookOutcome, { kind: 'observe' }, `${learned}: ${JSON.stringify(harnessVersion)}`);
+    }
   }
 });

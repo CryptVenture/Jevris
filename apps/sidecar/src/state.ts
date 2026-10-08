@@ -98,6 +98,18 @@ function effectiveModeFor(home: string, workspaceRoot: string | null): Mode {
 }
 
 /**
+ * The person's own half of source-egress consent for a workspace (`privacy.sourceEgress`, JEV-0079). If the resolver throws it
+ * is not approved: text never leaves on a guess.
+ */
+function effectiveSourceEgressPreferenceFor(home: string, workspaceRoot: string | null): 'deny-until-approved' | 'approved-scoped' {
+  try {
+    return readEffectiveConfig({ home, workspaceRoot }).config.privacy.sourceEgress === 'approved-scoped' ? 'approved-scoped' : 'deny-until-approved';
+  } catch {
+    return 'deny-until-approved';
+  }
+}
+
+/**
  * The effective `jev.assist` for a workspace (owner decision 2026-10-01): `classify` or `off`. If the
  * resolver throws, Jev assist is off here: a classification call is never made on a guess.
  */
@@ -374,6 +386,8 @@ export interface RuntimeState {
   modeOf(workspace: SidecarWorkspace): Mode;
   /** The effective `jev.assist` for a workspace (owner decision 2026-10-01). */
   jevAssistOf(workspace: SidecarWorkspace): 'off' | 'classify';
+  /** The person's own half of source-egress consent for a workspace (JEV-0079). */
+  sourceEgressPreferenceOf(workspace: SidecarWorkspace): 'deny-until-approved' | 'approved-scoped';
   readonly store: unknown;
   readonly storeDiagnostic: string | null;
   storeFor(workspace: SidecarWorkspace): unknown;
@@ -2297,6 +2311,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     engine,
     modeOf: (workspace) => effectiveModeFor(home, workspace.root),
     jevAssistOf: (workspace) => effectiveJevAssistFor(home, workspace.root),
+    sourceEgressPreferenceOf: (workspace) => effectiveSourceEgressPreferenceFor(home, workspace.root),
     get store() {
       return store;
     },

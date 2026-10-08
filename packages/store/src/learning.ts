@@ -480,8 +480,11 @@ export function openAdvice(store: OpenStoreResult, input: OpenAdviceInput): { re
 }
 
 /**
- * How often this session overrode the same advice (overridden or no-change verdicts). C does not
- * repeat that advice at 2 or more; a new session starts at 0. Never used for safety notices.
+ * How often this session did not follow the same advice: advice it overrode or left unchanged (overridden or no-change verdicts),
+ * plus the one still open, which counts from the next evaluation on (JEV-0081): by then the session has had its chance to act on
+ * it, and its verdict would be written only when the following advice opens, which would mean the advice is shown once more than
+ * the limit. An open advice the session already runs (its model is the advised one) is not counted. C does not repeat that advice
+ * at 2 or more; a new session starts at 0. Never used for safety notices.
  */
 export function adviceOverrides(store: OpenStoreResult, input: { readonly workspaceId?: string; readonly sessionId: string; readonly adviceKind: AdviceKind; readonly slice: string; readonly advisedModel: string }): number {
   if (!isKey(input.sessionId) || !isKey(input.slice) || !LABEL.test(input.advisedModel)) return 0;
@@ -492,7 +495,12 @@ export function adviceOverrides(store: OpenStoreResult, input: { readonly worksp
       num(
         field(
           driver
-            .prepare("SELECT COUNT(*) AS n FROM advice_adherence WHERE workspace_id = ? AND session_id = ? AND advice_kind = ? AND slice = ? AND advised_model = ? AND verdict IN ('overridden', 'no-change')")
+            .prepare(
+              `SELECT COUNT(*) AS n FROM advice_adherence a
+               WHERE a.workspace_id = ? AND a.session_id = ? AND a.advice_kind = ? AND a.slice = ? AND a.advised_model = ?
+                 AND (a.verdict IN ('overridden', 'no-change')
+                      OR (a.verdict = 'open' AND a.advised_model <> COALESCE((SELECT s.actual_model FROM session s WHERE s.workspace_id = a.workspace_id AND s.session_id = a.session_id), a.model_at_advice, '')))`,
+            )
             .get(ws, input.sessionId, input.adviceKind, input.slice, input.advisedModel),
           'n',
         ),
