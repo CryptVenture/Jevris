@@ -55,6 +55,13 @@ export interface HookProposal {
   readonly featureId?: string;
   /** Text to show instead when the outcome is not certified. */
   readonly fallbackText?: string;
+  /**
+   * A `route` proposal only (owner decision 2026-10-08, "rewrite plus instruct"): the short note
+   * addressed to the model, delivered as a `context` outcome when the route itself cannot be applied
+   * (hooks.route uncertified, or a mode below bounded-auto) and `hooks.context` is certified; else the
+   * `fallbackText` explain stands. Never in observe, where nothing is shown.
+   */
+  readonly fallbackContext?: string;
   readonly reasonCode: string;
   readonly decisionId?: string;
   /**
@@ -87,6 +94,12 @@ export interface TriggerHandlerInput {
    * it was seen in the session and how it compares with the previous one (counts and flags only).
    */
   readonly failure?: FailureObservation;
+  /**
+   * Whether a signed certification covers this event's harness, its installed version and this OS for
+   * `featureId` now (the subscriber's own source, so a handler never reads a different one). Used by
+   * the subagent route for the HARNESS_ALIAS proof (hooks.route certified). Absent: not certified.
+   */
+  readonly certified?: (featureId: string) => Promise<boolean>;
 }
 
 export type TriggerHandler = (input: TriggerHandlerInput) => Promise<HookProposal | null> | HookProposal | null;
@@ -308,11 +321,16 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
     if (trigger !== null && list.length === 0 && delivery === null) return observe('NO_HANDLER', trigger);
     const engine = engineOf(ctx);
     const proposals: HookProposal[] = [];
+    const harnessVersion = typeof body['harnessVersion'] === 'string' ? body['harnessVersion'] : null;
+    const platform = (globalThis as { process?: { platform?: string } }).process?.platform ?? '';
+    const operatingSystem = options.operatingSystem ?? (['darwin', 'linux', 'win32'].includes(platform) ? (platform as OperatingSystem) : null);
+    const certifiedHere = async (featureId: string): Promise<boolean> =>
+      (await isCertified(certifications, ctx.home, { harness: event.harness, harnessVersion: harnessVersion ?? options.harnessVersionOf?.(ctx.home, event.harness) ?? null, operatingSystem, featureId, nowMs })).certified;
     if (trigger !== null) {
       for (const handler of list) {
         if (ctx.deadline.expired()) break;
         try {
-          const proposal = await handler({ ctx, envelope: built.envelope, event, trigger, engine, queues, revision: atRevision, currentRevision, stillUseful, ...(classified.trigger !== null && classified.failure !== undefined ? { failure: classified.failure } : {}) });
+          const proposal = await handler({ ctx, envelope: built.envelope, event, trigger, engine, queues, revision: atRevision, currentRevision, stillUseful, certified: certifiedHere, ...(classified.trigger !== null && classified.failure !== undefined ? { failure: classified.failure } : {}) });
           if (proposal !== null) proposals.push(proposal);
         } catch {
           // A failing handler never blocks the hook; it contributes nothing.
@@ -321,9 +339,6 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
     }
     // Last, so that it never shadows a proposal of this event's own trigger: the first of equal strength wins.
     if (delivery !== null) proposals.push(delivery);
-    const harnessVersion = typeof body['harnessVersion'] === 'string' ? body['harnessVersion'] : null;
-    const platform = (globalThis as { process?: { platform?: string } }).process?.platform ?? '';
-    const operatingSystem = options.operatingSystem ?? (['darwin', 'linux', 'win32'].includes(platform) ? (platform as OperatingSystem) : null);
     let best: SubscriberResult = observe('NO_PROPOSAL', trigger);
     let winner: HookProposal | null = null;
     for (const proposal of proposals) {
@@ -338,7 +353,14 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
         // as advice, as an uncertified one is.
         if (!certified || (outcome.kind === 'route' && !modeAllows(mode, 'actuate'))) {
           const text = proposal.fallbackText ?? (outcome.kind === 'context' ? outcome.text : null);
-          outcome = text === null || text === undefined ? { kind: 'observe' } : { kind: 'explain', text };
+          // Owner decision 2026-10-08: advice about a model for a subagent is addressed to the model
+          // (a PreToolUse context), not shown only to the person, where hooks.context is certified.
+          const modelNote = outcome.kind === 'route' && modeAllows(mode, 'show-advice') ? proposal.fallbackContext : undefined;
+          const contextCertified = modelNote !== undefined && (await certifiedHere(CONTEXT_FEATURE));
+          if (modelNote !== undefined && contextCertified) {
+            outcome = { kind: 'context', text: modelNote };
+            certified = true;
+          } else outcome = text === null || text === undefined ? { kind: 'observe' } : { kind: 'explain', text };
         }
         // P13: a subagent route proposal is rendered when certified and the mode actuates, else explained (D's SubagentStart record).
         if (trigger === 'worker-creation' && proposal.hookOutcome.kind === 'route' && modeAllows(mode, 'show-advice')) {

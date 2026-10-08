@@ -61,6 +61,6 @@ export type Checks = [
   Expect<Equal<EventEnvelope['payload'], Json>>,
   Expect<Equal<TaskNode['schemaVersion'], '1.0'>>,
   Expect<Equal<VerificationReceipt['outcome'], 'passed' | 'failed' | 'unknown' | 'not-run'>>,
-  Expect<Equal<Extract<HookOutcome, { kind: 'route' }>, { readonly kind: 'route'; readonly model: string; readonly variant?: string | null }>>,
+  Expect<Equal<Extract<HookOutcome, { kind: 'route' }>, { readonly kind: 'route'; readonly model: string; readonly variant?: string | null; readonly context?: string | null }>>,
   Expect<Equal<HookOutcome['kind'], 'observe' | 'context' | 'route' | 'explain'>>,
 ];

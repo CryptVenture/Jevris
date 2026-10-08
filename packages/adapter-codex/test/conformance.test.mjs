@@ -275,6 +275,8 @@ test('OD-6: a Codex spawn_agent route is allow plus updatedInput with only model
     hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'allow', updatedInput: { ...spawn.native.tool_input, model: 'gpt-6-astra' } },
   });
   assert.equal(codex.protocolResponse(event, route), '', 'no native input (cut by the launcher): no route');
+  // Owner decision 2026-10-08: a route's `context` note is Claude Code's (rewrite plus instruct); Codex renders what it did and ignores the field.
+  assert.equal(codex.protocolResponse(event, { ...route, context: 'a note for the model' }, spawn.native), codex.protocolResponse(event, route, spawn.native));
   assert.equal(codex.protocolResponse(event, { kind: 'route', model: 'bad id/x' }, spawn.native), '');
   const pinned = fixture('codex.pre-spawn-agent-pinned');
   const pinnedEvent = codex.normalize(pinned.native).event;

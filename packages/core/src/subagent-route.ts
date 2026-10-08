@@ -2,11 +2,17 @@
  * Subagent routing, the decision side (owner decision 2026-09-27, DOMAINS 9ce2ba5: "build it,
  * abstain by default"; R20 extends it to Codex, Kilo and OpenCode through SUBAGENT_ROUTE_ACTUATORS).
  *
- * A PreToolUse(Agent/Task) event may get a proposed model for the subagent only when there is
- * evidence for the subagent type: the route-learning slice for that type is active (`auto`), or a
- * signed calibration release for that slice selects a model. Everything else abstains with a
- * reason code, and the subagent keeps the model Claude Code would choose. There is no fixed rule
- * such as "Explore runs cheaper".
+ * A PreToolUse(Agent/Task) event may get a proposed model for the subagent when there is evidence
+ * for the subagent type: the route-learning slice for that type is active (`auto`), or a signed
+ * calibration release for that slice selects a model. Everything else abstains with a reason code,
+ * and the subagent keeps the model Claude Code would choose.
+ *
+ * Owner decision 2026-10-08 (reverses the abstain-only line of 9ce2ba5, Claude Code only): with no
+ * learned or signed evidence, a launch judged low or medium risk (`subagent-risk.ts`: rules first; a
+ * read-only built-in is low, a write-capable type is high unless a Jev answer at the floors lowers it) goes to the cheapest current model of the
+ * `haiku` family (low) or the `sonnet` family (medium) for that one Agent call. The session's
+ * model is never changed. High risk and unknown change nothing. The model must be eligible on
+ * this harness (locallyEligible, which for Claude Code includes the HARNESS_ALIAS proof).
  *
  * Pure: no I/O, no clock read, and no prompt text. The inputs are the subagent type, whether the
  * tool input already names a model, the session's model, pins, the registry, the models found
@@ -30,18 +36,10 @@ import { hostTariffGuard } from './serving-tariff.js';
 import { accessPauseForSpelling, type AccessLimitEntry } from './access-limits.js';
 import type { SeenSpelling } from './model-offer.js';
 import type { ModelUnavailableReason } from './model-availability.js';
-import { lifecycleCheck, registryModel, routeBaseline } from './model-registry.js';
+import { CLAUDE_CODE_SUBAGENT_ALIASES, aliasMeansModel, lifecycleCheck, registryModel, routeBaseline, type ClaudeCodeSubagentAlias } from './model-registry.js';
+import type { SubagentClass, SubagentRiskLevel, SubagentRiskSource } from './subagent-risk.js';
 import { blockedDownstream, hostConsent, signedInDefaultAllowed, type ProviderConsentReader } from './provider-consent-gate.js';
 import { defaultEffortOf, learningSliceKey, slicePolicy, type LearningState } from './route-learning.js';
-
-/**
- * Claude Code's Agent tool accepts these model aliases (its Agent SDK types
- * `model?: "sonnet" | "opus" | "haiku" | "fable"`; routing design R25); the launcher maps a
- * registry id by family. An alias names a family, not a model: Claude Code resolves it to that
- * family's current model, so a route to an older model of the family abstains (ALIAS_NOT_NEWEST).
- */
-export const CLAUDE_CODE_SUBAGENT_ALIASES = Object.freeze(['haiku', 'sonnet', 'opus', 'fable'] as const);
-export type ClaudeCodeSubagentAlias = (typeof CLAUDE_CODE_SUBAGENT_ALIASES)[number];
 
 /**
  * R20 (routing design; owner decisions OD-6, OD-7): how each harness applies a subagent route.
@@ -72,6 +70,15 @@ export interface SubagentActuator {
 }
 
 const VARIANT = new RegExp(ROUTE_VARIANT_PATTERN);
+
+export { CLAUDE_CODE_SUBAGENT_ALIASES, type ClaudeCodeSubagentAlias };
+
+/**
+ * Owner decision 2026-10-08: the model family a launch of each risk level goes to when nothing
+ * learned says otherwise, resolved against the registry (the newest usable release of the family,
+ * which is what Claude Code's alias of that name means), never a hard-coded model id.
+ */
+export const RISK_ROUTE_FAMILY: Readonly<Record<'low' | 'medium', ClaudeCodeSubagentAlias>> = Object.freeze({ low: 'haiku', medium: 'sonnet' });
 
 export const SUBAGENT_ROUTE_ACTUATORS: Readonly<Record<HarnessId, SubagentActuator | null>> = Object.freeze({
   claude: { tool: 'Agent', carries: 'alias', effort: 'none', authority: 'updated-input', presetOnly: false },
@@ -106,6 +113,8 @@ export const SUBAGENT_ROUTE_ABSTAIN_REASONS = [
   'EFFORT_NOT_ROUTABLE',
   'SAME_AS_SESSION',
   'ACCESS_LIMITED',
+  'RISK_HIGH',
+  'NOT_CHEAPER',
 ] as const;
 export type SubagentRouteAbstainReason = (typeof SUBAGENT_ROUTE_ABSTAIN_REASONS)[number];
 
@@ -186,8 +195,20 @@ export interface SubagentRouteInput {
    * used, and a gateway session reads as an unknown host (phase 1).
    */
   readonly providerConsent?: ProviderConsentReader;
+  /**
+   * Owner decision 2026-10-08: the content-free risk of this launch (`judgeSubagentRisk`), or absent.
+   * Used only on Claude Code and only when no learned route or signed prior applies.
+   */
+  readonly risk?: SubagentRiskInput | null;
   /** Serving hosts R51: the harness's `route.host` certification for the session's version (the sidecar's, never the plugin's). Absent: false. */
   readonly hostRouteCertified?: boolean;
+}
+
+/** What the subagent-risk judge decided for one launch, as the route reads it. */
+export interface SubagentRiskInput {
+  readonly level: SubagentRiskLevel;
+  readonly source: SubagentRiskSource;
+  readonly subagentClass: SubagentClass;
 }
 
 /** Why a proposal is explain text only (serving hosts R51): its price is an estimate, or route.host is not certified. */
@@ -212,8 +233,8 @@ export type SubagentRouteAdvice =
        */
       readonly effortNotApplied: string | null;
       readonly sliceId: string;
-      readonly basis: 'learning' | 'signed-prior';
-      readonly reasonCode: 'SUBAGENT_ROUTE_LEARNED' | 'SUBAGENT_ROUTE_PRIOR';
+      readonly basis: 'learning' | 'signed-prior' | 'risk-rule' | 'risk-jev';
+      readonly reasonCode: 'SUBAGENT_ROUTE_LEARNED' | 'SUBAGENT_ROUTE_PRIOR' | 'SUBAGENT_ROUTE_RISK_RULE' | 'SUBAGENT_ROUTE_RISK_JEV';
       /**
        * Serving hosts R51: set when the route must not be applied, only explained: a side priced by
        * estimate on its host (HOST_TARIFF_UNKNOWN), or a pinned host or a changed host without
@@ -223,32 +244,21 @@ export type SubagentRouteAdvice =
       readonly blockedReason: SubagentRouteBlock | null;
       /** Shown when the route is not certified (explain instead of route). */
       readonly text: string;
+      /**
+       * Claude Code only: one short sentence for the model when the route is applied (it names the alias
+       * set on this call and says the session model is unchanged); null elsewhere.
+       */
+      readonly appliedContext: string | null;
+      /**
+       * Claude Code only: one short sentence for the model when the route is advised and not applied
+       * (uncertified, or the mode does not actuate); null elsewhere.
+       */
+      readonly adviceContext: string | null;
     }
   | { readonly outcome: 'abstain'; readonly reasonCode: SubagentRouteAbstainReason; readonly sliceId: string | null };
 
 function aliasOf(family: string): ClaudeCodeSubagentAlias | null {
   return (CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(family) ? (family as ClaudeCodeSubagentAlias) : null;
-}
-
-/**
- * Whether the family alias can only mean `model` (routing design R25, K1). The alias resolves to
- * the family's current model, so `model` must be the newest usable registry entry of its family.
- * A family entry with no release date cannot be ordered, so the alias is not trusted either.
- */
-function aliasMeansModel(registry: ModelRegistry, model: RoutingModel, nowMs: number): boolean {
-  const released = (m: RoutingModel): number | null => {
-    const day = m.lifecycle?.releasedOn ?? null;
-    return day === null ? null : Date.parse(day);
-  };
-  const own = released(model);
-  if (own === null) return false;
-  for (const other of registry.entries) {
-    if (other.modelId === model.modelId || other.family !== model.family) continue;
-    if (!lifecycleCheck(other, nowMs).usable) continue;
-    const at = released(other);
-    if (at === null || at >= own) return false;
-  }
-  return true;
 }
 
 /** Advice for one subagent launch. Abstains unless evidence supports a different model. */
@@ -269,7 +279,7 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
 
   // Evidence: an active learned route for this subagent type, else a signed prior.
   let modelId: string | null = null;
-  let basis: 'learning' | 'signed-prior' | null = null;
+  let basis: 'learning' | 'signed-prior' | 'risk-rule' | 'risk-jev' | null = null;
   let effort: string | null = null;
   if (input.learning !== null) {
     // R17: the slice learns under the harness's baseline, so a route learned on Claude Code's
@@ -284,6 +294,16 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
   if (modelId === null && input.signedPrior !== undefined && input.signedPrior !== null) {
     modelId = input.signedPrior.modelId;
     basis = 'signed-prior';
+  }
+  // Owner decision 2026-10-08: no learned or signed evidence, so the launch's own risk decides, on
+  // Claude Code (the alias actuator) only. Evidence above always wins over this default.
+  if (modelId === null && actuator?.carries === 'alias' && input.risk !== undefined && input.risk !== null) {
+    if (input.risk.level === 'high') return abstain('RISK_HIGH', sliceId);
+    const target = newestUsableOfFamily(input.registry, RISK_ROUTE_FAMILY[input.risk.level], input.nowMs);
+    if (target !== null) {
+      modelId = target.modelId;
+      basis = input.risk.source === 'jev' ? 'risk-jev' : 'risk-rule';
+    }
   }
   if (modelId === null || basis === null) return abstain('NO_EVIDENCE', sliceId);
 
@@ -300,6 +320,13 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
     alias = aliasOf(model.family);
     if (alias === null) return abstain('NO_ALIAS', sliceId);
     if (!aliasMeansModel(input.registry, model, input.nowMs)) return abstain('ALIAS_NOT_NEWEST', sliceId);
+    // Owner decision 2026-10-08 (amends DOMAINS 3f090fa): no path skips the eligibility rule. For
+    // Claude Code the list carries the HARNESS_ALIAS proof; null (an administrator's account check
+    // decides, or the caller has none) is not checked here, as on the other harnesses.
+    const eligibleAlias = input.locallyEligible ?? null;
+    if (eligibleAlias !== null && !eligibleAlias.includes(model.modelId)) return abstain('NOT_ELIGIBLE_HERE', sliceId);
+    // A risk default only ever goes to a cheaper model than the session runs.
+    if ((basis === 'risk-rule' || basis === 'risk-jev') && !cheaperThanSession(input.registry, model, input.sessionModel, input.nowMs)) return abstain('NOT_CHEAPER', sliceId);
     harnessModel = alias;
   } else {
     // Scoped to this harness: it must spell the model (its access row or the model's own row),
@@ -359,7 +386,16 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
   const session = input.sessionModel;
   if (session !== null && (session === modelId || session === harnessModel)) return abstain('SAME_AS_SESSION', sliceId);
 
-  const why = basis === 'learning' ? `this workspace's route learning for ${type} subagents` : `a signed calibration release for ${type} subagents`;
+  const sessionPhrase = 'The session model is unchanged.';
+  const what = alias === null ? null : alias;
+  const riskWhy = input.risk === undefined || input.risk === null ? '' : `${riskClassText(input.risk.subagentClass, type)}, ${input.risk.level} risk by ${input.risk.source === 'jev' ? 'Jev' : 'rules'}`;
+  const why =
+    basis === 'learning'
+      ? `this workspace's route learning for ${type} subagents`
+      : basis === 'signed-prior'
+        ? `a signed calibration release for ${type} subagents`
+        : riskWhy;
+  const reasonCode = basis === 'learning' ? 'SUBAGENT_ROUTE_LEARNED' : basis === 'signed-prior' ? 'SUBAGENT_ROUTE_PRIOR' : basis === 'risk-rule' ? 'SUBAGENT_ROUTE_RISK_RULE' : 'SUBAGENT_ROUTE_RISK_JEV';
   return {
     outcome: 'propose',
     harness,
@@ -371,8 +407,46 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
     effortNotApplied,
     sliceId,
     basis,
-    reasonCode: basis === 'learning' ? 'SUBAGENT_ROUTE_LEARNED' : 'SUBAGENT_ROUTE_PRIOR',
+    reasonCode,
     blockedReason,
     text: `Jevris suggests ${model.displayName ?? modelId} (${harnessModel}${variant === null ? '' : `, ${variant}`}) for this ${type} subagent, from ${why}. The subagent keeps its model unless the route is applied.${effortNotApplied === null ? '' : ` The learned effort is ${effortNotApplied}; the route sets the model only, so the subagent runs at its own effort.`}${blockedReason === null ? '' : ` Not applied (${blockedReason}): ${blockedReason === 'HOST_TARIFF_UNKNOWN' ? "a price on this host is not known, only the maker's list price as an estimate" : 'routes through a gateway or onto another host need the route.host certification'}.`}`,
+    appliedContext: what === null ? null : `Jevris set model ${what} on this one Agent call (${why}). ${sessionPhrase}`,
+    adviceContext: what === null ? null : `Jevris advises model: ${what} for this ${type} subagent (${why}). This call already started; set model on the next Agent call to apply it. ${sessionPhrase}`,
   };
+}
+
+/** How a launch's type reads in the route text. */
+function riskClassText(subagentClass: SubagentClass, type: string): string {
+  return subagentClass === 'read-only' ? 'read-only type' : subagentClass === 'general-purpose' ? 'general-purpose type' : `custom type ${type}`;
+}
+
+/** The newest usable registry release of an Anthropic family: what Claude Code's alias of that name means. Null when there is none. */
+function newestUsableOfFamily(registry: ModelRegistry, family: string, nowMs: number): RoutingModel | null {
+  let best: RoutingModel | null = null;
+  let bestAt = Number.NEGATIVE_INFINITY;
+  for (const entry of registry.entries) {
+    if (entry.provider !== 'anthropic' || entry.family !== family || !lifecycleCheck(entry, nowMs).usable) continue;
+    const day = entry.lifecycle?.releasedOn ?? null;
+    const at = day === null ? Number.NaN : Date.parse(day);
+    if (!Number.isFinite(at)) continue;
+    if (at > bestAt) {
+      best = entry;
+      bestAt = at;
+    }
+  }
+  return best;
+}
+
+/**
+ * Whether `target` lists a lower input price than the session's model. A session model that is not
+ * in the registry (or is a bare alias of an unknown family) is not compared: the default route is
+ * a cheaper model by construction, and an unknown session is read as the registry's baseline.
+ */
+function cheaperThanSession(registry: ModelRegistry, target: RoutingModel, sessionModel: string | null, nowMs: number): boolean {
+  if (sessionModel === null) return true;
+  const alias = (CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(sessionModel) ? sessionModel : null;
+  const session = alias === null ? registryModel(registry, sessionModel) : newestUsableOfFamily(registry, alias, nowMs);
+  // The same model is SAME_AS_SESSION's to refuse, not this guard's.
+  if (session === null || session.modelId === target.modelId) return true;
+  return target.tariff.inputPerMillion < session.tariff.inputPerMillion;
 }

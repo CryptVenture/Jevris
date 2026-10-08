@@ -32,7 +32,7 @@ import { DecisionBudget } from './decision-budget.js';
 import { loadModelAvailability, unavailableModels, type ModelUnavailableReason } from './model-availability.js';
 import { loadModelRegistryChecked, registryModel, routeBaseline, type CacheTtl, type TokenVolume } from './model-registry.js';
 import { NO_STORED_CONSENT, providerConsentGate, routeConsentGate, type ProviderConsentReader } from './provider-consent-gate.js';
-import { locallyEligibleModels, modelEligibility, ranHereProviders, readModelOffer, type EligibilityScope, type ModelOffer } from './model-offer.js';
+import { locallyEligibleModels, modelEligibility, ranHereProviders, readModelOffer, type EligibilityScope, type HarnessAliasProof, type ModelOffer } from './model-offer.js';
 import { filterCandidates, routeTask, type CostAssumptions, type QualityEstimate, type RouteSelection, type RoutingPolicy } from './router.js';
 import { DEFAULT_SWITCH_POLICY, switchGuard, transitionCostMicroUsd, type SwitchDecision } from './route-switch.js';
 import { armKey, baselinePriorsFromRelease, learningSettings, learningSliceKey, loadLearningState, reconcileLearning, secureRandom, type AuthMode, type LearningState, type RouteRisk } from './route-learning.js';
@@ -266,10 +266,12 @@ export async function locallyEligibleFor(input: {
   readonly accountId: string | null;
   readonly unavailable: Readonly<Record<string, ModelUnavailableReason>>;
   readonly scope: EligibilityScope;
+  /** The subagent route only (owner decision 2026-10-08): Claude Code's alias proof. */
+  readonly harnessAlias?: HarnessAliasProof;
 }): Promise<readonly string[] | null> {
   if (input.accountId !== null) return null;
   const offer = await readModelOffer(input.home).catch(() => null);
-  return locallyEligibleModels(modelEligibility({ registry: input.registry, accountId: null, offer, unavailable: input.unavailable, scope: input.scope }));
+  return locallyEligibleModels(modelEligibility({ registry: input.registry, accountId: null, offer, unavailable: input.unavailable, scope: input.scope, ...(input.harnessAlias === undefined ? {} : { harnessAlias: input.harnessAlias }) }));
 }
 
 export interface RouteEvaluation {

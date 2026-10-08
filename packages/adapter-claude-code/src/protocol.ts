@@ -5,7 +5,9 @@
  * - observe is empty stdout for every event (Claude treats exit 0 + nothing as success);
  * - context uses `hookSpecificOutput.additionalContext` only on events that accept it;
  * - route rewrites an Agent or Task tool's input only when the user did not pin a model, keeps
- *   every input key, changes nothing but `model`, and never sets `permissionDecision`. The
+ *   every input key, changes nothing but `model`, and never sets `permissionDecision`. A route
+ *   that carries a short `context` note also sets `additionalContext` in the same
+ *   `hookSpecificOutput` (rewrite plus instruct, owner decision 2026-10-08); The
  *   sidecar sends only a registry model id (E 7a6f7a5); the launcher hands this adapter the
  *   native input, and the adapter maps the id to the alias Claude Code's Agent tool takes;
  * - explain is a `systemMessage`. PreModelSwitch is explained, never answered with "ask" or
@@ -125,7 +127,10 @@ export function protocolResponse(event: NormalizedHarnessEvent | null, outcome: 
   if (outcome.kind === 'route') {
     const updatedInput = native === undefined ? null : routeInput(native, outcome.model);
     if (updatedInput === null || !routeAllowed(event, updatedInput)) return '';
-    return JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput } });
+    // Rewrite plus instruct (owner decision 2026-10-08): the short note for the model rides beside
+    // the rewrite in the same hookSpecificOutput. It is never prompt or description text.
+    const note = typeof outcome.context === 'string' ? contextText({ kind: 'context', text: outcome.context }) : null;
+    return JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput, ...(note === null ? {} : { additionalContext: note }) } });
   }
   const text = contextText(outcome);
   if (text === null) return '';

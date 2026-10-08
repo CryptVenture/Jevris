@@ -44,6 +44,30 @@ test('a certified wire route renders the alias on the harness own input, and the
   assert.equal(result.requests[0].body.envelope.payload.subagentType, 'Explore', 'the subagent type does');
 });
 
+test('rewrite plus instruct: a route with a note renders the rewrite and the note in one PreToolUse answer; a context outcome on the same call is the advice form', async () => {
+  const native = nativeOf(claude, 'claude.pre-agent');
+  const note = 'Jevris set model haiku on this one Agent call (read-only type, low risk by rules). The session model is unchanged.';
+  const routed = await run('claude', native, { hookOutcome: { kind: 'route', model: 'claude-haiku-5-5', context: note }, certified: true });
+  assert.equal(routed.stdout, JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...native.tool_input, model: 'haiku' }, additionalContext: note } }));
+  const sent = JSON.stringify(routed.requests[0].body);
+  assert.ok(!sent.includes('find x') && !sent.includes('"search"'), 'the prompt and description still never reach the sidecar');
+  // The sidecar's downgrade when the route cannot be applied: the same advice, addressed to the model.
+  const advice = 'Jevris advises model: haiku for this Explore subagent (read-only type, low risk by rules). This call already started; set model on the next Agent call to apply it. The session model is unchanged.';
+  const advised = await run('claude', native, { hookOutcome: { kind: 'context', text: advice }, certified: true });
+  assert.deepEqual(JSON.parse(advised.stdout), { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: advice } });
+  // Not certified: a context never renders.
+  assert.equal((await run('claude', native, { hookOutcome: { kind: 'context', text: advice }, certified: false })).stdout, '');
+  // The note is validated on the wire like the rest of the route.
+  assert.deepEqual(outcomeOf({ hookOutcome: { kind: 'route', model: 'claude-haiku-5-5', context: note }, certified: true }), { outcome: { kind: 'route', model: 'claude-haiku-5-5', context: note }, certified: true });
+  assert.deepEqual(outcomeOf({ hookOutcome: { kind: 'route', model: 'claude-haiku-5-5', context: null }, certified: true }), { outcome: { kind: 'route', model: 'claude-haiku-5-5' }, certified: true });
+  assert.equal(outcomeOf({ hookOutcome: { kind: 'route', model: 'claude-haiku-5-5', context: 7 }, certified: true }), null);
+  assert.equal(outcomeOf({ hookOutcome: { kind: 'route', model: 'claude-haiku-5-5', context: '' }, certified: true }), null);
+  // Codex ignores the note.
+  const codexNative = nativeOf(codex, codex.FIXTURES.find((fixture) => fixture.native?.hook_event_name === 'PreToolUse')?.id ?? codex.FIXTURES[0].id);
+  const withNote = await run('codex', codexNative, { hookOutcome: { kind: 'route', model: 'claude-haiku-5-5', context: note }, certified: true });
+  assert.ok(!withNote.stdout.includes(note), 'no Codex output carries the Claude Code note');
+});
+
 test('a route with no alias, an uncertified route, or a pinned subagent is no decision', async () => {
   const native = nativeOf(claude, 'claude.pre-agent');
   const other = await run('claude', native, { hookOutcome: { kind: 'route', model: 'gpt-5.5' }, certified: true });

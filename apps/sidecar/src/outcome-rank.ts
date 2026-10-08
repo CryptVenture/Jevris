@@ -38,7 +38,8 @@ function proposalOf(value: unknown): { readonly kind: HookOutcome['kind']; reado
   }
   if (kind === 'route') {
     const variant = own(proposed, 'variant');
-    const checked = HookOutcomeContract.validate({ kind, model: own(proposed, 'model'), ...(variant === undefined ? {} : { variant }) });
+    const note = own(proposed, 'context');
+    const checked = HookOutcomeContract.validate({ kind, model: own(proposed, 'model'), ...(variant === undefined ? {} : { variant }), ...(note === undefined ? {} : { context: note }) });
     return checked.ok && checked.value.kind === 'route' ? { kind, certified } : null;
   }
   return null;

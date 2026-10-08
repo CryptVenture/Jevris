@@ -93,6 +93,8 @@ function jevAnswer(id, q) {
   if (id === 'same') return { noul: 0.92 };
   if (id === 'slice') return { choice: 'issue-fix', confidence: 0.85 };
   if (id === 'workerReady') return { noul: 0.77 };
+  // The subagent-risk Choice (low, medium, high); the slice classifier's own `risk` is a Score.
+  if (id === 'risk' && q.type === 'choice') return { choice: 'high', confidence: 0.85 };
   if (id === 'taskFamily') return { choice: `f${FAMILIES.indexOf('bugfix')}`, confidence: 0.9 };
   if (id.startsWith('material')) return { noul: OPENS[Number(id.slice('material'.length))] === 'edge-cases' ? 0.9 : 0.05 };
   return q.type === 'score' ? { score: 1 } : { noul: 0.5 };
@@ -147,6 +149,17 @@ const ADVISERS = [
     asked: /Asked Jev, \d+ ms\./,
     cached: /Answered from the cache/,
     notAsked: /Jev was not asked/,
+  },
+  {
+    spec: 'subagent-risk',
+    live: async (e) => {
+      const r = await core.judgeSubagentRisk(e, core.subagentRiskFeatures({ subagentType: 'general-purpose', toolInputBytes: 500, toolInputKeys: 3 }), { workspaceId: 'w-line', evidenceRevision: 'rev-1' }, { assist: 'classify' });
+      return { summary: r.decisionId, call: r.jevDecisionId };
+    },
+    rules: async (e) => (await core.judgeSubagentRisk(e, core.subagentRiskFeatures({ subagentType: 'Explore', toolInputBytes: 500, toolInputKeys: 3 }), { workspaceId: 'w-line', evidenceRevision: 'rev-1' }, { assist: 'classify' })).decisionId,
+    asked: /\(asked Jev, \d+ ms\)/,
+    cached: /\(cache hit, \d+ ms\)/,
+    notAsked: /\(Jev not asked, \d+ ms\)/,
   },
   {
     spec: 'new-task',

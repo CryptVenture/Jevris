@@ -114,6 +114,8 @@ Each task of a sound plan also gets a slice and risk hint, one line per task ("t
 bounded-edit (suggested by Jev, advice only)"), from the same classifier as jevris route: the
 rules answer when they are sure, Jev (from counts and categories of the task's write scopes, check
 ids and title, never a path name) when jev.assist is classify and there is time, else the rules.
+The same setting also lets Jev judge a Claude Code subagent launch of a write-capable type
+(it may lower the rules' high at the confidence floors; any miss keeps high).
 A slice a task declares (sliceId) is kept and shown with whether the classifier agrees. The hints
 are advice for a person: they are not stored in the plan and change nothing in it.
 

@@ -83,8 +83,16 @@ const withGate = (harness, run) => async () => {
 
 test('orientation: the line fits its byte cap in every mode, and says advice only, permissions unchanged and where to look', () => {
   for (const mode of ['advise', 'bounded-auto', 'observe']) {
-    const line = orientationLine(mode);
-    assert.ok(Buffer.byteLength(line, 'utf8') <= ORIENTATION_MAX_BYTES, `${mode}: ${Buffer.byteLength(line, 'utf8')} bytes`);
+    for (const harness of ['claude', 'codex', 'kilocode', 'opencode']) {
+      const own = orientationLine(mode, harness);
+      assert.ok(Buffer.byteLength(own, 'utf8') <= ORIENTATION_MAX_BYTES, `${mode} on ${harness}: ${Buffer.byteLength(own, 'utf8')} bytes`);
+    }
+    const line = orientationLine(mode, 'claude');
+    // Owner decision 2026-10-08: the standing sentence on the subagent model policy, Claude Code only, with nothing forced.
+    assert.match(line, /A low-risk subagent may run on a cheaper model for that one call only; Jevris advises it and sets it where certified, and your session model is never changed\./);
+    assert.match(line, /may suggest \/model; nothing is forced\./);
+    assert.equal(orientationLine(mode, 'codex').includes('subagent'), false);
+    assert.equal(orientationLine(mode).includes('subagent'), false);
     assert.ok(line.includes(`mode: ${mode}`));
     assert.match(line, /advice/);
     assert.match(line, /permissions and approvals are unchanged/);
@@ -96,9 +104,9 @@ test('orientation: the line fits its byte cap in every mode, and says advice onl
 test('orientation: a fresh session start gets the line once when Jevris is on and the context is certified', withGate('claude', async (f) => {
   const first = await handleHookEvent(started(f));
   assert.deepEqual([first.hookOutcome.kind, first.reasonCode, first.certified], ['context', 'ORIENTATION', true]);
-  assert.equal(first.hookOutcome.text, orientationLine('advise'));
+  assert.equal(first.hookOutcome.text, orientationLine('advise', 'claude'));
   const boundedAuto = await handleHookEvent(started(f, { sessionId: 's2' }, 'bounded-auto'));
-  assert.equal(boundedAuto.hookOutcome.text, orientationLine('bounded-auto'));
+  assert.equal(boundedAuto.hookOutcome.text, orientationLine('bounded-auto', 'claude'));
   // A clear starts a new context, so it gets the line too.
   assert.equal((await handleHookEvent(started(f, { trigger: 'clear', sessionId: 's3' }))).hookOutcome.kind, 'context');
   // The same delivery again is a duplicate: no second copy.
@@ -144,7 +152,8 @@ test('orientation: on Kilo Code and OpenCode a line the harness does not show on
       assert.deepEqual([held.hookOutcome.kind, held.reasonCode], ['observe', 'DISPLAY_QUEUED'], harness);
       const next = await handleHookEvent(started(f, { harness, sessionId, kind: 'task.requested', nativeEventName: 'Y', trigger: null }));
       assert.deepEqual([next.hookOutcome.kind, next.reasonCode], ['context', 'DISPLAY_FLUSHED'], harness);
-      assert.equal(next.hookOutcome.text, orientationLine('advise'));
+      assert.equal(next.hookOutcome.text, orientationLine('advise', harness));
+      assert.equal(next.hookOutcome.text.includes('subagent'), false, 'the subagent model policy is Claude Code only');
       const again = await handleHookEvent(started(f, { harness, sessionId, kind: 'task.requested', nativeEventName: 'Y', trigger: null }));
       assert.equal(again.hookOutcome.kind, 'observe', 'once');
     })();

@@ -522,7 +522,7 @@ function body(result: SurfaceResult): string[] {
       if (p.backgroundVerifyAtStop !== undefined) lines.push(line('background verify at stop', backgroundVerifyAtStopText(p.backgroundVerifyAtStop, p.jevrisMode, 'a main-session Stop queues the missing approved checks')));
       if (p.firstTryRouting !== undefined) lines.push(line('first-try routing', p.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model and is handed once to a stronger one if its check fails; estimates only)' : 'baseline (the baseline model runs first)'));
       if (p.firstTry !== undefined) lines.push(firstTryStatusLine(p.firstTry));
-      if (p.jevAssist !== undefined) lines.push(line('jev assist', p.jevAssist === 'classify' ? 'classify (Jev classifies a route request\'s task slice and ranks which approved checks matter first, from structured features; advice only, rules are the fallback)' : 'off (every such decision is rules-only)'));
+      if (p.jevAssist !== undefined) lines.push(line('jev assist', p.jevAssist === 'classify' ? 'classify (Jev classifies a route request\'s task slice, ranks which approved checks matter first and judges a Claude Code subagent launch of a write-capable type, from structured features; advice only, rules are the fallback)' : 'off (every such decision is rules-only)'));
       if (p.accessLimits !== undefined && p.accessLimits !== null) lines.push(...accessLimitsStatusLines(p.accessLimits));
       if (p.jevCircuit !== undefined && p.jevCircuit !== null) lines.push(jevCircuitLine(p.jevCircuit));
       if (p.accessUsage !== undefined && p.accessUsage !== null) lines.push(...accessUsageStatusLines(p.accessUsage));

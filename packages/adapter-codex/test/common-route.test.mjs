@@ -84,6 +84,7 @@ for (const { name, core } of cores) {
     const eventOf = (native) => core.pluginEvent('kilocode', native, native.hookKey).event;
     const native = taskNative({ description: 'd', prompt: 'p', subagent_type: 'explore' });
     assert.deepEqual(JSON.parse(core.pluginResponse(eventOf(native), route, native)), { route: { ...HAIKU, variant: 'low' } });
+    assert.equal(core.pluginResponse(eventOf(native), { ...route, context: 'a note for the model' }, native), core.pluginResponse(eventOf(native), route, native), 'a route note is Claude Code\'s: the plugin routes ignore it');
     assert.equal(core.pluginResponse(eventOf(native), route), '', 'no native input: no route');
     assert.equal(core.pluginResponse(null, route, native), '');
     for (const pin of ['model', 'provider', 'variant']) {

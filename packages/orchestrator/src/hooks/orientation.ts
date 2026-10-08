@@ -3,7 +3,7 @@
  * a session's creation on Kilo Code and OpenCode, held until the harness next shows an answer).
  *
  * It says only that Jevris is on here, in which mode, that it gives advice and changes no
- * permission, and where to look. It is proposed as `context`, so it renders only where a signed
+ * permission, and where to look. On Claude Code it adds one standing sentence on the subagent model policy. It is proposed as `context`, so it renders only where a signed
  * certification record covers the harness's `hooks.context` (the same gate as a capsule restore),
  * and only while the mode shows advice (advise, bounded-auto) and the kill switch is not stopped.
  * It carries no path, no id and no workspace text, and it is capped in bytes.
@@ -16,11 +16,18 @@ import { modeAllows, type HarnessId, type Mode, type SidecarOpContext } from '@j
 import { CONTEXT_FEATURE, isCertified } from './certification.js';
 
 /** The hard cap, in UTF-8 bytes, on the line. Every mode's text is tested against it. */
-export const ORIENTATION_MAX_BYTES = 400;
+export const ORIENTATION_MAX_BYTES = 500;
 
-/** The line for a mode: on, what it does not do, and where to look. */
-export function orientationLine(mode: Mode): string {
-  return `Jevris is on here (mode: ${mode}). It gives advice and keeps local records; permissions and approvals are unchanged, and nothing it shows is approval. Ask the Jevris status skill (jevris_status) what it decided, or the guide skill for a tour.`;
+/**
+ * The standing sentence of owner decision 2026-10-08, Claude Code only: the policy for a subagent's model. It says
+ * nothing about a task, a prompt or a path, and nothing is forced.
+ */
+export const SUBAGENT_POLICY_SENTENCE = 'A low-risk subagent may run on a cheaper model for that one call only; Jevris advises it and sets it where certified, and your session model is never changed. For clearly low-risk main-session work it may suggest /model; nothing is forced.';
+
+/** The line for a mode: on, what it does not do, and where to look. On Claude Code it also states the subagent model policy. */
+export function orientationLine(mode: Mode, harness?: string): string {
+  const base = `Jevris is on here (mode: ${mode}). It gives advice and keeps local records; permissions and approvals are unchanged, and nothing it shows is approval. Ask the Jevris status skill (jevris_status) what it decided, or the guide skill for a tour.`;
+  return harness === 'claude' ? `${base} ${SUBAGENT_POLICY_SENTENCE}` : base;
 }
 
 export type OrientationResult =
@@ -51,5 +58,5 @@ export async function orientationFor(
   const forwarded = typeof ctx.body === 'object' && ctx.body !== null ? (ctx.body as { readonly harnessVersion?: unknown }).harnessVersion : undefined;
   const cert = await isCertified({ home: ctx.home, harness: env.harness as HarnessId, featureId: CONTEXT_FEATURE, nowMs, ...(typeof forwarded === 'string' ? { harnessVersion: forwarded } : {}) });
   if (!cert.certified) return quiet(cert.reasonCode ?? 'NOT_CERTIFIED');
-  return { kind: 'context', text: orientationLine(mode) };
+  return { kind: 'context', text: orientationLine(mode, env.harness) };
 }

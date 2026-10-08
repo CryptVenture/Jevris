@@ -76,6 +76,8 @@ function hostileAnswer(rand) {
     { ok: true, result: { recorded: true, duplicate: false, results: {} } },
     { ok: true, result: { duplicate: true, results: { a: route } } },
     { ok: true, result: { results: { a: route, b: context } } },
+    // Owner decision 2026-10-08: a route may carry a short note for the model (Claude Code renders it beside the rewrite).
+    { ok: true, result: { results: { a: { hookOutcome: { kind: 'route', model: 'claude-haiku-5-5', context: 'Jevris set model haiku on this one Agent call (read-only type, low risk by rules). The session model is unchanged.' }, certified: rand.bool(0.5) } } } },
     { ok: true, result: { results: JSON.parse('{"__proto__":{"hookOutcome":{"kind":"route"}},"x":{"hookOutcome":{"kind":"nonsense"}}}') } },
     { ok: true, result: { results: { a: { hookOutcome: { kind: 'route', updatedInput: 'not-an-object' }, certified: true } } } },
     { ok: true, result: { results: { a: { hookOutcome: { kind: 'route', updatedInput: { command: 'echo routed' } }, certified: true } } } },
@@ -108,7 +110,7 @@ function withoutRouteInput(stdout, text) {
   const { model, ...rest } = updated;
   assert.equal(typeof model, 'string', 'a route adds the model');
   assert.deepEqual(rest, own, 'a route hands back the harness\'s own tool input unchanged, with only the model added');
-  const { updatedInput: _input, ...hookRest } = output.hookSpecificOutput;
+  const { updatedInput: _input, additionalContext: _note, ...hookRest } = output.hookSpecificOutput;
   return JSON.stringify({ ...output, hookSpecificOutput: hookRest, model });
 }
 

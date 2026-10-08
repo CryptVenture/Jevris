@@ -304,10 +304,12 @@ export function outcomeOf(value: unknown): { readonly outcome: HookOutcome; read
   }
   if (kind === 'route') {
     const variant = own(proposed, 'variant');
-    const checked = HookOutcomeContract.validate({ kind, model: own(proposed, 'model'), ...(variant === undefined ? {} : { variant }) });
+    const note = own(proposed, 'context');
+    const checked = HookOutcomeContract.validate({ kind, model: own(proposed, 'model'), ...(variant === undefined ? {} : { variant }), ...(note === undefined ? {} : { context: note }) });
     if (!checked.ok || checked.value.kind !== 'route') return null;
     const wireVariant = checked.value.variant;
-    return { outcome: { kind: 'route', model: checked.value.model, ...(wireVariant === undefined || wireVariant === null ? {} : { variant: wireVariant }) }, certified };
+    const wireContext = checked.value.context;
+    return { outcome: { kind: 'route', model: checked.value.model, ...(wireVariant === undefined || wireVariant === null ? {} : { variant: wireVariant }), ...(wireContext === undefined || wireContext === null ? {} : { context: wireContext }) }, certified };
   }
   return null;
 }

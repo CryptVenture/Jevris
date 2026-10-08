@@ -225,6 +225,13 @@ export interface NormalizeContext {
 /** The longest model id a route may carry on the wire. */
 export const ROUTE_MODEL_MAX_LENGTH = 128;
 
+/**
+ * The longest short note a route may carry for the model (owner decision 2026-10-08, "rewrite plus
+ * instruct"): one or two plain sentences saying what was set on this call and that the session model
+ * is unchanged. Never prompt or description text.
+ */
+export const ROUTE_CONTEXT_MAX_LENGTH = 600;
+
 /** A route's variant: a Kilo or OpenCode `--variant` name or a Codex effort level (routing design R20). */
 export const ROUTE_VARIANT_PATTERN = '^[a-z][a-z0-9-]{0,31}$';
 
@@ -235,9 +242,10 @@ export const ROUTE_VARIANT_PATTERN = '^[a-z][a-z0-9-]{0,31}$';
  * on Agent or Task; Codex: PreToolUse on spawn_agent, which the Codex adapter renders as allow
  * plus updatedInput, owner decision OD-6; certified only): a registry id, or a harness's own `provider/model` spelling
  * for Kilo or OpenCode (routing design R20), with an optional variant (a Kilo or OpenCode
- * variant, or a Codex effort level). The route carries only the model and variant: the
- * launcher, which holds the native event, builds the rewritten tool input, so no prompt or
- * tool-input value crosses the sidecar boundary. An adapter that cannot name the model renders
+ * variant, or a Codex effort level). The route carries the model, the variant and an optional
+ * short `context` note for the model (Claude Code renders it as `additionalContext` beside the
+ * rewrite; the other adapters ignore it): the launcher, which holds the native event, builds the
+ * rewritten tool input, so no prompt or tool-input value crosses the sidecar boundary. An adapter that cannot name the model renders
  * no route. `explain` shows a message without changing anything.
  */
 export const HookOutcomeSchema = S.discriminatedUnion('kind', [
@@ -248,7 +256,10 @@ export const HookOutcomeSchema = S.discriminatedUnion('kind', [
       kind: S.literal('route'),
       model: S.string({ minLength: 1, maxLength: ROUTE_MODEL_MAX_LENGTH, pattern: HARNESS_MODEL_ID_PATTERN, notPatterns: SECRET_PATTERNS }),
     },
-    { variant: S.nullable(S.string({ minLength: 1, maxLength: 32, pattern: ROUTE_VARIANT_PATTERN })) },
+    {
+      variant: S.nullable(S.string({ minLength: 1, maxLength: 32, pattern: ROUTE_VARIANT_PATTERN })),
+      context: S.nullable(S.string({ minLength: 1, maxLength: ROUTE_CONTEXT_MAX_LENGTH, notPatterns: SECRET_PATTERNS })),
+    },
   ),
   S.object({ kind: S.literal('explain'), text: S.string({ minLength: 1, maxLength: 65_536 }) }),
 ]);

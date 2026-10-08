@@ -399,6 +399,36 @@ export function lifecycleCheck(model: RoutingModel, nowMs: number): LifecycleChe
   return { usable: true };
 }
 
+/**
+ * Claude Code's Agent tool accepts these model aliases (its Agent SDK types
+ * `model?: "sonnet" | "opus" | "haiku" | "fable"`; routing design R25). An alias names a family,
+ * not a model: Claude Code resolves it to that family's current model.
+ */
+export const CLAUDE_CODE_SUBAGENT_ALIASES = Object.freeze(['haiku', 'sonnet', 'opus', 'fable'] as const);
+export type ClaudeCodeSubagentAlias = (typeof CLAUDE_CODE_SUBAGENT_ALIASES)[number];
+
+/**
+ * Whether Claude Code's family alias can only mean `model` (routing design R25, K1). The alias
+ * resolves to the family's current model, so `model` must be the newest usable registry entry of
+ * its family. A family entry with no release date cannot be ordered, so the alias is not trusted
+ * either. Shared by the subagent route and the HARNESS_ALIAS eligibility proof.
+ */
+export function aliasMeansModel(registry: ModelRegistry, model: RoutingModel, nowMs: number): boolean {
+  const released = (m: RoutingModel): number | null => {
+    const day = m.lifecycle?.releasedOn ?? null;
+    return day === null ? null : Date.parse(day);
+  };
+  const own = released(model);
+  if (own === null) return false;
+  for (const other of registry.entries) {
+    if (other.modelId === model.modelId || other.family !== model.family) continue;
+    if (!lifecycleCheck(other, nowMs).usable) continue;
+    const at = released(other);
+    if (at === null || at >= own) return false;
+  }
+  return true;
+}
+
 /** A model's lifecycle at one time, for the release gate and registry:check (A composes these, not copies). */
 export interface LifecycleStatus {
   /** The router may recommend it (lifecycleCheck usable), perhaps with a warning. */

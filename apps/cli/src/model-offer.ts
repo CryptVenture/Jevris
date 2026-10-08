@@ -1074,6 +1074,8 @@ export function modelListingLine(row: { readonly harness: GlobalHarness; readonl
 export interface EligibilityDoctorScope {
   readonly harness: GlobalHarness;
   readonly authMode: string;
+  /** Claude Code only: whether hooks.route is certified for the installed version, so its family aliases count as eligible (HARNESS_ALIAS). */
+  readonly aliasCertified?: boolean;
 }
 
 /**
@@ -1096,14 +1098,16 @@ export async function eligibilityDoctorLines(home: string, scopes: readonly Elig
     const availability = await core.loadModelAvailability(home, registry).catch(() => []);
     const lines: string[] = [];
     for (const scope of scopes) {
-      const eligibility = core.modelEligibility({ registry, accountId: null, offer, unavailable: core.unavailableModels(availability, scope), scope });
+      const eligibility = core.modelEligibility({ registry, accountId: null, offer, unavailable: core.unavailableModels(availability, scope), scope, ...(scope.harness === 'claude' ? { harnessAlias: { certified: scope.aliasCertified === true, nowMs: Date.now() } } : {}) });
       const eligible = eligibility.filter((item) => item.eligible).map((item) => item.modelId);
       const counts = new Map<string, number>();
       for (const item of eligibility) if (!item.eligible) counts.set(item.reasonCode, (counts.get(item.reasonCode) ?? 0) + 1);
       const rest = [...counts].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0])).map(([code, count]) => `${code} ${count}`).join(', ');
       const head = headOf(scope);
       const yes = eligible.length === 0 ? 'no model is eligible yet' : `eligible: ${eligible.join(', ')}`;
-      lines.push(`${head} ${yes}${rest.length === 0 ? '' : `; not eligible: ${rest}`}`);
+      const viaAlias = eligibility.filter((item) => item.reasonCode === 'HARNESS_ALIAS').map((item) => item.modelId);
+      const alias = viaAlias.length === 0 ? '' : `; eligible because Claude Code resolves its family alias, for subagent routes only (HARNESS_ALIAS): ${viaAlias.join(', ')}`;
+      lines.push(`${head} ${yes}${alias}${rest.length === 0 ? '' : `; not eligible: ${rest}`}`);
       if (detail) for (const line of core.modelEligibilityLines(eligibility, scope)) lines.push(`${head} ${line}`);
     }
     return lines;

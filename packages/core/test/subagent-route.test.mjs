@@ -64,6 +64,43 @@ test('subagent route: an active learned route for the subagent type proposes its
   assert.equal(adviseSubagentRoute(input({ learning: null, signedPrior: { modelId: 'claude-haiku-4-5-20251001', releaseId: 'rel-1' } })).reasonCode, 'ALIAS_NOT_NEWEST');
 });
 
+test('subagent route, owner decision 2026-10-08: with no learned or signed evidence a low-risk launch goes to haiku and a medium one to sonnet, for that call only', () => {
+  const risk = (level, source = 'rules', subagentClass = 'read-only') => ({ level, source, subagentClass });
+  const none = { learning: null, signedPrior: null };
+  const low = adviseSubagentRoute(input({ ...none, risk: risk('low') }));
+  assert.deepEqual(
+    { outcome: low.outcome, modelId: low.modelId, alias: low.alias, basis: low.basis, reasonCode: low.reasonCode, blockedReason: low.blockedReason },
+    { outcome: 'propose', modelId: 'claude-haiku-5-5', alias: 'haiku', basis: 'risk-rule', reasonCode: 'SUBAGENT_ROUTE_RISK_RULE', blockedReason: null },
+  );
+  assert.equal(low.appliedContext, 'Jevris set model haiku on this one Agent call (read-only type, low risk by rules). The session model is unchanged.');
+  assert.equal(low.adviceContext, 'Jevris advises model: haiku for this Explore subagent (read-only type, low risk by rules). This call already started; set model on the next Agent call to apply it. The session model is unchanged.');
+  const medium = adviseSubagentRoute(input({ ...none, subagentType: 'general-purpose', risk: risk('medium', 'rules', 'general-purpose') }));
+  assert.deepEqual([medium.outcome, medium.modelId, medium.alias, medium.basis], ['propose', 'claude-sonnet-5-5', 'sonnet', 'risk-rule']);
+  assert.match(medium.text, /general-purpose subagent, from general-purpose type, medium risk by rules/);
+  // A Jev-raised judgement that stays low or medium is labelled as Jev's; a high one changes nothing.
+  assert.deepEqual([adviseSubagentRoute(input({ ...none, risk: risk('low', 'jev') })).basis, adviseSubagentRoute(input({ ...none, risk: risk('low', 'jev') })).reasonCode], ['risk-jev', 'SUBAGENT_ROUTE_RISK_JEV']);
+  assert.equal(adviseSubagentRoute(input({ ...none, risk: risk('high', 'jev', 'custom') })).reasonCode, 'RISK_HIGH');
+  // Learned evidence and a signed prior win over the default.
+  assert.deepEqual([adviseSubagentRoute(input({ risk: risk('low') })).basis, adviseSubagentRoute(input({ learning: null, signedPrior: { modelId: 'claude-sonnet-5-5', releaseId: 'rel-1' }, risk: risk('low') })).modelId], ['learning', 'claude-sonnet-5-5']);
+  // The gates still apply to the default: eligibility, an explicit model, a pin, the session's own model, the lifecycle.
+  assert.equal(reason({ ...none, risk: risk('low'), locallyEligible: ['claude-opus-5-5'] }), 'NOT_ELIGIBLE_HERE');
+  assert.equal(adviseSubagentRoute(input({ ...none, risk: risk('low'), locallyEligible: ['claude-haiku-5-5'] })).outcome, 'propose');
+  assert.equal(reason({ ...none, risk: risk('low'), explicitModel: true }), 'EXPLICIT_MODEL');
+  assert.equal(reason({ ...none, risk: risk('low'), pins: { modelPin: 'claude-opus-5', effortPin: null } }), 'PINNED');
+  assert.equal(reason({ ...none, risk: risk('low'), sessionModel: 'haiku' }), 'SAME_AS_SESSION');
+  assert.equal(reason({ ...none, risk: risk('medium'), sessionModel: 'claude-haiku-5-5' }), 'NOT_CHEAPER', 'never to a model that costs more than the session');
+  assert.equal(reason({ ...none, risk: risk('medium'), sessionModel: 'sonnet' }), 'SAME_AS_SESSION');
+  assert.equal(reason({ ...none, risk: risk('low'), unavailableModels: { 'claude-haiku-5-5': 'MODEL_GONE' } }), 'MODEL_UNAVAILABLE');
+  assert.equal(reason({ ...none, risk: risk('low'), consentedProviders: [] }), 'PROVIDER_NOT_CONSENTED');
+  // The default follows the registry: when Haiku 5.5 is retired the next usable haiku is what the alias means.
+  const retired = { ...BUNDLED_MODEL_REGISTRY, entries: BUNDLED_MODEL_REGISTRY.entries.map((e) => (e.modelId === 'claude-haiku-5-5' ? { ...e, lifecycle: { ...e.lifecycle, status: 'retired' } } : e)) };
+  assert.equal(adviseSubagentRoute(input({ ...none, registry: retired, risk: risk('low') })).modelId, 'claude-haiku-4-5-20251001');
+  // Claude Code only: no other harness takes the default, and without a risk there is nothing.
+  assert.equal(reason({ ...none, harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', risk: risk('low') }), 'NO_EVIDENCE');
+  assert.equal(reason({ ...none, harness: 'codex', sessionModel: 'gpt-6-sol', risk: risk('low') }), 'NO_EVIDENCE');
+  assert.equal(reason({ ...none }), 'NO_EVIDENCE');
+});
+
 test('subagent route: every abstain reason, each paired with the one change that makes it propose', () => {
   const seen = new Set();
   const expect = (code, extra) => {
@@ -103,6 +140,12 @@ test('subagent route: every abstain reason, each paired with the one change that
   expect('PROVIDER_NOT_CONSENTED', { consentedProviders: [] });
   expect('PROVIDER_NOT_CONSENTED', { harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', learning: active('kimi-k3') });
   assert.equal(adviseSubagentRoute(input({ consentedProviders: ['anthropic'] })).outcome, 'propose');
+  // Owner decision 2026-10-08 (amends 3f090fa for Claude Code): the alias branch checks eligibility too.
+  expect('NOT_ELIGIBLE_HERE', { locallyEligible: ['claude-opus-5-5'] });
+  assert.equal(adviseSubagentRoute(input({ locallyEligible: ['claude-haiku-5-5'] })).outcome, 'propose');
+  // The risk default: a high-risk launch changes nothing, and a medium one never goes to a model that costs more than the session's.
+  expect('RISK_HIGH', { learning: null, risk: { level: 'high', source: 'rules', subagentClass: 'custom' } });
+  expect('NOT_CHEAPER', { learning: null, risk: { level: 'medium', source: 'rules', subagentClass: 'general-purpose' }, sessionModel: 'claude-haiku-5-5' });
   expect('NO_ALIAS', { registry: withFamily('mythos'), learning: active('claude-mythos-1') });
   // R25, K1: `opus` resolves to the family's current model, Opus 5.5, so a route to Opus 5 abstains.
   expect('ALIAS_NOT_NEWEST', { learning: active('claude-opus-5'), sessionModel: 'claude-sonnet-5' });
@@ -131,7 +174,7 @@ test('subagent route: every abstain reason, each paired with the one change that
 
 test('subagent route: no prompt text is ever read; only the declared fields decide', () => {
   // A Proxy input throws on any field the function is not declared to read (prompt, description, toolInput...).
-  const allowed = new Set(['harness', 'subagentType', 'explicitModel', 'sessionModel', 'pins', 'registry', 'nowMs', 'unavailableModels', 'learning', 'signedPrior', 'consentedProviders', 'locallyEligible', 'accessLimits', 'authMode']);
+  const allowed = new Set(['harness', 'subagentType', 'explicitModel', 'sessionModel', 'pins', 'registry', 'nowMs', 'unavailableModels', 'learning', 'signedPrior', 'consentedProviders', 'locallyEligible', 'accessLimits', 'authMode', 'risk']);
   const guarded = new Proxy({ ...input(), prompt: 'SECRET PROMPT', description: 'SECRET', toolInput: { prompt: 'SECRET' } }, {
     get(target, key) {
       if (typeof key === 'string' && !allowed.has(key)) throw new Error(`read ${key}`);

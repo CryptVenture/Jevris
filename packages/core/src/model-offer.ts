@@ -30,6 +30,7 @@ import { HARNESS_IDS, HARNESS_MODEL_ID_PATTERN, MODEL_ID_PATTERN, PROVIDER_IDS, 
 import { durableWrite, jevrisPaths } from '@jevris/platform';
 import type { AvailabilityAuthMode, ModelUnavailableReason } from './model-availability.js';
 import { withFileLock } from './route-file-lock.js';
+import { CLAUDE_CODE_SUBAGENT_ALIASES, aliasMeansModel, lifecycleCheck } from './model-registry.js';
 
 export const MODEL_OFFER_SCHEMA = 'jevris-model-offer-2' as const;
 /** The previous schema, still read (runs and listings then carry no spelling and no host). */
@@ -316,7 +317,7 @@ export async function removeModelOffer(home: string): Promise<{ readonly ok: boo
   return { ok: outcome === true };
 }
 
-export const ELIGIBILITY_BASES = ['account-check', 'ran-here', 'harness-listing'] as const;
+export const ELIGIBILITY_BASES = ['account-check', 'ran-here', 'harness-listing', 'harness-alias'] as const;
 export type EligibilityBasis = (typeof ELIGIBILITY_BASES)[number];
 
 /** Why one registry model is or is not eligible for a route. */
@@ -326,7 +327,8 @@ export interface ModelEligibility {
   readonly basis: EligibilityBasis | null;
   /**
    * ACCOUNT_ELIGIBLE, ACCOUNT_NOT_ELIGIBLE, ACCOUNT_NOT_CHECKED (an administrator's account check
-   * decides); RAN_HERE, LISTED_BY_HARNESS (local evidence); MODEL_GONE, MODEL_NOT_ACCESSIBLE (found
+   * decides); RAN_HERE, LISTED_BY_HARNESS (local evidence); HARNESS_ALIAS (Claude Code's own family
+   * alias resolves to it, owner decision 2026-10-08); MODEL_GONE, MODEL_NOT_ACCESSIBLE (found
    * gone); NOT_ON_HARNESS (the harness-to-model map gives this harness no access to the provider);
    * NO_LOCAL_EVIDENCE.
    */
@@ -341,6 +343,31 @@ export interface EligibilityScope {
 }
 
 /**
+ * Owner decision 2026-10-08 (amends DOMAINS 3f090fa for Claude Code only): the proof that Claude
+ * Code's own family alias resolves to a model. It is asked for only by the subagent route, which
+ * sets that alias on one Agent call; `certified` is the sidecar's answer to "is hooks.route
+ * certified for the installed Claude Code", and `nowMs` dates the registry's lifecycle.
+ */
+export interface HarnessAliasProof {
+  readonly certified: boolean;
+  readonly nowMs: number;
+}
+
+/**
+ * Whether Claude Code's family alias (haiku, sonnet, opus, fable) currently means `model`: harness
+ * `claude`, provider `anthropic`, the model is the newest usable release of an alias family, the
+ * model itself is usable, and the installed Claude Code is certified for hooks.route. Every refusal
+ * in `modelEligibility` (gone, not accessible, an account check) is decided before this is asked.
+ */
+export function harnessAliasHolds(registry: Pick<ModelRegistry, 'entries'>, model: ModelRegistry['entries'][number], scope: EligibilityScope, proof: HarnessAliasProof | undefined): boolean {
+  if (proof === undefined || !proof.certified) return false;
+  if (scope.harness !== 'claude' || model.provider !== 'anthropic') return false;
+  if (!(CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(model.family)) return false;
+  if (!lifecycleCheck(model, proof.nowMs).usable) return false;
+  return aliasMeansModel(registry as ModelRegistry, model, proof.nowMs);
+}
+
+/**
  * Every registry model's eligibility for a route. With an account id (an administrator's registry
  * with account checks) only that check decides. Otherwise, a model found gone is never eligible;
  * a model that ran on this harness and sign-in is; a model the harness lists is, when the map gives
@@ -352,6 +379,8 @@ export function modelEligibility(input: {
   readonly offer: ModelOffer | null;
   readonly unavailable?: Readonly<Record<string, ModelUnavailableReason>>;
   readonly scope: EligibilityScope;
+  /** Claude Code's alias proof (HARNESS_ALIAS); absent: not asked, so only runs and listings count. */
+  readonly harnessAlias?: HarnessAliasProof;
 }): readonly ModelEligibility[] {
   const { harness, authMode } = input.scope;
   const inScope = (e: { readonly harness: string; readonly authMode: string }): boolean => (harness === null || e.harness === harness) && (harness === null || authMode === null || e.authMode === authMode);
@@ -372,6 +401,7 @@ export function modelEligibility(input: {
     const listedOn = listings.filter((l) => l.models.includes(id)).map((l) => l.harness);
     if (listedOn.some((h) => mapped(h, model.provider))) return { modelId: id, eligible: true, basis: 'harness-listing', reasonCode: 'LISTED_BY_HARNESS' };
     if (harness !== null && !mapped(harness, model.provider)) return { modelId: id, eligible: false, basis: null, reasonCode: 'NOT_ON_HARNESS' };
+    if (harnessAliasHolds(input.registry, model, input.scope, input.harnessAlias)) return { modelId: id, eligible: true, basis: 'harness-alias', reasonCode: 'HARNESS_ALIAS' };
     return { modelId: id, eligible: false, basis: null, reasonCode: 'NO_LOCAL_EVIDENCE' };
   });
 }
@@ -408,6 +438,7 @@ export function modelEligibilityLines(eligibility: readonly ModelEligibility[], 
     ACCOUNT_NOT_CHECKED: "not eligible: the administrator's registry has no account check for it",
     RAN_HERE: `eligible: it has run ${where}`,
     LISTED_BY_HARNESS: `eligible: the harness lists it ${where}`,
+    HARNESS_ALIAS: `eligible for a subagent route: Claude Code's own family alias resolves to it ${where}, and hooks.route is certified for the installed version`,
     MODEL_GONE: 'not eligible: found gone on this machine',
     MODEL_NOT_ACCESSIBLE: `not eligible: not accessible ${where}`,
     NOT_ON_HARNESS: `not eligible: the registry's harness map gives ${scope.harness ?? 'this harness'} no access to its provider, and it has not run there`,

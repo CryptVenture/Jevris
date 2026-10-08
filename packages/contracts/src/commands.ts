@@ -367,8 +367,8 @@ export const StatusPayloadSchema = S.object(
     firstTry: FirstTryStatusSchema,
     /**
      * Owner decision 2026-10-01 (Jev as an active decision aid): the effective `jev.assist`. `classify`
-     * lets Jevris ask Jev bounded classification questions (a route request's task slice) from
-     * structured features, with a rules fallback; `off` keeps those decisions rules-only. Absent when unknown.
+     * lets Jevris ask Jev bounded classification questions (a route request's task slice, the risk of a
+     * Claude Code subagent launch, among others) from structured features, with a rules fallback; `off` keeps those decisions rules-only. Absent when unknown.
      */
     jevAssist: S.enumOf(['off', 'classify'] as const),
     /**

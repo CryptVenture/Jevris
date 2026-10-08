@@ -244,7 +244,10 @@ A named model switches the turn only when the mode is `plugin-bounded-auto`, the
 
 ## Subagent routes
 
-When a harness starts a subagent, Jevris may propose its model. It does so only with evidence for that subagent type: an active learned slice or a signed prior. It never proposes over an explicit model or a pin.
+When a harness starts a subagent, Jevris may propose its model, and on Claude Code apply it, for that one call only. The session's own model is never changed (hooks cannot), and Jevris never proposes over an explicit model or a pin. Two kinds of evidence can name the model:
+
+- **Learned or signed evidence** (every harness): an active learned slice for that subagent type, or a signed prior. It wins when present. Neither exists in 1.2, so on Codex, Kilo and OpenCode a subagent route abstains in practice.
+- **The launch's own risk** (Claude Code only, from 2026-10-08): with no learned or signed evidence, a low-risk launch goes to a cheaper model of the same maker. See below.
 
 | Harness | Tool | The route sets | A learned effort |
 | --- | --- | --- | --- |
@@ -254,9 +257,27 @@ When a harness starts a subagent, Jevris may propose its model. It does so only 
 | OpenCode | `task` | the child session's `provider/model` | not carried: abstains |
 | Antigravity | none | nothing: the advice is shown as text | none |
 
+### A low-risk Claude Code launch
+
+Jevris judges one Agent launch low, medium or high risk from content-free features: the subagent type reduced to a class (a read-only built-in such as Explore or Plan; general-purpose; custom, which covers any other name) and a size bucket of the tool input (under 1 KiB, under 4 KiB, larger; an unknown size counts as larger). The prompt and the description are never read.
+
+| Launch | Rules | Jev |
+| --- | --- | --- |
+| read-only built-in (Explore, Plan), input under 4 KiB | low | not asked |
+| read-only built-in, larger or unknown-size input | medium | not asked |
+| general-purpose or custom, any size | high (no change of model) | asked once; may lower it to medium or low |
+
+A write-capable type is never routed on size alone. Jev is asked one Choice (low, medium, high or unknown) from the same features, and only for these types; a read-only launch is settled by the rules and never asked, so Jev cannot lower it. Its answer is used only at the usual floors (confidence 0.6, 0.15 between the best two options) and then lowers the level from high to medium or low. This is the one question where Jev lowers rather than raises: the rules' high is the safe answer, so Jev can only unlock a cheaper model for that call, never remove a gate. Any miss (`jev.assist` off, no provider, no budget, an open circuit, a late or unusable answer, `unknown`, `high` or a weak answer) leaves the rules' high standing and the subagent keeps the session's model. Jev never overrides a pin, an explicit model, the mode, consent or a lifecycle gate, which are applied after it, and its answer is advice. The wait is the hook's time left less 300 ms, at most 700 ms, and the answer comes from the decision cache when the same features were asked before. The judgement is recorded as a `subagent-risk` advisory decision that `jevris explain` shows.
+
+Low risk goes to the newest usable `haiku` model in the registry (Haiku 5.5 today), medium to the newest usable `sonnet` model (Sonnet 5.5), and high or unknown change nothing (`RISK_HIGH`). Both must also pass every other gate: the model must be in the registry, usable, not found gone, consented, not paused by an access limit, cheaper (by list input price) than the session's model (`NOT_CHEAPER`), not the session's own model (`SAME_AS_SESSION`), and the family alias must mean it today (`ALIAS_NOT_NEWEST`; a route to Haiku 4.5 abstains since Claude Code 2.1.293).
+
+**Eligibility.** The subagent route follows the same rule as the rest of routing ([Which models your account can use here](#which-models-your-account-can-use-here)), with one addition for Claude Code: a model counts as eligible (`HARNESS_ALIAS`) when it is the model one of Claude Code's family aliases (`haiku`, `sonnet`, `opus`, `fable`) currently resolves to per the registry, its provider is Anthropic, it is usable, and `hooks.route` is certified for the installed Claude Code. So out of the box, once Claude Code is certified, Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1 are eligible for subagent routes and nothing else is: the alias is Claude Code's own, so a model it names needs no run or listing first. Every refusal still wins over it, and no other harness gets this proof.
+
+**Delivery.** With `hooks.route` certified and the mode `bounded-auto`, the call is rewritten (`updatedInput` sets `model`) and a short note for the model rides in the same answer as `additionalContext` ("Jevris set model haiku on this one Agent call (read-only type, low risk by rules). The session model is unchanged."). In mode `advise`, or when `hooks.route` is not certified, nothing is rewritten and the same advice goes to the model as a PreToolUse context ("Jevris advises model: haiku for this Explore subagent ... This call already started; set model on the next Agent call to apply it."), where `hooks.context` is certified; otherwise it is a message to you. In `observe` nothing is shown and the decision is recorded. Whether Claude Code accepts `additionalContext` together with `updatedInput` has not been verified against a real binary.
+
 On Kilo and OpenCode a subagent route keeps the parent session's host in the same way as a main-session turn, and abstains with `NOT_ON_SESSION_HOST` or `HOST_UNKNOWN` where it cannot. That includes a session on a gateway.
 
-Each harness's slice learns against that harness's baseline, so a route learned on Claude Code's subagents is never proposed on Codex. A route is applied only after that harness's `hooks.route` certify case passes. Until then it is shown as text. On Kilo and OpenCode it is also never written to a provider that the project's own config redefines ([security.md](security.md#routing-authority)).
+Each harness's slice learns against that harness's baseline, so a route learned on Claude Code's subagents is never proposed on Codex. A route is applied only after that harness's `hooks.route` certify case passes. Until then it is shown as text (on Claude Code, as above). On Kilo and OpenCode it is also never written to a provider that the project's own config redefines ([security.md](security.md#routing-authority)).
 
 ## Models served by several hosts
 
@@ -618,6 +639,7 @@ Route learning and the router only choose a model that your harness and sign-in 
 - **It ran there**, and the harness reported that model back (`RAN_HERE`).
 - **The harness lists it** (`LISTED_BY_HARNESS`), from the harness's own model listing, which makes no billed call and runs no model.
 - **Claude Code lists its models** through an idle `initialize` request that runs no model; until `models.list` is certified for your Claude Code version, a Claude model becomes eligible there only after it has run once.
+- **Claude Code's own alias resolves it** (`HARNESS_ALIAS`), for a subagent route only (owner decision 2026-10-08): on harness `claude`, an Anthropic model that is the one a family alias (`haiku`, `sonnet`, `opus`, `fable`) now means per the registry, while `hooks.route` is certified for the installed Claude Code. No other harness and no other model gets this proof, and it is not consulted for main-session routing or route learning.
 - **A model found gone or not accessible is never eligible**, whatever the other evidence says (see below).
 - Otherwise it is not eligible: `NO_LOCAL_EVIDENCE`, or `NOT_ON_HARNESS` when the registry's harness map gives that harness no access to the model's provider and the model has not run there.
 
@@ -625,7 +647,7 @@ Route learning and the router only choose a model that your harness and sign-in 
 
 **The harness map.** The shipped registry carries `harnessAccess`, which harness reaches which model provider and how it spells the model there: Claude Code natively for Anthropic, Codex natively for OpenAI, Antigravity natively for Google, and OpenCode and Kilo through a provider configuration (OpenCode as `provider/model`, for example `moonshotai/kimi-k3` or `google-vertex/gemini-3.8-flash`). A model whose id differs on a harness carries a `harnessModels` row: Antigravity names the effort in the model (`gemini-3.8-flash-high`). Kilo resolves ids against the models.dev catalog it ships, so it spells them as OpenCode does (`zai/glm-5.3`, `moonshotai/kimi-k3`). A gateway or inference-host spelling (`openrouter/...`, Kilo's own gateway `kilo/...`, `nvidia/...`) names a registry model only through a serving the registry pins for that host and harness ([Models served by several hosts](#models-served-by-several-hosts)). It is never a direct provider run, because a gateway may fall back to another model. Each row also records the sign-ins it accepts and how the harness takes an effort level. The [model refresh procedure](../CONTRIBUTING.md#model-knowledge-refresh) keeps the map current, and `npm run registry:check` checks it.
 
-**On a fresh install nothing is eligible yet**, so routing changes nothing until a model has run on that harness and sign-in, or a listing names it.
+**On a fresh install nothing is eligible yet**, so routing changes nothing until a model has run on that harness and sign-in, or a listing names it. The one exception is a Claude Code subagent route, which is eligible for the alias models once `hooks.route` is certified (above).
 
 **Why a model is or is not eligible.** `jevris explain <decision-id> --slice <slice>` adds one line per model, for example `claude-sonnet-5 is not eligible: it has not run on this machine and no harness listing names it (NO_LOCAL_EVIDENCE).`, or one line saying the administrator's registry decides. It never names the account.
 
@@ -637,7 +659,7 @@ The record is `<data>/route-learning/model-offer.json`, one per machine, owner-o
 - **Clean runs.** An owned run that completed cleanly without reporting its model counts, as weaker evidence, only when the model it was started with is the maker's exact id, reached directly or through the harness's provider config. It never counts through a gateway, which can fall back to another model, or for an alias.
 - **Listings.** The sidecar refreshes each harness's own model listing while it is idle: one harness at a time, each listing bounded to 10 seconds, again after 24 hours or when the harness's installed version changes. Claude Code lists through an idle `claude -p` stream-json session that sends only the `initialize` control request, Codex through its app-server `model/list`, OpenCode and Kilo through their `models` command, and Antigravity through `agy models`. Each is used only once a certification record covers the `models.list` feature for that harness version and OS. `jevris doctor` prints one `models` line per installed harness saying whether it lists its models.
 
-`routing.modelListing` (`on` by default) controls the listings; `jevris configure set routing.modelListing off` stops every one. Until a run or a listing is recorded, no model is eligible on a default install, so routing changes nothing.
+`routing.modelListing` (`on` by default) controls the listings; `jevris configure set routing.modelListing off` stops every one. Until a run or a listing is recorded, no model is eligible on a default install, so routing changes nothing, except that a certified Claude Code counts its family aliases as eligible for subagent routes.
 
 ### Models found gone on this machine
 

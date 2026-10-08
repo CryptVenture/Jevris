@@ -46,6 +46,11 @@ const certified = recordsCertificationSource(async () => [record(['hooks.route']
 const none = recordsCertificationSource(async () => []);
 const subscriber = (certifications) => createDecisionSubscriber({ handlers: { 'worker-creation': [subagentRouteAdvice] }, certifications, now: () => NOW, operatingSystem: 'linux' });
 
+/** Local evidence that Haiku 5.5 ran under Claude Code here (RAN_HERE), the other way a model becomes eligible. */
+async function ran(dir) {
+  assert.equal(await core.recordModelRun(dir, { harness: 'claude', authMode: 'unknown', modelId: HAIKU, nowMs: NOW, raw: null, servingHost: null, source: 'reported' }), true);
+}
+
 async function home(t, { active = true } = {}) {
   const dir = await mkdtemp(join(tmpdir(), 'jevris-subagent-'));
   t.after(() => rm(dir, { recursive: true, force: true }));
@@ -65,10 +70,13 @@ test('subagent route: registered for worker-creation; an active learned route fo
   const traces = [];
   const routed = await subscriber(certified).handle(ctx(dir, agentEvent({ subagentType: 'Explore' }), { traces }));
   assert.equal(routed.trigger, 'worker-creation');
-  assert.deepEqual(routed.hookOutcome, { kind: 'route', model: HAIKU });
+  // Rewrite plus instruct (owner decision 2026-10-08): the route carries the short note for the model.
+  assert.deepEqual(routed.hookOutcome, { kind: 'route', model: HAIKU, context: "Jevris set model haiku on this one Agent call (this workspace's route learning for Explore subagents). The session model is unchanged." });
   assert.equal(HookOutcomeContract.validate(routed.hookOutcome).ok, true, 'the proposal meets E\'s wire contract');
   assert.equal(routed.reasonCode, 'SUBAGENT_ROUTE_LEARNED');
   assert.deepEqual(traces.filter((e) => e.event === 'subagent-route').map((e) => e.reasonCode), ['SUBAGENT_ROUTE_LEARNED']);
+  // 3f090fa applies to this path too: with hooks.route uncertified the alias proof is off, so the model needs a run on this harness.
+  await ran(dir);
   const explained = await subscriber(none).handle(ctx(dir, agentEvent({ subagentType: 'Explore' })));
   assert.equal(explained.hookOutcome.kind, 'explain');
   assert.match(explained.hookOutcome.text, /Explore subagent/);
@@ -86,7 +94,8 @@ test('subagent route: abstains (the hook stays silent) without evidence, with an
   await silent('explicit model', ctx(dir, agentEvent({ subagentType: 'Explore', requestedModel: 'opus' })));
   await silent('pinned', ctx(dir, agentEvent({ subagentType: 'Explore' }), { pins: { modelPin: 'claude-opus-5', effortPin: null } }));
   await silent('no subagent type', ctx(dir, agentEvent({})));
-  await silent('another subagent type has no evidence', ctx(dir, agentEvent({ subagentType: 'Plan' })), 'NO_EVIDENCE');
+  // Owner decision 2026-10-08: no learned evidence for the type, so a high-risk launch (a custom type with a large input) changes nothing.
+  await silent('a launch judged high risk', ctx(dir, agentEvent({ subagentType: 'code-reviewer', toolInputBytes: 9000, toolInputKeys: ['description', 'prompt', 'subagent_type'] })), 'RISK_HIGH');
   await silent('the session already runs it', ctx(dir, agentEvent({ subagentType: 'Explore' }, { model: 'haiku' })), 'SAME_AS_SESSION');
   // R20: Antigravity's slice learns under its own baseline, so Claude Code's route is no evidence there.
   await silent('a route learned on another harness', ctx(dir, agentEvent({ subagentType: 'Explore' }, { harness: 'antigravity', model: null })), 'NO_EVIDENCE');
@@ -99,7 +108,7 @@ test('subagent route: abstains (the hook stays silent) without evidence, with an
   await silent('found gone', ctx(dir, agentEvent({ subagentType: 'Explore' })), 'MODEL_UNAVAILABLE');
   // A fresh home with no learning state and no signed release for the slice: no evidence.
   const bare = await home(t, { active: false });
-  await silent('no evidence', ctx(bare, agentEvent({ subagentType: 'Explore' })), 'NO_EVIDENCE');
+  await silent('no evidence and a high-risk launch', ctx(bare, agentEvent({ subagentType: 'code-reviewer', toolInputBytes: 9000, toolInputKeys: ['prompt'] })), 'RISK_HIGH');
 });
 
 test('subagent route: prompt text never reaches the answer or the trace, and no learning outcome is recorded', async (t) => {
@@ -107,7 +116,8 @@ test('subagent route: prompt text never reaches the answer or the trace, and no 
   const traces = [];
   const event = agentEvent({ subagentType: 'Explore', prompt: SECRET, description: SECRET });
   const result = await subscriber(certified).handle(ctx(dir, event, { traces }));
-  assert.deepEqual(result.hookOutcome, { kind: 'route', model: HAIKU });
+  assert.equal(result.hookOutcome.kind, 'route');
+  assert.equal(result.hookOutcome.model, HAIKU);
   assert.doesNotMatch(JSON.stringify(result), new RegExp(SECRET));
   assert.doesNotMatch(JSON.stringify(traces), new RegExp(SECRET));
   const state = await core.loadLearningState({ home: dir, workspaceId: 'w-sub' });
@@ -122,13 +132,14 @@ test('P13: each handled launch leaves one text-free note for D\'s SubagentStart 
   // R20: the note names the registry model the route set, for D's attribution.
   assert.deepEqual(take(), { reasonCode: 'SUBAGENT_ROUTE_LEARNED', outcome: 'rendered', atMs: NOW, modelId: HAIKU });
   assert.equal(take(), null, 'taken once');
+  await ran(dir);
   await subscriber(none).handle(ctx(dir, agentEvent({ subagentType: 'Explore' })));
   assert.equal(take().outcome, 'explained');
   await subscriber(certified).handle(ctx(dir, agentEvent({ subagentType: 'Explore', requestedModel: 'sonnet' })));
   assert.deepEqual(take(), { reasonCode: 'EXPLICIT_MODEL', outcome: 'abstained', atMs: NOW, modelId: null });
   const bare = await home(t, { active: false });
-  await subscriber(certified).handle(ctx(bare, agentEvent({ subagentType: 'Explore' })));
-  assert.deepEqual([take().outcome, take()], ['abstained', null]);
+  await subscriber(certified).handle(ctx(bare, agentEvent({ subagentType: 'code-reviewer', toolInputBytes: 9000, toolInputKeys: ['prompt'] })));
+  assert.equal(core.takeSubagentRoute('w-sub', 'sess-1', 'code-reviewer', NOW + 1000).outcome, 'abstained');
   // Past the 120 s window a note is gone; another session or type never takes it.
   await subscriber(certified).handle(ctx(dir, agentEvent({ subagentType: 'Explore' })));
   assert.equal(core.takeSubagentRoute('w-sub', 'sess-2', 'Explore', NOW + 1000), null);

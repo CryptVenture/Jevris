@@ -3,14 +3,15 @@
  * module: the engine's `explainDecision` reads it to write a Provider line that does not contradict
  * the adviser's own lines, and it imports nothing.
  *
- * Six advisers record ONE summary decision per run (`recordAdvice`): the task slice, the check
- * ranking, repeated-failure advice, new-task advice, the scope check and worker readiness. That record
+ * Seven advisers record ONE summary decision per run (`recordAdvice`): the task slice, the check
+ * ranking, repeated-failure advice, new-task advice, the scope check, worker readiness and the
+ * risk of a subagent launch. That record
  * holds the run's reason codes only; it makes no provider call of its own, so its usage is null and its
  * billing basis is `no-provider-call`. The Jev question the run asked is a separate decision record
  * (the engine's own, under the same spec id, with the model and the usage), and a question answered
  * from the decision cache is the engine's own cache-hit record. Every summary carries its adviser's
- * source code (`SLICE_SOURCE_`, `RANK_SOURCE_`, `FAIL_FAMILY_`, `TASK_SOURCE_`, `SCOPE_EFFECTS_` or
- * `READY_SOURCE_`), which the engine's own records never do.
+ * source code (`SLICE_SOURCE_`, `RANK_SOURCE_`, `FAIL_FAMILY_`, `TASK_SOURCE_`, `SCOPE_EFFECTS_`,
+ * `READY_SOURCE_` or `SUBAGENT_RISK_SOURCE_`), which the engine's own records never do.
  */
 
 /** What a summary says about Jev in that run. */
@@ -33,6 +34,7 @@ const SUMMARIES: ReadonlyMap<string, { readonly marker: string; readonly asked: 
   // A scope-change summary is written only after the effects were put to Jev (rules-only runs and gates record nothing).
   ['scope-change', { marker: 'SCOPE_EFFECTS_', asked: () => true }],
   ['worker-readiness', { marker: 'READY_SOURCE_', asked: cacheCodes }],
+  ['subagent-risk', { marker: 'SUBAGENT_RISK_SOURCE_', asked: cacheCodes }],
 ]);
 
 /** True when the record is one adviser's summary of a run (not the engine's own record of a call or a cache hit). */

@@ -88,5 +88,7 @@ export { protectedClasses, type ProtectedClass } from './protected-paths.js';
 export { sliceAssistLines } from './slice-explain.js';
 export * from './check-relevance.js';
 export { checkRelevanceLines } from './check-relevance-explain.js';
+export * from './subagent-risk.js';
+export { subagentRiskLines } from './subagent-risk-explain.js';
 export * from './first-try.js';
 export * from './serving-view.js';

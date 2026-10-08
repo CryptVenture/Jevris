@@ -598,6 +598,25 @@ test('doctor eligibility (C 8b4b851): one keyed info line per harness and sign-i
   });
 });
 
+test('owner decision 2026-10-08: doctor shows Claude Code\'s alias models as eligible for subagent routes only once hooks.route is certified, as their own reason', async () => {
+  const { doctorLineSeverity } = await import('../dist/doctor-severity.js');
+  await withBox(async (home) => {
+    const [off] = await offer.eligibilityDoctorLines(home, [{ harness: 'claude', authMode: 'subscription', aliasCertified: false }], false);
+    assert.match(off, /no model is eligible yet/);
+    assert.doesNotMatch(off, /HARNESS_ALIAS/);
+    const [on] = await offer.eligibilityDoctorLines(home, [{ harness: 'claude', authMode: 'subscription', aliasCertified: true }], false);
+    assert.match(on, /eligible: claude-/);
+    const via = /eligible because Claude Code resolves its family alias, for subagent routes only \(HARNESS_ALIAS\): ([^;]*)/.exec(on)?.[1].split(', ');
+    assert.deepEqual([...via].sort(), ['claude-fable-5-1', 'claude-haiku-5-5', 'claude-opus-5-5', 'claude-sonnet-5-5'], 'the model each family alias means, and no older release');
+    assert.equal(doctorLineSeverity(on), 'info');
+    const detail = await offer.eligibilityDoctorLines(home, [{ harness: 'claude', authMode: 'subscription', aliasCertified: true }], true);
+    assert.ok(detail.some((line) => /claude-haiku-5-5 is eligible for a subagent route: Claude Code's own family alias resolves to it on claude with subscription sign-in, and hooks.route is certified for the installed version \(HARNESS_ALIAS\)/.test(line)), detail.join('\n'));
+    // No other harness gets the proof, whatever the flag says.
+    const [codex] = await offer.eligibilityDoctorLines(home, [{ harness: 'codex', authMode: 'subscription', aliasCertified: true }], false);
+    assert.doesNotMatch(codex, /HARNESS_ALIAS/);
+  });
+});
+
 test('G13: Claude Code lists through one initialize control request on an idle print session; no user turn, no account read', async () => {
   await withBox(async (dir) => {
     const command = await stubCommand(dir);

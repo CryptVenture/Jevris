@@ -10,7 +10,8 @@
  *
  * Groups (this module): `slice` (route slice classification), `plan-slices`, `check-ranking`,
  * `repeated-failure`, `new-task`, `intent` (C01 to C04, C06 and C07), `security` (C51 and C49),
- * `worker-readiness` (the question the owned-worker launch asks) and `health-probe` (the circuit breaker's own
+ * `worker-readiness` (the question the owned-worker launch asks), `subagent-risk` (the question a Claude Code
+ * Agent launch asks, from the type class and the input size only) and `health-probe` (the circuit breaker's own
  * one-question probe while the circuit is half-open, driven with the conformance mock and an injected clock, in every
  * mode). The capability catalogue (C18 to C72) and the hot path through a real sidecar run from
  * `apps/sidecar/scripts/jev-features.mjs` and merge their rows into the same record.
@@ -21,6 +22,7 @@
  * recorded is numbers and codes: never a key, a request body or a response body.
  */
 import {
+  SUBAGENT_RISK_SPEC_ID,
   WORKER_READINESS_ADVICE_SPEC_ID,
   adviseWorkerReadiness,
   auditDecomposition,
@@ -29,11 +31,13 @@ import {
   detectAmbiguity,
   detectScopeChange,
   injectionSuspicion,
+  judgeSubagentRisk,
   permissionRiskTriage,
   planSliceTimes,
   rankChecks,
   rankPlanCandidates,
   shortlistTemplates,
+  subagentRiskFeatures,
   suggestPlanSlices,
   triageTaskFamily,
   type DecideRequest,
@@ -54,7 +58,7 @@ import type { FetchLike } from './sdk-transport.js';
 export const FEATURE_SUITE_SCHEMA = 'jev-features-suite-1';
 
 /** The groups this module runs. */
-export const ENGINE_GROUPS = ['slice', 'plan-slices', 'check-ranking', 'repeated-failure', 'new-task', 'intent', 'security', 'worker-readiness', 'health-probe'] as const;
+export const ENGINE_GROUPS = ['slice', 'plan-slices', 'check-ranking', 'repeated-failure', 'new-task', 'intent', 'security', 'worker-readiness', 'subagent-risk', 'health-probe'] as const;
 export type EngineGroup = (typeof ENGINE_GROUPS)[number];
 
 /** How a row was measured: a fresh engine (no cache), the same engine again (cache), or never sent. */
@@ -700,6 +704,47 @@ function workerReadinessCases(waitMs: number): CaseDef[] {
   }));
 }
 
+
+/**
+ * One Agent launch is judged from content-free features only: the type class and the size of the tool input. A read-only
+ * type is settled by the rules (no request); a write-capable type is high by the rules and Jev may lower it. The probe is the
+ * prompt text a launch would carry; it must never be in a request, because the judge is never given it.
+ */
+function subagentRiskCases(waitMs: number): CaseDef[] {
+  const shapes: { id: string; expected: string; type: string; bytes: number }[] = [
+    { id: 'subagent-risk-explore', expected: 'low', type: 'Explore', bytes: 600 },
+    { id: 'subagent-risk-plan-large', expected: 'medium', type: 'Plan', bytes: 6000 },
+    // A write-capable type is high by the rules; Jev is asked for all three and may lower it at the floors.
+    { id: 'subagent-risk-general-short', expected: 'low|medium|high', type: 'general-purpose', bytes: 500 },
+    { id: 'subagent-risk-custom-short', expected: 'low|medium|high', type: 'code-reviewer', bytes: 800 },
+    { id: 'subagent-risk-general-long', expected: 'high', type: 'general-purpose', bytes: 9000 },
+  ];
+  return shapes.map((shape) => ({
+    group: 'subagent-risk' as const,
+    id: shape.id,
+    expected: shape.expected,
+    probes: ['Refactor the billing module and rewrite every call site by hand'],
+    async run(engine: DecisionEngine): Promise<CaseOutcome> {
+      const features = subagentRiskFeatures({ subagentType: shape.type, toolInputBytes: shape.bytes, toolInputKeys: 3 });
+      const r = await judgeSubagentRisk(engine, features, { workspaceId: WORKSPACE, evidenceRevision: REVISION, sessionId: 'features-session', deadlineMs: waitMs }, { assist: 'classify', record: true });
+      return {
+        spec: SUBAGENT_RISK_SPEC_ID,
+        got: r.level,
+        rulesGot: r.rulesLevel,
+        jevGot: r.jevLevel,
+        source: r.source,
+        reasonCode: r.reasonCode,
+        asked: r.asked,
+        answered: r.jevLevel !== null,
+        cacheHit: r.cacheHit,
+        confidence: r.confidence,
+        decisionId: r.decisionId,
+        detail: { class: r.subagentClass, size: r.size },
+      };
+    },
+  }));
+}
+
 /** The least step that carries the injected clock past the breaker's 30 s cool-down and the 30 s between two probes. */
 const PROBE_STEP_MS = 31_000;
 
@@ -799,7 +844,7 @@ function healthProbeCases(createProbeEngine: CreateProbeEngine | undefined): Cas
 
 /** Every engine-level case, in run order. The health-probe case builds its engine through `createProbeEngine` (see `FeatureSuiteOptions`). */
 export function engineCases(waitMs = 5000, createProbeEngine?: CreateProbeEngine): CaseDef[] {
-  return [...sliceCases(waitMs), ...planCases(), ...rankCases(waitMs), ...failureCases(waitMs), ...newTaskCases(waitMs), ...intentCases(waitMs), ...securityCases(waitMs), ...workerReadinessCases(waitMs), ...healthProbeCases(createProbeEngine)];
+  return [...sliceCases(waitMs), ...planCases(), ...rankCases(waitMs), ...failureCases(waitMs), ...newTaskCases(waitMs), ...intentCases(waitMs), ...securityCases(waitMs), ...workerReadinessCases(waitMs), ...subagentRiskCases(waitMs), ...healthProbeCases(createProbeEngine)];
 }
 
 // -------------------------------------------------------------------------------------- runner

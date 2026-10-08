@@ -31,7 +31,7 @@ export const FIRST_TRY_DEFAULT: FirstTrySetting = 'auto';
 
 /**
  * `jev.assist` (owner decision 2026-10-01, Jev as an active decision aid): `classify` lets Jevris ask
- * Jev bounded classification questions (today: the task slice of a route request) from structured
+ * Jev bounded classification questions (the task slice of a route request, the check ranking and the risk of a Claude Code subagent launch, among others) from structured
  * features, with a rules fallback; `off` keeps every such decision rules-only. Absent means
  * `classify`. A repository may only lower it; raising it needs a person at a terminal.
  */

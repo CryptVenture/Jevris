@@ -17,6 +17,10 @@ import {
   subagentSliceId,
   SUBAGENT_ROUTE_ACTUATORS,
   locallyEligibleFor,
+  judgeSubagentRisk,
+  rulesSubagentRisk,
+  subagentRiskFeatures,
+  subagentRiskNeedsJev,
   providerConsentGate,
   sessionSignedInProviders,
   unavailableModels,
@@ -26,6 +30,9 @@ import {
   registryModel,
   harnessModelRef,
   type RequiredArtifact,
+  type IntentContext,
+  type SubagentRiskFeatures,
+  type SubagentRiskJudgement,
   type ModelOffer,
   type SeenSpelling,
   type TriggerKind,
@@ -35,8 +42,10 @@ import {
 function seenSpellingsOn(offer: ModelOffer | null, harness: string, authMode: string | null): (modelId: string) => readonly SeenSpelling[] {
   return (modelId) => seenSpellings(offer, { harness, authMode }, modelId);
 }
-import { FAILURE_ARTIFACT_IDS, HARNESS_MODEL_ID_PATTERN, type FailureArtifactId } from '@jevris/contracts';
-import type { HookProposal, TriggerHandler, TriggerHandlerInput } from './sidecar-subscribers.js';
+import { FAILURE_ARTIFACT_IDS, HARNESS_MODEL_ID_PATTERN, modeAllows, type FailureArtifactId } from '@jevris/contracts';
+import { ROUTE_FEATURE, type HookProposal, type TriggerHandler, type TriggerHandlerInput } from './sidecar-subscribers.js';
+import { assistOf } from './live-handlers.js';
+import { raceDeadlineOf } from './live-advice-util.js';
 import { FAILURE_ARTIFACT_TEXT } from './failure-advice.js';
 import { newTaskAdvice, repeatedFailureAdvice } from './live-handlers.js';
 import { scopeChangeAdvice } from './scope-handler.js';
@@ -209,13 +218,18 @@ export async function evidenceAdvice(input: TriggerHandlerInput): Promise<HookPr
 }
 
 /**
- * Claude Code subagent routing (owner decision 2026-09-27, DOMAINS 9ce2ba5: build it, abstain by
- * default). A PreToolUse(Agent/Task) event gets a route proposal `{ model }` (a registry id; the
- * launcher maps it to a Claude Code alias and builds updatedInput from the native input) only when
- * `adviseSubagentRoute` finds evidence for the subagent type: an active learned route for
- * `subagent:<type>`, or a signed calibration release for that slice. An uncertified route shows
- * its fallback text as explain. Reads `payload.subagentType` and whether `payload.requestedModel`
- * is present, never the prompt. Records no learning outcome (D records SubagentStop later).
+ * Subagent routing (owner decisions 2026-09-27, DOMAINS 9ce2ba5, and 2026-10-08, which reverses its
+ * abstain-only line for Claude Code). A PreToolUse(Agent/Task) event gets a route proposal `{ model }`
+ * (a registry id; the launcher maps it to a Claude Code alias and builds updatedInput from the native
+ * input) when `adviseSubagentRoute` finds evidence for the subagent type: an active learned route for
+ * `subagent:<type>`, or a signed calibration release for that slice; and, on Claude Code only, else
+ * the launch's own risk (`subagent-risk`: rules first; a write-capable type is high unless one Jev answer at the
+ * floors lowers it) which sends a low-risk launch to the haiku family and a medium one to the sonnet family for
+ * that one call. The route carries a short note for the model ("rewrite plus instruct"); when the
+ * route cannot be applied, the same advice reaches the model as a PreToolUse context (see the
+ * subscriber). Reads `payload.subagentType`, `toolInputBytes`, `toolInputKeys` and whether
+ * `payload.requestedModel` is present, never the prompt or the description. Records no learning
+ * outcome (D records SubagentStop later).
  */
 export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<HookProposal | null> {
   const signal = input.ctx.signal as { readonly aborted?: boolean };
@@ -250,7 +264,17 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
   const consentedProviders = providerConsentGate(registry, sessionSignedInProviders(registry, input.event.harness, sessionModel), consentReaderOf(input.ctx)).consentedProviders;
   // Owner decision 3f090fa and B's review (MEDIUM 4): the model must be eligible on this harness
   // and sign-in from local evidence (listed by the harness or run here).
-  const locallyEligible = await locallyEligibleFor({ home: input.ctx.home, registry, accountId: null, unavailable: gone, scope: { harness: input.event.harness, authMode } }).catch(() => []);
+  // Owner decision 2026-10-08 (amends 3f090fa for Claude Code only): Claude Code's own family alias
+  // counts as local evidence once hooks.route is certified for the installed version.
+  const aliasCertified = input.event.harness === 'claude' && input.certified !== undefined ? await input.certified(ROUTE_FEATURE).catch(() => false) : false;
+  const locallyEligible = await locallyEligibleFor({
+    home: input.ctx.home,
+    registry,
+    accountId: null,
+    unavailable: gone,
+    scope: { harness: input.event.harness, authMode },
+    ...(input.event.harness === 'claude' ? { harnessAlias: { certified: aliasCertified, nowMs } } : {}),
+  }).catch(() => []);
   // A signed calibration release for the subagent slice is the other evidence (routeTask's selection).
   let signedPrior: { readonly modelId: string; readonly releaseId: string } | null = null;
   const evaluation = await evaluateRoute({
@@ -274,7 +298,11 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
   if (selection !== null && selection.outcome === 'select' && selection.modelId !== null && evaluation?.calibrationId !== null && evaluation?.calibrationId !== undefined) {
     signedPrior = { modelId: selection.modelId, releaseId: evaluation.calibrationId };
   }
-  const advice = adviseSubagentRoute({
+  const toolInputBytes = typeof payload['toolInputBytes'] === 'number' ? payload['toolInputBytes'] : null;
+  const toolInputKeys = Array.isArray(payload['toolInputKeys']) ? payload['toolInputKeys'].length : 0;
+  const features = subagentRiskFeatures({ subagentType, toolInputBytes, toolInputKeys });
+  // Hot-path pieces that do not change with the risk judgement.
+  const route = {
     harness: input.event.harness,
     subagentType,
     explicitModel,
@@ -296,7 +324,22 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
     seen: seenSpellingsOn(await readModelOffer(input.ctx.home).catch(() => null), input.event.harness, authMode),
     providerConsent: consentReaderOf(input.ctx),
     hostRouteCertified: body['hostRouteCertified'] === true,
-  });
+  } as const;
+  // Learned and signed evidence first, with no risk. Only a launch with none (NO_EVIDENCE: every gate before the
+  // evidence has passed) is judged by its risk, so a refusal never spends a Jev question.
+  let advice = adviseSubagentRoute({ ...route });
+  let judgement: SubagentRiskJudgement | null = null;
+  if (advice.outcome === 'abstain' && advice.reasonCode === 'NO_EVIDENCE') {
+    const rulesLevel = rulesSubagentRisk(features);
+    const at = (level: 'low' | 'medium' | 'high', source: 'rules' | 'jev' = 'rules'): ReturnType<typeof adviseSubagentRoute> => adviseSubagentRoute({ ...route, risk: { level, source, subagentClass: features.subagentClass } });
+    // A write-capable type has the rules' high, which Jev may lower to low or medium: ask only when a cheaper
+    // model could be routed at all. A read-only type is settled by the rules and is never asked.
+    const levels = subagentRiskNeedsJev(features) ? (['low', 'medium'] as const) : ([rulesLevel] as const);
+    if (levels.some((level) => at(level).outcome === 'propose')) {
+      judgement = await judgeLaunch(input, features);
+      advice = at(judgement.level, judgement.source);
+    } else advice = at(levels[0]);
+  }
   // 43cb54c: a learned effort that is worked out but not applied (Codex) is named in the trace too.
   input.ctx.trace({ event: 'subagent-route', reasonCode: advice.reasonCode, ...(advice.outcome === 'propose' && advice.effortNotApplied !== null ? { effortNotApplied: advice.effortNotApplied } : {}) });
   if (advice.outcome !== 'propose') return (note('abstained', advice.reasonCode), null);
@@ -309,10 +352,60 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
   const wireModel = input.event.harness === 'claude' ? advice.modelId : advice.harnessModel;
   // Serving hosts R51: a proposal priced by estimate, or through a host without route.host, is explained only.
   const routable = advice.actuator !== null && advice.blockedReason === null && wireModel.length <= 128 && WIRE_MODEL.test(wireModel);
+  // Rewrite plus instruct (owner decision 2026-10-08): the route carries the note for the model; when
+  // it cannot be applied, the subscriber delivers `fallbackContext` as a PreToolUse context instead.
   const hookOutcome = routable
-    ? ({ kind: 'route', model: wireModel, ...(advice.variant === null ? {} : { variant: advice.variant }) } as const)
+    ? ({ kind: 'route', model: wireModel, ...(advice.variant === null ? {} : { variant: advice.variant }), ...(advice.appliedContext === null ? {} : { context: advice.appliedContext }) } as const)
     : ({ kind: 'explain', text: advice.text } as const);
-  return { hookOutcome, fallbackText: advice.text, reasonCode: advice.reasonCode, commit: () => true };
+  return {
+    hookOutcome,
+    fallbackText: advice.text,
+    ...(routable && advice.adviceContext !== null ? { fallbackContext: advice.adviceContext } : {}),
+    reasonCode: advice.reasonCode,
+    ...(judgement?.decisionId == null ? {} : { decisionId: judgement.decisionId }),
+    commit: () => true,
+  };
+}
+
+/** The Jev wait a subagent launch may spend: the hook's time left less a margin for the rest of the answer, at most 700 ms. */
+const RISK_MARGIN_MS = 300;
+const RISK_MAX_WAIT_MS = 700;
+const RISK_MIN_WAIT_MS = 150;
+const RISK_LATE_GRACE_MS = 1_000;
+
+/**
+ * The risk of one launch: the rules' level, and where they leave a medium for a type they cannot judge by
+ * name, one bounded Jev question that may lower the rules' high for a write-capable type, at the floors. `jev.assist` off, no provider, too little time or
+ * a missed deadline are the rules' answer with the reason; the answer is recorded as one advisory decision.
+ */
+async function judgeLaunch(input: TriggerHandlerInput, features: SubagentRiskFeatures): Promise<SubagentRiskJudgement> {
+  const engine = input.engine;
+  const left = input.ctx.deadline.remainingMs();
+  const waitMs = Math.min(RISK_MAX_WAIT_MS, left - RISK_MARGIN_MS);
+  const ctx: IntentContext = {
+    workspaceId: input.envelope.workspaceId,
+    evidenceRevision: input.revision ?? input.envelope.expectedRevision,
+    sessionId: input.envelope.sessionId,
+    deadlineMs: Math.max(1, Math.floor(Math.max(waitMs, 1) + RISK_LATE_GRACE_MS)),
+  };
+  // Too little time left for even the record: the rules' answer at once, nothing recorded.
+  if (!Number.isFinite(waitMs) || waitMs < RISK_MIN_WAIT_MS) return judgeSubagentRisk(null, features, ctx, { assist: 'off', record: false, skipAsk: 'SUBAGENT_RISK_NO_TIME' });
+  const gate =
+    input.ctx.killSwitchStopped === true
+      ? 'SUBAGENT_RISK_KILL_SWITCH'
+      : assistOf(input) === 'off'
+        ? 'SUBAGENT_RISK_ASSIST_OFF'
+        : engine === null || engine.providerConfigured === false
+          ? 'SUBAGENT_RISK_NO_PROVIDER'
+          : null;
+  const record = input.ctx.mode === undefined || modeAllows(input.ctx.mode, 'record');
+  const run = judgeSubagentRisk(engine, features, ctx, { assist: 'classify', record, ...(gate === null ? {} : { skipAsk: gate }) });
+  // The record is waited for no longer than Jev is: a slow disk or a slow answer never holds the hook past its time.
+  const raced = await raceDeadlineOf(run, waitMs + 50);
+  if (typeof raced === 'object') return raced;
+  // Abandoned at the deadline (or failed): the rules' answer, no model, no record.
+  const rules = await judgeSubagentRisk(null, features, ctx, { assist: 'off', record: false });
+  return { ...rules, reasonCode: raced === 'late' ? 'SUBAGENT_RISK_DEADLINE' : 'SUBAGENT_RISK_ERROR' };
 }
 
 export const DEFAULT_TRIGGER_HANDLERS: Partial<Record<TriggerKind, readonly TriggerHandler[]>> = Object.freeze({

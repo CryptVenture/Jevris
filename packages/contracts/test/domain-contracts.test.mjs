@@ -427,6 +427,10 @@ test('HookOutcome on the wire: a route names only a model id and a variant, neve
     { kind: 'route', model: 'zai-coding-plan/glm-5.3', variant: 'high' },
     { kind: 'route', model: 'gpt-6-sol', variant: 'xhigh' },
     { kind: 'route', model: 'claude-haiku-4-5', variant: null },
+    // Owner decision 2026-10-08, rewrite plus instruct: an optional short note for the model rides with the route.
+    { kind: 'route', model: 'claude-haiku-5-5', context: 'Jevris set model haiku on this one Agent call (read-only type, low risk by rules). The session model is unchanged.' },
+    { kind: 'route', model: 'claude-haiku-5-5', variant: null, context: null },
+    { kind: 'route', model: 'm', context: 'x'.repeat(c.ROUTE_CONTEXT_MAX_LENGTH) },
   ]) {
     assert.equal(ok(value), true, JSON.stringify(value).slice(0, 80));
   }
@@ -450,6 +454,11 @@ test('HookOutcome on the wire: a route names only a model id and a variant, neve
     { kind: 'route', model: 'haiku; rm -rf /' },
     { kind: 'route', model: key },
     { kind: 'route', model: 7 },
+    { kind: 'route', model: 'haiku', context: '' },
+    { kind: 'route', model: 'haiku', context: 'x'.repeat(c.ROUTE_CONTEXT_MAX_LENGTH + 1) },
+    { kind: 'route', model: 'haiku', context: 7 },
+    { kind: 'route', model: 'haiku', context: `use ${key}` },
+    { kind: 'explain', text: 'x', context: 'y' },
     { kind: 'context', text: '' },
     { kind: 'explain' },
     { kind: 'allow' },
