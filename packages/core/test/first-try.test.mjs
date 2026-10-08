@@ -78,9 +78,9 @@ test('ladder: Codex starts on GPT-6 Luna and hands off to its baseline GPT-6.1 S
 });
 
 test('ladder: a model the router left out (not eligible here, preview, consent) is never a rung', () => {
-  const noSonnet = eligible({ locallyEligible: ['claude-opus-5-5', 'claude-haiku-4-5-20251001'] });
+  const noSonnet = eligible({ locallyEligible: ['claude-opus-5-5', 'claude-haiku-5-5'] });
   const c = firstTryCandidate({ eligible: noSonnet, baselineModelId: 'claude-opus-5-5', volume: VOLUME, overhead: OVERHEAD });
-  assert.equal(c.modelId, 'claude-haiku-4-5-20251001', 'with no evidence for Sonnet 5.5 the next eligible rung stands');
+  assert.equal(c.modelId, 'claude-haiku-5-5', 'with no evidence for Sonnet 5.5 the next eligible rung stands, Haiku 5.5 once nothing else is cheaper');
   const none = firstTryCandidate({ eligible: eligible({ locallyEligible: ['claude-opus-5-5'] }), baselineModelId: 'claude-opus-5-5', volume: VOLUME, overhead: OVERHEAD });
   assert.deepEqual(none, { none: true, reasonCode: 'NO_CHEAPER_RUNG' });
   const offline = firstTryCandidate({ eligible: eligible({ locallyEligible: ['claude-sonnet-5-5'] }), baselineModelId: 'claude-opus-5-5', volume: VOLUME, overhead: OVERHEAD });

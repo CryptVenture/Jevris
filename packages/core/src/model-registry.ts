@@ -4,15 +4,15 @@
  * A registry entry is an exact provider API id with a versioned full tariff (input, output,
  * cache read, 5-minute and 1-hour cache write), context and output limits, supported effort
  * levels and default, lifecycle dates, data-retention eligibility, regions, health and
- * per-account eligibility. The bundled snapshot `multi-2026-09-30` carries the §8.1 documentation
+ * per-account eligibility. The bundled snapshot `multi-2026-10-08` carries the §8.1 documentation
  * baseline (Anthropic models on the Claude API) and the providers the owner admitted on 2026-09-27
  * (DOMAINS 7be3c43: OpenAI, Google, xAI, Z.ai, and Moonshot and DeepSeek behind consent;
  * registry-multi.ts), the serving hosts that reach them with each host's tariff (serving hosts R38;
  * registry-servings.ts, generated from models.dev on 2026-09-28), and names its sources.
  *
- * - Every fact was checked against the vendor pages on 2026-09-26 and again on 2026-09-29, when
- *   Claude Sonnet 5.5 was added (`BUNDLED_REGISTRY_SOURCES` keeps each URL with its latest fetch
- *   date): the models overview, pricing, model deprecations, effort and API data retention pages,
+ * - Every fact was checked against the vendor pages on 2026-09-26, again on 2026-09-29, when
+ *   Claude Sonnet 5.5 was added, and on 2026-10-08, when Claude Haiku 5.5 was added
+ *   (`BUNDLED_REGISTRY_SOURCES` keeps each URL with its latest fetch date): the models overview, pricing, model deprecations, effort and API data retention pages,
  *   and Claude Code's model configuration. The research proposal
  *   (`.planning/research/v1.2-model-registry-proposal.json`) was the starting point; only facts
  *   the vendor pages confirmed are here.
@@ -21,16 +21,21 @@
  * - Claude Sonnet 5.5 (released 2026-09-28, $2/$10, cache read $0.20, the same prices as Sonnet 5)
  *   is the model Claude Code's `sonnet` alias resolves to on the Anthropic API. Sonnet 5 is now a
  *   legacy model, still available and not deprecated.
+ * - Claude Haiku 5.5 (released 2026-10-07, $0.10/$0.50 up to a 100,000-token prompt and five times
+ *   that above it, cache read $0.01) is the model Claude Code's `haiku` alias resolves to on the
+ *   Anthropic API (Claude Code 2.1.293). Haiku 4.5 is now a legacy model, still available and not
+ *   deprecated.
  * - Retirement dates are the vendor's "not sooner than" commitments. Past that date a model stays
  *   recommended with the warning MODEL_RETIREMENT_DUE; only a firm `retiresOn`, status `retired`
  *   or the model found gone on this machine stops it (DOMAINS 9d1e7eb). Haiku 4.5 reaches its
  *   "not sooner than" date on 2026-10-15.
  * - Fable 5.1 is a Covered Model: it requires 30-day retention and is not ZDR eligible, so a
  *   zero-data-retention workspace is never routed to it.
- * - Only Fable 5.1, Opus 5.5, Sonnet 5.5 and Opus 5 of these models change effort mid-session with the
+ * - Only Fable 5.1, Opus 5.5, Sonnet 5.5, Haiku 5.5 and Opus 5 of these models change effort mid-session with the
  *   cache kept (per-message effort, beta `mid-conversation-output-config-2026-07-01`, on the
  *   Anthropic-operated platforms). Every model has its own cache, so a model switch is cold.
- * - No Claude 4.6+ model has a long-context price tier. Account eligibility is empty: without an
+ * - No Claude 4.6+ model but Haiku 5.5 has a long-context price tier (a prompt over 100,000 tokens is
+ *   billed at five times every price). Account eligibility is empty: without an
  *   administrator's account check, a model is eligible on a harness and sign-in only from local
  *   evidence (it ran there, or the harness lists it; model-offer.ts), within `harnessAccess`.
  * - Discovery (the provider's Models API) can mark a known entry's health; it never adds an id.
@@ -43,12 +48,13 @@ import { join } from 'node:path';
 import { MULTI_PROVIDER_ENTRIES, MULTI_PROVIDER_HARNESS_ACCESS, MULTI_REGISTRY_SOURCES } from './registry-multi.js';
 import { BUNDLED_SERVINGS, SERVING_SOURCES } from './registry-servings.js';
 
-const FETCHED_ON = '2026-09-29T00:00:00Z';
+const FETCHED_ON = '2026-10-08T00:00:00Z';
 /**
- * The snapshot date: the Anthropic facts are from 2026-09-29 (Claude Sonnet 5.5 added), the other
- * providers' from 2026-09-27 and the serving-host tariffs from 2026-09-28.
+ * The snapshot date: the Anthropic facts are from 2026-10-08 (Claude Haiku 5.5 added), the OpenAI
+ * facts from 2026-09-30, the other providers' from 2026-09-27 and the serving-host tariffs from
+ * 2026-09-28.
  */
-const SNAPSHOT_ON = '2026-09-30T00:00:00Z';
+const SNAPSHOT_ON = '2026-10-08T00:00:00Z';
 const MILLION = 1_000_000;
 const PER_MESSAGE_EFFORT_BETA = 'mid-conversation-output-config-2026-07-01';
 /** Where per-message effort works: the Anthropic-operated platforms, not Bedrock or Google Cloud. */
@@ -57,12 +63,12 @@ const ALL_EFFORT = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /** The vendor pages behind the bundled snapshot, with the date each was read. */
 export const BUNDLED_REGISTRY_SOURCES: Readonly<Record<string, { readonly url: string; readonly fetchedOn: string }>> = Object.freeze({
-  S26: { url: 'https://code.claude.com/docs/en/model-config', fetchedOn: '2026-09-29' },
-  S27: { url: 'https://platform.claude.com/docs/en/models/overview', fetchedOn: '2026-09-29' },
-  S28: { url: 'https://platform.claude.com/docs/en/about-claude/pricing', fetchedOn: '2026-09-29' },
-  'ANT-DEPREC': { url: 'https://platform.claude.com/docs/en/about-claude/model-deprecations', fetchedOn: '2026-09-29' },
-  'ANT-EFFORT': { url: 'https://platform.claude.com/docs/en/build-with-claude/effort', fetchedOn: '2026-09-29' },
-  'ANT-RETENTION': { url: 'https://platform.claude.com/docs/en/manage-claude/api-and-data-retention', fetchedOn: '2026-09-29' },
+  S26: { url: 'https://code.claude.com/docs/en/model-config', fetchedOn: '2026-10-08' },
+  S27: { url: 'https://platform.claude.com/docs/en/models/overview', fetchedOn: '2026-10-08' },
+  S28: { url: 'https://platform.claude.com/docs/en/about-claude/pricing', fetchedOn: '2026-10-08' },
+  'ANT-DEPREC': { url: 'https://platform.claude.com/docs/en/about-claude/model-deprecations', fetchedOn: '2026-10-08' },
+  'ANT-EFFORT': { url: 'https://platform.claude.com/docs/en/build-with-claude/effort', fetchedOn: '2026-10-08' },
+  'ANT-RETENTION': { url: 'https://platform.claude.com/docs/en/manage-claude/api-and-data-retention', fetchedOn: '2026-10-08' },
   'OC-PROVIDERS': { url: 'https://opencode.ai/docs/providers/', fetchedOn: '2026-09-27' },
   'KILO-MODELS': { url: 'https://kilo.ai/models', fetchedOn: '2026-09-27' },
   'KILO-CATALOG': { url: 'https://kilo.ai/docs/code-with-ai/agents/custom-models', fetchedOn: '2026-09-27' },
@@ -89,6 +95,8 @@ interface ClaudeFacts {
   readonly zdrEligible: boolean;
   readonly requiredRetentionDays: number | null;
   readonly capabilities: readonly string[];
+  /** A prompt longer than `aboveInputTokens` is billed at `multiplier` times every price (Haiku 5.5). */
+  readonly longContext?: { readonly aboveInputTokens: number; readonly multiplier: number };
 }
 
 function day(date: string): string {
@@ -113,6 +121,7 @@ function tariff(facts: ClaudeFacts): Tariff {
     cacheWriteMicroUsdPerMillion: Math.round(write5m * MILLION),
     cacheWrite1hMicroUsdPerMillion: Math.round(write1h * MILLION),
     storageMicroUsdPerMillionHour: null,
+    ...(facts.longContext === undefined ? {} : { tiers: [{ aboveInputTokens: facts.longContext.aboveInputTokens, inputMultiplier: facts.longContext.multiplier, outputMultiplier: facts.longContext.multiplier, cacheMultiplier: facts.longContext.multiplier }] }),
   };
 }
 
@@ -147,7 +156,7 @@ function claude(facts: ClaudeFacts): RoutingModel {
 /** The §8.1 documentation baseline. Roles are hypotheses, not rankings; the router decides on evidence. */
 export const BUNDLED_MODEL_REGISTRY: ModelRegistry = Object.freeze({
   schemaVersion: '1.0',
-  snapshotId: 'multi-2026-09-30',
+  snapshotId: 'multi-2026-10-08',
   fetchedOn: SNAPSHOT_ON,
   baselineModelId: 'claude-opus-5-5',
   entries: [
@@ -165,9 +174,16 @@ export const BUNDLED_MODEL_REGISTRY: ModelRegistry = Object.freeze({
     }),
     claude({
       modelId: 'claude-sonnet-5-5', family: 'sonnet', displayName: 'Sonnet 5.5', contextTokens: MILLION, maxOutputTokens: 128_000,
-      prices: [2, 10, 0.2, 2.5, 4], priceSince: '2026-09-28', effortLevels: ALL_EFFORT, defaultEffort: 'high', perMessageEffort: true,
+      prices: [2, 10, 0.1, 2.5, 4], priceSince: '2026-09-28', effortLevels: ALL_EFFORT, defaultEffort: 'high', perMessageEffort: true,
       status: 'active', releasedOn: '2026-09-28', retirementNotBefore: '2027-09-28', zdrEligible: true, requiredRetentionDays: null,
       capabilities: ['adaptive-thinking', 'effort', 'per-message-effort'],
+    }),
+    claude({
+      modelId: 'claude-haiku-5-5', family: 'haiku', displayName: 'Haiku 5.5', contextTokens: MILLION, maxOutputTokens: 128_000,
+      prices: [0.1, 0.5, 0.01, 0.125, 0.2], priceSince: '2026-10-07', effortLevels: ALL_EFFORT, defaultEffort: 'medium', perMessageEffort: true,
+      status: 'active', releasedOn: '2026-10-07', retirementNotBefore: '2027-10-07', zdrEligible: true, requiredRetentionDays: null,
+      capabilities: ['adaptive-thinking', 'effort', 'per-message-effort'],
+      longContext: { aboveInputTokens: 100_000, multiplier: 5 },
     }),
     claude({
       modelId: 'claude-opus-5', family: 'opus', displayName: 'Opus 5', contextTokens: MILLION, maxOutputTokens: 128_000,
@@ -184,7 +200,7 @@ export const BUNDLED_MODEL_REGISTRY: ModelRegistry = Object.freeze({
     claude({
       modelId: 'claude-haiku-4-5-20251001', family: 'haiku', displayName: 'Haiku 4.5', contextTokens: 200_000, maxOutputTokens: 64_000,
       prices: [1, 5, 0.1, 1.25, 2], priceSince: '2025-10-15', effortLevels: [], defaultEffort: null, perMessageEffort: false,
-      status: 'active', releasedOn: '2025-10-15', retirementNotBefore: '2026-10-15', zdrEligible: true, requiredRetentionDays: null,
+      status: 'legacy', releasedOn: '2025-10-15', retirementNotBefore: '2026-10-15', zdrEligible: true, requiredRetentionDays: null,
       capabilities: ['extended-thinking'],
     }),
     ...MULTI_PROVIDER_ENTRIES,

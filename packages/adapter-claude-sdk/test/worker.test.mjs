@@ -264,6 +264,10 @@ test('G21: the routed effort reaches the SDK session as its effort option; a Hai
   assert.deepEqual([none.out.effort, Object.hasOwn(none.seen.options, 'effort')], [null, false]);
   const haiku = await run({ model: 'claude-haiku-4-5-20251001', effort: 'high' });
   assert.deepEqual([haiku.out.effort, Object.hasOwn(haiku.seen.options, 'effort')], [null, false]);
+  const haiku55 = await run({ model: 'claude-haiku-5-5', effort: 'low' });
+  assert.deepEqual([haiku55.out.effort, haiku55.seen.options.effort], ['low', 'low'], 'Haiku 5.5 takes effort');
+  const alias = await run({ model: 'haiku', effort: 'low' });
+  assert.deepEqual([alias.out.effort, Object.hasOwn(alias.seen.options, 'effort')], [null, false], 'the bare alias may still mean Haiku 4.5');
   assert.equal(validateWorkerInput({ ...base, effort: 'turbo' }), 'effort');
   let started = false;
   const refused = await runOwnedWorker({ ...base, effort: 'turbo', query: fakeQuery([INIT, RESULT], { onArgs: () => (started = true) }) });

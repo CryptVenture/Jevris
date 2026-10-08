@@ -1,6 +1,6 @@
 {
   "schemaVersion": "cost-registry-1",
-  "fetchedOn": "2026-09-30",
+  "fetchedOn": "2026-10-08",
   "measuredSpeedRatio": null,
   "measuredCostRatio": null,
   "qualityGate": "not-passed",
@@ -24,7 +24,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Fable 5.1",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 10,
       "output": 50,
       "unit": "USD per million tokens"
@@ -33,7 +33,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Mythos 5.1",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 10,
       "output": 50,
       "unit": "USD per million tokens"
@@ -42,7 +42,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Fable 5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 10,
       "output": 50,
       "unit": "USD per million tokens"
@@ -51,7 +51,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Mythos 5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 10,
       "output": 50,
       "unit": "USD per million tokens"
@@ -60,7 +60,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Opus 5.5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 4,
       "output": 20,
       "unit": "USD per million tokens"
@@ -69,7 +69,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Opus 5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 5,
       "output": 25,
       "unit": "USD per million tokens"
@@ -78,7 +78,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Opus 4.8",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 5,
       "output": 25,
       "unit": "USD per million tokens"
@@ -87,7 +87,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Opus 4.7",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 5,
       "output": 25,
       "unit": "USD per million tokens"
@@ -96,7 +96,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Opus 4.6",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 5,
       "output": 25,
       "unit": "USD per million tokens"
@@ -105,7 +105,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Opus 4.5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 5,
       "output": 25,
       "unit": "USD per million tokens"
@@ -114,7 +114,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Opus 4.1",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 15,
       "output": 75,
       "unit": "USD per million tokens"
@@ -123,7 +123,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Opus 4",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 15,
       "output": 75,
       "unit": "USD per million tokens"
@@ -132,7 +132,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Sonnet 5.5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 2,
       "output": 10,
       "unit": "USD per million tokens"
@@ -141,7 +141,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Sonnet 5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 2,
       "output": 10,
       "unit": "USD per million tokens"
@@ -150,7 +150,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Sonnet 4.6",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 3,
       "output": 15,
       "unit": "USD per million tokens"
@@ -159,7 +159,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Sonnet 4.5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 3,
       "output": 15,
       "unit": "USD per million tokens"
@@ -168,16 +168,25 @@
       "vendor": "Anthropic",
       "modelId": "Claude Sonnet 4",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 3,
       "output": 15,
       "unit": "USD per million tokens"
     },
     {
       "vendor": "Anthropic",
+      "modelId": "Claude Haiku 5.5",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "fetchedOn": "2026-10-08",
+      "input": 0.1,
+      "output": 0.5,
+      "unit": "USD per million tokens"
+    },
+    {
+      "vendor": "Anthropic",
       "modelId": "Claude Haiku 4.5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 1,
       "output": 5,
       "unit": "USD per million tokens"
@@ -186,7 +195,7 @@
       "vendor": "Anthropic",
       "modelId": "Claude Haiku 3.5",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "fetchedOn": "2026-09-29",
+      "fetchedOn": "2026-10-08",
       "input": 0.8,
       "output": 4,
       "unit": "USD per million tokens"
@@ -883,7 +892,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "dataRetention": "Covered Model: 30-day retention, no ZDR"
     },
     "Anthropic/Claude Mythos 5.1": {
@@ -895,7 +904,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "access": "Project Glasswing only"
     },
     "Anthropic/Claude Fable 5": {
@@ -907,7 +916,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29"
+      "asOf": "2026-10-08"
     },
     "Anthropic/Claude Mythos 5": {
       "cacheWrite5mPerMillion": 12.5,
@@ -918,7 +927,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "access": "Project Glasswing only"
     },
     "Anthropic/Claude Opus 5.5": {
@@ -930,7 +939,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "fastMode": {
         "inputPerMillion": 8,
         "outputPerMillion": 40
@@ -945,7 +954,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "fastMode": {
         "inputPerMillion": 10,
         "outputPerMillion": 50
@@ -960,7 +969,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "fastMode": {
         "inputPerMillion": 10,
         "outputPerMillion": 50
@@ -975,7 +984,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29"
+      "asOf": "2026-10-08"
     },
     "Anthropic/Claude Opus 4.6": {
       "cacheWrite5mPerMillion": 6.25,
@@ -986,7 +995,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29"
+      "asOf": "2026-10-08"
     },
     "Anthropic/Claude Opus 4.5": {
       "cacheWrite5mPerMillion": 6.25,
@@ -997,7 +1006,7 @@
       "usOnlyInferenceMultiplier": "n/a (inference_geo unsupported)",
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29"
+      "asOf": "2026-10-08"
     },
     "Anthropic/Claude Opus 4.1": {
       "cacheWrite5mPerMillion": 18.75,
@@ -1008,7 +1017,7 @@
       "usOnlyInferenceMultiplier": "n/a",
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "status": "retired 2026-08-05 on Anthropic platforms; Bedrock/Google Cloud only"
     },
     "Anthropic/Claude Opus 4": {
@@ -1020,21 +1029,34 @@
       "usOnlyInferenceMultiplier": "n/a",
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "status": "retired 2026-06-15 on Anthropic platforms; Google Cloud only"
     },
     "Anthropic/Claude Sonnet 5.5": {
       "cacheWrite5mPerMillion": 2.5,
       "cacheWrite1hPerMillion": 4,
-      "cacheReadPerMillion": 0.2,
+      "cacheReadPerMillion": 0.1,
       "batchInputPerMillion": 1,
       "batchOutputPerMillion": 5,
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "fastMode": "not offered",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
-      "priceNote": "the same prices as Sonnet 5, including cache and batch; released 2026-09-28"
+      "asOf": "2026-10-08",
+      "priceNote": "the same prices as Sonnet 5, including batch, except the cache read: $0.10 (0.05x the input price) against Sonnet 5's $0.20 (the 2026-09-29 record said $0.20); released 2026-09-28"
+    },
+    "Anthropic/Claude Haiku 5.5": {
+      "cacheWrite5mPerMillion": 0.125,
+      "cacheWrite1hPerMillion": 0.2,
+      "cacheReadPerMillion": 0.01,
+      "batchInputPerMillion": 0.05,
+      "batchOutputPerMillion": 0.25,
+      "usOnlyInferenceMultiplier": "1.1 (pricing page: Claude 4.6 and later); not separately confirmed for Haiku 5.5",
+      "longContext": "priced by prompt length: over 100,000 tokens, every price is five times (input 0.5, output 2.5, 5-minute write 0.625, 1-hour write 1, cache read 0.05, batch input 0.25, batch output 1.25)",
+      "fastMode": "not offered",
+      "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
+      "asOf": "2026-10-08",
+      "priceNote": "released 2026-10-07; the price rows hold the up-to-100,000-token prices (a PriceRow has no tier field)"
     },
     "Anthropic/Claude Sonnet 5": {
       "cacheWrite5mPerMillion": 2.5,
@@ -1045,7 +1067,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "priceNote": "introductory $2/$10 made standard; no rise on 2026-09-01"
     },
     "Anthropic/Claude Sonnet 4.6": {
@@ -1057,7 +1079,7 @@
       "usOnlyInferenceMultiplier": 1.1,
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29"
+      "asOf": "2026-10-08"
     },
     "Anthropic/Claude Sonnet 4.5": {
       "cacheWrite5mPerMillion": 3.75,
@@ -1068,7 +1090,7 @@
       "usOnlyInferenceMultiplier": "n/a",
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "retirement": "not sooner than 2026-09-29"
     },
     "Anthropic/Claude Sonnet 4": {
@@ -1080,7 +1102,7 @@
       "usOnlyInferenceMultiplier": "n/a",
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "status": "retired 2026-06-15 on Anthropic platforms"
     },
     "Anthropic/Claude Haiku 4.5": {
@@ -1090,9 +1112,9 @@
       "batchInputPerMillion": 0.5,
       "batchOutputPerMillion": 2.5,
       "usOnlyInferenceMultiplier": "n/a",
-      "longContext": "none: 1M window at standard price (4.6 and later)",
+      "longContext": "none: 200K window at one price",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "retirement": "not sooner than 2026-10-15"
     },
     "Anthropic/Claude Haiku 3.5": {
@@ -1104,7 +1126,7 @@
       "usOnlyInferenceMultiplier": "n/a",
       "longContext": "none: 1M window at standard price (4.6 and later)",
       "sourceUrl": "https://platform.claude.com/docs/en/about-claude/pricing",
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "status": "retired 2026-02-19 on Anthropic platforms"
     },
     "OpenAI/gpt-6-astra": {
@@ -1918,5 +1940,5 @@
       "shutdown": "2026-12-11"
     }
   },
-  "proposalNote": "Proposal only. Rows keep the cost-registry-1 PriceRow shape (validatePriceRow). Cache, batch, long-context, fast-mode, priority and scheduled prices have no PriceRow field, so they live in extendedPricing keyed vendor/modelId. OpenAI rows not re-read on 2026-09-26 keep their 2026-09-25 fetchedOn. Refreshed 2026-09-27: no PriceRow input or output changed; extendedPricing gained OpenAI shutdown dates (deprecations page), the settled gpt-5.5 long-context price, GPT-5.6 fast long-context prices, Gemini priority and cache prices, the DeepSeek V4 Pro status and peak hours, and corrected notes. Refreshed 2026-09-29: Claude Sonnet 5.5 added at $2/$10 (cache read $0.20, 5-minute write $2.50, 1-hour write $4, batch $1/$5); every other Anthropic row was re-read on the pricing page and is unchanged."
+  "proposalNote": "Proposal only. Rows keep the cost-registry-1 PriceRow shape (validatePriceRow). Cache, batch, long-context, fast-mode, priority and scheduled prices have no PriceRow field, so they live in extendedPricing keyed vendor/modelId. OpenAI rows not re-read on 2026-09-26 keep their 2026-09-25 fetchedOn. Refreshed 2026-09-27: no PriceRow input or output changed; extendedPricing gained OpenAI shutdown dates (deprecations page), the settled gpt-5.5 long-context price, GPT-5.6 fast long-context prices, Gemini priority and cache prices, the DeepSeek V4 Pro status and peak hours, and corrected notes. Refreshed 2026-09-29: Claude Sonnet 5.5 added at $2/$10 (cache read $0.20, 5-minute write $2.50, 1-hour write $4, batch $1/$5); every other Anthropic row was re-read on the pricing page and is unchanged. Refreshed 2026-10-08: Claude Haiku 5.5 added at $0.10/$0.50 with a five-times tier above a 100,000-token prompt (cache read $0.01, 5-minute write $0.125, 1-hour write $0.20, batch $0.05/$0.25); Claude Sonnet 5.5's cache read corrected to $0.10 (the pricing page says 0.05x the input price; the 2026-09-29 record said $0.20); every other Anthropic row was re-read on the pricing page and is unchanged."
 }

@@ -35,6 +35,13 @@ import { betaCdf, harmProbability, type LearningSettings } from './route-learnin
  */
 export const FIRST_TRY_MAX_BREAK_EVEN = 0.75;
 
+/**
+ * Model families that are the vendor's smallest tier (owner decision 2026-10-08, when Claude Haiku
+ * 5.5 was added: the first try stays Sonnet-first). Such a rung is a first try only when no cheaper
+ * rung of another family exists, so a newer Haiku does not displace the Sonnet rung.
+ */
+export const FIRST_TRY_SMALLEST_TIER_FAMILIES: readonly string[] = Object.freeze(['haiku']);
+
 /** The two arms of the comparison: the cheaper first try, and the baseline run first (control). */
 export type FirstTryArm = 'first-try' | 'control';
 
@@ -101,7 +108,8 @@ export type FirstTryNone = { readonly none: true; readonly reasonCode: 'BASELINE
  * The first-try model for a baseline, derived from the registry's eligible models: the baseline's
  * own vendor, `active` lifecycle (no preview, legacy or deprecated model), cheaper per attempt,
  * with a break-even that a real hand-off could pay back. A rung of the baseline's own family wins,
- * else the newest release; then the dearer (more capable) one.
+ * else the newest release; then the dearer (more capable) one. A smallest-tier family (Haiku) is
+ * passed over while any other family is cheaper than the baseline.
  */
 export function firstTryCandidate(input: {
   readonly eligible: readonly RoutingModel[];
@@ -117,7 +125,8 @@ export function firstTryCandidate(input: {
   const cheaper = ladder.filter((rung) => rung.provider === baseline.provider && rung.modelId !== baseline.modelId && rung.status === 'active' && rung.attemptMicroUsd < baseline.attemptMicroUsd);
   if (cheaper.length === 0) return { none: true, reasonCode: 'NO_CHEAPER_RUNG' };
   const sameFamily = cheaper.filter((rung) => rung.family === baseline.family);
-  const pool = sameFamily.length > 0 ? sameFamily : cheaper;
+  const notSmallest = cheaper.filter((rung) => !FIRST_TRY_SMALLEST_TIER_FAMILIES.includes(rung.family));
+  const pool = sameFamily.length > 0 ? sameFamily : notSmallest.length > 0 ? notSmallest : cheaper;
   const ordered = [...pool].sort((a, b) => (b.releasedOn ?? '').localeCompare(a.releasedOn ?? '') || b.attemptMicroUsd - a.attemptMicroUsd || (a.modelId < b.modelId ? -1 : 1));
   const max = input.maxBreakEven ?? FIRST_TRY_MAX_BREAK_EVEN;
   for (const pick of ordered) {

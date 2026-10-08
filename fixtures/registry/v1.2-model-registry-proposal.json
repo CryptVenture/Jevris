@@ -1,9 +1,9 @@
 {
-  "$comment": "Proposal only (v1.2 model research, 2026-09-26; refreshed 2026-09-27; Claude Sonnet 5.5 added 2026-09-29; OpenAI refreshed 2026-09-30: GPT-6.1 Sol added). `registry` is a ModelRegistry (packages/contracts/schemas/model-registry.schema.json) and validates with ModelRegistryContract. `sources` maps every sourceId and tariff.sourceId to a URL and fetch date; `entryNotes` (keyed provider/modelId) carries asOf and the facts the schema has no field for. Health is unknown, accountEligibility is empty and every entry is unevaluated: nothing here is eligible for automated routing until an account check and a calibration release record it.",
+  "$comment": "Proposal only (v1.2 model research, 2026-09-26; refreshed 2026-09-27; Claude Sonnet 5.5 added 2026-09-29; OpenAI refreshed 2026-09-30: GPT-6.1 Sol added; Claude Haiku 5.5 added 2026-10-08). `registry` is a ModelRegistry (packages/contracts/schemas/model-registry.schema.json) and validates with ModelRegistryContract. `sources` maps every sourceId and tariff.sourceId to a URL and fetch date; `entryNotes` (keyed provider/modelId) carries asOf and the facts the schema has no field for. Health is unknown, accountEligibility is empty and every entry is unevaluated: nothing here is eligible for automated routing until an account check and a calibration release record it.",
   "registry": {
     "schemaVersion": "1.0",
-    "snapshotId": "research-proposal-2026-09-29",
-    "fetchedOn": "2026-09-29T00:00:00Z",
+    "snapshotId": "research-proposal-2026-10-08",
+    "fetchedOn": "2026-10-08T00:00:00Z",
     "baselineModelId": "claude-opus-5-5",
     "entries": [
       {
@@ -43,7 +43,7 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-26",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-26T00:00:00Z",
           "inputPerMillion": 4,
@@ -104,7 +104,7 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-26",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-26T00:00:00Z",
           "inputPerMillion": 10,
@@ -165,12 +165,12 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-29",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-28T00:00:00Z",
           "inputPerMillion": 2,
           "outputPerMillion": 10,
-          "cacheReadPerMillion": 0.2,
+          "cacheReadPerMillion": 0.1,
           "cacheWritePerMillion": 2.5,
           "sourceId": "ANT-PRICING"
         },
@@ -189,6 +189,72 @@
           "ANT-NEWS-SONNET55",
           "CC-MODEL-CONFIG",
           "CC-CHANGELOG"
+        ]
+      },
+      {
+        "provider": "anthropic",
+        "modelId": "claude-haiku-5-5",
+        "family": "haiku",
+        "displayName": "Claude Haiku 5.5",
+        "capabilities": [
+          "text",
+          "vision",
+          "tools",
+          "structured-output",
+          "code",
+          "prompt-caching",
+          "batch",
+          "adaptive-thinking",
+          "effort",
+          "per-message-effort",
+          "zdr"
+        ],
+        "contextTokens": 1000000,
+        "maxOutputTokens": 128000,
+        "effortLevels": [
+          "low",
+          "medium",
+          "high",
+          "xhigh",
+          "max"
+        ],
+        "regions": [
+          "global",
+          "us"
+        ],
+        "health": "unknown",
+        "tariff": {
+          "version": "anthropic-2026-10-08",
+          "currency": "USD",
+          "effectiveAt": "2026-10-07T00:00:00Z",
+          "inputPerMillion": 0.1,
+          "outputPerMillion": 0.5,
+          "cacheReadPerMillion": 0.01,
+          "cacheWritePerMillion": 0.125,
+          "sourceId": "ANT-PRICING",
+          "tiers": [
+            {
+              "aboveInputTokens": 100000,
+              "inputMultiplier": 5,
+              "outputMultiplier": 5,
+              "cacheMultiplier": 5
+            }
+          ]
+        },
+        "accountEligibility": [],
+        "evaluationSliceIds": [],
+        "evaluationVersion": "unevaluated",
+        "discoveredVia": "vendor-docs",
+        "sourceIds": [
+          "ANT-MODELS",
+          "ANT-PRICING",
+          "ANT-DEPREC",
+          "ANT-EFFORT",
+          "ANT-RETENTION",
+          "ANT-HAIKU55",
+          "ANT-HAIKU55-NEW",
+          "ANT-NEWS-HAIKU55",
+          "CC-MODEL-CONFIG"
         ]
       },
       {
@@ -227,7 +293,7 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-26",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-26T00:00:00Z",
           "inputPerMillion": 5,
@@ -283,7 +349,7 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-26",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-26T00:00:00Z",
           "inputPerMillion": 2,
@@ -329,7 +395,7 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-26",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-26T00:00:00Z",
           "inputPerMillion": 1,
@@ -384,7 +450,7 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-26",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-26T00:00:00Z",
           "inputPerMillion": 3,
@@ -439,7 +505,7 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-26",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-26T00:00:00Z",
           "inputPerMillion": 5,
@@ -486,7 +552,7 @@
         ],
         "health": "unknown",
         "tariff": {
-          "version": "anthropic-2026-09-26",
+          "version": "anthropic-2026-10-08",
           "currency": "USD",
           "effectiveAt": "2026-09-26T00:00:00Z",
           "inputPerMillion": 3,
@@ -2152,19 +2218,19 @@
       "url": "https://platform.claude.com/docs/en/about-claude/models/overview",
       "title": "Anthropic models overview",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-29"
+      "fetchedOn": "2026-10-08"
     },
     "ANT-PRICING": {
       "url": "https://platform.claude.com/docs/en/about-claude/pricing",
       "title": "Anthropic pricing",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-29"
+      "fetchedOn": "2026-10-08"
     },
     "ANT-DEPREC": {
       "url": "https://platform.claude.com/docs/en/about-claude/model-deprecations",
       "title": "Anthropic model deprecations",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-29"
+      "fetchedOn": "2026-10-08"
     },
     "ANT-CACHE": {
       "url": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching",
@@ -2176,7 +2242,7 @@
       "url": "https://platform.claude.com/docs/en/build-with-claude/effort",
       "title": "Anthropic effort",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-29"
+      "fetchedOn": "2026-10-08"
     },
     "ANT-THINK": {
       "url": "https://platform.claude.com/docs/en/build-with-claude/thinking",
@@ -2194,7 +2260,7 @@
       "url": "https://platform.claude.com/docs/en/manage-claude/api-and-data-retention",
       "title": "Anthropic API and data retention (ZDR, Covered Models)",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-29"
+      "fetchedOn": "2026-10-08"
     },
     "ANT-RESIDENCY": {
       "url": "https://platform.claude.com/docs/en/manage-claude/data-residency",
@@ -2272,7 +2338,7 @@
       "url": "https://code.claude.com/docs/en/model-config",
       "title": "Claude Code model configuration",
       "kind": "vendor-docs",
-      "fetchedOn": "2026-09-29"
+      "fetchedOn": "2026-10-08"
     },
     "CC-PROMPT-CACHING": {
       "url": "https://code.claude.com/docs/en/prompt-caching",
@@ -3095,6 +3161,24 @@
       "title": "OpenAI deprecations (no entry for any GPT-5.6, GPT-6 or GPT-6.1 model)",
       "kind": "vendor-docs",
       "fetchedOn": "2026-09-30"
+    },
+    "ANT-HAIKU55": {
+      "url": "https://platform.claude.com/docs/en/models/haiku-5-5/overview",
+      "title": "Claude Haiku 5.5 model page",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-10-08"
+    },
+    "ANT-HAIKU55-NEW": {
+      "url": "https://platform.claude.com/docs/en/models/haiku-5-5/whats-new-haiku-5-5",
+      "title": "What's new in Claude Haiku 5.5",
+      "kind": "vendor-docs",
+      "fetchedOn": "2026-10-08"
+    },
+    "ANT-NEWS-HAIKU55": {
+      "url": "https://www.anthropic.com/claude-haiku-5-5",
+      "title": "Claude Haiku 5.5 announcement",
+      "kind": "vendor-announcement",
+      "fetchedOn": "2026-10-08"
     }
   },
   "entryNotes": {
@@ -3187,7 +3271,7 @@
       "refusalBilling": "From 2026-09-24, refusals that arrive before any output with stop_details.category bio, frontier_llm or reasoning_extraction are billed at the rates of the model that ran them; other pre-output refusals stay unbilled (ANT-RELNOTES, fetched 2026-09-27)"
     },
     "anthropic/claude-sonnet-5-5": {
-      "asOf": "2026-09-29",
+      "asOf": "2026-10-08",
       "released": "2026-09-28",
       "retirement": "not sooner than 2027-09-28 (ANT-DEPREC); Bedrock and Google Cloud set their own dates (not yet published: unconfirmed)",
       "knowledgeCutoff": "2026-06",
@@ -3209,7 +3293,7 @@
       "samplingParameters": "a non-default temperature, top_p or top_k returns 400",
       "tokenizer": "same as Sonnet 5",
       "thinkingReadableFrom": "Sonnet 5, Opus 4.8, Haiku 4.5 and earlier; not Opus 5, Opus 5.5, Fable or Mythos. No other model reads Sonnet 5.5 blocks, and they are bound to the conversation and the account",
-      "priceNote": "the same prices as Sonnet 5, including cache and batch (ANT-SONNET55-NEW)",
+      "priceNote": "the same prices as Sonnet 5 except the cache read: $0.10 (0.05x the input price), not Sonnet 5's $0.20 (ANT-PRICING, re-read 2026-10-08; the 2026-09-29 record said $0.20)",
       "dataRetention": "not a Covered Model: ZDR eligible (ANT-RETENTION)",
       "replaces": "claude-sonnet-5 as the latest Sonnet; Sonnet 5 is legacy, still Active with no deprecation entry on 2026-09-29 (ANT-DEPREC)",
       "breakingChangesFromSonnet5": "thinking disabled is refused (use between_tools); tool_choice any and tool return 400; thinking blocks are bound to the model and the conversation; computer_20251124 is refused on the Claude API and Google Cloud; the advisor tool refuses Opus 4.8, Opus 4.7 and Sonnet 5 advisors",
@@ -3257,6 +3341,70 @@
         }
       ],
       "refusalBilling": "From 2026-09-24, refusals that arrive before any output with stop_details.category bio, frontier_llm or reasoning_extraction are billed at the rates of the model that ran them; other pre-output refusals stay unbilled (ANT-RELNOTES, fetched 2026-09-27)"
+    },
+    "anthropic/claude-haiku-5-5": {
+      "asOf": "2026-10-08",
+      "released": "2026-10-07 (ANT-HAIKU55)",
+      "retirement": "not sooner than 2027-10-07 (ANT-DEPREC); Bedrock and Google Cloud set their own dates (not yet published: unconfirmed)",
+      "knowledgeCutoff": "2026-06",
+      "trainingDataCutoff": "2026-06",
+      "defaultEffort": "medium (API default; the effort page also says medium in Claude Code)",
+      "effortNote": "Start with medium, including agentic coding; low is cheapest and in long agent prompts is more likely to skip a search, stop early or skip a check; use high for knowledge work, longer agent tasks and strict instruction following (ANT-EFFORT)",
+      "thinking": "adaptive, on by default; thinking disabled is accepted at high effort or below and returns 400 at xhigh and max; budget_tokens (manual extended thinking) returns 400; thinking text is omitted unless thinking.display is summarized",
+      "perMessageEffort": "yes, on the Claude API and Google Cloud (not Bedrock), beta mid-conversation-output-config-2026-07-01, keeps the prompt cache; not with thinking disabled (ANT-EFFORT)",
+      "cacheWrite1hPerMillion": 0.2,
+      "longContext": "priced by prompt length: a prompt over 100,000 tokens is billed at five times every price (input $0.50, output $2.50, cache read $0.05, 5-minute write $0.625, 1-hour write $1.00); the 1M window is otherwise the same model (ANT-PRICING, ANT-HAIKU55)",
+      "batchInputPerMillion": 0.05,
+      "batchOutputPerMillion": 0.25,
+      "batchLongContextInputPerMillion": 0.25,
+      "batchLongContextOutputPerMillion": 1.25,
+      "batchMaxOutputTokens": "300000 with beta output-300k-2026-03-24",
+      "minCacheableTokens": "unconfirmed (not stated on the pages read)",
+      "usOnlyMultiplier": "1.1 (pricing page: Claude 4.6 and later models); not separately confirmed for Haiku 5.5",
+      "fastMode": "not offered (fast mode covers Opus 5.5, Opus 5 and Opus 4.8)",
+      "samplingParameters": "a non-default temperature, top_p or top_k returns 400",
+      "tokenizer": "the Claude 4.7 and later tokenizer: the same text counts as about 30% more tokens than on Haiku 4.5, so budgets and cost estimates move even where the price per token is lower",
+      "thinkingReadableFrom": "thinking blocks work only in the account that produced them, or a linked account (ANT-HAIKU55)",
+      "priceNote": "a tenth of Haiku 4.5's input price and a tenth of its output price up to a 100,000-token prompt ($0.10/$0.50 against $1/$5); above that, half of Haiku 4.5's ($0.50/$2.50). Cache read is 0.1x the input price",
+      "dataRetention": "not a Covered Model: ZDR eligible (ANT-RETENTION lists only Fable 5.1, Mythos 5.1, Fable 5 and Mythos 5 as Covered Models)",
+      "replaces": "claude-haiku-4-5-20251001 as the latest Haiku; Haiku 4.5 is legacy, still Active with no deprecation entry on 2026-10-08, not sooner than 2026-10-15 (ANT-DEPREC)",
+      "breakingChangesFromHaiku45": "manual extended thinking (budget_tokens) returns 400; non-default sampling parameters return 400; assistant message prefill returns 400; computer use needs computer_toolset_20260801 on the Claude API and Google Cloud; changing earlier turns invalidates thinking blocks; safety classifiers can decline a request (stop_reason refusal) with no server-side fallback; responses can begin with thinking blocks; effort is new (Haiku 4.5 has none)",
+      "harnesses": {
+        "claude-code": "native: claude-haiku-5-5, and the haiku alias on the Anthropic API from Claude Code 2.1.293 (CC-MODEL-CONFIG); 1M context on every plan, no [1m] variant. What the alias resolves to on Bedrock, Google Cloud, Foundry and Claude Platform on AWS was not read (unconfirmed)",
+        "kilo": "provider (Anthropic API key); the model listing was not re-checked (unconfirmed)",
+        "opencode": "provider (Anthropic API key); the model listing was not re-checked (unconfirmed)",
+        "codex": "gateway only",
+        "antigravity": "not listed (not re-checked)"
+      },
+      "subscriptionPlans": "Claude Code runs it with the 1M window on every plan (CC-MODEL-CONFIG); which Claude app plans include it was not read (unconfirmed)",
+      "cloud": [
+        "bedrock:anthropic.claude-haiku-5-5",
+        "vertex:claude-haiku-5-5",
+        "foundry:claude-haiku-5-5",
+        "claude-platform-on-aws:claude-haiku-5-5"
+      ],
+      "benchmarks": [
+        {
+          "name": "Terminal-Bench 4.0",
+          "value": "39.2%",
+          "basis": "vendor-reported (effort not stated)",
+          "date": "2026-10-07",
+          "sourceId": "ANT-NEWS-HAIKU55"
+        },
+        {
+          "name": "FrontierCode 1.1",
+          "value": "46.4%",
+          "basis": "vendor-reported (effort not stated)",
+          "date": "2026-10-07",
+          "sourceId": "ANT-NEWS-HAIKU55"
+        },
+        {
+          "name": "independent (Terminal-Bench leaderboard, SWE-bench-Live, AA Coding Agent Index, LiveCodeBench)",
+          "value": "unconfirmed",
+          "basis": "not looked up on 2026-10-08; the model was one day old",
+          "date": "2026-10-08"
+        }
+      ]
     },
     "anthropic/claude-opus-5": {
       "asOf": "2026-09-27",
@@ -3315,10 +3463,10 @@
       "successor": "claude-sonnet-5-5"
     },
     "anthropic/claude-haiku-4-5-20251001": {
-      "asOf": "2026-09-27",
+      "asOf": "2026-10-08",
       "alias": "claude-haiku-4-5",
       "released": "2025-10-15",
-      "retirement": "not sooner than 2026-10-15; still Active with no deprecation entry and no successor on 2026-09-27 (ANT-DEPREC). Anthropic gives at least 60 days' notice before retiring a publicly released model.",
+      "retirement": "not sooner than 2026-10-15; still Active with no deprecation entry and no successor named on 2026-10-08 (ANT-DEPREC), 7 days before that date. Anthropic gives at least 60 days' notice before retiring a publicly released model.",
       "knowledgeCutoff": "2025-02",
       "thinking": "extended thinking with budget_tokens (min 1024); effort not supported",
       "inferenceGeo": "not supported (400)",
@@ -3333,7 +3481,9 @@
           "sourceId": "ANT-NEWS-HAIKU45"
         }
       ],
-      "foundryRetirement": "2026-10-19 on Microsoft Foundry (AZ-RETIRE, fetched 2026-09-27)"
+      "foundryRetirement": "2026-10-19 on Microsoft Foundry (AZ-RETIRE, fetched 2026-09-27)",
+      "status": "legacy",
+      "successor": "claude-haiku-5-5"
     },
     "anthropic/claude-sonnet-4-6": {
       "asOf": "2026-09-26",

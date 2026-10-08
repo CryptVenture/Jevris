@@ -108,11 +108,13 @@ export function validateClaudeWorkerInput(input: ClaudeWorkerInput): string | nu
 }
 
 /**
- * The `--effort` level for a model, or null. Haiku models have no effort levels, so nothing is
- * passed for them (the run keeps the model's default and records effort as null).
+ * The `--effort` level for a model, or null. Haiku models before 5.5 have no effort levels, so
+ * nothing is passed for them (the run keeps the model's default and records effort as null).
+ * Haiku 5.5 takes effort `low` to `max`; the bare `haiku` alias may still mean Haiku 4.5, so it
+ * keeps none.
  */
 export function claudeEffort(model: string, effort: WorkerEffort | undefined): WorkerEffort | null {
-  if (/haiku/i.test(model)) return null;
+  if (/haiku/i.test(model) && !/claude-haiku-[5-9]/i.test(model)) return null;
   return nearestEffort(effort, CLAUDE_EFFORTS);
 }
 

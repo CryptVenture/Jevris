@@ -27,7 +27,7 @@ function input(extra = {}) {
     registry: BUNDLED_MODEL_REGISTRY,
     nowMs: NOW,
     unavailableModels: {},
-    learning: active('claude-haiku-4-5-20251001'),
+    learning: active('claude-haiku-5-5'),
     signedPrior: null,
     ...extra,
   };
@@ -52,7 +52,7 @@ test('subagent route: an active learned route for the subagent type proposes its
   const advice = adviseSubagentRoute(input());
   assert.deepEqual(
     { outcome: advice.outcome, modelId: advice.modelId, alias: advice.alias, sliceId: advice.sliceId, basis: advice.basis, reasonCode: advice.reasonCode },
-    { outcome: 'propose', modelId: 'claude-haiku-4-5-20251001', alias: 'haiku', sliceId: SLICE, basis: 'learning', reasonCode: 'SUBAGENT_ROUTE_LEARNED' },
+    { outcome: 'propose', modelId: 'claude-haiku-5-5', alias: 'haiku', sliceId: SLICE, basis: 'learning', reasonCode: 'SUBAGENT_ROUTE_LEARNED' },
   );
   assert.match(advice.text, /Explore subagent/);
   // A signed prior is the other evidence, when learning has nothing active.
@@ -60,6 +60,8 @@ test('subagent route: an active learned route for the subagent type proposes its
   assert.deepEqual([prior.outcome, prior.modelId, prior.alias, prior.basis, prior.reasonCode], ['propose', 'claude-sonnet-5-5', 'sonnet', 'signed-prior', 'SUBAGENT_ROUTE_PRIOR']);
   // Since Sonnet 5.5 the `sonnet` alias no longer means Sonnet 5: a route to it abstains.
   assert.equal(adviseSubagentRoute(input({ learning: null, signedPrior: { modelId: 'claude-sonnet-5', releaseId: 'rel-1' } })).reasonCode, 'ALIAS_NOT_NEWEST');
+  // Since Claude Code 2.1.293 the haiku alias means Haiku 5.5, so a route to Haiku 4.5 abstains.
+  assert.equal(adviseSubagentRoute(input({ learning: null, signedPrior: { modelId: 'claude-haiku-4-5-20251001', releaseId: 'rel-1' } })).reasonCode, 'ALIAS_NOT_NEWEST');
 });
 
 test('subagent route: every abstain reason, each paired with the one change that makes it propose', () => {
@@ -76,9 +78,9 @@ test('subagent route: every abstain reason, each paired with the one change that
   assert.equal(adviseSubagentRoute(input({ harness: 'codex', sessionModel: 'gpt-6-sol', learning: null, signedPrior: { modelId: 'gpt-6-luna', releaseId: 'rel-1' } })).outcome, 'propose');
   // Owner 3f090fa: where the route names the harness's own id, the model must be eligible here from local evidence.
   expect('NOT_ELIGIBLE_HERE', { harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', locallyEligible: ['claude-opus-5-5'] });
-  assert.equal(adviseSubagentRoute(input({ harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', locallyEligible: ['claude-haiku-4-5-20251001'] })).outcome, 'propose');
+  assert.equal(adviseSubagentRoute(input({ harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', locallyEligible: ['claude-haiku-5-5'] })).outcome, 'propose');
   // 8c1f85d: a route keeps the session's host; a gateway session has none Jevris can keep.
-  expect('HOST_UNKNOWN', { harness: 'opencode', sessionModel: 'openrouter/anthropic/claude-opus-5-5', locallyEligible: ['claude-haiku-4-5-20251001'] });
+  expect('HOST_UNKNOWN', { harness: 'opencode', sessionModel: 'openrouter/anthropic/claude-opus-5-5', locallyEligible: ['claude-haiku-5-5'] });
   // R44: the session's host is known, but the model has not been seen through any host here.
   expect('NOT_ON_SESSION_HOST', { harness: 'opencode', sessionModel: 'openai/gpt-6-sol', locallyEligible: null, consentedProviders: ['anthropic', 'openai'] });
   expect('NO_SUBAGENT_TYPE', { subagentType: undefined });
@@ -90,13 +92,13 @@ test('subagent route: every abstain reason, each paired with the one change that
   // No evidence: no learning state, an advise slice, another slice active, a slice pinned to advice.
   expect('NO_EVIDENCE', { learning: null });
   expect('NO_EVIDENCE', { learning: learning({}) });
-  expect('NO_EVIDENCE', { learning: learning({ 'subagent:Plan': { mode: 'auto', modelId: 'claude-haiku-4-5-20251001', baselineModelId: null, baselineRate: null } }) });
+  expect('NO_EVIDENCE', { learning: learning({ 'subagent:Plan': { mode: 'auto', modelId: 'claude-haiku-5-5', baselineModelId: null, baselineRate: null } }) });
   expect('NO_EVIDENCE', { learning: learning({ [SLICE]: { mode: 'advise', modelId: null, baselineModelId: null, baselineRate: null } }) });
   expect('NOT_IN_REGISTRY', { learning: active('claude-mystery-9') });
-  const retired = { ...BUNDLED_MODEL_REGISTRY, entries: BUNDLED_MODEL_REGISTRY.entries.map((e) => (e.modelId === 'claude-haiku-4-5-20251001' ? { ...e, lifecycle: { ...e.lifecycle, retiresOn: '2026-09-01T00:00:00Z' } } : e)) };
+  const retired = { ...BUNDLED_MODEL_REGISTRY, entries: BUNDLED_MODEL_REGISTRY.entries.map((e) => (e.modelId === 'claude-haiku-5-5' ? { ...e, lifecycle: { ...e.lifecycle, retiresOn: '2026-09-01T00:00:00Z' } } : e)) };
   expect('MODEL_RETIRED', { registry: retired });
-  expect('MODEL_UNAVAILABLE', { unavailableModels: { 'claude-haiku-4-5-20251001': 'MODEL_GONE' } });
-  expect('MODEL_UNAVAILABLE', { unavailableModels: { 'claude-haiku-4-5-20251001': 'MODEL_NOT_ACCESSIBLE' } });
+  expect('MODEL_UNAVAILABLE', { unavailableModels: { 'claude-haiku-5-5': 'MODEL_GONE' } });
+  expect('MODEL_UNAVAILABLE', { unavailableModels: { 'claude-haiku-5-5': 'MODEL_NOT_ACCESSIBLE' } });
   // OD-4 (MEDIUM 4, 9): the session's consent gate; absent, the pinned default (Kimi always needs a grant).
   expect('PROVIDER_NOT_CONSENTED', { consentedProviders: [] });
   expect('PROVIDER_NOT_CONSENTED', { harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', learning: active('kimi-k3') });
@@ -105,7 +107,7 @@ test('subagent route: every abstain reason, each paired with the one change that
   // R25, K1: `opus` resolves to the family's current model, Opus 5.5, so a route to Opus 5 abstains.
   expect('ALIAS_NOT_NEWEST', { learning: active('claude-opus-5'), sessionModel: 'claude-sonnet-5' });
   expect('EFFORT_NOT_ROUTABLE', { learning: active('claude-opus-5-5', { effort: 'low' }), sessionModel: 'claude-sonnet-5' });
-  expect('SAME_AS_SESSION', { sessionModel: 'claude-haiku-4-5-20251001' });
+  expect('SAME_AS_SESSION', { sessionModel: 'claude-haiku-5-5' });
   expect('SAME_AS_SESSION', { sessionModel: 'haiku' });
   // Access limits R73 (design E5): the subagent's scope on this harness and sign-in is paused.
   const window = { key: '0123456789abcdef', scope: { harness: 'claude', authMode: 'subscription', servingHost: 'anthropic', modelId: null, family: null }, class: 'usage-window', signal: 'claude.stream.rate-limit-event.five-hour', source: 'session', firstSeenMs: NOW - 60_000, lastSeenMs: NOW - 60_000, untilMs: NOW + 3_600_000, step: 0, weekly: false, resetBasis: 'reported', count: 1, fingerprint: null };
@@ -124,7 +126,7 @@ test('subagent route: every abstain reason, each paired with the one change that
   assert.equal(reason({ registry: undated, learning: active('claude-opus-5-5'), sessionModel: 'claude-sonnet-5' }), 'ALIAS_NOT_NEWEST');
   assert.equal(adviseSubagentRoute(input({ sessionModel: null })).outcome, 'propose', 'an unknown session model does not block');
   // Learning beats a signed prior; a gone learned model is never replaced by the prior silently.
-  assert.equal(reason({ unavailableModels: { 'claude-haiku-4-5-20251001': 'MODEL_GONE' }, signedPrior: { modelId: 'claude-sonnet-5', releaseId: 'rel-1' } }), 'MODEL_UNAVAILABLE');
+  assert.equal(reason({ unavailableModels: { 'claude-haiku-5-5': 'MODEL_GONE' }, signedPrior: { modelId: 'claude-sonnet-5', releaseId: 'rel-1' } }), 'MODEL_UNAVAILABLE');
 });
 
 test('subagent route: no prompt text is ever read; only the declared fields decide', () => {
@@ -156,9 +158,9 @@ test('R20: each harness applies a subagent route its own way; Antigravity explai
   // OpenCode and Kilo: the same learned route, spelled provider/model; the session spelling counts as the same model.
   for (const harness of ['opencode', 'kilocode']) {
     const advice = adviseSubagentRoute(input({ harness, sessionModel: 'anthropic/claude-opus-5-5' }));
-    assert.deepEqual([advice.outcome, advice.harnessModel, advice.actuator.tool], ['propose', 'anthropic/claude-haiku-4-5-20251001', 'task']);
-    assert.match(advice.text, /anthropic\/claude-haiku-4-5-20251001/);
-    assert.equal(reason({ harness, sessionModel: 'anthropic/claude-haiku-4-5-20251001' }), 'SAME_AS_SESSION');
+    assert.deepEqual([advice.outcome, advice.harnessModel, advice.actuator.tool], ['propose', 'anthropic/claude-haiku-5-5', 'task']);
+    assert.match(advice.text, /anthropic\/claude-haiku-5-5/);
+    assert.equal(reason({ harness, sessionModel: 'anthropic/claude-haiku-5-5' }), 'SAME_AS_SESSION');
   }
   // A learned effort rides as the route's variant where the actuator carries one (E b250627): Kilo's
   // variant. Codex states it only (43cb54c); OpenCode's child-session route and Claude Code's alias carry none.

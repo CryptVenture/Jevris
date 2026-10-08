@@ -89,7 +89,7 @@ test('R73 E4: a paused target is not switched to; its reset passing lifts it', a
 test('R73 E5: a subagent route abstains ACCESS_LIMITED when its model is paused on the harness, sign-in and host', () => {
   const learning = (() => {
     const base = emptyLearningState({ workspaceId: 'ws-sub', now: '2026-09-28T00:00:00Z' });
-    return { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-28T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: 'subagent:Explore', slices: { 'subagent:Explore': { mode: 'auto', modelId: 'claude-haiku-4-5-20251001', baselineModelId: 'claude-opus-5-5', baselineRate: 0.9 } }, evidence: null }] };
+    return { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-28T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: 'subagent:Explore', slices: { 'subagent:Explore': { mode: 'auto', modelId: 'claude-haiku-5-5', baselineModelId: 'claude-opus-5-5', baselineRate: 0.9 } }, evidence: null }] };
   })();
   const advise = (extra) => adviseSubagentRoute({ harness: 'claude', subagentType: 'Explore', explicitModel: false, sessionModel: 'claude-opus-5-5', pins: { modelPin: null, effortPin: null }, registry: R, nowMs: NOW, unavailableModels: {}, learning, signedPrior: null, ...extra });
   const entry = (scope, extra = {}) => ({ key: '0123456789abcdef', scope: { harness: 'claude', authMode: 'subscription', servingHost: 'anthropic', modelId: null, family: null, ...scope }, class: 'usage-window', signal: 'claude.stream.rate-limit-event.five-hour', source: 'session', firstSeenMs: NOW - H, lastSeenMs: NOW - H, untilMs: NOW + H, step: 0, weekly: false, resetBasis: 'reported', count: 1, fingerprint: null, ...extra });
@@ -99,9 +99,9 @@ test('R73 E5: a subagent route abstains ACCESS_LIMITED when its model is paused 
   // Another harness's limit does not pause this one.
   assert.equal(advise({ accessLimits: [entry({ harness: 'codex', servingHost: 'openai' })], authMode: 'subscription' }).outcome, 'propose');
   // On OpenCode the scope is the host the route keeps.
-  const oc = { harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', locallyEligible: ['claude-haiku-4-5-20251001'] };
+  const oc = { harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', locallyEligible: ['claude-haiku-5-5'] };
   assert.equal(advise({ ...oc }).outcome, 'propose');
   assert.equal(advise({ ...oc, accessLimits: [entry({ harness: 'opencode', authMode: 'api-key' })], authMode: 'api-key' }).reasonCode, 'ACCESS_LIMITED');
   assert.equal(advise({ ...oc, accessLimits: [entry({ harness: 'opencode', authMode: 'api-key', servingHost: 'openrouter' })], authMode: 'api-key' }).outcome, 'propose', 'a pause on another host leaves the kept one');
-  assert.equal(accessQueryFor(R, 'claude', 'claude-haiku-4-5-20251001', 'subscription').servingHost, 'anthropic');
+  assert.equal(accessQueryFor(R, 'claude', 'claude-haiku-5-5', 'subscription').servingHost, 'anthropic');
 });

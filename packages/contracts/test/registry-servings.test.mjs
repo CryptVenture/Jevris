@@ -71,7 +71,7 @@ test('only a host basis carries a tariff, and it carries the integer forms', () 
   delete floatOnly.cacheWriteMicroUsdPerMillion;
   assert.deepEqual(codes(withHosts([serving({ tariff: floatOnly })])), ['INTEGER_PRICES_REQUIRED']);
   assert.deepEqual(codes(withHosts([serving({ tariff: { ...tariff, outputMicroUsdPerMillion: 15_000_001 } })])), ['PRICE_FORMS_DISAGREE']);
-  assert.deepEqual(codes(withHosts([serving({ tariff: { ...tariff, effectiveAt: '2026-10-01T00:00:00Z' } })])), ['TARIFF_AFTER_SNAPSHOT']);
+  assert.deepEqual(codes(withHosts([serving({ tariff: { ...tariff, effectiveAt: '2026-10-09T00:00:00Z' } })])), ['TARIFF_AFTER_SNAPSHOT']);
   // B's LOW 18 (T-R4 as amended): a zero price is never a known tariff.
   const free = { ...tariff, inputPerMillion: 0, outputPerMillion: 0, cacheReadPerMillion: null, inputMicroUsdPerMillion: 0, outputMicroUsdPerMillion: 0, cacheReadMicroUsdPerMillion: null };
   assert.deepEqual(codes(withHosts([serving({ tariff: free })])), ['SERVING_FREE_PRICED']);

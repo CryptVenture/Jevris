@@ -113,9 +113,16 @@ for (const [harness, want] of harnessTable) {
 test('harnessFirstTry: a retired or unavailable first-try model is not a rung, so the next cheaper active model is', () => {
   const retire = (modelId, patch) => ({ ...REGISTRY, entries: REGISTRY.entries.map((e) => (e.modelId === modelId ? { ...e, ...patch(e) } : e)) });
   const retired = retire('claude-sonnet-5-5', (e) => ({ lifecycle: { ...e.lifecycle, status: 'retired' } }));
-  assert.equal(harnessFirstTry({ registry: retired, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW }).candidate.modelId, 'claude-haiku-4-5-20251001');
+  assert.equal(harnessFirstTry({ registry: retired, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW }).candidate.modelId, 'claude-haiku-5-5');
   const unavailable = retire('claude-sonnet-5-5', () => ({ health: 'unavailable' }));
-  assert.equal(harnessFirstTry({ registry: unavailable, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW }).candidate.modelId, 'claude-haiku-4-5-20251001');
+  assert.equal(harnessFirstTry({ registry: unavailable, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW }).candidate.modelId, 'claude-haiku-5-5');
+});
+
+test('harnessFirstTry: Haiku 5.5 is the smallest tier, so while Sonnet 5.5 is cheaper than the baseline and active it never displaces it (owner decision 2026-10-08)', () => {
+  const got = harnessFirstTry({ registry: REGISTRY, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW });
+  assert.equal(got.candidate.modelId, 'claude-sonnet-5-5');
+  assert.ok(got.candidate.ladder.some((rung) => rung.modelId === 'claude-haiku-5-5'), 'Haiku 5.5 is on the ladder, as the rung below');
+  assert.equal(got.candidate.stepUpModelIds[0], 'claude-opus-5-5');
 });
 
 test('harnessFirstTry: with no preview above its baseline the harness says its stronger model is not a preview; a harness the registry does not reach is off with its baseline', () => {

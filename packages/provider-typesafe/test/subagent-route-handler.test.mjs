@@ -13,7 +13,7 @@ const { HookOutcomeContract } = await import('@jevris/contracts');
 
 // pinned-clock: every event and record here uses this fixed time.
 const NOW = Date.parse('2026-09-27T12:00:00Z');
-const HAIKU = 'claude-haiku-4-5-20251001';
+const HAIKU = 'claude-haiku-5-5';
 const SECRET = 'SECRET-PROMPT-TEXT-7f3a';
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 let n = 0;
@@ -186,11 +186,11 @@ test('R20: Codex gets a route in its own id, and OpenCode its provider/model, on
   const opencodeCertified = recordsCertificationSource(async () => [record(['hooks.route'], 'opencode')]);
   const ocEvent = () => ({ ...agentEvent({ subagentType: 'Explore', toolName: 'task' }, { harness: 'opencode', model: 'anthropic/claude-opus-5-5' }), toolName: 'task' });
   const oc = await subscriber(opencodeCertified).handle(ctx(dir, ocEvent()));
-  assert.deepEqual(oc.hookOutcome, { kind: 'route', model: 'anthropic/claude-haiku-4-5-20251001' });
+  assert.deepEqual(oc.hookOutcome, { kind: 'route', model: 'anthropic/claude-haiku-5-5' });
   assert.equal(HookOutcomeContract.validate(oc.hookOutcome).ok, true);
   const unc = await subscriber(none).handle(ctx(dir, ocEvent()));
   assert.equal(unc.hookOutcome.kind, 'explain');
-  assert.match(unc.hookOutcome.text, /anthropic\/claude-haiku-4-5-20251001/);
+  assert.match(unc.hookOutcome.text, /anthropic\/claude-haiku-5-5/);
 });
 
 test('R51: an OpenCode subagent keeps the parent\'s gateway; applied only with route.host from the sidecar, otherwise explain', async (t) => {

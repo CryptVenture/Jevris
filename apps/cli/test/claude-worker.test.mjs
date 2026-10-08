@@ -338,6 +338,8 @@ test('effort (C16): --effort is a fixed level for that session only, recorded on
   assert.deepEqual(call.argv.slice(-2), ['--effort', 'high']);
   assert.deepEqual(claudePrintArgs({ model: 'claude-opus-5-5', maxTurns: 2, maxBudgetUsd: 1, allowedTools: ['Read'], effort: 'max' }).slice(-2), ['--effort', 'max']);
   assert.equal(claudePrintArgs({ model: 'claude-haiku-4-5', maxTurns: 2, maxBudgetUsd: 1, allowedTools: ['Read'], effort: 'high' }).includes('--effort'), false, 'Haiku has no effort levels');
+  assert.deepEqual(claudePrintArgs({ model: 'claude-haiku-5-5', maxTurns: 2, maxBudgetUsd: 1, allowedTools: ['Read'], effort: 'low' }).slice(-2), ['--effort', 'low'], 'Haiku 5.5 takes effort low to max');
+  assert.equal(claudePrintArgs({ model: 'haiku', maxTurns: 2, maxBudgetUsd: 1, allowedTools: ['Read'], effort: 'low' }).includes('--effort'), false, 'the bare haiku alias may still mean Haiku 4.5');
   assert.equal(claudePrintArgs({ model: 'claude-opus-5-5', maxTurns: 2, maxBudgetUsd: 1, allowedTools: ['Read'] }).includes('--effort'), false, 'absent means the model default');
   const none = await runClaudeWorker({ ...base(box), ...stubbed(box, { lines: [init(), assistant(), result()] }) });
   assert.equal(none.effort, null);

@@ -59,11 +59,12 @@ export type SdkEffort = 'low' | 'medium' | 'high' | 'xhigh' | 'max';
 export const SDK_EFFORTS: readonly SdkEffort[] = ['low', 'medium', 'high', 'xhigh', 'max'];
 
 /**
- * The effort passed to the SDK for a model, or null (none asked, or a Haiku model, which has no
- * effort levels: the run keeps the model's default, as the Claude Code CLI worker does).
+ * The effort passed to the SDK for a model, or null (none asked, or a Haiku model before 5.5, which
+ * has no effort levels: the run keeps the model's default, as the Claude Code CLI worker does).
+ * Haiku 5.5 takes effort `low` to `max`; the bare `haiku` alias may still mean Haiku 4.5, so it keeps none.
  */
 export function sdkEffort(model: string, effort: string | undefined): SdkEffort | null {
-  if (effort === undefined || /haiku/i.test(model)) return null;
+  if (effort === undefined || (/haiku/i.test(model) && !/claude-haiku-[5-9]/i.test(model))) return null;
   return (SDK_EFFORTS as readonly string[]).includes(effort) ? (effort as SdkEffort) : null;
 }
 

@@ -1,5 +1,5 @@
 /**
- * The non-Anthropic entries of the bundled snapshot `multi-2026-09-30` (owner decision DOMAINS
+ * The non-Anthropic entries of the bundled snapshot `multi-2026-10-08` (owner decision DOMAINS
  * 7be3c43; SPEC §8.1 as amended 2026-09-27; admission review
  * `.planning/research/v1.2-spec-8.1-registry-review.md`, routing design e6aa62d §3.2).
  *
