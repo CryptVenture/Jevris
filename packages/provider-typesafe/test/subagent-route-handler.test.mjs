@@ -321,3 +321,32 @@ test('JEV-0077: a version Jevris cannot read as x.y.z says nothing at all (only 
     }
   }
 });
+
+test('JEV-0076: with hooks.route certified on a Sonnet session, a small read-only launch leaves one advisory record in observe (answer signal aborted) as in advise; a large one (medium, no rung between) is judged in no mode and so recorded in none', async (t) => {
+  const dir = await home(t, { active: false });
+  const gone = new AbortController();
+  gone.abort();
+  const run = async (mode, toolInputBytes, signal) => {
+    const recorded = [];
+    const engine = { now: () => NOW, providerConfigured: false, decide: async () => { throw new Error('no Jev call expected'); }, lookup: async () => null, recordAdvice: async (input) => (recorded.push(input.specId), { ok: true, decisionId: `d-${recorded.length}` }) };
+    const traces = [];
+    const answer = await subscriber(certified).handle({
+      ...ctx(dir, { ...agentEvent({ subagentType: 'Explore', toolInputBytes }, { model: 'claude-sonnet-5-5' }), sessionId: `sess-${mode}-${toolInputBytes}-${n}` }, { traces, signal }),
+      mode, engine, deadline: { remainingMs: () => 5000, expired: () => false },
+    });
+    return { answer, recorded, route: traces.filter((e) => e.event === 'subagent-route').map((e) => e.reasonCode) };
+  };
+  // Observe: the run after the answer. Judged (low, haiku is a rung below Sonnet): one record, nothing shown.
+  const observed = await run('observe', 600, gone.signal);
+  assert.deepEqual(observed.answer.hookOutcome, { kind: 'observe' });
+  assert.deepEqual(observed.recorded, ['subagent-risk'], 'the counterfactual is recorded');
+  // Advise, the control with a live signal: the same kind of launch is recorded too.
+  const advised = await run('advise', 600, new AbortController().signal);
+  assert.deepEqual(advised.recorded, ['subagent-risk']);
+  // A large input is medium; on a Sonnet session nothing sits between, so nothing is judged and nothing is recorded, in any mode.
+  for (const [mode, signal] of [['observe', gone.signal], ['advise', new AbortController().signal], ['bounded-auto', new AbortController().signal]]) {
+    const large = await run(mode, 7000, signal);
+    assert.deepEqual(large.recorded, [], `${mode}: nothing to route, nothing recorded`);
+    assert.deepEqual(large.route, ['NOT_CHEAPER'], mode);
+  }
+});
