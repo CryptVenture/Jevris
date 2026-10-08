@@ -140,6 +140,9 @@ export function harnessVersionSource(versionOf: (home: string, harness: HarnessI
  */
 export function withHarnessVersions(provider: unknown, versionOf: HarnessVersionOf | undefined): unknown {
   if (versionOf === undefined || provider === null || typeof provider !== 'object') return provider;
+  // The route op's Claude Code alias proof (HARNESS_ALIAS) reads the installed version through the same source.
+  const setSource = Reflect.get(provider, 'setHarnessVersionSource');
+  if (typeof setSource === 'function') Reflect.apply(setSource, undefined, [versionOf]);
   const create = Reflect.get(provider, 'createDecisionSubscriber');
   const handlers = Reflect.get(provider, 'DEFAULT_TRIGGER_HANDLERS');
   const defaults = Reflect.get(provider, 'sidecarEventSubscribers');

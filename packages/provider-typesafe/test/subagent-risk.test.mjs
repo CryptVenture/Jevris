@@ -294,7 +294,10 @@ test('the gates still hold: an explicit model, a pin, a model found gone, the se
   assert.equal((await run(GENERAL, { event: { model: 'claude-sonnet-5-5' } })).hookOutcome.kind, 'observe', 'sonnet on sonnet is no change');
   assert.equal((await run(GENERAL, { event: { model: 'claude-haiku-5-5' } })).hookOutcome.kind, 'observe', 'a default route never goes to a model that costs more than the session');
   await core.recordModelUnavailable({ home, modelId: HAIKU, reasonCode: 'MODEL_GONE', port: 'claude-api', authMode: 'api-key', source: 'provider-call', nowMs: NOW, registry: core.BUNDLED_MODEL_REGISTRY });
-  assert.equal((await run(EXPLORE)).hookOutcome.kind, 'observe', 'a model found gone is never routed, whatever else is true');
+  assert.equal((await run(EXPLORE, { event: { model: SONNET } })).hookOutcome.kind, 'observe', 'a model found gone is never routed, whatever else is true: a Sonnet session has nothing else below it');
+  // Tiered routing (2026-10-08): the rungs are the models actually available, so an Opus session with Haiku gone goes to the next one down.
+  const next = await run(EXPLORE);
+  assert.deepEqual([next.hookOutcome.kind, next.hookOutcome.model], ['route', SONNET], 'Haiku gone: the cheapest rung left is Sonnet, never Haiku');
   // Kimi-style: another harness is out of scope here (Claude Code only).
   const other = agentEvent(EXPLORE);
   const codex = await subscriber(both).handle(ctx(home, { ...other, harness: 'codex', dedupKey: sha('codex-risk') }, { engine, mode: 'bounded-auto' }));

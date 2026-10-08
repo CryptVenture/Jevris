@@ -308,13 +308,13 @@ function missing(reasonCode: string, calibration: CalibrationDecision | null = n
  * routing policy file is invalid. Shared by the route evaluation and by the model tier's candidate set, so the tier never
  * offers a model the route would refuse.
  */
-async function routePolicyOf(input: RouteEvaluationInput): Promise<{ readonly settings: RoutingPolicySettings; readonly policy: RoutingPolicy } | null> {
+async function routePolicyOf(input: RouteEvaluationInput, harnessAlias?: HarnessAliasProof): Promise<{ readonly settings: RoutingPolicySettings; readonly policy: RoutingPolicy } | null> {
   const settings = await loadRoutingPolicy({ home: input.home, registry: input.registry });
   if (settings === null) return null;
   // Found gone on this machine: never recommended. A model not accessible from one harness and
   // sign-in is left out only when the caller names that harness and sign-in (scope (ii), DOMAINS).
   const gone = unavailableModels(await loadModelAvailability(input.home, input.registry), { harness: input.harness ?? null, authMode: input.authMode ?? null });
-  const locallyEligible = await locallyEligibleFor({ home: input.home, registry: input.registry, accountId: settings.accountId, unavailable: gone, scope: { harness: input.harness ?? null, authMode: input.authMode ?? null } });
+  const locallyEligible = await locallyEligibleFor({ home: input.home, registry: input.registry, accountId: settings.accountId, unavailable: gone, scope: { harness: input.harness ?? null, authMode: input.authMode ?? null }, ...(harnessAlias === undefined ? {} : { harnessAlias }) });
   // R73 (E6): a model whose scope an access limit pauses is never advised; with no harness named,
   // any harness's pause on its maker counts (advice fails toward pausing).
   const access = await routeAccessPauses({ home: input.home, registry: input.registry, nowMs: input.nowMs ?? Date.now(), scopeOf: () => ({ harness: input.harness ?? null, authMode: input.authMode ?? null }) });
@@ -409,8 +409,10 @@ export async function evaluateRoute(input: RouteEvaluationInput): Promise<RouteE
  * access, local eligibility on this harness and sign-in, access-limit pauses, the managed allowlist, the zero-data-retention
  * rule), with the model pin lifted (a caller that sees a pin offers no tier). Null when the routing policy is invalid.
  */
-export async function tierEligibleModels(input: RouteEvaluationInput): Promise<{ readonly eligible: readonly RoutingModel[]; readonly settings: RoutingPolicySettings } | null> {
-  const built = await routePolicyOf(input);
+export async function tierEligibleModels(input: RouteEvaluationInput, harnessAlias?: HarnessAliasProof): Promise<{ readonly eligible: readonly RoutingModel[]; readonly settings: RoutingPolicySettings } | null> {
+  // `harnessAlias` (Claude Code's alias proof, HARNESS_ALIAS) is asked for only by the tier and the subagent route; the main
+  // route evaluation never passes it.
+  const built = await routePolicyOf(input, harnessAlias);
   if (built === null) return null;
   return { eligible: filterCandidates(input.registry, { ...built.policy, pins: { modelPin: null, effortPin: null } }).eligible, settings: built.settings };
 }

@@ -6,7 +6,10 @@
  *
  * It abstains by default. It names a model only when the slice's learning has promoted one
  * (`auto`, which already needed 12 local randomized outcomes per arm), under the key of the
- * session's own baseline (its current model, OD-3 and R17). It actuates only when, on top:
+ * session's own baseline (its current model, OD-3 and R17). Owner decision 2026-10-08 (tiered
+ * routing, step 2b; a new decision against OD-8): where no slice is promoted, the shared tier of the
+ * linked task's work (`input.tier`, rules first, within the session's own provider) may name the
+ * model instead, under every gate below; a learned promotion always wins. It actuates only when, on top:
  * - the effective main-session mode is `plugin-bounded-auto`;
  * - D's gate says `bounded-auto` (Kilo or OpenCode, `session.route` certified, a low-risk task,
  *   the kill switch and the budget allow it) and the kill switch is not stopped now;
@@ -46,6 +49,7 @@ import { learningSliceKey, slicePolicy, type LearningState } from './route-learn
 import { sessionSignedInParties, spellTarget } from './session-host.js';
 import { hostTariffGuard } from './serving-tariff.js';
 import { accessPauseForSpelling, accessPauseNoteText, sessionPauseAdvice, type AccessLimitEntry } from './access-limits.js';
+import type { ModelTier, ModelTierBasis } from './model-tier.js';
 
 export type TurnHarness = (typeof TURN_HARNESSES)[number];
 export type MainSessionModeValue = RouteTurnPayload['mainSession']['mode'];
@@ -57,6 +61,28 @@ export interface TurnScope {
   readonly sliceId?: string;
   readonly turnActuation: 'bounded-auto' | 'advise';
   readonly turnReasonCode: string | null;
+}
+
+/**
+ * Owner decision 2026-10-08 (tiered routing, step 2b; DOMAINS, a new decision against OD-8): the shared tier of the session's
+ * work, rules first, which may name this turn's model when no learned slice is promoted. The sidecar judges it from the
+ * linked task's content-free signals over the models eligible on this harness (no Jev call on the turn: Jev's pick of a
+ * recent `jevris route`, kept in the session tier memo, counts only as a dearer rung than the rules').
+ */
+export interface TurnTierInput {
+  readonly tier: ModelTier;
+  /** The model the tier names, a registry id on the baseline's own provider. */
+  readonly targetModelId: string;
+  readonly basis: ModelTierBasis;
+  /** "Rules-based default - not a learned route, not a signed prior" or Jev's label. */
+  readonly label: string;
+  /** `TIER_*` codes (at most a few are shown). */
+  readonly reasonCodes: readonly string[];
+  /**
+   * The turn gate for a step UP: D's gate without its low-risk condition (work that is not low risk by definition). Null: open;
+   * a code: why advice only. Absent: unknown, so advice. A step DOWN uses `scope`, which keeps the low-risk condition.
+   */
+  readonly stepUpGate?: string | null;
 }
 
 export interface RouteTurnInput {
@@ -95,6 +121,8 @@ export interface RouteTurnInput {
    * host or one that changes the session's host is advice only.
    */
   readonly hostRouteCertified?: boolean;
+  /** Step 2b: the tier of the session's work (above). Absent: nothing but a promoted slice names a model. */
+  readonly tier?: TurnTierInput | null;
 }
 
 /** A route through a pinned host, or one that changes the session's host, without `route.host` certified. */
@@ -141,19 +169,30 @@ export function routeTurn(input: RouteTurnInput): RouteTurnPayload {
     const advice = sessionPauseAdvice({ entries: accessLimits, registry: input.registry, harness, authMode, pause: currentPause, currentModelId: current.modelId, candidates: input.locallyEligible ?? [], nowMs: input.nowMs });
     return abstain(advice.reasonCode, advice.text);
   }
-  if (input.sliceId === null) return abstain('UNKNOWN_SLICE', 'This turn has no task slice, so no learned route applies; the model stays as it is.');
-  if (input.learning === null) return abstain('NO_PROMOTED_SLICE', 'No route learning in this workspace yet; the model stays as it is.');
-  // OD-3 and R17: the session's current model is its baseline, and the slice learns under that key.
-  const baseline = routeBaseline(input.registry, harness, current.modelId);
-  const key = learningSliceKey(input.sliceId, baseline);
-  const policy = slicePolicy(input.learning, key);
-  if (policy.mode !== 'auto' || policy.modelId === null) {
-    return abstain(policy.mode === 'pinned' ? 'SLICE_PINNED' : 'NO_PROMOTED_SLICE', `Slice ${input.sliceId} has no promoted model against ${current.modelId}; the model stays as it is.`);
+  // Step 2b: after no promoted slice (or no slice at all), the shared tier of the session's work may name the model.
+  const tierPick = input.tier !== undefined && input.tier !== null && input.tier.tier !== 'baseline' ? input.tier : null;
+  const noSlice = input.sliceId === null;
+  let policy: { readonly mode: string; readonly modelId: string | null; readonly effort?: string | null; readonly direction?: string | null } | null = null;
+  if (!noSlice && input.learning !== null) {
+    // OD-3 and R17: the session's current model is its baseline, and the slice learns under that key.
+    const baseline = routeBaseline(input.registry, harness, current.modelId);
+    policy = slicePolicy(input.learning, learningSliceKey(input.sliceId as string, baseline));
+    if (policy.mode === 'pinned') return abstain('SLICE_PINNED', `Slice ${input.sliceId} has no promoted model against ${current.modelId}; the model stays as it is.`);
   }
-  const target = registryModel(input.registry, policy.modelId);
-  if (target === null) return abstain('PROMOTED_MODEL_UNREGISTERED', `The promoted model ${policy.modelId} is not in the loaded registry; the model stays as it is.`);
-  if (!lifecycleCheck(target, input.nowMs).usable) return abstain('PROMOTED_MODEL_UNUSABLE', `The promoted model ${policy.modelId} is retired or past its date; the model stays as it is.`);
-  const effort = policy.effort ?? null;
+  const promoted = policy !== null && policy.mode === 'auto' && policy.modelId !== null;
+  if (!promoted && tierPick === null) {
+    if (noSlice) return abstain('UNKNOWN_SLICE', 'This turn has no task slice, so no learned route applies; the model stays as it is.');
+    if (input.learning === null) return abstain('NO_PROMOTED_SLICE', 'No route learning in this workspace yet; the model stays as it is.');
+    return abstain('NO_PROMOTED_SLICE', `Slice ${input.sliceId} has no promoted model against ${current.modelId}; the model stays as it is.`);
+  }
+  // A learned, promoted slice always takes precedence over the tier rule.
+  const useTier = !promoted && tierPick !== null;
+  const picked = useTier ? { mode: 'auto', modelId: (tierPick as TurnTierInput).targetModelId, effort: null, direction: null } : (policy as NonNullable<typeof policy>);
+  if (picked.modelId === null) return abstain('NO_PROMOTED_SLICE', `Slice ${input.sliceId} has no promoted model against ${current.modelId}; the model stays as it is.`);
+  const target = registryModel(input.registry, picked.modelId);
+  if (target === null) return abstain('PROMOTED_MODEL_UNREGISTERED', `The ${useTier ? 'tier' : 'promoted'} model ${picked.modelId} is not in the loaded registry; the model stays as it is.`);
+  if (!lifecycleCheck(target, input.nowMs).usable) return abstain('PROMOTED_MODEL_UNUSABLE', `The ${useTier ? 'tier' : 'promoted'} model ${picked.modelId} is retired or past its date; the model stays as it is.`);
+  const effort = picked.effort ?? null;
   if (target.modelId === current.modelId && effort === null) return abstain('ALREADY_ON_MODEL', `This turn already runs ${current.modelId}.`);
   // OD-4 and design 4.4: the session is signed in to the host its spelling goes to (the maker for a
   // direct spelling, the gateway for a gateway one, never the maker behind a gateway).
@@ -221,17 +260,49 @@ export function routeTurn(input: RouteTurnInput): RouteTurnPayload {
     { servingHost: current.servingHost, provider: current.provider, modelId: current.modelId },
   ]);
   const hostGate = (kept.hostRoute || kept.hostChanged) && input.hostRouteCertified !== true ? ROUTE_HOST_NOT_CERTIFIED : null;
-  // Every actuation condition, in the order a person would fix them.
+  // Every actuation condition, in the order a person would fix them. A step UP by the tier rule (work that is not low risk
+  // by definition) is gated by D's turn gate without its low-risk condition, which still needs the link to the task.
+  const upTier = useTier && (tierPick as TurnTierInput).tier === 'step-up' ? (tierPick as TurnTierInput) : null;
   const blocked =
     mode !== 'plugin-bounded-auto'
       ? 'MAIN_SESSION_ADVICE_ONLY'
       : input.scope === null
         ? 'NO_APPROVED_SCOPE'
-        : input.scope.turnActuation !== 'bounded-auto' || input.scope.turnReasonCode !== null
-          ? (input.scope.turnReasonCode ?? 'TURN_GATE_ADVISE')
-          : input.scope.risk !== 'low'
-            ? 'RISK_NOT_LOW'
-            : (tariff ?? hostGate);
+        : upTier !== null
+          ? (upTier.stepUpGate === undefined ? 'TURN_GATE_ADVISE' : (upTier.stepUpGate ?? tariff ?? hostGate))
+          : input.scope.turnActuation !== 'bounded-auto' || input.scope.turnReasonCode !== null
+            ? (input.scope.turnReasonCode ?? 'TURN_GATE_ADVISE')
+            : input.scope.risk !== 'low'
+              ? 'RISK_NOT_LOW'
+              : (tariff ?? hostGate);
+  if (useTier) {
+    const t = tierPick as TurnTierInput;
+    const move = t.tier === 'step-up' ? 'a step up' : 'a step down';
+    const why = t.reasonCodes.slice(0, 3).join(', ');
+    const basisCode = t.basis === 'tier-jev' ? 'TIER_JEV' : 'TIER_RULE';
+    if (blocked !== null) {
+      return {
+        harness: input.harness,
+        mainSession: { mode, switched: false },
+        outcome: 'switch',
+        actuate: false,
+        reasonCode: `${basisCode}_ADVICE`,
+        text: clip(`Advice: ${t.label}${why === '' ? '' : ` (${why})`} points to ${label} over ${current.modelId} for this work (${move}). Not switched (${blocked}); switch it yourself if you like.`),
+        model,
+        variant,
+      };
+    }
+    return {
+      harness: input.harness,
+      mainSession: { mode, switched: true },
+      outcome: 'switch',
+      actuate: true,
+      reasonCode: basisCode,
+      text: clip(`Switched this turn to ${label} (${move}): ${t.label}${why === '' ? '' : ` (${why})`}; no learned slice applies. Your configuration is unchanged.`),
+      model,
+      variant,
+    };
+  }
   if (blocked !== null) {
     return {
       harness: input.harness,
@@ -249,7 +320,7 @@ export function routeTurn(input: RouteTurnInput): RouteTurnPayload {
     mainSession: { mode, switched: true },
     outcome: 'switch',
     actuate: true,
-    reasonCode: policy.direction === 'upgrade' ? 'PROMOTED_UPGRADE' : 'PROMOTED_SAVING',
+    reasonCode: policy !== null && policy.direction === 'upgrade' ? 'PROMOTED_UPGRADE' : 'PROMOTED_SAVING',
     text: clip(`Switched this turn to ${label}: slice ${input.sliceId} promoted it over ${current.modelId} on this workspace's own outcomes. Your configuration is unchanged.`),
     model,
     variant,

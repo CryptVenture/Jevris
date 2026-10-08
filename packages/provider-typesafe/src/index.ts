@@ -16,7 +16,7 @@ export { warmDecisionPath } from './warm-up.js';
 export type { SidecarEngineOptions } from './sidecar-engine.js';
 export { ROUTE_TURN_SPEC, createRouteTurnOp, turnMainSessionOf, turnRequest, turnSessionLinkOf } from './route-turn-op.js';
 export type { TurnContext, TurnMainSession } from './route-turn-op.js';
-export { engineOf, explainPayload, sessionModelsFrom, sidecarEventSubscribers, sidecarOps, unknownRouteSlices, workerModelOf } from './sidecar-ops.js';
+export { engineOf, explainPayload, sessionModelsFrom, setHarnessVersionSource, setRouteCertification, sidecarEventSubscribers, sidecarOps, unknownRouteSlices, workerModelOf } from './sidecar-ops.js';
 export type { SessionModels } from './sidecar-ops.js';
 export { ADVICE_REPEAT_LIMIT, adviceIgnored, openAdvice } from './advice-adherence.js';
 export { CONTEXT_FEATURE, ROUTE_FEATURE, cliCertificationSource, createDecisionSubscriber, featureFor, isCertified, recordsCertificationSource } from './sidecar-subscribers.js';

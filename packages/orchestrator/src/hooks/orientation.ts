@@ -15,14 +15,14 @@
 import { modeAllows, type HarnessId, type Mode, type SidecarOpContext } from '@jevris/contracts';
 import { CONTEXT_FEATURE, isCertified } from './certification.js';
 
-/** The hard cap, in UTF-8 bytes, on the line. Every mode's text is tested against it. */
-export const ORIENTATION_MAX_BYTES = 500;
+/** The hard cap, in UTF-8 bytes, on the line (540 from 2026-10-08: the subagent sentence now names the stronger model for very hard work). Every mode's text is tested against it. */
+export const ORIENTATION_MAX_BYTES = 540;
 
 /**
  * The standing sentence of owner decision 2026-10-08, Claude Code only: the policy for a subagent's model. It says
  * nothing about a task, a prompt or a path, and nothing is forced.
  */
-export const SUBAGENT_POLICY_SENTENCE = 'A low-risk subagent may run on a cheaper model for that one call only; Jevris advises it and sets it where certified, and your session model is never changed. For clearly low-risk main-session work it may suggest /model; nothing is forced.';
+export const SUBAGENT_POLICY_SENTENCE = 'A low-risk subagent may run on a cheaper model (a very hard one on a stronger model) for that one call only; Jevris advises it and sets it where certified, and your session model is never changed. For clearly low-risk main-session work it may suggest /model; nothing is forced.';
 
 /** The line for a mode: on, what it does not do, and where to look. On Claude Code it also states the subagent model policy. */
 export function orientationLine(mode: Mode, harness?: string): string {

@@ -14,7 +14,7 @@
  * which learned slice applies.
  */
 import { MAIN_SESSION_MODES, RouteTurnPayloadContract, SESSION_LINK_VIA, TURN_HARNESSES, type DecisionRecord, type MainSessionMode, type ModelRegistry, type RouteServing, type RouteTurnPayload, type SessionLinkView, type SidecarOpContext, type SidecarOpDefinition, type SidecarOpOutcome } from '@jevris/contracts';
-import { AdviceOnce, BUNDLED_MODEL_REGISTRY, readAccessLimits, readModelOffer, resolveSpelling, seenSpellings, servingView, sessionSignedInParties, WORKSPACE_REVISIONS, loadLearningState, loadModelAvailability, loadModelRegistryChecked, locallyEligibleFor, routeTurn, unavailableModels, type MainSessionModeValue, type TurnHarness, type TurnScope } from '@jevris/core';
+import { AdviceOnce, BUNDLED_MODEL_REGISTRY, judgeModelTier, readAccessLimits, readModelOffer, readSessionTier, resolveSpelling, seenSpellings, servingView, sessionSignedInParties, sessionSignedInProviders, tierEligibleModels, tierNoteOf, WORKSPACE_REVISIONS, loadLearningState, loadModelAvailability, loadModelRegistryChecked, locallyEligibleFor, routeTurn, unavailableModels, type MainSessionModeValue, type ModelTierDecision, type TierSignals, type TurnHarness, type TurnScope, type TurnTierInput } from '@jevris/core';
 import { consentReaderOf, engineOf } from './engine-of.js';
 
 /** What the sidecar knows about the turn that the plugin must not assert. */
@@ -33,6 +33,14 @@ export interface TurnContext {
    * session's version, from the sidecar's own records. Absent or anything but true: not certified.
    */
   readonly hostRouteCertified?: boolean;
+}
+
+/**
+ * Step 2b (tiered routing): what the sidecar knows about the linked task for a tier-driven turn: its content-free signals and the
+ * gate for a step UP (D's turn gate without the low-risk condition). It is asked for only when no learned slice named a model.
+ */
+export interface TurnTierContext extends TurnContext {
+  readonly tierSignals?: object;
 }
 
 const KEYS = new Set(['harness', 'sessionId', 'messageId', 'current', 'sliceId', 'modelPin']);
@@ -98,7 +106,10 @@ function nowOf(ctx: Pick<SidecarOpContext, 'engine'>): number {
  * The `route.turn` op. `turnContext` is the sidecar's: the approved scope for the session and the
  * effective main-session mode. It must not throw; if it does, the turn is advice only.
  */
-export function createRouteTurnOp(turnContext: (ctx: SidecarOpContext, sessionId: string, harness: TurnHarness) => Promise<TurnContext> | TurnContext): SidecarOpDefinition {
+export function createRouteTurnOp(
+  turnContext: (ctx: SidecarOpContext, sessionId: string, harness: TurnHarness) => Promise<TurnContext> | TurnContext,
+  turnTier?: (ctx: SidecarOpContext, sessionId: string, harness: TurnHarness) => Promise<TurnTierContext> | TurnTierContext,
+): SidecarOpDefinition {
   return {
     op: 'route.turn',
     scope: 'advice',
@@ -129,16 +140,9 @@ export function createRouteTurnOp(turnContext: (ctx: SidecarOpContext, sessionId
               scope: { harness: request.harness, authMode },
             }).catch(() => null);
       const seen = await seenOn(ctx.home, request.harness, authMode);
-      const payload = loaded.registry === null
-        ? {
-            harness: request.harness,
-            mainSession: { mode: context.mainSession ?? 'advice-only', switched: false },
-            outcome: 'abstain' as const,
-            actuate: false,
-            reasonCode: loaded.reasonCode,
-            text: `The model registry file was refused (${loaded.reasonCode}), so Jevris does not route this turn.`,
-          }
-        : routeTurn({
+      const turnInput = loaded.registry === null
+        ? null
+        : {
             harness: request.harness,
             current: request.current,
             registry: loaded.registry ?? BUNDLED_MODEL_REGISTRY,
@@ -158,7 +162,31 @@ export function createRouteTurnOp(turnContext: (ctx: SidecarOpContext, sessionId
             // route keeps the session's host or takes the one other host seen; none when unreadable.
             seen,
             hostRouteCertified: context.hostRouteCertified === true,
-          });
+          };
+      let payload =
+        loaded.registry === null || turnInput === null
+          ? {
+              harness: request.harness,
+              mainSession: { mode: context.mainSession ?? 'advice-only', switched: false },
+              outcome: 'abstain' as const,
+              actuate: false,
+              reasonCode: loaded.registry === null ? loaded.reasonCode : 'MODEL_REGISTRY_UNREADABLE',
+              text: `The model registry file was refused (${loaded.registry === null ? loaded.reasonCode : 'MODEL_REGISTRY_UNREADABLE'}), so Jevris does not route this turn.`,
+            }
+          : routeTurn(turnInput);
+      // Owner decision 2026-10-08 (step 2b; against OD-8): when no learned slice names a model, the shared tier of the linked
+      // task's work may (rules first; no Jev call on the turn; Jev's pick of a recent `jevris route` counts only as a dearer rung).
+      let tierCodes: readonly string[] = [];
+      if (turnInput !== null && turnTier !== undefined && payload.outcome === 'abstain' && (payload.reasonCode === 'NO_PROMOTED_SLICE' || payload.reasonCode === 'UNKNOWN_SLICE') && context.scope !== null) {
+        const picked = await tierForTurn(ctx, request, turnTier, turnInput.registry, authMode, nowOf(ctx)).catch(() => null);
+        if (picked !== null) {
+          const tiered = routeTurn({ ...turnInput, tier: picked.input });
+          if (tiered.outcome === 'switch') {
+            payload = tiered;
+            tierCodes = picked.codes;
+          }
+        }
+      }
       const checked = RouteTurnPayloadContract.validate(payload);
       if (!checked.ok) {
         ctx.trace({ event: 'decision.payload-invalid', reasonCode: 'PAYLOAD_INVALID', op: ctx.op, path: checked.issues[0]?.path ?? '' });
@@ -167,9 +195,71 @@ export function createRouteTurnOp(turnContext: (ctx: SidecarOpContext, sessionId
       ctx.trace({ event: 'route.turn', reasonCode: checked.value.reasonCode, harness: request.harness, actuate: checked.value.actuate });
       // R55: the hosts as this turn saw them, kept for explain with the recorded decision.
       const serving = registry === null ? null : turnServing(registry, request, checked.value, seen, consent);
-      await recordTurn(ctx, request, checked.value, context.scope, serving);
+      await recordTurn(ctx, request, checked.value, context.scope, serving, tierCodes);
       return { ok: true, body: checked.value };
     },
+  };
+}
+
+const TIER_WAIT_MS = 100;
+
+/**
+ * Step 2b: the tier of the linked task's work for a turn that no learned slice covers. Rules only (no engine, so no Jev call and
+ * nothing recorded here: the turn's own record carries the codes). The baseline is the session's own model on its own provider; the
+ * rungs are the models the router's gates leave eligible here, so a harness with no local evidence of them stays dormant. A fresh
+ * session tier memo whose Jev pick is a dearer rung than the rules' on the same baseline raises the tier to that rung; it
+ * never lowers one. Null: no tier (no signals, no ladder, baseline).
+ */
+async function tierForTurn(
+  ctx: SidecarOpContext,
+  request: TurnRequest,
+  turnTier: NonNullable<Parameters<typeof createRouteTurnOp>[1]>,
+  registry: ModelRegistry,
+  authMode: 'api-key' | 'subscription' | null,
+  nowMs: number,
+): Promise<{ readonly input: TurnTierInput; readonly codes: readonly string[] } | null> {
+  const answer = await turnTier(ctx, request.sessionId, request.harness);
+  if (answer.tierSignals === undefined || answer.scope === null) return null;
+  const sessionSpelling = `${request.current.providerID}/${request.current.modelID}`; // path-hygiene: allow a harness model id (provider/model), not a path
+  const current = resolveSpelling(registry, request.harness, sessionSpelling);
+  if (current === null) return null;
+  const eligible = await tierEligibleModels({
+    role: 'main',
+    home: ctx.home,
+    registry,
+    trustedKeys: new Map(),
+    killSwitchStopped: ctx.killSwitchStopped,
+    sliceId: null,
+    currentModel: current.modelId,
+    pins: { modelPin: null, effortPin: null },
+    nowMs,
+    harness: request.harness,
+    authMode,
+    providerConsent: consentReaderOf(ctx),
+    signedInProviders: sessionSignedInProviders(registry, request.harness, sessionSpelling),
+  });
+  if (eligible === null) return null;
+  const rules = await judgeModelTier(
+    null,
+    { signals: answer.tierSignals as TierSignals, eligible: eligible.eligible, baselineModelId: current.modelId, volume: eligible.settings.defaultTaskVolume },
+    { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: TIER_WAIT_MS },
+    { assist: 'off', record: false },
+  );
+  let decision: ModelTierDecision = rules;
+  const memo = readSessionTier(ctx.workspace.id, request.sessionId, nowMs, request.harness);
+  if (memo !== null && memo.basis === 'tier-jev' && memo.baselineModelId === current.modelId && memo.tier !== 'baseline') {
+    const at = (id: string): number => rules.candidates.indexOf(id);
+    if (at(memo.targetModelId) > at(rules.targetModelId) && at(rules.targetModelId) >= 0) {
+      decision = { ...rules, tier: 'step-up', targetModelId: memo.targetModelId, basis: 'tier-jev', label: "Jev's suggestion from structured features; not a learned route, not a signed prior", reasonCodes: [...rules.reasonCodes, 'TIER_JEV_MEMO'] };
+    }
+  }
+  if (decision.tier === 'baseline' || decision.targetModelId === current.modelId) return null;
+  const note = tierNoteOf(decision);
+  const scope = answer.scope;
+  const stepUpGate = scope.turnActuation === 'bounded-auto' && scope.turnReasonCode === null ? null : (scope.turnReasonCode ?? 'TURN_GATE_ADVISE');
+  return {
+    input: { tier: note.tier, targetModelId: note.targetModelId, basis: note.basis, label: note.label, reasonCodes: note.reasonCodes, stepUpGate },
+    codes: [`TIER_SOURCE_${note.basis === 'tier-jev' ? 'JEV' : 'RULE'}`, `TIER_LEVEL_${note.tier.toUpperCase().replace(/-/g, '_')}`, ...note.reasonCodes],
   };
 }
 
@@ -270,7 +360,7 @@ async function storeLinkOf(store: unknown, sessionId: string): Promise<StoreLink
  * decision record needs no new field (agreed with E). A turn that abstained records nothing.
  * Without a message id, the switch target stands in for it, so one session records each target once.
  */
-async function recordTurn(ctx: SidecarOpContext, request: TurnRequest, payload: RouteTurnPayload, scope: TurnScope | null, serving: RouteServing | null = null): Promise<void> {
+async function recordTurn(ctx: SidecarOpContext, request: TurnRequest, payload: RouteTurnPayload, scope: TurnScope | null, serving: RouteServing | null = null, extraCodes: readonly string[] = []): Promise<void> {
   if (payload.outcome !== 'switch' || payload.model === undefined) return;
   const engine = engineOf(ctx);
   if (engine?.recordAdvice === undefined) return;
@@ -278,7 +368,7 @@ async function recordTurn(ctx: SidecarOpContext, request: TurnRequest, payload: 
   if (!turnRecorded.first(`${ctx.workspace.id}:${request.harness}:${request.sessionId}:${turn}`)) return;
   const link = await storeLinkOf(ctx.store, request.sessionId);
   const linkCode = link === undefined ? [] : [link === null ? UNLINKED : LINK_CODE[link.via]];
-  const codes = [payload.reasonCode, HARNESS_CODE[payload.harness], MODE_CODE[payload.mainSession.mode], ...linkCode, payload.actuate ? SWITCHED : ADVICE];
+  const codes = [payload.reasonCode, HARNESS_CODE[payload.harness], MODE_CODE[payload.mainSession.mode], ...linkCode, payload.actuate ? SWITCHED : ADVICE, ...extraCodes.filter((c) => /^[A-Z][A-Z0-9_]{0,63}$/.test(c)).slice(0, 12)];
   try {
     const recorded = await engine.recordAdvice({
       specId: ROUTE_TURN_SPEC,

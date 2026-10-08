@@ -10,8 +10,11 @@
  * - explain and status: the row names the decision (`jevris explain <id>`), and says the tier is a rules-based default
  *   or Jev's suggestion, never a learned route or a signed prior.
  */
+import { tierSignalsOf, type TierSignals } from '@jevris/core';
 import type { WorkspaceServices } from '../workspace.js';
 import { recordKey } from '../util.js';
+import { criticalPathLengths } from './graph.js';
+import { getTask, listTasks } from './tasks.js';
 
 const COLLECTION = 'model-tier';
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -72,4 +75,27 @@ export function escalationRungs(row: TierRow | undefined, failedModelId: string 
   if (row === undefined) return [];
   const at = failedModelId === null ? -1 : row.stepUpModelIds.indexOf(failedModelId);
   return at < 0 ? row.stepUpModelIds : row.stepUpModelIds.slice(at + 1);
+}
+
+/**
+ * The content-free tier signals of a task for a main-session turn on Kilo or OpenCode (owner decision 2026-10-08, step 2b):
+ * counts, the risk class and its reasons, protected classes, a verb class and the plan depth, the way an owned launch's are
+ * (`tierSignalsOf`; the title is reduced to a verb class here and never kept). No run on the baseline is counted: the
+ * session's own model is not an owned worker's. Null when the task is not found; never throws.
+ */
+export function turnTierSignals(ws: WorkspaceServices, taskId: string): TierSignals | null {
+  try {
+    const task = getTask(ws, taskId);
+    if (task === undefined) return null;
+    const depth = criticalPathLengths(listTasks(ws, {}).map((t) => t.node)).get(taskId) ?? null;
+    return tierSignalsOf({
+      hints: { title: task.title, paths: task.node.writeScopes, checkIds: task.node.acceptanceCheckIds },
+      ...(task.sliceId === null ? {} : { sliceId: task.sliceId }),
+      risk: task.risk,
+      riskReasons: task.riskReasons,
+      planDepth: depth,
+    });
+  } catch {
+    return null;
+  }
 }

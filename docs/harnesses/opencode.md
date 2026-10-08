@@ -233,6 +233,11 @@ certified when certify passes there.
   flight. Later messages of the child keep the model OpenCode stored for it.
   `opencode.subagent-route` must pass for `hooks.route` to be certified: the subagent ran on the
   routed model while the parent kept its own.
+  The model comes from learned or signed evidence, or, since 8 October 2026, from the shared
+  [model tier](../routing.md#model-tiers) within the session's own provider, spelled as `provider/model` through the host
+  the session already uses: a read-only launch (Explore, Plan) to the provider's cheapest rung, a write-capable launch up to its
+  step-up rung only when the session's work was judged very hard (a ten-minute memo, no Jev call on the hook). It needs
+  local evidence of the rung on OpenCode (a run or a listing), so it is dormant until OpenCode has seen it.
 - **A main-session turn (`session.route`).** From the second message of a session the
   plugin saw start, the plugin also asks the sidecar's `route.turn` about that message, next to its
   event and within the same 300 ms. It writes the answer to that message's model only when the
@@ -240,7 +245,11 @@ certified when certify passes there.
   only under `routing.mainSession` `plugin-bounded-auto`, for a session linked to a low-risk task,
   with the kill switch clear, no budget exhausted, no model pin, and `session.route` certified (see
   [security.md](../security.md#routing-authority)). It also needs a model that route learning has
-  promoted for the task's slice, so a new workspace gets advice only. OpenCode stores the session's model before the
+  promoted for the task's slice or, since 8 October 2026 and where none is promoted, a move by the rules
+  [model tier](../routing.md#model-tiers) of the linked task's work inside the session's own provider (a Gemini or GPT session stays
+  on its provider): a cheaper model for small low-risk work, a dearer one for very hard work (a step up needs the link to the
+  task but not a low-risk one). The tier move makes no Jev call on the turn and is dormant until this harness has run or listed
+  the rungs; below `plugin-bounded-auto` it is advice. A promoted slice still wins. OpenCode stores the session's model before the
   plugin sees the message, so a switch changes that one turn, and the next turn runs on the
   session's own model. The plugin reads the model OpenCode resolved for the message, not the one the
   message names, which is empty when you did not pick one. The first message the plugin sees in a

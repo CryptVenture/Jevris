@@ -94,6 +94,11 @@ test('route.turn: the sidecar supplies the scope from its own session record, ne
       { scope: { taskId: 'T1', risk: 'low', turnActuation: 'advise', turnReasonCode: 'TURN_ROUTE_UNCERTIFIED', sliceId: 'small-edit' }, mainSession: 'plugin-bounded-auto', hostRouteCertified: false },
       'a recorded main session gets D\'s gate and the task\'s slice; with no session.route certification it is advice only',
     );
+    // Step 2b (2026-10-08): the step-up gate (no low-risk condition) brings the task's content-free tier signals, only when asked.
+    const stepUp = await started.daemon.state.turnContext(ctx, 'kilo-s1', 'kilocode', true);
+    assert.deepEqual([stepUp.scope.turnReasonCode, stepUp.tierSignals.sliceId, stepUp.tierSignals.files, stepUp.tierSignals.risk], ['TURN_ROUTE_UNCERTIFIED', 'small-edit', 1, 'low']);
+    assert.equal(Object.keys(stepUp.tierSignals).some((k) => /path|title|name/i.test(k)), false, 'no path, title or name field');
+    assert.equal((await started.daemon.state.turnContext(ctx, 'never-seen', 'kilocode', true)).tierSignals, undefined, 'an unknown session has no signals');
     assert.equal((await context('kilo-s1', 'opencode')).scope.turnReasonCode, 'UNKNOWN_SESSION', 'another harness cannot borrow the session');
     assert.equal((await context('child-1')).scope.turnReasonCode, 'UNKNOWN_SESSION', 'a child session id is never a recorded main session');
     assert.equal((await started.daemon.state.turnContext({ ...ctx, killSwitchStopped: true }, 'kilo-s1', 'kilocode')).scope.turnReasonCode, 'KILL_SWITCH');

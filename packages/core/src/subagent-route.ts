@@ -14,6 +14,14 @@
  * model is never changed. High risk and unknown change nothing. The model must be eligible on
  * this harness (locallyEligible, which for Claude Code includes the HARNESS_ALIAS proof).
  *
+ * Owner decisions 2026-10-08 (tiered routing, step 2b; EVERY harness, provider-neutral; amends the "never dearer than the
+ * session" line): given the session's tier ladder (`tier`, from `subagentTierOf`), the same default is the session model's own
+ * provider's rung: low risk to its cheapest rung, medium to its step-down rung, and a write-capable launch UP to its
+ * step-up rung, only when the shared tier rule judged the session's own work step-up (a fresh memo). The route is "rules-based
+ * default, not a learned route, not a signed prior" (basis `tier-rule-up`). Evidence still wins, and every gate below still
+ * applies (pin, explicit model, consent, eligibility on this harness, lifecycle, availability, access limits, hosts,
+ * `SAME_AS_SESSION`, `ALIAS_NOT_NEWEST`). A harness with no local evidence of the rungs has no ladder: dormant there.
+ *
  * Pure: no I/O, no clock read, and no prompt text. The inputs are the subagent type, whether the
  * tool input already names a model, the session's model, pins, the registry, the models found
  * gone for (claude, authMode), the workspace's learning state and a signed prior when one exists.
@@ -38,6 +46,7 @@ import type { SeenSpelling } from './model-offer.js';
 import type { ModelUnavailableReason } from './model-availability.js';
 import { CLAUDE_CODE_SUBAGENT_ALIASES, aliasMeansModel, lifecycleCheck, registryModel, routeBaseline, type ClaudeCodeSubagentAlias } from './model-registry.js';
 import type { SubagentClass, SubagentRiskLevel, SubagentRiskSource } from './subagent-risk.js';
+import type { SubagentTierInput } from './subagent-tier.js';
 import { blockedDownstream, hostConsent, signedInDefaultAllowed, type ProviderConsentReader } from './provider-consent-gate.js';
 import { defaultEffortOf, learningSliceKey, slicePolicy, type LearningState } from './route-learning.js';
 
@@ -201,6 +210,15 @@ export interface SubagentRouteInput {
    * Used only on Claude Code and only when no learned route or signed prior applies.
    */
   readonly risk?: SubagentRiskInput | null;
+  /**
+   * Owner decisions 2026-10-08 (tiered routing, step 2b; every harness): the session's tier ladder and fresh tier memo
+   * (`subagentTierOf`). With it, a launch no learned route or signed prior covers is decided provider-neutrally: low risk
+   * to the session model's provider's cheapest rung, medium to its step-down rung, and a write-capable launch UP to the step-up
+   * rung only when the session's own work was judged step-up. Absent or null: the Claude Code family-alias default
+   * of 2026-10-08 (down only), and nothing on any other harness. Local evidence of the model on the harness still decides
+   * (`locallyEligible`), so a harness with none stays dormant.
+   */
+  readonly tier?: SubagentTierInput | null;
   /** Serving hosts R51: the harness's `route.host` certification for the session's version (the sidecar's, never the plugin's). Absent: false. */
   readonly hostRouteCertified?: boolean;
 }
@@ -214,6 +232,9 @@ export interface SubagentRiskInput {
 
 /** Why a proposal is explain text only (serving hosts R51): its price is an estimate, or route.host is not certified. */
 export type SubagentRouteBlock = 'HOST_TARIFF_UNKNOWN' | 'ROUTE_HOST_NOT_CERTIFIED';
+
+/** What named the model: learning and a signed prior win; else the launch's risk (down) or the shared tier rule (`tier-rule-up`: up, for very hard work). */
+export type SubagentRouteBasis = 'learning' | 'signed-prior' | 'risk-rule' | 'risk-jev' | 'tier-rule-up';
 
 export type SubagentRouteAdvice =
   | {
@@ -234,8 +255,8 @@ export type SubagentRouteAdvice =
        */
       readonly effortNotApplied: string | null;
       readonly sliceId: string;
-      readonly basis: 'learning' | 'signed-prior' | 'risk-rule' | 'risk-jev';
-      readonly reasonCode: 'SUBAGENT_ROUTE_LEARNED' | 'SUBAGENT_ROUTE_PRIOR' | 'SUBAGENT_ROUTE_RISK_RULE' | 'SUBAGENT_ROUTE_RISK_JEV';
+      readonly basis: SubagentRouteBasis;
+      readonly reasonCode: 'SUBAGENT_ROUTE_LEARNED' | 'SUBAGENT_ROUTE_PRIOR' | 'SUBAGENT_ROUTE_RISK_RULE' | 'SUBAGENT_ROUTE_RISK_JEV' | 'SUBAGENT_ROUTE_TIER_UP';
       /**
        * Serving hosts R51: set when the route must not be applied, only explained: a side priced by
        * estimate on its host (HOST_TARIFF_UNKNOWN), or a pinned host or a changed host without
@@ -280,7 +301,7 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
 
   // Evidence: an active learned route for this subagent type, else a signed prior.
   let modelId: string | null = null;
-  let basis: 'learning' | 'signed-prior' | 'risk-rule' | 'risk-jev' | null = null;
+  let basis: SubagentRouteBasis | null = null;
   let effort: string | null = null;
   if (input.learning !== null) {
     // R17: the slice learns under the harness's baseline, so a route learned on Claude Code's
@@ -296,14 +317,30 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
     modelId = input.signedPrior.modelId;
     basis = 'signed-prior';
   }
-  // Owner decision 2026-10-08: no learned or signed evidence, so the launch's own risk decides, on
-  // Claude Code (the alias actuator) only. Evidence above always wins over this default.
-  if (modelId === null && actuator?.carries === 'alias' && input.risk !== undefined && input.risk !== null) {
-    if (input.risk.level === 'high') return abstain('RISK_HIGH', sliceId);
-    const target = newestUsableOfFamily(input.registry, RISK_ROUTE_FAMILY[input.risk.level], input.nowMs);
-    if (target !== null) {
-      modelId = target.modelId;
-      basis = input.risk.source === 'jev' ? 'risk-jev' : 'risk-rule';
+  // Owner decisions 2026-10-08: no learned or signed evidence, so the shared tier and the launch's own risk decide.
+  // With the session's tier ladder (every harness, provider-neutral) a write-capable launch goes UP only when the tier
+  // rule judged the session's work step-up, and a lower-risk launch goes DOWN to the provider's rung; without it the
+  // Claude Code alias default (down only) of the same day stands. Evidence above always wins over this default.
+  const tier = input.tier ?? null;
+  if (modelId === null && input.risk !== undefined && input.risk !== null) {
+    if (tier !== null) {
+      if (tier.sessionTier === 'step-up' && tier.upModelId !== null && input.risk.subagentClass !== 'read-only') {
+        modelId = tier.upModelId;
+        basis = 'tier-rule-up';
+      } else {
+        if (input.risk.level === 'high') return abstain('RISK_HIGH', sliceId);
+        const rung = input.risk.level === 'low' ? tier.lowModelId : tier.midModelId;
+        if (rung === null) return abstain('NOT_CHEAPER', sliceId);
+        modelId = rung;
+        basis = input.risk.source === 'jev' ? 'risk-jev' : 'risk-rule';
+      }
+    } else if (actuator?.carries === 'alias') {
+      if (input.risk.level === 'high') return abstain('RISK_HIGH', sliceId);
+      const target = newestUsableOfFamily(input.registry, RISK_ROUTE_FAMILY[input.risk.level], input.nowMs);
+      if (target !== null) {
+        modelId = target.modelId;
+        basis = input.risk.source === 'jev' ? 'risk-jev' : 'risk-rule';
+      }
     }
   }
   if (modelId === null || basis === null) return abstain('NO_EVIDENCE', sliceId);
@@ -326,8 +363,9 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
     // decides, or the caller has none) is not checked here, as on the other harnesses.
     const eligibleAlias = input.locallyEligible ?? null;
     if (eligibleAlias !== null && !eligibleAlias.includes(model.modelId)) return abstain('NOT_ELIGIBLE_HERE', sliceId);
-    // A risk default only ever goes to a cheaper model than the session runs.
-    if ((basis === 'risk-rule' || basis === 'risk-jev') && !cheaperThanSession(input.registry, model, input.sessionModel, input.nowMs, harness)) return abstain('NOT_CHEAPER', sliceId);
+    // The Claude Code alias default (no tier ladder) only ever goes to a cheaper model than the session runs; a tier rung is
+    // a rung of the session's own ladder, cheaper or dearer by construction.
+    if (tier === null && (basis === 'risk-rule' || basis === 'risk-jev') && !cheaperThanSession(input.registry, model, input.sessionModel, input.nowMs, harness)) return abstain('NOT_CHEAPER', sliceId);
     harnessModel = alias;
   } else {
     // Scoped to this harness: it must spell the model (its access row or the model's own row),
@@ -390,13 +428,16 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
   const sessionPhrase = 'The session model is unchanged.';
   const what = alias === null ? null : alias;
   const riskWhy = input.risk === undefined || input.risk === null ? '' : `${riskClassText(input.risk.subagentClass, type)}, ${input.risk.level} risk by ${input.risk.source === 'jev' ? 'Jev' : 'rules'}`;
+  const upWhy = `the session's work was judged very hard by the tier rules${tier === null || tier.tierReasonCodes.length === 0 ? '' : ` (${tier.tierReasonCodes.join(', ')})`}; a rules-based default, not a learned route and not a signed prior`;
   const why =
     basis === 'learning'
       ? `this workspace's route learning for ${type} subagents`
       : basis === 'signed-prior'
         ? `a signed calibration release for ${type} subagents`
-        : riskWhy;
-  const reasonCode = basis === 'learning' ? 'SUBAGENT_ROUTE_LEARNED' : basis === 'signed-prior' ? 'SUBAGENT_ROUTE_PRIOR' : basis === 'risk-rule' ? 'SUBAGENT_ROUTE_RISK_RULE' : 'SUBAGENT_ROUTE_RISK_JEV';
+        : basis === 'tier-rule-up'
+          ? upWhy
+          : riskWhy;
+  const reasonCode = basis === 'learning' ? 'SUBAGENT_ROUTE_LEARNED' : basis === 'signed-prior' ? 'SUBAGENT_ROUTE_PRIOR' : basis === 'risk-rule' ? 'SUBAGENT_ROUTE_RISK_RULE' : basis === 'risk-jev' ? 'SUBAGENT_ROUTE_RISK_JEV' : 'SUBAGENT_ROUTE_TIER_UP';
   return {
     outcome: 'propose',
     harness,
@@ -436,6 +477,18 @@ function newestUsableOfFamily(registry: ModelRegistry, family: string, nowMs: nu
     }
   }
   return best;
+}
+
+/**
+ * The registry id of the model a session runs, as the harness reports it: a Claude Code family alias is its newest usable
+ * model, a `[1m]` variant or a harness spelling is the model it names. Null when the session model is unknown or the
+ * registry does not list it (a gateway or third-party id never resolves).
+ */
+export function sessionModelRegistryId(registry: ModelRegistry, harness: string, sessionModel: string | null, nowMs: number): string | null {
+  if (sessionModel === null) return null;
+  if (harness === 'claude' && (CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(sessionModel)) return newestUsableOfFamily(registry, sessionModel, nowMs)?.modelId ?? null;
+  const ref = harnessModelRef(registry, sessionModel, harness);
+  return ref !== null && ref.registered ? ref.modelId : null;
 }
 
 /**

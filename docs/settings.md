@@ -90,7 +90,7 @@ settings issue, from the same layers, whether the sidecar or the local reduced r
   PreToolUse context where `hooks.context` is certified, else text for you), and the
   one Stop continuation that asks for missing verification evidence (it counts as advice).
 - **bounded-auto**: Jevris may also act where a signed certification covers the harness: route a
-  subagent (on Claude Code, a low-risk launch to a cheaper model for that one call), switch a Kilo or OpenCode main-session turn, and start owned workers for plans you
+  subagent (a low-risk launch to a cheaper model of the session's own provider, and a write-capable launch of a session whose work is judged very hard to a stronger one, for that one call), switch a Kilo or OpenCode main-session turn (a promoted slice, or the tier rule's move), and start owned workers for plans you
   submit, each within its own gates (approved scope, budget, route learning).
 
 `routing.mainSession`, `routing.managedWorkers` and `orchestration.enabled` can only narrow the
@@ -177,7 +177,9 @@ Some keys are checked and shown, but not yet read by the product in 1.2:
 
 `routing.mainSession` is `plugin-bounded-auto` from install. In `bounded-auto` mode it lets
 Jevris switch the model of a Kilo or OpenCode main-session turn, and only when that harness's
-`session.route` certify case passes, the task is low-risk, the kill switch is not stopped and no budget is exhausted. Every
+`session.route` certify case passes, the session is linked to a task, the task is low-risk, the kill switch is not stopped and no budget is exhausted. The switch comes from a
+promoted route-learning slice, or, since 8 October 2026 and where no slice is promoted, from the rules
+[model tier](routing.md#model-tiers) of the linked task's work, within the session's own provider (a step down needs the low-risk task; a step up, for very hard work, needs the link and every other condition but the low-risk one). Every
 other harness stays advice-only. `jevris configure set routing.mainSession advice-only` turns it
 off. `jevris status` shows one `main session` line per harness: the mode it runs under and
 either that its turns may be switched or why they get advice only, with the reason code. Without

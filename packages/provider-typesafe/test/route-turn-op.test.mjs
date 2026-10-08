@@ -99,3 +99,69 @@ test('R50: route.turn routes a gateway session through its gateway from the spel
   const advice = await op.handle(ctx(home, body, { engine: consenting }));
   assert.deepEqual([advice.body.actuate, advice.body.reasonCode], [false, 'ROUTE_HOST_NOT_CERTIFIED']);
 });
+
+test('step 2b (2026-10-08, against OD-8): with no promoted slice the tier of the linked task\'s work may switch the turn, within the session\'s own provider, with no Jev call', async (t) => {
+  const core = await import('@jevris/core');
+  const home = mkdtempSync(join(tmpdir(), 'jevris-route-turn-'));
+  t.after(() => rmSync(home, { recursive: true, force: true }));
+  t.after(() => core.clearSessionTierMemos());
+  const NOW = Date.now();
+  core.clearSessionTierMemos();
+  const scope = { taskId: 't', risk: 'low', sliceId: 'bounded-edit', turnActuation: 'bounded-auto', turnReasonCode: null };
+  const LOW = core.tierSignalsOf({ hints: { title: 'adjust the pagination', paths: ['src/a.ts', 'src/b.ts'], checkIds: ['test'] }, sliceId: 'bounded-edit', risk: 'low' });
+  const HARD = core.tierSignalsOf({ hints: { title: 'rework the login flow', paths: ['src/auth/login.ts'], checkIds: ['test'] }, sliceId: 'bounded-edit', risk: 'high', riskReasons: ['PROTECTED_AUTH'] });
+  let signals = LOW;
+  let stepUp = { scope: { taskId: 't', risk: 'high', sliceId: 'bounded-edit', turnActuation: 'bounded-auto', turnReasonCode: null }, mainSession: 'plugin-bounded-auto' };
+  const asked = [];
+  const op = provider.createRouteTurnOp(
+    () => ({ scope, mainSession: 'plugin-bounded-auto' }),
+    (c, sessionId, harness) => (asked.push([sessionId, harness]), { ...stepUp, tierSignals: signals }),
+  );
+  const engineCalls = [];
+  const engine = { providerConsent: () => ({ granted: true }), decide: () => (engineCalls.push('decide'), Promise.reject(new Error('no'))), askBounded: () => (engineCalls.push('ask'), Promise.reject(new Error('no'))) };
+  const body = (harness, current) => ({ harness, sessionId: 'ses_tier', messageId: `m-${Math.random().toString(36).slice(2, 8)}`, current });
+  // Local evidence of the rungs on the harness (the ladder is the models eligible here): none, none.
+  const sonnet = { providerID: 'anthropic', modelID: 'claude-sonnet-5-5' };
+  const dormant = await op.handle(ctx(home, body('opencode', sonnet), { engine }));
+  assert.deepEqual([dormant.body.outcome, dormant.body.reasonCode], ['abstain', 'NO_PROMOTED_SLICE'], 'dormant until the harness has run or listed the rungs');
+  for (const harness of ['opencode', 'kilocode']) for (const modelId of ['claude-haiku-5-5', 'claude-sonnet-5-5', 'claude-opus-5-5', 'gpt-6-luna', 'gpt-6.1-sol', 'gpt-6-astra']) assert.equal(await core.recordModelRun(home, { harness, authMode: 'unknown', modelId, nowMs: NOW }), true);
+  // A low-risk bounded task steps down: Haiku, switched, reason TIER_RULE, never Jev.
+  const down = await op.handle(ctx(home, body('opencode', sonnet), { engine }));
+  assert.equal(contracts.RouteTurnPayloadContract.validate(down.body).ok, true, JSON.stringify(down.body));
+  assert.deepEqual([down.body.outcome, down.body.actuate, down.body.reasonCode, down.body.model], ['switch', true, 'TIER_RULE', { providerID: 'anthropic', modelID: 'claude-haiku-5-5' }], JSON.stringify(down.body));
+  assert.deepEqual(asked[asked.length - 1], ['ses_tier', 'opencode']);
+  // A hard task steps up: Opus, switched under the gate without the low-risk condition.
+  signals = HARD;
+  const upAnswer = await op.handle(ctx(home, body('kilocode', sonnet), { engine }));
+  assert.deepEqual([upAnswer.body.outcome, upAnswer.body.actuate, upAnswer.body.reasonCode, upAnswer.body.model], ['switch', true, 'TIER_RULE', { providerID: 'anthropic', modelID: 'claude-opus-5-5' }], JSON.stringify(upAnswer.body));
+  // The linked-task gate holds for a step up: unlinked is advice.
+  stepUp = { scope: { taskId: 't', risk: 'high', sliceId: 'bounded-edit', turnActuation: 'advise', turnReasonCode: 'SESSION_NOT_LINKED' }, mainSession: 'plugin-bounded-auto' };
+  const unlinked = await op.handle(ctx(home, body('kilocode', sonnet), { engine }));
+  assert.deepEqual([unlinked.body.outcome, unlinked.body.actuate, unlinked.body.reasonCode], ['switch', false, 'TIER_RULE_ADVICE']);
+  assert.match(unlinked.body.text, /SESSION_NOT_LINKED/);
+  // An OpenAI session moves within OpenAI: Luna below, and the dearer rung above; never Anthropic.
+  stepUp = { scope: { taskId: 't', risk: 'high', sliceId: 'bounded-edit', turnActuation: 'bounded-auto', turnReasonCode: null }, mainSession: 'plugin-bounded-auto' };
+  const gpt = { providerID: 'openai', modelID: 'gpt-6.1-sol' };
+  signals = LOW;
+  const gptDown = await op.handle(ctx(home, body('opencode', gpt), { engine }));
+  assert.deepEqual([gptDown.body.actuate, gptDown.body.model], [true, { providerID: 'openai', modelID: 'gpt-6-luna' }], JSON.stringify(gptDown.body));
+  signals = HARD;
+  const gptUp = await op.handle(ctx(home, body('opencode', gpt), { engine }));
+  assert.equal(gptUp.body.model.providerID, 'openai');
+  assert.equal(gptUp.body.actuate, true);
+  // Jev's pick from a recent `jevris route` (the memo) counts only as a dearer rung than the rules'.
+  core.noteSessionTier('w-turn-op', 'ses_tier', { tier: 'step-up', targetModelId: 'gpt-6-astra', baselineModelId: 'gpt-6.1-sol', basis: 'tier-jev', reasonCodes: ['TIER_JEV_ACCEPTED'], atMs: NOW });
+  signals = LOW;
+  const raised = await op.handle(ctx(home, body('opencode', gpt), { engine }));
+  assert.deepEqual([raised.body.actuate, raised.body.reasonCode, raised.body.model], [true, 'TIER_JEV', { providerID: 'openai', modelID: 'gpt-6-astra' }], JSON.stringify(raised.body));
+  assert.deepEqual(engineCalls, [], 'no Jev call on a turn');
+  // Below bounded-auto it is advice; a pin and the kill switch abstain as before.
+  const adviceOp = provider.createRouteTurnOp(() => ({ scope, mainSession: 'advice-only' }), () => ({ ...stepUp, tierSignals: LOW }));
+  core.clearSessionTierMemos();
+  const adviceOnly = await adviceOp.handle(ctx(home, body('opencode', sonnet), { engine }));
+  assert.deepEqual([adviceOnly.body.outcome, adviceOnly.body.actuate, adviceOnly.body.reasonCode], ['switch', false, 'TIER_RULE_ADVICE']);
+  assert.equal((await op.handle(ctx(home, { ...body('opencode', sonnet), modelPin: 'anthropic/claude-sonnet-5-5' }, { engine }))).body.reasonCode, 'PIN_RESPECTED');
+  assert.equal((await op.handle(ctx(home, body('opencode', sonnet), { engine, killSwitchStopped: true }))).body.reasonCode, 'KILL_SWITCH');
+  // A session model Jevris does not know has no baseline: nothing is routed from it.
+  assert.equal((await op.handle(ctx(home, body('opencode', { providerID: 'openai', modelID: 'gpt-0-unknown' }), { engine }))).body.reasonCode, 'CURRENT_MODEL_UNREGISTERED');
+});

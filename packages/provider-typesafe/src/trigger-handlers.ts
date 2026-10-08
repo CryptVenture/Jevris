@@ -17,6 +17,12 @@ import {
   subagentSliceId,
   SUBAGENT_ROUTE_ACTUATORS,
   locallyEligibleFor,
+  buildTierLadder,
+  readSessionTier,
+  sessionBaseline,
+  sessionModelRegistryId,
+  subagentTierOf,
+  tierEligibleModels,
   judgeSubagentRisk,
   rulesSubagentRisk,
   subagentRiskFeatures,
@@ -33,6 +39,7 @@ import {
   type IntentContext,
   type SubagentRiskFeatures,
   type SubagentRiskJudgement,
+  type SubagentTierInput,
   type ModelOffer,
   type SeenSpelling,
   type TriggerKind,
@@ -222,8 +229,10 @@ export async function evidenceAdvice(input: TriggerHandlerInput): Promise<HookPr
  * abstain-only line for Claude Code). A PreToolUse(Agent/Task) event gets a route proposal `{ model }`
  * (a registry id; the launcher maps it to a Claude Code alias and builds updatedInput from the native
  * input) when `adviseSubagentRoute` finds evidence for the subagent type: an active learned route for
- * `subagent:<type>`, or a signed calibration release for that slice; and, on Claude Code only, else
- * the launch's own risk (`subagent-risk`: rules first; a write-capable type is high unless one Jev answer at the
+ * `subagent:<type>`, or a signed calibration release for that slice; and, else, the shared model tier
+ * (owner decisions 2026-10-08, step 2b, every harness, provider-neutral): the session's own provider's rung, down by
+ * the launch's own risk, and a write-capable launch UP when the session's tier memo (no Jev call on this hook) says
+ * step-up; with no ladder (no local evidence) only on Claude Code the launch's own risk (`subagent-risk`: rules first; a write-capable type is high unless one Jev answer at the
  * floors lowers it) which sends a low-risk launch to the haiku family and a medium one to the sonnet family for
  * that one call. The route carries a short note for the model ("rewrite plus instruct"); when the
  * route cannot be applied, the same advice reaches the model as a PreToolUse context (see the
@@ -326,16 +335,23 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
     hostRouteCertified: body['hostRouteCertified'] === true,
   } as const;
   // Learned and signed evidence first, with no risk. Only a launch with none (NO_EVIDENCE: every gate before the
-  // evidence has passed) is judged by its risk, so a refusal never spends a Jev question.
+  // evidence has passed) is judged by the shared tier and its own risk, so a refusal never spends a Jev question.
   let advice = adviseSubagentRoute({ ...route });
   let judgement: SubagentRiskJudgement | null = null;
   if (advice.outcome === 'abstain' && advice.reasonCode === 'NO_EVIDENCE') {
+    // Owner decisions 2026-10-08 (step 2b, every harness): the session's tier ladder over the models eligible here, and the
+    // session's tier memo (no Jev call on this hook). Null where no ladder exists (no local evidence): dormant there.
+    const tier = await subagentTierFor(input, registry, sessionModel, { nowMs, authMode, consentedProviders, aliasCertified });
     const rulesLevel = rulesSubagentRisk(features);
-    const at = (level: 'low' | 'medium' | 'high', source: 'rules' | 'jev' = 'rules'): ReturnType<typeof adviseSubagentRoute> => adviseSubagentRoute({ ...route, risk: { level, source, subagentClass: features.subagentClass } });
+    const at = (level: 'low' | 'medium' | 'high', source: 'rules' | 'jev' = 'rules'): ReturnType<typeof adviseSubagentRoute> => adviseSubagentRoute({ ...route, tier, risk: { level, source, subagentClass: features.subagentClass } });
+    // A write-capable launch of a session whose own work the tier rule judged very hard goes up with no Jev question;
+    // a read-only launch never goes up.
+    const goesUp = tier !== null && tier.sessionTier === 'step-up' && tier.upModelId !== null && features.subagentClass !== 'read-only';
     // A write-capable type has the rules' high, which Jev may lower to low or medium: ask only when a cheaper
     // model could be routed at all. A read-only type is settled by the rules and is never asked.
     const levels = subagentRiskNeedsJev(features) ? (['low', 'medium'] as const) : ([rulesLevel] as const);
-    if (levels.some((level) => at(level).outcome === 'propose')) {
+    if (goesUp) advice = at('high');
+    else if (levels.some((level) => at(level).outcome === 'propose')) {
       judgement = await judgeLaunch(input, features);
       advice = at(judgement.level, judgement.source);
     } else advice = at(levels[0]);
@@ -365,6 +381,52 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
     ...(judgement?.decisionId == null ? {} : { decisionId: judgement.decisionId }),
     commit: () => true,
   };
+}
+
+/**
+ * The session's tier ladder for a subagent launch (owner decisions 2026-10-08, step 2b): the models eligible for the session on this
+ * harness and sign-in (the router's own gates: consent, lifecycle, harness access, local evidence or Claude Code's alias
+ * proof, access-limit pauses, the routing policy), the session model's own provider's rungs by price, and the fresh tier memo
+ * of the session. Null when the session has no baseline, no ladder or anything fails: the route then falls back to the Claude
+ * Code alias default (down only) or stays dormant. Reads no task text and makes no Jev call.
+ */
+async function subagentTierFor(
+  input: TriggerHandlerInput,
+  registry: NonNullable<Awaited<ReturnType<typeof loadModelRegistry>>>,
+  sessionModel: string | null,
+  use: { readonly nowMs: number; readonly authMode: 'api-key' | 'subscription' | null; readonly consentedProviders: readonly string[]; readonly aliasCertified: boolean },
+): Promise<SubagentTierInput | null> {
+  try {
+    const harness = input.event.harness;
+    const resolved = sessionModelRegistryId(registry, harness, sessionModel, use.nowMs);
+    const baseline = sessionBaseline(registry, harness, resolved);
+    if (baseline === null) return null;
+    const eligible = await tierEligibleModels(
+      {
+        role: 'main',
+        home: input.ctx.home,
+        registry,
+        trustedKeys: new Map(),
+        killSwitchStopped: input.ctx.killSwitchStopped === true,
+        sliceId: null,
+        currentModel: baseline,
+        pins: { modelPin: null, effortPin: null },
+        nowMs: use.nowMs,
+        harness,
+        authMode: use.authMode,
+        consentedProviders: use.consentedProviders,
+      },
+      harness === 'claude' ? { certified: use.aliasCertified, nowMs: use.nowMs } : undefined,
+    );
+    if (eligible === null) return null;
+    // A harness whose actuator takes only its own preset list (Codex's spawn_agent) is offered only those models as rungs.
+    const preset = (SUBAGENT_ROUTE_ACTUATORS as Readonly<Record<string, { readonly presetOnly: boolean } | null>>)[harness]?.presetOnly === true;
+    const models = preset ? eligible.eligible.filter((m) => (m.harnessModels ?? []).some((row) => row.harness === harness)) : eligible.eligible;
+    const ladder = buildTierLadder({ eligible: models, baselineModelId: baseline, volume: eligible.settings.defaultTaskVolume });
+    return subagentTierOf(ladder, readSessionTier(input.envelope.workspaceId, input.envelope.sessionId, use.nowMs, harness));
+  } catch {
+    return null;
+  }
 }
 
 /** The Jev wait a subagent launch may spend: the hook's time left less a margin for the rest of the answer, at most 700 ms. */

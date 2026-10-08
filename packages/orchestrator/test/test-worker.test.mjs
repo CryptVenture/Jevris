@@ -11,6 +11,7 @@ import { jevrisPaths } from '@jevris/platform';
 import {
   approveManifests,
   approvedScopeFor,
+  turnTierSignals,
   linkPlannedSession,
   mainSessionView,
   hostRouteCertified,
@@ -767,7 +768,18 @@ test('approvedScopeFor: the leased task\'s write scopes are the approved paths; 
     // An open budget exhaustion in the workspace keeps turns advice only.
     await f.ws.state.transact((tx) => tx.put('budget-exhaustions', 'b-x', { workspaceId: f.ws.workspaceId, open: true }));
     assert.equal(reasonWith({}), 'BUDGET_EXHAUSTED');
+    // Tiered routing, step 2b (2026-10-08): the gate for a turn the tier rule moves UP leaves out only the low-risk condition.
+    assert.equal(reasonWith({ ignoreRisk: true }), 'BUDGET_EXHAUSTED', 'the budget still holds');
     await f.ws.state.transact((tx) => tx.delete('budget-exhaustions', 'b-x'));
+    assert.equal(reasonWith({ ignoreRisk: true }), null, 'a linked session on a certified Kilo or OpenCode');
+    assert.equal(approvedScopeFor(f.ws, 'kilo-interactive-1', { ...all, ignoreRisk: true }).turnReasonCode, 'SESSION_NOT_LINKED', 'the link is still required');
+    assert.equal(reasonWith({ ignoreRisk: true, turnCertified: false }), 'TURN_ROUTE_UNCERTIFIED');
+    assert.equal(reasonWith({ ignoreRisk: true, killSwitchStopped: true }), 'KILL_SWITCH');
+    // The tier signals of the task: counts and codes, no title and no path.
+    const signals = turnTierSignals(f.ws, 'T1');
+    assert.deepEqual([signals.sliceId, signals.files, signals.checks, signals.risk], ['bounded-edit', 1, 1, 'low']);
+    assert.equal(JSON.stringify(signals).includes('mod'), false, 'no path name');
+    assert.equal(turnTierSignals(f.ws, 'nope'), null);
     writeFileSync(join(f.ws.home, '..', 'go'), '');
     await drainBackgroundWorkers();
     const session = ownedSessions(f.ws).find((s) => s.taskId === 'T1');

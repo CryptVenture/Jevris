@@ -56,6 +56,20 @@ test('rewrite plus instruct: a route with a context note renders updatedInput an
   assert.deepEqual(JSON.parse(claude.protocolResponse(event, { kind: 'context', text: advice })), { hookSpecificOutput: { hookEventName: 'PreToolUse', additionalContext: advice } });
 });
 
+test('a route UP (tiered routing, 2026-10-08): the exact PreToolUse JSON sets model opus on one Agent call, with the note for the model, and nothing else', () => {
+  const claude = adapters[0].mod;
+  const native = claude.FIXTURES.find((fixture) => fixture.id === 'claude.pre-agent').native;
+  const event = claude.normalize(native).event;
+  const note = "Jevris set model opus on this one Agent call (the session's work was judged very hard by the tier rules (TIER_PROTECTED_PATH); a rules-based default, not a learned route and not a signed prior). The session model is unchanged.";
+  const out = claude.protocolResponse(event, { kind: 'route', model: 'claude-opus-5-5', context: note }, native);
+  assert.equal(out, JSON.stringify({ hookSpecificOutput: { hookEventName: 'PreToolUse', updatedInput: { ...native.tool_input, model: 'opus' }, additionalContext: note } }));
+  assert.equal(out.includes('permissionDecision'), false, 'no permission decision: native permissions stay authoritative');
+  assert.deepEqual(Object.keys(JSON.parse(out).hookSpecificOutput.updatedInput).sort(), [...Object.keys(native.tool_input), 'model'].sort(), 'only the model key is added to the native input');
+  // Not routable the pinned way: an explicit model on the call is never overridden, whatever the tier says.
+  const pinnedNative = claude.FIXTURES.find((fixture) => fixture.id === 'claude.pre-agent-pinned').native;
+  assert.equal(claude.protocolResponse(claude.normalize(pinnedNative).event, { kind: 'route', model: 'claude-opus-5-5', context: note }, pinnedNative), '');
+});
+
 test('route: a registry id maps to the haiku, sonnet, opus or fable alias by family (R25); any other model is never routed', () => {
   const claude = claudeAdapter;
   const cases = [

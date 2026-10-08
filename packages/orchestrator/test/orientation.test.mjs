@@ -89,7 +89,7 @@ test('orientation: the line fits its byte cap in every mode, and says advice onl
     }
     const line = orientationLine(mode, 'claude');
     // Owner decision 2026-10-08: the standing sentence on the subagent model policy, Claude Code only, with nothing forced.
-    assert.match(line, /A low-risk subagent may run on a cheaper model for that one call only; Jevris advises it and sets it where certified, and your session model is never changed\./);
+    assert.match(line, /A low-risk subagent may run on a cheaper model \(a very hard one on a stronger model\) for that one call only; Jevris advises it and sets it where certified, and your session model is never changed\./);
     assert.match(line, /may suggest \/model; nothing is forced\./);
     assert.equal(orientationLine(mode, 'codex').includes('subagent'), false);
     assert.equal(orientationLine(mode).includes('subagent'), false);

@@ -67,6 +67,8 @@ export * from './route-turn.js';
 export * from './router.js';
 export * from './route-switch.js';
 export * from './subagent-route.js';
+export * from './subagent-tier.js';
+export * from './session-tier-memo.js';
 export * from './route-escalation.js';
 export * from './calibration-loader.js';
 export * from './route-worker.js';

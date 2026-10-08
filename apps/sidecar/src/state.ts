@@ -12,7 +12,7 @@ import type {
   SidecarWorkspace,
 } from '@jevris/contracts';
 import { createDeadline, isAbsoluteOnAnyPlatform, monotonicClock, type JevrisPaths } from '@jevris/platform';
-import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, firstTryOf, firstTryStatusView, firstTryWorkspaceOf, jevAssistOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified } from '@jevris/orchestrator';
+import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, firstTryOf, firstTryStatusView, firstTryWorkspaceOf, jevAssistOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified, turnTierSignals } from '@jevris/orchestrator';
 import { BUILTIN_OP_NAMES, bodyRecord, ok, refuse, type LoadedOps } from './ops.js';
 import { ANSWER_EVENT_KINDS, PROTOCOL, jevrisPackage, loadedRuntimeBuild } from './protocol.js';
 import { renderedSubscribers } from './outcome-rank.js';
@@ -381,7 +381,7 @@ export interface RuntimeState {
    * OD-8: what route.turn learns from the sidecar and never from the plugin: the session's approved
    * scope with D's turn gate and the task's slice, and the effective `routing.mainSession`.
    */
-  turnContext(ctx: SidecarOpContext, sessionId: string, harness: string): Promise<{ readonly scope: { readonly taskId?: string; readonly risk?: string; readonly sliceId?: string; readonly turnActuation: 'bounded-auto' | 'advise'; readonly turnReasonCode: string | null } | null; readonly mainSession: (typeof MAIN_SESSION_MODES)[number] | null; readonly hostRouteCertified: boolean }>;
+  turnContext(ctx: SidecarOpContext, sessionId: string, harness: string, stepUp?: boolean): Promise<{ readonly tierSignals?: object; readonly scope: { readonly taskId?: string; readonly risk?: string; readonly sliceId?: string; readonly turnActuation: 'bounded-auto' | 'advise'; readonly turnReasonCode: string | null } | null; readonly mainSession: (typeof MAIN_SESSION_MODES)[number] | null; readonly hostRouteCertified: boolean }>;
   /** P5: the advice-adherence port for a workspace (C's advice handlers), or undefined. */
   adviceAdherenceFor(workspace: SidecarWorkspace): SidecarAdviceAdherence | undefined;
   killSwitchStopped(): Promise<boolean>;
@@ -1749,6 +1749,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
     readonly mainSession: MainSessionModeValue | null;
     /** Serving hosts R50: the harness's route.host certification for the recorded session's version; false otherwise. */
     readonly hostRouteCertified: boolean;
+    /** Step 2b (tiered routing): the linked task's content-free tier signals, only when asked for with `stepUp`. */
+    readonly tierSignals?: object;
   }
 
   /**
@@ -1764,7 +1766,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
    *   version, false for an unknown or ended session or any failure.
    * Never throws: any failure is advice only.
    */
-  async function turnContextFor(ctx: SidecarOpContext, sessionId: string, harness: string): Promise<TurnContextAnswer> {
+  async function turnContextFor(ctx: SidecarOpContext, sessionId: string, harness: string, stepUp = false): Promise<TurnContextAnswer> {
     if (ctx.workspace.root === null) return { scope: null, mainSession: null, hostRouteCertified: false };
     let ws: ReturnType<typeof openWorkspace>;
     try {
@@ -1783,11 +1785,14 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       if (row.state === 'ended') return advise('SESSION_ENDED');
       const [certified, hostCertified] = await Promise.all([turnCertified(harness, row.harnessVersion), hostCerts.get(harness, row.harnessVersion)]);
       hostRouteCertified = hostCertified;
-      const found = approvedScopeFor(ws, sessionId, { harness, killSwitchStopped: ctx.killSwitchStopped, turnCertified: certified });
+      // `stepUp` (owner decision 2026-10-08, step 2b): the gate for a turn the shared tier rule moves UP leaves out the
+      // low-risk condition (work that is not low risk), keeps every other one, and brings the task's tier signals.
+      const found = approvedScopeFor(ws, sessionId, { harness, killSwitchStopped: ctx.killSwitchStopped, turnCertified: certified, ...(stepUp ? { ignoreRisk: true } : {}) });
       if (found === null) return { scope: null, mainSession, hostRouteCertified };
       const gated = gatedScope(found, false);
       const slice = gated.taskId === undefined ? undefined : getTask(ws, gated.taskId)?.sliceId;
-      return { scope: { ...gated, ...(typeof slice === 'string' && SCOPE_TASK_ID.test(slice) ? { sliceId: slice } : {}) }, mainSession, hostRouteCertified };
+      const signals = stepUp && gated.taskId !== undefined ? turnTierSignals(ws, gated.taskId) : null;
+      return { scope: { ...gated, ...(typeof slice === 'string' && SCOPE_TASK_ID.test(slice) ? { sliceId: slice } : {}) }, mainSession, hostRouteCertified, ...(signals === null ? {} : { tierSignals: signals }) };
     } catch {
       hostRouteCertified = false;
       return advise('TURN_GATE_UNREADABLE');
@@ -1809,7 +1814,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
         const mode = effectiveModeFor(ctx.home, ctx.workspace.root);
         if (!modeAllows(mode, 'show-advice')) return refuse('MODE_DOES_NOT_ADVISE', `Jevris is in ${mode} mode; the turn keeps its model and nothing is shown.`);
         definition ??= import('@jevris/provider-typesafe')
-          .then((provider) => provider.createRouteTurnOp((opCtx, sessionId, harness) => turnContextFor(opCtx, sessionId, harness)))
+          .then((provider) => provider.createRouteTurnOp((opCtx, sessionId, harness) => turnContextFor(opCtx, sessionId, harness), (opCtx, sessionId, harness) => turnContextFor(opCtx, sessionId, harness, true)))
           .catch(() => undefined);
         const loaded = await definition;
         if (loaded === undefined) return refuse('ROUTE_UNAVAILABLE', 'The routing package could not be loaded; the turn is not switched.');

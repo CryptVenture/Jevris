@@ -101,6 +101,8 @@ import {
   sessionBaseline,
   tierEligibleModels,
   tierSignalsOf,
+  noteSessionTier,
+  harnessTierSlot,
   type ModelTierDecision,
   planSliceTasksOf,
   planSliceTimes,
@@ -117,7 +119,7 @@ import { consentReaderOf, engineOf } from './engine-of.js';
 import { turnMainSessionOf, turnServingOf, turnSessionLinkOf } from './route-turn-op.js';
 import { DEFAULT_TRIGGER_HANDLERS } from './trigger-handlers.js';
 import { adviceIgnored, openAdvice } from './advice-adherence.js';
-import { createDecisionSubscriber } from './sidecar-subscribers.js';
+import { ROUTE_FEATURE, cliCertificationSource, createDecisionSubscriber, isCertified } from './sidecar-subscribers.js';
 
 function fail(reasonCode: string, message?: string): SidecarOpOutcome {
   return message === undefined ? { ok: false, reasonCode } : { ok: false, reasonCode, message: message.slice(0, 300) };
@@ -659,7 +661,11 @@ async function routeTier(ctx: SidecarOpContext, input: RouteRequest, registry: M
     const baseline = sessionBaseline(registry, input.harness, input.currentModel);
     if (baseline === null) return null;
     const nowMs = nowOf(ctx);
-    const eligible = await tierEligibleModels(evaluationInput(ctx, input, registry, new Map(), 'main', nowMs));
+    // Claude Code's own family alias counts as local evidence once hooks.route is certified for the installed version
+    // (HARNESS_ALIAS, owner decision 2026-10-08): so the tier is produced on a default install, with no model run first. Only the
+    // tier and the subagent route ask for the proof; the main route evaluation never does.
+    const alias = input.harness === 'claude' ? { certified: await routeAliasCertified(ctx, nowMs), nowMs } : undefined;
+    const eligible = await tierEligibleModels(evaluationInput(ctx, input, registry, new Map(), 'main', nowMs), alias);
     if (eligible === null) return null;
     const mode = ctx.mode ?? 'observe';
     const waitMs = routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs(), ctx.hotBudgetMs);
@@ -673,16 +679,63 @@ async function routeTier(ctx: SidecarOpContext, input: RouteRequest, registry: M
     });
     try {
       const first = await Promise.race([run.catch(() => 'failed' as const), late]);
-      if (first !== 'late' && first !== 'failed') return first;
+      if (first !== 'late' && first !== 'failed') return keepTier(ctx, input, first, nowMs);
       // Abandoned at the deadline (or failed): the rules' tier, no model, no record.
       const rules = await judgeModelTier(null, judged, intent, { assist: 'off', record: false });
-      return { ...rules, reasonCodes: [...rules.reasonCodes, first === 'late' ? 'TIER_DEADLINE' : 'TIER_ERROR'] };
+      return keepTier(ctx, input, { ...rules, reasonCodes: [...rules.reasonCodes, first === 'late' ? 'TIER_DEADLINE' : 'TIER_ERROR'] }, nowMs);
     } finally {
       if (timer !== undefined) clearTimeout(timer);
     }
   } catch {
     return null;
   }
+}
+
+/**
+ * The host ledger's installed-version source (D's harnessVersionOf), set by the sidecar at start: this package does not
+ * depend on the orchestrator, so the sidecar hands the function over. Unset: no version, so nothing is certified.
+ */
+let harnessVersionSourceOf: ((home: string, harness: string) => string | null) | null = null;
+export function setHarnessVersionSource(source: ((home: string, harness: string) => string | null) | null): void {
+  harnessVersionSourceOf = source;
+}
+
+/** Test seam: replaces the check that hooks.route is certified for the installed Claude Code (null restores the real one). */
+let routeCertificationOverride: ((home: string, nowMs: number) => Promise<boolean>) | null = null;
+export function setRouteCertification(check: ((home: string, nowMs: number) => Promise<boolean>) | null): void {
+  routeCertificationOverride = check;
+}
+
+/**
+ * Whether `hooks.route` is certified for the installed Claude Code on this OS (the sidecar's own records, never the
+ * request's). It is the proof behind HARNESS_ALIAS. Any failure is not certified.
+ */
+async function routeAliasCertified(ctx: SidecarOpContext, nowMs: number): Promise<boolean> {
+  try {
+    if (routeCertificationOverride !== null) return await routeCertificationOverride(ctx.home, nowMs);
+    const platform = (globalThis as { process?: { platform?: string } }).process?.platform ?? '';
+    if (platform !== 'darwin' && platform !== 'linux' && platform !== 'win32') return false;
+    const version = harnessVersionSourceOf === null ? null : harnessVersionSourceOf(ctx.home, 'claude');
+    return (await isCertified(cliCertificationSource, ctx.home, { harness: 'claude', harnessVersion: typeof version === 'string' && version.length > 0 ? version : null, operatingSystem: platform, featureId: ROUTE_FEATURE, nowMs })).certified;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Keeps the judged tier for ten minutes (`session-tier-memo.ts`), under the request's session and the harness's slot, so a
+ * subagent launch (which makes no Jev call) and a Kilo or OpenCode turn read it. Ids and codes only. Returns the decision.
+ */
+function keepTier(ctx: SidecarOpContext, input: RouteRequest, decision: ModelTierDecision, nowMs: number): ModelTierDecision {
+  try {
+    if (decision.candidates.length === 0) return decision;
+    const memo = { tier: decision.tier, targetModelId: decision.targetModelId, baselineModelId: decision.baselineModelId, basis: decision.basis, reasonCodes: decision.reasonCodes, atMs: nowMs };
+    if (input.sessionId !== null) noteSessionTier(ctx.workspace.id, input.sessionId, memo);
+    if (input.harness !== null) noteSessionTier(ctx.workspace.id, harnessTierSlot(input.harness), memo);
+  } catch {
+    // The memo is a convenience: a failure keeps nothing.
+  }
+  return decision;
 }
 
 function tierField(d: ModelTierDecision | null): { readonly tier?: NonNullable<RoutePayload['tier']> } {

@@ -67,6 +67,13 @@ export interface ApprovedScopeOptions {
   readonly killSwitchStopped?: boolean;
   /** Whether the harness's session.route certify case passes (`turnRouteCertified`); default false. */
   readonly turnCertified?: boolean;
+  /**
+   * Owner decision 2026-10-08 (tiered routing, step 2b): ask the turn gate without its low-risk condition. A turn switched UP
+   * by the shared tier rule is for work that is not low risk by definition (a protected path, a migration); every other
+   * condition (the mode, the harness, the kill switch, the certification, the link to the task, the budget) still holds.
+   * A step down never uses this: it keeps the low-risk condition.
+   */
+  readonly ignoreRisk?: boolean;
 }
 
 const RISK = /^[a-z][a-z-]{0,31}$/;
@@ -116,7 +123,7 @@ function turnGate(ws: WorkspaceServices, task: TaskRecord, options: ApprovedScop
   const view = mainSessionView(configured, options.harness ?? '', { certified: options.turnCertified === true, killSwitchStopped: options.killSwitchStopped });
   if (view.reasonCode !== null) return view.reasonCode;
   if (!linked) return SESSION_NOT_LINKED;
-  if (task.risk !== 'low') return 'RISK_NOT_LOW';
+  if (options.ignoreRisk !== true && task.risk !== 'low') return 'RISK_NOT_LOW';
   const exhausted = ws.state.list<{ readonly workspaceId?: string; readonly open?: boolean }>('budget-exhaustions').some((r) => r.workspaceId === ws.workspaceId && r.open === true);
   if (exhausted) return 'BUDGET_EXHAUSTED';
   return null;

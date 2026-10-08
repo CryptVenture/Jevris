@@ -185,7 +185,7 @@ test('subagent route: every abstain reason, each paired with the one change that
 
 test('subagent route: no prompt text is ever read; only the declared fields decide', () => {
   // A Proxy input throws on any field the function is not declared to read (prompt, description, toolInput...).
-  const allowed = new Set(['harness', 'subagentType', 'explicitModel', 'sessionModel', 'pins', 'registry', 'nowMs', 'unavailableModels', 'learning', 'signedPrior', 'consentedProviders', 'locallyEligible', 'accessLimits', 'authMode', 'risk']);
+  const allowed = new Set(['harness', 'subagentType', 'explicitModel', 'sessionModel', 'pins', 'registry', 'nowMs', 'unavailableModels', 'learning', 'signedPrior', 'consentedProviders', 'locallyEligible', 'accessLimits', 'authMode', 'risk', 'tier']);
   const guarded = new Proxy({ ...input(), prompt: 'SECRET PROMPT', description: 'SECRET', toolInput: { prompt: 'SECRET' } }, {
     get(target, key) {
       if (typeof key === 'string' && !allowed.has(key)) throw new Error(`read ${key}`);
