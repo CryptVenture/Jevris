@@ -170,14 +170,21 @@ export function sessionAuthMode(harness: LauncherName, env: { readonly [key: str
 const MODEL_PIN = /^[A-Za-z0-9][A-Za-z0-9._:\-[\]]{0,127}$/;
 
 /**
- * JEV-0080: the model the person pinned in Claude Code (`ANTHROPIC_MODEL`, which Jevris never changes; docs/mcp.md), read from the
- * environment this hook runs in, since the sidecar cannot see it. A pin only ever silences routing advice and stops a subagent
- * rewrite, so the sidecar takes it from the hook. Other harnesses name no such variable: null. A value that is not a model name,
- * or looks like a secret, is none.
+ * The environment variable in which each harness takes a pinned model, where it documents one (JEV-0080). Codex, Kilocode,
+ * OpenCode and Antigravity name none: their pin is a config value or a flag (`model` in the config file, `--model`), which a hook
+ * cannot see; there the pin reaches Jevris as `--pin` / `modelPin` on a route request, and the harness's in-process plugin knows
+ * the session's model itself. Add a harness here when its docs name a variable.
+ */
+export const MODEL_PIN_ENV: Readonly<Partial<Record<LauncherName, string>>> = Object.freeze({ claude: 'ANTHROPIC_MODEL' });
+
+/**
+ * The model the person pinned in the harness, which Jevris never changes, read from the environment this hook runs in, since the
+ * sidecar cannot see it. A pin only ever silences routing advice and stops a subagent rewrite, so the sidecar takes it from the hook.
+ * A harness with no such variable gives null; so does a value that is not a model name or looks like a secret.
  */
 export function sessionModelPin(harness: LauncherName, env: { readonly [key: string]: string | undefined }): string | null {
-  if (harness !== 'claude') return null;
-  const pin = env['ANTHROPIC_MODEL']?.trim();
+  const name = MODEL_PIN_ENV[harness];
+  const pin = name === undefined ? undefined : env[name]?.trim();
   return typeof pin === 'string' && MODEL_PIN.test(pin) && !containsSecret(pin) ? pin : null;
 }
 

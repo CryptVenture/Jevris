@@ -513,7 +513,7 @@ test('JEV-0080: a Claude hook sends the model pin ANTHROPIC_MODEL names (never a
   assert.equal(sessionModelPin('claude', { ANTHROPIC_MODEL: '' }), null, 'an empty variable is not a pin');
   assert.equal(sessionModelPin('claude', { ANTHROPIC_MODEL: 'has space' }), null);
   assert.equal(sessionModelPin('claude', { ANTHROPIC_MODEL: 'sk-ant-api03-abcdefghijklmnopqrstuvwxyz0123456789' }), null, 'a key is no model');
-  assert.equal(sessionModelPin('codex', { ANTHROPIC_MODEL: 'claude-sonnet-5-5' }), null, 'only Claude Code names this variable');
+  for (const harness of ['codex', 'kilocode', 'opencode', 'antigravity']) assert.equal(sessionModelPin(harness, { ANTHROPIC_MODEL: 'claude-sonnet-5-5' }), null, `${harness} names no pin variable`);
 
   const agent = fixture(claude, 'claude.pre-agent');
   const pinned = fakeSidecar();
