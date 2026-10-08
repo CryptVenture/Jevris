@@ -19,10 +19,7 @@ import {
   locallyEligibleFor,
   buildTierLadder,
   readSessionTier,
-  sessionBaseline,
-  sessionModelRegistryId,
   subagentTierOf,
-  tierEligibleModels,
   judgeSubagentRisk,
   rulesSubagentRisk,
   subagentRiskFeatures,
@@ -56,9 +53,11 @@ import { raceDeadlineOf } from './live-advice-util.js';
 import { FAILURE_ARTIFACT_TEXT } from './failure-advice.js';
 import { newTaskAdvice, repeatedFailureAdvice } from './live-handlers.js';
 import { scopeChangeAdvice } from './scope-handler.js';
+import { modelTierAdvice } from './model-tier-advice.js';
 import { bundledCalibrationPath, trustedCalibrationKeys } from './calibration-trust.js';
 import { adviceIgnored, openAdvice } from './advice-adherence.js';
 import { consentReaderOf } from './engine-of.js';
+import { sessionEligible } from './session-tier.js';
 
 const routeOnce = new AdviceOnce();
 /** What the hook route wire (HookOutcome `route.model`, E b250627) can hold. */
@@ -398,31 +397,12 @@ async function subagentTierFor(
 ): Promise<SubagentTierInput | null> {
   try {
     const harness = input.event.harness;
-    const resolved = sessionModelRegistryId(registry, harness, sessionModel, use.nowMs);
-    const baseline = sessionBaseline(registry, harness, resolved);
-    if (baseline === null) return null;
-    const eligible = await tierEligibleModels(
-      {
-        role: 'main',
-        home: input.ctx.home,
-        registry,
-        trustedKeys: new Map(),
-        killSwitchStopped: input.ctx.killSwitchStopped === true,
-        sliceId: null,
-        currentModel: baseline,
-        pins: { modelPin: null, effortPin: null },
-        nowMs: use.nowMs,
-        harness,
-        authMode: use.authMode,
-        consentedProviders: use.consentedProviders,
-      },
-      harness === 'claude' ? { certified: use.aliasCertified, nowMs: use.nowMs } : undefined,
-    );
-    if (eligible === null) return null;
+    const session = await sessionEligible(input, registry, sessionModel, use);
+    if (session === null) return null;
     // A harness whose actuator takes only its own preset list (Codex's spawn_agent) is offered only those models as rungs.
     const preset = (SUBAGENT_ROUTE_ACTUATORS as Readonly<Record<string, { readonly presetOnly: boolean } | null>>)[harness]?.presetOnly === true;
-    const models = preset ? eligible.eligible.filter((m) => (m.harnessModels ?? []).some((row) => row.harness === harness)) : eligible.eligible;
-    const ladder = buildTierLadder({ eligible: models, baselineModelId: baseline, volume: eligible.settings.defaultTaskVolume });
+    const models = preset ? session.eligible.filter((m) => (m.harnessModels ?? []).some((row) => row.harness === harness)) : session.eligible;
+    const ladder = buildTierLadder({ eligible: models, baselineModelId: session.baselineModelId, volume: session.volume });
     return subagentTierOf(ladder, readSessionTier(input.envelope.workspaceId, input.envelope.sessionId, use.nowMs, harness));
   } catch {
     return null;
@@ -474,10 +454,10 @@ export const DEFAULT_TRIGGER_HANDLERS: Partial<Record<TriggerKind, readonly Trig
   'model-change-request': [modelChangeAdvice],
   'worker-creation': [subagentRouteAdvice],
   // One handler: C01, C04 and C02 over the request the adapter supplies, only with egress approved.
-  'new-task': [newTaskAdvice],
+  'new-task': [newTaskAdvice, modelTierAdvice],
   'diff-boundary': [scopeChangeAdvice],
   'new-failure-family': [evidenceAdvice],
   // The live adviser first (it reads the adapter's content-free `failure` features and asks C05 over them);
   // `evidenceAdvice` adds C05's rules request for a missing artifact, with no call.
-  'repeated-failure': [repeatedFailureAdvice, evidenceAdvice],
+  'repeated-failure': [repeatedFailureAdvice, modelTierAdvice, evidenceAdvice],
 });

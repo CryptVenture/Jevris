@@ -262,8 +262,12 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
     if ((ctx.signal as { readonly aborted?: boolean }).aborted === true) return null;
     const waiting = pending.peek(envelope.workspaceId, envelope.sessionId);
     if (waiting === null) return null;
+    // A model-tier line (owner decisions 2026-10-08, step 3) is addressed to the model, as the subagent advice is: a context where
+    // `hooks.context` is certified, else the same line as a message to the person (an explain, without the model-only note).
+    const toModel = waiting.kind === 'model-tier';
     return {
-      hookOutcome: { kind: 'explain', text: waiting.text },
+      hookOutcome: toModel ? { kind: 'context', text: waiting.text } : { kind: 'explain', text: waiting.text },
+      ...(toModel ? { fallbackText: waiting.personText ?? waiting.text } : {}),
       reasonCode: 'PENDING_ADVICE_DELIVERED',
       ...(waiting.decisionId === null ? {} : { decisionId: waiting.decisionId }),
       commit: () => pending.consume(envelope.workspaceId, envelope.sessionId, waiting),

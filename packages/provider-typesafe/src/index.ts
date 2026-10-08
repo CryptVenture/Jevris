@@ -34,6 +34,8 @@ export type { NewTaskAdvice, OpenKind, TaskFamily } from './new-task-advice.js';
 export { createNewTaskHandler, createRepeatedFailureHandler, newTaskAdvice, repeatedFailureAdvice } from './live-handlers.js';
 export type { LiveHandlerOptions } from './live-handlers.js';
 export { PENDING_ADVICE, PendingAdviceStore } from './pending-advice.js';
+export { TIER_LINE_MODEL_NOTE, TIER_LINE_QUIET_MS, claudeAlias, clearModelTierQuiet, createModelTierHandler, modelTierAdvice, modelTierLine, readTierSignals, switchCommandFor, tierLineSlice } from './model-tier-advice.js';
+export type { ModelTierHandlerOptions, TierLineDirection, TierLineInput, TierLineQuiet } from './model-tier-advice.js';
 export type { PendingAdvice, PendingKind } from './pending-advice.js';
 export { createCallMeter, distributionOf, percentileOf, spentRecord } from './features-meter.js';
 export type { AnswerStat, CallMeter, Distribution, ExchangeObserver, MeterLimits, MeterRow, MeterTotals } from './features-meter.js';

@@ -514,10 +514,12 @@ test('observe mode asks and records the counterfactual and shows nothing', async
 });
 
 test('the default trigger handlers: one handler for a new task (C01, C04 and C02), the live adviser first for a repeated failure, and C06 on a diff boundary', () => {
-  assert.deepEqual(provider.DEFAULT_TRIGGER_HANDLERS['new-task'], [provider.newTaskAdvice], 'one implementation of each decision: no second handler asks C01, C02 or C04');
+  // One implementation of each decision: no second handler asks C01, C02 or C04. The main-session model line (tiered routing, step 3) follows it: rules only, no Jev call.
+  assert.deepEqual(provider.DEFAULT_TRIGGER_HANDLERS['new-task'], [provider.newTaskAdvice, provider.modelTierAdvice]);
   assert.equal(provider.newTaskIntent, undefined, 'the older handler that duplicated them is gone');
   assert.deepEqual(provider.DEFAULT_TRIGGER_HANDLERS['repeated-failure'].slice(0, 1), [provider.repeatedFailureAdvice]);
   assert.ok(provider.DEFAULT_TRIGGER_HANDLERS['repeated-failure'].includes(provider.evidenceAdvice));
+  assert.ok(provider.DEFAULT_TRIGGER_HANDLERS['repeated-failure'].includes(provider.modelTierAdvice));
   assert.deepEqual(provider.DEFAULT_TRIGGER_HANDLERS['diff-boundary'], [provider.scopeChangeAdvice]);
 });
 

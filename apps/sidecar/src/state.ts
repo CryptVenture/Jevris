@@ -1824,6 +1824,33 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
   }
 
   /**
+   * Tiered routing, step 3: what the main-session model line reads of a session, from the sidecar's own state only. The session's
+   * model as recorded (the hook may not name it on a prompt), the content-free tier signals of the task the session works on
+   * (counts, the risk class and codes; never a title or a path) and whether a Kilo or OpenCode turn is switched by the plugin
+   * (`up`: a step up is; `both`: a step down is too; `none`). Never throws: a failure adds nothing.
+   */
+  function mainSessionTierFacts(ctx: SidecarOpContext, session: EventSession, sessionId: string | null): Record<string, unknown> {
+    const out: Record<string, unknown> = {};
+    try {
+      const view = ctx.workspace.root === null ? undefined : (storeFor(ctx.workspace) as OpenedStore | undefined);
+      const row = view === undefined || api === undefined || sessionId === null ? undefined : api.getSession(view, sessionId);
+      const model = label(row?.actualModel ?? row?.requestedModel ?? null);
+      if (model !== null) out['sessionModel'] = model;
+      if (ctx.workspace.root === null || sessionId === null) return out;
+      const ws = openWorkspace({ home: ctx.home, workspaceRoot: ctx.workspace.root, ...(WORKSPACE_ID.test(ctx.workspace.id) ? { workspaceId: ctx.workspace.id } : {}), store: ctx.store });
+      const found = approvedScopeFor(ws, sessionId, { harness: session.harness, killSwitchStopped: ctx.killSwitchStopped, turnCertified: turnCertifiedNow(session.harness, session.harnessVersion), ignoreRisk: true });
+      if (found === null) return out;
+      const gated = gatedScope(found, false);
+      const signals = gated.taskId === undefined ? null : turnTierSignals(ws, gated.taskId);
+      if (signals !== null) out['tierSignals'] = signals;
+      out['tierTurn'] = gated.turnActuation === 'bounded-auto' ? (gated.risk === 'low' ? 'both' : 'up') : 'none';
+    } catch {
+      // The line then judges from the memo and the failure alone.
+    }
+    return out;
+  }
+
+  /**
    * INT-05: a body that carries `scope` gets `scope.approvedScope` from the plan (D's
    * approvedScopeFor: the task's write scopes, no effects), replacing anything the harness
    * sent; with no approved scope it is removed. The approved scope never comes from a hook.
@@ -1835,7 +1862,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
    * Every body also gets the sidecar's `hostRouteCertified` (serving hosts R50).
    */
   function withApprovedScope(ctx: SidecarOpContext, sessionId: string | null): SidecarOpContext {
-    const { repair: _claimedRepair, ...claimed } = bodyRecord(ctx);
+    // Whatever a hook claims for the fields the sidecar adds itself is dropped (the repair bound, and the main-session tier facts below).
+    const { repair: _claimedRepair, tierSignals: _claimedTier, tierTurn: _claimedTurn, sessionModel: _claimedModel, ...claimed } = bodyRecord(ctx);
     // R50: `hostRouteCertified` is the sidecar's own route.host answer for the event's harness and
     // version (the cached one; the event path waits for it on a worker event). A hook's claim is
     // replaced, so a subagent route never reads the plugin's word for it.
@@ -1851,7 +1879,11 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
         repair = undefined;
       }
     }
-    const body: Record<string, unknown> = { ...claimed, hostRouteCertified: eventSession === undefined ? false : hostCerts.now(eventSession.harness, eventSession.harnessVersion), ...(repair === undefined ? {} : { repair }) };
+    // Tiered routing, step 3 (the main-session model line): on a prompt or a failure, the sidecar's own record of the session's model and
+    // of its task's content-free tier signals, and whether the plugin switches a Kilo or OpenCode turn itself. Never from the hook.
+    const eventKind = plainRecord(claimed['envelope'])?.['kind'];
+    const mainTier = (eventKind === 'task.requested' || plainRecord(claimed['failure']) !== undefined) && eventSession !== undefined && eventSession.source !== 'subagent' ? mainSessionTierFacts(ctx, eventSession, sessionId) : {};
+    const body: Record<string, unknown> = { ...claimed, hostRouteCertified: eventSession === undefined ? false : hostCerts.now(eventSession.harness, eventSession.harnessVersion), ...(repair === undefined ? {} : { repair }), ...mainTier };
     ctx = { ...ctx, body };
     const claimedScope = plainRecord(body['scope']);
     const proposedCall = claimedScope === undefined && plainRecord(claimed['envelope'])?.['kind'] === 'tool.proposed' && plainRecord(body['effect']) !== undefined;

@@ -19,7 +19,7 @@
  */
 import { UNKNOWN_SESSION_ID } from '@jevris/core';
 
-export type PendingKind = 'repeated-failure' | 'new-task' | 'scope-change';
+export type PendingKind = 'repeated-failure' | 'new-task' | 'scope-change' | 'model-tier';
 
 export interface PendingAdvice {
   readonly kind: PendingKind;
@@ -29,6 +29,16 @@ export interface PendingAdvice {
   readonly decisionId: string | null;
   /** The reason code of the source (`REPEATED_FAILURE_*`, `NEW_TASK_*` or `SCOPE_*`). */
   readonly reasonCode: string;
+  /**
+   * The line as the person should read it, when it differs from `text` (a `model-tier` line carries a short note
+   * addressed to the model that a message to the person leaves out). Absent: `text`.
+   */
+  readonly personText?: string;
+  /**
+   * Run once when the line is taken off the queue, that is when it was handed to the harness (a `model-tier` line opens its
+   * adherence and starts its quiet period here). Never run for a line that expired or was replaced. It must not throw.
+   */
+  readonly delivered?: () => void;
   readonly atMs: number;
 }
 
@@ -76,7 +86,15 @@ export class PendingAdviceStore {
     if (text.length === 0) return false;
     const key = PendingAdviceStore.key(workspaceId, sessionId);
     const kept = this.#live(key).filter((existing) => existing.kind !== advice.kind);
-    kept.push({ kind: advice.kind, text, decisionId: advice.decisionId, reasonCode: advice.reasonCode, atMs: advice.atMs ?? this.#now() });
+    kept.push({
+      kind: advice.kind,
+      text,
+      decisionId: advice.decisionId,
+      reasonCode: advice.reasonCode,
+      ...(advice.personText === undefined ? {} : { personText: advice.personText.trim().slice(0, MAX_TEXT_CHARS) }),
+      ...(advice.delivered === undefined ? {} : { delivered: advice.delivered }),
+      atMs: advice.atMs ?? this.#now(),
+    });
     this.#sessions.delete(key);
     this.#sessions.set(key, kept);
     while (this.#sessions.size > this.#maxSessions) {
@@ -109,6 +127,11 @@ export class PendingAdviceStore {
     if (at < 0) return false;
     list.splice(at, 1);
     if (list.length === 0) this.#sessions.delete(key);
+    try {
+      advice.delivered?.();
+    } catch {
+      // A delivery note is a convenience of its kind: its failure never undoes the take.
+    }
     return true;
   }
 

@@ -55,7 +55,7 @@ export function bodyOf(input: TriggerHandlerInput): Record<string, unknown> {
 }
 
 /** The repair-attempt bound the sidecar adds to the body from the effective config; the default when absent. */
-function repairBound(body: Record<string, unknown>): number {
+export function repairBound(body: Record<string, unknown>): number {
   const repair = body['repair'];
   const raw = plain(repair) ? repair['maxAttempts'] : undefined;
   return typeof raw === 'number' && Number.isInteger(raw) && raw >= 0 && raw <= 10 ? raw : DEFAULT_MAX_REPAIR_ATTEMPTS;

@@ -171,6 +171,7 @@ The hooks only observe:
   hooks cannot show text, so advice that comes due on them, such as a loop explanation after a
   failed tool call, is held for the session and sent as that message before the next
   invocation (at most the four newest, for up to an hour), once.
+- The main-session model line (advice, from 2026-10-08) uses the same ephemeral message, text only, because no hook can change the session's model: one short line, once, when the task looks very hard or the same failure repeats, naming a Google model a tier above the session's own and no command (none is documented here). The Google models in the registry are priced alike, so no rung is a tier away today and no line is made yet. See [routing.md](../routing.md#the-main-session-line).
 - A PostToolUse that carries an `error` gives the content-free failure record behind
   repeated-failure advice (closed codes and one-way digests that stay on this machine, never the
   error text, the command or a path). The error is free text: several lines, Windows line ends,

@@ -98,7 +98,7 @@ Which harness, version and operating system combinations are *certified* is list
 | --- | --- |
 | `status` | Mode, sidecar state, recent decisions, budget and kill switch |
 | `plan` | Task-graph validation: waves, critical path, ready tasks, write-scope conflicts |
-| `route` | Model and effort advice for the main session and managed workers; never switches your session's model or overrides a pinned one. `route learning` shows and controls per-workspace learning for owned workers. |
+| `route` | Model and effort advice for the main session and managed workers; never switches your session's model or overrides a pinned one. It also adds at most one short line of advice to the session when the work looks very hard (or clearly routine), naming a model of your session's own provider. `route learning` shows and controls per-workspace learning for owned workers. |
 | `checkpoint` | A memory capsule of constraints and changed files; never triggers compaction |
 | `recover` | One allow-listed recovery action for repeated or environment failures |
 | `verify` | Runs the checks you approved and reports whether the work is verified |

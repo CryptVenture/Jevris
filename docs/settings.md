@@ -87,7 +87,10 @@ settings issue, from the same layers, whether the sidecar or the local reduced r
 - **observe**: Jevris records the facts of each event and asks Jev what it would have advised.
   That answer is recorded as a decision under `observe`; nothing is shown and no model is switched.
 - **advise**: Jevris also shows advice: hook context, a subagent route as advice to the model (a
-  PreToolUse context where `hooks.context` is certified, else text for you), and the
+  PreToolUse context where `hooks.context` is certified, else text for you), the main-session
+  model line (one short, rules-only line, at most once per direction in 30 minutes, suggesting
+  a stronger model for very hard work or a cheaper one for clearly routine work; see
+  [routing.md](routing.md#the-main-session-line); `observe` records it and shows nothing), and the
   one Stop continuation that asks for missing verification evidence (it counts as advice).
 - **bounded-auto**: Jevris may also act where a signed certification covers the harness: route a
   subagent (a low-risk launch to a cheaper model of the session's own provider, and a write-capable launch of a session whose work is judged very hard to a stronger one, for that one call), switch a Kilo or OpenCode main-session turn (a promoted slice, or the tier rule's move), and start owned workers for plans you
@@ -181,7 +184,8 @@ Jevris switch the model of a Kilo or OpenCode main-session turn, and only when t
 promoted route-learning slice, or, since 8 October 2026 and where no slice is promoted, from the rules
 [model tier](routing.md#model-tiers) of the linked task's work, within the session's own provider (a step down needs the low-risk task; a step up, for very hard work, needs the link and every other condition but the low-risk one). Every
 other harness stays advice-only. `jevris configure set routing.mainSession advice-only` turns it
-off. `jevris status` shows one `main session` line per harness: the mode it runs under and
+off. That setting does not affect the main-session model line, which is only ever advice and so
+follows the mode alone ([routing.md](routing.md#the-main-session-line)). `jevris status` shows one `main session` line per harness: the mode it runs under and
 either that its turns may be switched or why they get advice only, with the reason code. Without
 the sidecar no certification is read, so every harness shows advice only. `jevris explain` on a
 Kilo or OpenCode turn decision names the mode that turn ran under and whether its model was

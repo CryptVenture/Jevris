@@ -257,6 +257,7 @@ certified when certify passes there.
   of the session are never switched.
   `opencode.session-route` must pass for `session.route` to be certified: the routed turn ran on the
   probe's model and the next, unrouted turn on the session's own.
+- **The main-session model line (advice, from 2026-10-08).** Where the plugin does not switch the turn itself (a session not linked to a task, or `routing.mainSession` below `plugin-bounded-auto`), the session gets one short line, once, in the system prompt of the model calls of the next chat message: "this looks hard (PROTECTED_AUTH): consider switching to <the session's own provider's step-up rung>" or, after the same failure again at the repair limit, the same with the failure count. The line names the model only and no OpenCode command, because none is documented here. It is not sent for a turn the plugin switches (the switch is the message). A line made on a tool event waits for the next chat message. Rules only, no Jev call, no prompt text; the gates, the 30-minute quiet period and the stop after two ignored lines are in [routing.md](../routing.md#the-main-session-line). Dormant until OpenCode has run or listed the rung, and with a session model Jevris does not know.
 - **A route through a gateway (`route.host`, serving hosts).** A route that changes the session's
   serving host, or any route through a gateway or third-party host (`openrouter/...`), needs
   `route.host` as well as `session.route`. Certify proves it with two cases against the loopback
