@@ -90,11 +90,10 @@ const harnessTable = [
   ['claude', { on: true, first: 'claude-haiku-5-5', baseline: 'claude-sonnet-5-5' }],
   ['codex', { on: true, first: 'gpt-6-luna', baseline: 'gpt-6.1-sol' }],
   ['antigravity', { on: false, reasonCode: 'NO_CHEAPER_RUNG', baseline: 'gemini-3.8-flash', strongerIsPreview: true }],
-  // Kilo and OpenCode have no default of their own: the registry's fallback baseline (used when a
-  // session's own model is unknown), so the Claude ladder. A session on another provider's model
-  // takes that provider's ladder (the route's baseline is the session model, not this row).
-  ['kilocode', { on: true, first: 'claude-haiku-5-5', baseline: 'claude-sonnet-5-5' }],
-  ['opencode', { on: true, first: 'claude-haiku-5-5', baseline: 'claude-sonnet-5-5' }],
+  // Kilo and OpenCode have no default of their own: they run whichever provider the session runs, so the registry alone
+  // has no ladder for them (never the Claude ladder). The route's baseline is the session's model (owner correction 2026-10-08).
+  ['kilocode', { on: false, reasonCode: 'BASELINE_NOT_ELIGIBLE', baseline: 'claude-sonnet-5-5', strongerIsPreview: false }],
+  ['opencode', { on: false, reasonCode: 'BASELINE_NOT_ELIGIBLE', baseline: 'claude-sonnet-5-5', strongerIsPreview: false }],
 ];
 for (const [harness, want] of harnessTable) {
   test(`harnessFirstTry: ${harness} from the real registry`, () => {

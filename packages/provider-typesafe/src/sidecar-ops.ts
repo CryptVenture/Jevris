@@ -97,6 +97,11 @@ import {
   HARNESS_MODEL_ID,
   harnessModelRef,
   classifyTaskSlice,
+  judgeModelTier,
+  sessionBaseline,
+  tierEligibleModels,
+  tierSignalsOf,
+  type ModelTierDecision,
   planSliceTasksOf,
   planSliceTimes,
   suggestPlanSlices,
@@ -641,6 +646,66 @@ function sliceField(c: SliceClassification | null): { readonly slice?: NonNullab
 }
 
 
+/**
+ * The route's model tier (owner decision 2026-10-08, tiered routing): how hard the described task looks and which of the
+ * models available to this session it points at, from the session's own model (any provider) and the models eligible here.
+ * Advice only. Null when there is nothing to judge: no task described, a pinned model (a pin is kept), no registry, a session
+ * whose model is unknown on a harness with no default of its own (no baseline), or an invalid routing policy. Jev is asked
+ * for the choice only inside the route's wait, with `jev.assist` on and the kill switch clear; every other case is the rules'.
+ */
+async function routeTier(ctx: SidecarOpContext, input: RouteRequest, registry: ModelRegistry | null): Promise<ModelTierDecision | null> {
+  try {
+    if (registry === null || input.task === undefined || input.task === null || input.modelPin !== null) return null;
+    const baseline = sessionBaseline(registry, input.harness, input.currentModel);
+    if (baseline === null) return null;
+    const nowMs = nowOf(ctx);
+    const eligible = await tierEligibleModels(evaluationInput(ctx, input, registry, new Map(), 'main', nowMs));
+    if (eligible === null) return null;
+    const mode = ctx.mode ?? 'observe';
+    const waitMs = routeSliceWaitMs(ctx.deadline.budgetMs, ctx.deadline.remainingMs(), ctx.hotBudgetMs);
+    const gate = ctx.killSwitchStopped ? 'TIER_KILL_SWITCH' : !modeAllows(mode, 'record') ? 'TIER_MODE_OFF' : ctx.jevAssist === 'off' ? 'TIER_ASSIST_OFF' : waitMs < ROUTE_SLICE_MIN_WAIT_MS ? 'TIER_NO_TIME' : null;
+    const intent: IntentContext = { workspaceId: ctx.workspace.id, evidenceRevision: WORKSPACE_REVISIONS.current(ctx.workspace.id), deadlineMs: Math.max(1, waitMs + ROUTE_SLICE_LATE_GRACE_MS) };
+    const judged = { signals: tierSignalsOf({ hints: input.task }), eligible: eligible.eligible, baselineModelId: baseline, volume: input.remaining ?? eligible.settings.defaultTaskVolume, ...(typeof input.task.title === 'string' ? { text: input.task.title } : {}) };
+    const run = judgeModelTier(engineOf(ctx), judged, intent, { assist: 'classify', record: modeAllows(mode, 'record') && !ctx.killSwitchStopped, ...(gate === null ? {} : { skipAsk: gate }) });
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const late = new Promise<'late'>((resolve) => {
+      timer = setTimeout(() => resolve('late'), waitMs + 50);
+    });
+    try {
+      const first = await Promise.race([run.catch(() => 'failed' as const), late]);
+      if (first !== 'late' && first !== 'failed') return first;
+      // Abandoned at the deadline (or failed): the rules' tier, no model, no record.
+      const rules = await judgeModelTier(null, judged, intent, { assist: 'off', record: false });
+      return { ...rules, reasonCodes: [...rules.reasonCodes, first === 'late' ? 'TIER_DEADLINE' : 'TIER_ERROR'] };
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+    }
+  } catch {
+    return null;
+  }
+}
+
+function tierField(d: ModelTierDecision | null): { readonly tier?: NonNullable<RoutePayload['tier']> } {
+  if (d === null || d.candidates.length === 0) return {};
+  const move = d.tier === 'step-up' ? `Step up to ${d.targetModelId} from the baseline ${d.baselineModelId}` : d.tier === 'step-down' ? `Step down to ${d.targetModelId} from the baseline ${d.baselineModelId}` : `Stay on ${d.baselineModelId}`;
+  return {
+    tier: {
+      tier: d.tier,
+      targetModel: d.targetModelId,
+      baselineModel: d.baselineModelId,
+      basis: d.basis,
+      label: d.label,
+      reasonCodes: d.reasonCodes.filter((c) => /^[A-Z][A-Z0-9_]{0,63}$/.test(c)).slice(0, 16),
+      candidates: [...d.candidates].slice(0, 8),
+      asked: d.asked,
+      cacheHit: d.cacheHit,
+      confidencePercent: d.confidence === null ? null : Math.round(d.confidence * 100),
+      decisionId: d.decisionId,
+      text: `${d.label}. ${move}. Advice only: nothing here switches the session's model, and a hook cannot switch a main session's model.`.slice(0, 480),
+    },
+  };
+}
+
 async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
   const request = routeRequest(ctx.body);
   if (request === null) return fail('INVALID_REQUEST', 'send { currentModel, modelPin, effortPin, taskId, sliceId, task { title, paths, checkIds }, sessionId } (strings or null; a model may be provider/model), optional harness, authMode, remaining { inputTokens, outputTokens }, contextTokens and session { warmPrefixTokens, cacheWarm, atBoundary, unitsSinceLastSwitch, switchesThisTask, cacheTtl, authMode }');
@@ -650,8 +715,12 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
   const loadedRegistry = await loadModelRegistryChecked({ home: ctx.home });
   const registry = loadedRegistry.registry;
   const refusal = loadedRegistry.registry === null ? loadedRegistry.reasonCode : null;
-  const classified = classifying === null ? null : await classifying;
   const resolved = resolveRouteModels(request, registry);
+  // Owner decision 2026-10-08: the model tier is judged at the same time as the slice, from the task's own features.
+  // A session on a model the registry does not list gets no tier (G20): there is nothing to compare it with.
+  const tiering = resolved.unregistered === null ? routeTier(ctx, resolved.input, registry) : Promise.resolve(null);
+  const classified = classifying === null ? null : await classifying;
+  const tier = await tiering;
   const input: RouteRequest = classified?.sliceId != null ? { ...resolved.input, sliceId: classified.sliceId } : resolved.input;
   const unregistered = resolved.unregistered;
   const pinned = input.modelPin !== null;
@@ -696,7 +765,7 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
       // R55: a pinned gateway or host spelling still shows the host it goes through.
       const serving = await mainServing(ctx, input, registry, null);
       if (serving !== null) main = { ...main, serving };
-      return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified) });
+      return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified), ...tierField(tier) });
     }
     const mainEvaluation = pinned ? null : await evaluateRoute(evaluationInput(ctx, input, registry, trustedKeys, 'main', nowMs));
     workerEvaluation = await evaluateRoute(evaluationInput(ctx, input, registry, trustedKeys, 'worker', nowMs));
@@ -738,7 +807,7 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
         text: `Jevris does not repeat its advice to switch to ${advice.recommendedModelId} in this session: it was not followed twice. Keep the current model or switch yourself.`,
         adviceKey: null,
       };
-      return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified) });
+      return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified), ...tierField(tier) });
     }
     main = {
       currentModel: input.currentModel,
@@ -791,7 +860,7 @@ async function handleRoute(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {
     const id = deliveryId ?? `advice-${(main.adviceKey as string).replace(/^sha256:/, '').slice(0, 32)}-${nowMs.toString(36)}`;
     openAdvice(ctx, { decisionId: id, adviceKind: 'main-route', sessionId: input.sessionId, slice: input.sliceId, advisedModel: main.recommendedModel as string, currentModel: input.currentModel, atMs: nowMs });
   }
-  return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified), ...needsField(main, input) });
+  return respond(ctx, 'route', { main, worker: workerAdvice(workerEvaluation, registry, refusal), applied: false, ...sliceField(classified), ...tierField(tier), ...needsField(main, input) });
 }
 
 async function handleExplain(ctx: SidecarOpContext): Promise<SidecarOpOutcome> {

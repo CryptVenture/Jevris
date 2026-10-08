@@ -184,6 +184,13 @@ overrides a pinned one; applied is always false. A switch of the main session is
 the cost of moving its warm prefix to the new model: without --warm-prefix that cost is unknown
 and the advice keeps the current model.
 
+With --title, --path or --check the answer also carries a model tier: how hard the work looks
+and which of the models available to this session it points at (a step down, the baseline or
+a step up), from the session's own model on any provider (Kilo and OpenCode with no known model
+have no baseline and get no advice). It is advice, labelled a rules-based default or Jev's
+suggestion from structured features, never a learned route; Jev sees a screened title only
+when source egress is approved.
+
 Options:
   --model <id>        The model the session uses now, as the harness names it: a model id,
                       provider/model (Kilo, OpenCode) or with [1m] (default: unknown). A model

@@ -132,6 +132,8 @@ function withManagedRoute(engine: DecisionEngine, home: string, clock: { now(): 
       trustedKeys: await trustedCalibrationKeys(home),
       bundledCalibration: bundledCalibrationPath(home),
       nowMs: () => clock.now(),
+      // The model tier may ask Jev through this engine (bounded, cached, gated by jev.assist and the budgets).
+      tierEngine: engine,
       ...(providerConsent === undefined ? {} : { providerConsent }),
       record: async ({ action, reasonCodes, mode }) => {
         const recorded = await engine.recordAdvice?.({

@@ -24,19 +24,22 @@
  */
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import { servingHostOf, type CalibrationArtifact, type ModelRegistry, type RoutePins } from '@jevris/contracts';
+import { servingHostOf, type CalibrationArtifact, type ModelRegistry, type RoutePins, type RoutingModel } from '@jevris/contracts';
 import { jevrisPaths } from '@jevris/platform';
 import { routeAccessPauses, type AccessPauseNote } from './access-limits.js';
 import { loadCalibration, type CalibrationDecision } from './calibration-loader.js';
 import { DecisionBudget } from './decision-budget.js';
 import { loadModelAvailability, unavailableModels, type ModelUnavailableReason } from './model-availability.js';
-import { loadModelRegistryChecked, registryModel, routeBaseline, type CacheTtl, type TokenVolume } from './model-registry.js';
+import { loadModelRegistryChecked, registryModel, routeBaseline, sessionBaseline, type CacheTtl, type TokenVolume } from './model-registry.js';
 import { NO_STORED_CONSENT, providerConsentGate, routeConsentGate, type ProviderConsentReader } from './provider-consent-gate.js';
 import { locallyEligibleModels, modelEligibility, ranHereProviders, readModelOffer, type EligibilityScope, type HarnessAliasProof, type ModelOffer } from './model-offer.js';
 import { filterCandidates, routeTask, type CostAssumptions, type QualityEstimate, type RouteSelection, type RoutingPolicy } from './router.js';
 import { DEFAULT_SWITCH_POLICY, switchGuard, transitionCostMicroUsd, type SwitchDecision } from './route-switch.js';
 import { armKey, baselinePriorsFromRelease, learningSettings, learningSliceKey, loadLearningState, reconcileLearning, secureRandom, type AuthMode, type LearningState, type RouteRisk } from './route-learning.js';
 import { sliceTaskVolume } from './task-volume.js';
+import { judgeModelTier, tierNoteOf, type ModelTierDecision, type TierNote, type TierSignals } from './model-tier.js';
+import type { DecisionEngine } from './decision-engine.js';
+import { WORKSPACE_REVISIONS } from './workspace-revisions.js';
 import { runManagedWorker, workerCalibrationContext, type ManagedWorkerInput, type ManagedWorkerResult, type OwnedLaunchPort, type WorkerLearning, type WorkerLearningNote } from './route-worker.js';
 
 const ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
@@ -299,20 +302,15 @@ function missing(reasonCode: string, calibration: CalibrationDecision | null = n
   return { selection: null, switchDecision: null, reasonCode, calibrationId: calibration?.eligible === true ? calibration.artifact.id : null, calibrationVersion: calibration?.eligible === true ? calibration.artifact.dataset.version : null, assumedVolume: false };
 }
 
-export async function evaluateRoute(input: RouteEvaluationInput): Promise<RouteEvaluation> {
-  if (input.killSwitchStopped) return missing('KILL_SWITCH');
-  if (input.sliceId === null) return missing('UNKNOWN_SLICE');
-  const calibration = await loadCalibration({
-    home: input.home,
-    trustedKeys: input.trustedKeys,
-    bundled: input.bundledCalibration ?? null,
-    context: workerCalibrationContext({ sliceId: input.sliceId, nowMs: input.nowMs ?? Date.now() }),
-  });
-  if (!calibration.eligible) return missing(calibration.reasonCode === 'NO_RELEASE' ? 'NO_CALIBRATION' : `CALIBRATION_${calibration.reasonCode}`);
-  const qualities = releasedQualities(calibration.artifact, input.sliceId, input.registry);
-  if (qualities.length === 0) return missing('NO_EVALUATED_QUALITY', calibration);
+/**
+ * The router policy of a route evaluation: the administrator's routing policy plus everything the machine knows about the
+ * models (found gone, local eligibility on this harness and sign-in, access-limit pauses, provider consent). Null when the
+ * routing policy file is invalid. Shared by the route evaluation and by the model tier's candidate set, so the tier never
+ * offers a model the route would refuse.
+ */
+async function routePolicyOf(input: RouteEvaluationInput): Promise<{ readonly settings: RoutingPolicySettings; readonly policy: RoutingPolicy } | null> {
   const settings = await loadRoutingPolicy({ home: input.home, registry: input.registry });
-  if (settings === null) return missing('ROUTING_POLICY_INVALID', calibration);
+  if (settings === null) return null;
   // Found gone on this machine: never recommended. A model not accessible from one harness and
   // sign-in is left out only when the caller names that harness and sign-in (scope (ii), DOMAINS).
   const gone = unavailableModels(await loadModelAvailability(input.home, input.registry), { harness: input.harness ?? null, authMode: input.authMode ?? null });
@@ -340,6 +338,31 @@ export async function evaluateRoute(input: RouteEvaluationInput): Promise<RouteE
         ? { consentedProviders: providerConsentGate(input.registry, [...(input.signedInProviders ?? []), ...ranHereProviders(input.registry, await readModelOffer(input.home).catch(() => null))], input.providerConsent).consentedProviders }
         : {}),
   };
+  return { settings, policy };
+}
+
+export async function evaluateRoute(input: RouteEvaluationInput): Promise<RouteEvaluation> {
+  if (input.killSwitchStopped) return missing('KILL_SWITCH');
+  if (input.sliceId === null) return missing('UNKNOWN_SLICE');
+  // Owner correction 2026-10-08: the main session is compared with its own model. When that model is unknown and the
+  // harness has no default of its own (Kilo, OpenCode: whichever provider the session runs), there is no baseline to
+  // compare with, and the registry-wide fallback (Claude's) is never used in its place.
+  if (input.role === 'main') {
+    const harness = input.baselineHarness ?? input.harness ?? null;
+    if (harness !== null && sessionBaseline(input.registry, harness, input.currentModel) === null) return missing('CURRENT_MODEL_UNKNOWN');
+  }
+  const calibration = await loadCalibration({
+    home: input.home,
+    trustedKeys: input.trustedKeys,
+    bundled: input.bundledCalibration ?? null,
+    context: workerCalibrationContext({ sliceId: input.sliceId, nowMs: input.nowMs ?? Date.now() }),
+  });
+  if (!calibration.eligible) return missing(calibration.reasonCode === 'NO_RELEASE' ? 'NO_CALIBRATION' : `CALIBRATION_${calibration.reasonCode}`);
+  const qualities = releasedQualities(calibration.artifact, input.sliceId, input.registry);
+  if (qualities.length === 0) return missing('NO_EVALUATED_QUALITY', calibration);
+  const built = await routePolicyOf(input);
+  if (built === null) return missing('ROUTING_POLICY_INVALID', calibration);
+  const { settings, policy } = built;
   const current = input.currentModel !== null && registryModel(input.registry, input.currentModel) !== null ? input.currentModel : null;
   const volume = input.volume ?? settings.defaultTaskVolume;
   const selection = routeTask({
@@ -379,6 +402,17 @@ export async function evaluateRoute(input: RouteEvaluationInput): Promise<RouteE
     }
   }
   return { selection, switchDecision, reasonCode: null, calibrationId: calibration.artifact.id, calibrationVersion: calibration.artifact.dataset.version, assumedVolume: input.volume === undefined || input.volume === null };
+}
+
+/**
+ * The models a tier may name for a session: the ones the router's own gates leave eligible (consent, lifecycle, harness
+ * access, local eligibility on this harness and sign-in, access-limit pauses, the managed allowlist, the zero-data-retention
+ * rule), with the model pin lifted (a caller that sees a pin offers no tier). Null when the routing policy is invalid.
+ */
+export async function tierEligibleModels(input: RouteEvaluationInput): Promise<{ readonly eligible: readonly RoutingModel[]; readonly settings: RoutingPolicySettings } | null> {
+  const built = await routePolicyOf(input);
+  if (built === null) return null;
+  return { eligible: filterCandidates(input.registry, { ...built.policy, pins: { modelPin: null, effortPin: null } }).eligible, settings: built.settings };
 }
 
 /** The generation envelope for owned workers when the routing policy names none: 50 USD a month. */
@@ -452,6 +486,21 @@ export interface ManagedRouteRequest {
    * workspace's measured first-try history for a candidate, read from D's ledger. Absent, no route is first-try.
    */
   readonly firstTry?: NonNullable<WorkerLearning['firstTry']>;
+  /**
+   * Tiered routing (owner decision 2026-10-08, D fills it): the task's content-free difficulty signals, an optional task
+   * text (sent to Jev only with source egress approved) and the `jev.assist` setting. Core judges the tier over the models
+   * this route would accept: a step up runs the step-up rung as its own non-randomized route (not a learned arm; the
+   * generation budget is reserved as for any launch); a step down stays the existing randomized first try. Learned and
+   * pinned evidence for the slice still win. Absent, no tier.
+   */
+  readonly tier?: ManagedTierRequest;
+}
+
+/** What D sends for the model tier of one owned launch: no path, no title; the text is optional and egress-gated. */
+export interface ManagedTierRequest {
+  readonly signals: TierSignals;
+  readonly text?: string | null;
+  readonly jevAssist?: 'off' | 'classify';
 }
 
 export type CandidateScopes = { readonly [modelId: string]: { readonly harness: string; readonly authMode: 'api-key' | 'subscription' | 'unknown' } | null };
@@ -599,8 +648,10 @@ export async function routeManagedWorker(
     readonly random?: () => number;
     /** B's point read of stored per-provider consent (R30); absent, only the signed-in default applies. */
     readonly providerConsent?: ProviderConsentReader;
+    /** The engine the model tier may ask Jev through (the sidecar's); absent, the tier is the rules'. */
+    readonly tierEngine?: DecisionEngine | null;
   },
-): Promise<ManagedWorkerResult & { readonly learning?: WorkerLearningNote }> {
+): Promise<ManagedWorkerResult & { readonly learning?: WorkerLearningNote; readonly tier?: TierNote }> {
   if (await request.killSwitchStopped()) return { launched: false, reasonCode: 'KILL_SWITCH', selection: null };
   if (request.sliceId === null) return { launched: false, reasonCode: 'UNKNOWN_SLICE', selection: null };
   const loadedRegistry = await loadModelRegistryChecked({ home: deps.home });
@@ -639,36 +690,41 @@ export async function routeManagedWorker(
   const learningState = await routeLearningState({ request, gates, baselineModelId, learningKey, sliceId, registry, calibration, now: now(), home: deps.home, allowlist, settings, unavailable, locallyEligible, paused: access.paused });
   // Near a limit: hit within the workspace's nearLimitHours, in force or not; never explored.
   const nearLimitModelIds = learningState === null ? [] : (await routeAccessPauses({ home: deps.home, registry, nowMs: now(), nearMs: learningState.settings.nearLimitHours * 3_600_000, scopeOf: accessScopeOf })).nearLimitModelIds;
+  const routePolicy: RoutingPolicy = {
+    // An owned worker runs a model no person chose for it: preview models are left out.
+    automated: true,
+    managedAllowlist: allowlist,
+    allowedProviders: settings.allowedProviders,
+    allowedRegions: settings.allowedRegions,
+    requiredContextTokens: Math.max(0, Math.floor(request.requiredContextTokens ?? 0)),
+    requiredCapabilities: settings.requiredCapabilities,
+    pins: { modelPin: null, effortPin: null },
+    riskFloorFamilies: null,
+    accountId: settings.accountId,
+    zeroDataRetention: settings.zeroDataRetention,
+    nowMs: now(),
+    unavailableModels: unavailable,
+    locallyEligible,
+    pausedModels: access.paused,
+    ...(request.servingHost === undefined ? {} : { servingHost: request.servingHost }),
+    ...gates,
+  };
+  // P11: without a reported size, the larger of the default and this slice's measured p90 (never lower).
+  const volume = request.volume ?? raiseVolume(sliceTaskVolume(learningState, learningKey, settings.defaultTaskVolume).volume, request.taskVolume ?? null);
+  // Tiered routing: the tier is judged over the models this route would accept, on the baseline's own provider.
+  const tier = request.tier === undefined ? null : await judgeWorkerTier(request, request.tier, { registry, policy: routePolicy, baselineModelId, volume, engine: deps.tierEngine ?? null, now });
   const result = await runManagedWorker({
     taskId: request.taskId,
     workspaceId: request.workspaceId,
     mode: request.mode,
     killSwitchStopped: request.killSwitchStopped,
     loadCalibration: async () => calibration,
+    ...(tier === null ? {} : { tier }),
     route: {
       registry,
-      policy: {
-        // An owned worker runs a model no person chose for it: preview models are left out.
-        automated: true,
-        managedAllowlist: allowlist,
-        allowedProviders: settings.allowedProviders,
-        allowedRegions: settings.allowedRegions,
-        requiredContextTokens: Math.max(0, Math.floor(request.requiredContextTokens ?? 0)),
-        requiredCapabilities: settings.requiredCapabilities,
-        pins: { modelPin: null, effortPin: null },
-        riskFloorFamilies: null,
-        accountId: settings.accountId,
-        zeroDataRetention: settings.zeroDataRetention,
-        nowMs: now(),
-        unavailableModels: unavailable,
-        locallyEligible,
-        pausedModels: access.paused,
-        ...(request.servingHost === undefined ? {} : { servingHost: request.servingHost }),
-        ...gates,
-      },
+      policy: routePolicy,
       baselineModelId,
-      // P11: without a reported size, the larger of the default and this slice's measured p90 (never lower).
-      volume: request.volume ?? raiseVolume(sliceTaskVolume(learningState, learningKey, settings.defaultTaskVolume).volume, request.taskVolume ?? null),
+      volume,
       assumptions: settings.assumptions,
       qualities: calibration.eligible ? releasedQualities(calibration.artifact, sliceId, registry) : [],
     },
@@ -679,7 +735,34 @@ export async function routeManagedWorker(
     ...(deps.record === undefined ? {} : { record: deps.record }),
     ...(learningState === null ? {} : { learning: { state: learningState, sliceId: learningKey, risk: request.risk ?? 'unknown', random: deps.random ?? secureRandom, nearLimitModelIds, ...(request.authMode === undefined ? {} : { authMode: request.authMode }), ...(request.firstTry === undefined ? {} : { firstTry: request.firstTry }) } }),
   });
-  return withExclusions(result, request.candidateExclusions);
+  const excluded = withExclusions(result, request.candidateExclusions);
+  return tier === null ? excluded : { ...excluded, tier: tierNoteOf(tier) };
+}
+
+/** The Jev wait a launch's tier may spend, ms: like the worker-readiness advice, a cache hit answers in tens of ms. */
+const TIER_WAIT_MS = 700;
+
+/**
+ * The tier of one owned launch. Observe asks no Jev (a counterfactual spends nothing); `jev.assist` off, the kill switch or
+ * no engine leave the rules' tier. Never throws: any failure is no tier.
+ */
+async function judgeWorkerTier(
+  request: ManagedRouteRequest,
+  tier: ManagedTierRequest,
+  use: { readonly registry: ModelRegistry; readonly policy: RoutingPolicy; readonly baselineModelId: string; readonly volume: TokenVolume; readonly engine: DecisionEngine | null; readonly now: () => number },
+): Promise<ModelTierDecision | null> {
+  try {
+    const eligible = filterCandidates(use.registry, use.policy).eligible;
+    const gate = request.mode === 'observe' ? 'TIER_OBSERVE_RULES_ONLY' : tier.jevAssist === 'off' ? 'TIER_ASSIST_OFF' : undefined;
+    return await judgeModelTier(
+      use.engine,
+      { signals: tier.signals, eligible, baselineModelId: use.baselineModelId, volume: use.volume, ...(tier.text === undefined ? {} : { text: tier.text }) },
+      { workspaceId: request.workspaceId, evidenceRevision: WORKSPACE_REVISIONS.current(request.workspaceId), taskId: request.taskId, deadlineMs: TIER_WAIT_MS },
+      { assist: tier.jevAssist === 'off' ? 'off' : 'classify', now: () => use.now(), ...(gate === undefined ? {} : { skipAsk: gate }) },
+    );
+  } catch {
+    return null;
+  }
 }
 
 const EXCLUSION_CODE = /^[A-Z][A-Z0-9_]{0,63}$/;

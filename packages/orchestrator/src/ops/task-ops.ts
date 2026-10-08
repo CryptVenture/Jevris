@@ -6,7 +6,7 @@
  * change, with its receipts).
  */
 import { ID_PATTERN, MODEL_ID_PATTERN, PROVIDER_CONSENT_TEXT, modeAllows, type HarnessId, type ModelRegistry, type PlanSliceSuggestion, type SidecarOpContext, type SidecarOpOutcome } from '@jevris/contracts';
-import { BUNDLED_MODEL_REGISTRY, loadModelRegistry, providerConsentGate, readModelOffer, routeBaseline, sessionHost, signedInProvidersOf, stepUpTarget, type ModelOffer, type ProviderConsentReader, type RouteRisk } from '@jevris/core';
+import { BUNDLED_MODEL_REGISTRY, loadModelRegistry, providerConsentGate, readModelOffer, routeBaseline, sessionHost, signedInProvidersOf, stepUpTarget, tierSignalsOf, type ModelOffer, type ProviderConsentReader, type RouteRisk } from '@jevris/core';
 import { readProviderConsent, useAuthorization, type AuthorizationAction } from '@jevris/store';
 import type { WorkspaceServices } from '../workspace.js';
 import { firstTryOf, readEffectiveConfig } from '../settings/config.js';
@@ -25,6 +25,8 @@ import { drainIntegrationReverts } from '../orchestration/integration-reverts.js
 import { attachHandOffLease, closeUnhandled, firstTryHistory, handOffPlan, keepFirstTryRoute, noteHandOff } from '../orchestration/first-try.js';
 import { drainRouteLearning, keepEscalatedRoute, keepLearningNote, recordRouteOutcome, runAccessLimited, runIncomplete } from '../orchestration/learning.js';
 import { LAUNCH_READINESS_COLLECTION, launchReadiness } from '../orchestration/launch-readiness.js';
+import { escalationRungs, keepTierNote, tierRow } from '../orchestration/model-tier.js';
+import { criticalPathLengths } from '../orchestration/graph.js';
 import { PROVIDER_HARNESSES, harnessAuthMode, readWorkerAuthSettings, signedInSource, workerProvider, type WorkerAuthMode, type WorkerHarness } from '../orchestration/worker-auth.js';
 import { isCertified } from '../hooks/certification.js';
 import { accessPausedModels } from '../orchestration/access-limits.js';
@@ -245,7 +247,9 @@ type RouteManagedWorker = (input: {
   readonly servingHost?: string | null;
   /** R52: route.host certified for the worker's harness (the certify record). */
   readonly hostRouteCertified?: boolean;
-}) => Promise<{ readonly launched: boolean; readonly reasonCode?: string; readonly learning?: unknown; readonly effort?: string | null }>;
+  /** Tiered routing (owner decision 2026-10-08): the task's content-free difficulty signals; C judges the tier over the models the launch accepts. */
+  readonly tier?: { readonly signals: ReturnType<typeof tierSignalsOf>; readonly text?: string | null; readonly jevAssist?: 'off' | 'classify' };
+}) => Promise<{ readonly launched: boolean; readonly reasonCode?: string; readonly learning?: unknown; readonly effort?: string | null; readonly tier?: unknown }>;
 
 /** The slice's measured task volume for the route request (P11, C's `taskVolume`), when there is enough of it. */
 function volumeOf(ws: WorkspaceServices, sliceId: string | null): { readonly taskVolume?: { readonly inputTokens: number; readonly outputTokens: number; readonly n: number } } {
@@ -589,7 +593,9 @@ export async function relaunchEscalated(
   };
   if (task === undefined || task.node.state !== 'failed') return put({ atMs: Date.now(), fromModel: null, toModel: null, state: 'not-relaunchable' });
   const gone = new Set<string>();
-  const considered = [...new Set([...task.models, ...(firstTry?.stepUpModelIds ?? [])])];
+  // Tiered routing (owner decision 2026-10-08): the rungs above the baseline that the task's launch named, nearest first.
+  const tierLadder = tierRow(ws, taskId)?.stepUpModelIds ?? [];
+  const considered = [...new Set([...task.models, ...(firstTry?.stepUpModelIds ?? []), ...tierLadder])];
   for (const m of considered) if ((await modelUnavailableHere(ws.home, m, null)) !== null) gone.add(m);
   const consent = providerConsentOf(ws);
   const port = await readPortOf(ctx, ws, consent);
@@ -600,7 +606,11 @@ export async function relaunchEscalated(
   if (port !== null) for (const m of await accessPausedModels({ home: ws.home, registry, port, models: considered, nowMs: engineNow(ctx.engine) })) gone.add(m);
   const pick = strongerModel(ws, task, gone);
   const from = pick.from;
-  const to = firstTry === undefined ? pick.to : stepUpTarget(firstTry.stepUpModelIds, gone);
+  let to = firstTry === undefined ? pick.to : stepUpTarget(firstTry.stepUpModelIds, gone);
+  // A task with no stronger approved model goes once to the next rung above the model that failed, from the ladder its
+  // launch named (the baseline's own provider, active and eligible there): a failed baseline run escalates to the step-up
+  // rung. The same gates apply (gone, consent, access limits above), and a ladder is never wider than the launch's models.
+  if (to === null && firstTry === undefined) to = stepUpTarget(escalationRungs(tierRow(ws, taskId), from), gone);
   if (to === null) return put({ atMs: Date.now(), fromModel: from, toModel: null, state: 'no-stronger-worker' });
   const lines = [
     `Bounded escalation (one attempt) after ${from ?? 'the approved model'} failed. Success needs a new passing check result.`,
@@ -750,7 +760,10 @@ export async function defaultCandidates(port: WorkerPort, registry: ModelRegistr
     return false;
   });
   const native = BASELINE_HARNESSES.map((h) => routeBaseline(registry, h)).find((b, i) => allowed.includes(b) && scopes[b]?.harness === BASELINE_HARNESSES[i]);
-  const baseline = native ?? (allowed.includes(registry.baselineModelId) ? registry.baselineModelId : allowed[0]);
+  // Owner correction 2026-10-08: with no native harness, the baseline is a harness default (of any provider) the task may
+  // use, never the registry-wide fallback (Claude's) unless that is one of them, and else the first model reached.
+  const anyDefault = (registry.harnessDefaults ?? []).map((row) => row.baselineModelId).find((id) => allowed.includes(id));
+  const baseline = native ?? anyDefault ?? (allowed.includes(registry.baselineModelId) ? registry.baselineModelId : allowed[0]);
   if (baseline === undefined) return { models: [], baseline: registry.baselineModelId, excluded };
   const chosen = providerOf.get(baseline);
   const models = allowed.filter((id) => {
@@ -791,6 +804,35 @@ async function sessionServingHost(ctx: SidecarOpContext, ws: WorkspaceServices, 
 interface SessionServingHost {
   readonly servingHost: string;
   readonly certified: boolean;
+}
+
+/**
+ * The tier request of a launch: the task's content-free signals (counts, risk class and reasons, protected classes, plan
+ * depth, whether a run on the baseline already failed) and its title as an optional span. The title is reduced to a verb
+ * class here; core sends it to Jev only with source egress approved and never records it. Never throws: no request is no tier.
+ */
+function tierRequestOf(ctx: SidecarOpContext, ws: WorkspaceServices, task: NonNullable<ReturnType<typeof getTask>>, baselineModelId: string): RouteTierRequest | undefined {
+  try {
+    const depth = criticalPathLengths(listTasks(ws, {}).map((t) => t.node)).get(task.node.id) ?? null;
+    const baselineRunFailed = workerRuns(ws, task.node.id).some((r) => r.stale !== true && r.requestedModel === baselineModelId && runIncomplete(r));
+    const signals = tierSignalsOf({
+      hints: { title: task.title, paths: task.node.writeScopes, checkIds: task.node.acceptanceCheckIds },
+      ...(task.sliceId === null ? {} : { sliceId: task.sliceId }),
+      risk: task.risk,
+      riskReasons: task.riskReasons,
+      planDepth: depth,
+      baselineRunFailed,
+    });
+    return { signals, text: task.title, jevAssist: ctx.jevAssist === 'off' ? 'off' : 'classify' };
+  } catch {
+    return undefined;
+  }
+}
+
+type RouteTierRequest = NonNullable<Parameters<RouteManagedWorker>[0]['tier']>;
+
+function tierPart(request: RouteTierRequest | undefined): { readonly tier?: RouteTierRequest } {
+  return request === undefined ? {} : { tier: request };
 }
 
 /**
@@ -879,6 +921,10 @@ async function routedRun(
       harness: MODEL_PORT_OF[harness],
       ...scoped,
       ...(host === null ? {} : { servingHost: host.servingHost, hostRouteCertified: host.certified }),
+      // Tiered routing (owner decision 2026-10-08): the task's content-free difficulty signals, and its title as an optional
+      // span that goes to Jev only with source egress approved. A step up runs the step-up rung as its own route; the
+      // approved baseline runs whenever that rung cannot.
+      ...tierPart(tierRequestOf(ctx, ws, task, routeBase)),
       // Sonnet-first (owner decision 2026-09-30): the setting and this workspace's measured first-try history.
       ...(task.sliceId === null ? {} : { firstTry: { setting: firstTrySettingOf(ctx, ws), history: (q: { readonly baselineModelId: string; readonly firstTryModelId: string }) => firstTryHistory(ws, { sliceId: task.sliceId as string, ...q }) } }),
       async launch(input) {
@@ -899,6 +945,11 @@ async function routedRun(
     });
     if (!result.launched) reasonCode = (result.reasonCode ?? 'NOT_LAUNCHED').slice(0, 64);
     learning = result.learning;
+    // The tier is kept with the task (ids and codes) for the bounded escalation and for explain; a failed write changes nothing.
+    if (result.tier !== undefined) {
+      const kept = await keepTierNote(ws, task.node.id, result.tier, engineNow(ctx.engine)).catch(() => null);
+      if (kept !== null) ctx.trace({ event: 'orchestrator.worker-tier', taskId: task.node.id, reasonCode: `TIER_${kept.tier.toUpperCase().replace(/-/g, '_')}${kept.basis === 'tier-jev' ? '_JEV' : ''}`.slice(0, 64), ...(kept.decisionId === null ? {} : { decisionId: kept.decisionId }) });
+    }
   } catch {
     reasonCode = 'ROUTER_ERROR';
   }

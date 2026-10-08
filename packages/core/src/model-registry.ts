@@ -367,6 +367,24 @@ export function routeBaseline(registry: ModelRegistry, harness?: string | null, 
   return registry.baselineModelId;
 }
 
+/** Whether the harness has a default model of its own in `harnessDefaults` that the registry lists (Claude Code, Codex, Antigravity; not Kilo or OpenCode). */
+export function harnessHasDefault(registry: Pick<ModelRegistry, 'entries' | 'harnessDefaults'>, harness: string): boolean {
+  const row = (registry.harnessDefaults ?? []).find((d) => d.harness === harness);
+  return row !== undefined && registry.entries.filter((e) => e.modelId === row.baselineModelId).length === 1;
+}
+
+/**
+ * The baseline of a SESSION, provider-neutral (owner correction 2026-10-08): the session's own model when the registry
+ * lists it, else the harness's own default when it has one, else null. Kilo and OpenCode have no default of their own and
+ * run whichever provider the session runs, so for them an unknown session model has no baseline: never the registry-wide
+ * fallback (`routeBaseline`), which is Claude's.
+ */
+export function sessionBaseline(registry: ModelRegistry, harness: string | null | undefined, sessionModelId: string | null | undefined): string | null {
+  if (typeof sessionModelId === 'string' && registryModel(registry, sessionModelId) !== null) return sessionModelId;
+  if (typeof harness === 'string' && harnessHasDefault(registry, harness)) return routeBaseline(registry, harness, null);
+  return null;
+}
+
 /** The day from which a model may be retired: an announced date, else the vendor's "not sooner than". */
 export function retirementFrom(model: RoutingModel): string | null {
   const life = model.lifecycle;

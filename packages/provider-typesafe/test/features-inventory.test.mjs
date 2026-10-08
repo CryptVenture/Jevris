@@ -87,9 +87,9 @@ test('the inventory says what is true after the wiring: nothing is dormant and n
   assert.deepEqual(FEATURE_INVENTORY.filter((e) => e.wiring === 'dormant' || e.wiring === 'not-asked').map((e) => e.spec), [], 'a decision with no caller from a hook, an op, a command or a tool');
   assert.equal(counts.dormant, 0);
   assert.equal(counts['not-asked'], 0);
-  assert.equal(counts.hot, 7, 'route and plan slices, check ranking, the probe, the PostCompact audit, the capsule choice, the project memory at a restore and the risk of a subagent launch');
+  assert.equal(counts.hot, 8, 'route and plan slices, check ranking, the probe, the PostCompact audit, the capsule choice, the project memory at a restore, the risk of a subagent launch and the model tier');
   assert.equal(counts.detached, 10, 'repeated failure, new task and its three decisions, C06, the two security decisions, worker readiness and the output spans');
-  assert.equal(counts['on-demand'], FEATURE_INVENTORY.length - 17);
+  assert.equal(counts['on-demand'], FEATURE_INVENTORY.length - 18);
   assert.equal(Object.values(counts).reduce((a, b) => a + b, 0), FEATURE_INVENTORY.length);
   // The decisions that were dormant (C01, C02, C04, C06, C19 to C24 and the worker-readiness question) are all live now. C05 asks Jev nothing: its question was measured and removed.
   assert.equal(FEATURE_INVENTORY.some((e) => e.spec === 'c05-evidence'), false, 'C05 is rules only: no inventory entry for a question nothing asks');

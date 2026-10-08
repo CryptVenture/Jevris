@@ -26,6 +26,7 @@
 import { sliceAssistLines } from './slice-explain.js';
 import { checkRelevanceLines } from './check-relevance-explain.js';
 import { subagentRiskLines } from './subagent-risk-explain.js';
+import { modelTierLines } from './model-tier-explain.js';
 import { liveAdviceLines } from './live-advice-explain.js';
 import { adviceJevUse } from './advice-jev-use.js';
 import { randomUUID } from 'node:crypto';
@@ -1099,6 +1100,8 @@ export function explainDecision(record: DecisionRecord): string {
   if (ranking !== null) lines.push(...ranking);
   const risk = subagentRiskLines(record);
   if (risk !== null) lines.push(...risk);
+  const tier = modelTierLines(record);
+  if (tier !== null) lines.push(...tier);
   const live = liveAdviceLines(record);
   if (live !== null) lines.push(...live);
   lines.push(`Evidence revision ${record.evidenceRevision}. Task outcome: ${record.actualTaskOutcome.replace(/-/g, ' ')}.`);

@@ -49,7 +49,7 @@ const matches = (pattern: RegExp): ((text: string) => boolean) => (text) => patt
 type Rule = (text: string) => boolean;
 
 /** The groups of the engine part (`ENGINE_GROUPS` in features-suite.ts, kept as plain strings so this module has no import). */
-const GROUPS = ['slice', 'plan-slices', 'check-ranking', 'repeated-failure', 'new-task', 'intent', 'security', 'worker-readiness', 'subagent-risk', 'health-probe'] as const;
+const GROUPS = ['slice', 'plan-slices', 'check-ranking', 'repeated-failure', 'new-task', 'intent', 'security', 'worker-readiness', 'subagent-risk', 'model-tier', 'health-probe'] as const;
 
 /** Exact paths (arrays are `[]`) and the shape a string there must have. */
 const EXACT: ReadonlyMap<string, Rule> = new Map<string, Rule>([

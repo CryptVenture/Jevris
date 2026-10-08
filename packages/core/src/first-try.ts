@@ -26,7 +26,7 @@
  * claim that the model is good.
  */
 import type { FirstTrySetting, HarnessId, ModelRegistry, RoutingModel } from '@jevris/contracts';
-import { generationCostMicroUsd, lifecycleCheck, routeBaseline, type TokenVolume } from './model-registry.js';
+import { generationCostMicroUsd, lifecycleCheck, registryModel, routeBaseline, type TokenVolume } from './model-registry.js';
 import { betaCdf, harmProbability, type LearningSettings } from './route-learning.js';
 
 /**
@@ -107,6 +107,19 @@ export interface FirstTryCandidate {
 export type FirstTryNone = { readonly none: true; readonly reasonCode: 'BASELINE_NOT_ELIGIBLE' | 'NO_CHEAPER_RUNG' | 'BREAK_EVEN_TOO_HIGH' };
 
 /**
+ * The order a baseline's cheaper rungs are tried in as the first try: a rung of the baseline's own family wins, else
+ * the newest release; a smallest-tier family (Haiku) is passed over while any other family is cheaper. Newest first,
+ * then the dearer (more capable). Shared with the model tier (`model-tier.ts`), which names its step-down rung the same way.
+ */
+export function firstTryOrder(cheaper: readonly LadderRung[], baseline: Pick<LadderRung, 'family'>): { readonly ordered: readonly LadderRung[]; readonly chosenBy: 'family' | 'newest' } {
+  const sameFamily = cheaper.filter((rung) => rung.family === baseline.family);
+  const notSmallest = cheaper.filter((rung) => !FIRST_TRY_SMALLEST_TIER_FAMILIES.includes(rung.family));
+  const pool = sameFamily.length > 0 ? sameFamily : notSmallest.length > 0 ? notSmallest : cheaper;
+  const ordered = [...pool].sort((a, b) => (b.releasedOn ?? '').localeCompare(a.releasedOn ?? '') || b.attemptMicroUsd - a.attemptMicroUsd || (a.modelId < b.modelId ? -1 : 1));
+  return { ordered, chosenBy: sameFamily.length > 0 ? 'family' : 'newest' };
+}
+
+/**
  * The first-try model for a baseline, derived from the registry's eligible models: the baseline's
  * own vendor, `active` lifecycle (no preview, legacy or deprecated model), cheaper per attempt,
  * with a break-even that a real hand-off could pay back. A rung of the baseline's own family wins,
@@ -126,10 +139,7 @@ export function firstTryCandidate(input: {
   const overheadFor = (toModelId: string): number => Math.max(0, input.overhead.verificationMicroUsd) + Math.max(0, Math.round(input.overhead.cacheTransitionMicroUsd?.[toModelId] ?? 0));
   const cheaper = ladder.filter((rung) => rung.provider === baseline.provider && rung.modelId !== baseline.modelId && rung.status === 'active' && rung.attemptMicroUsd < baseline.attemptMicroUsd);
   if (cheaper.length === 0) return { none: true, reasonCode: 'NO_CHEAPER_RUNG' };
-  const sameFamily = cheaper.filter((rung) => rung.family === baseline.family);
-  const notSmallest = cheaper.filter((rung) => !FIRST_TRY_SMALLEST_TIER_FAMILIES.includes(rung.family));
-  const pool = sameFamily.length > 0 ? sameFamily : notSmallest.length > 0 ? notSmallest : cheaper;
-  const ordered = [...pool].sort((a, b) => (b.releasedOn ?? '').localeCompare(a.releasedOn ?? '') || b.attemptMicroUsd - a.attemptMicroUsd || (a.modelId < b.modelId ? -1 : 1));
+  const { ordered, chosenBy } = firstTryOrder(cheaper, baseline);
   const max = input.maxBreakEven ?? FIRST_TRY_MAX_BREAK_EVEN;
   for (const pick of ordered) {
     const overheadMicroUsd = overheadFor(baseline.modelId);
@@ -145,7 +155,7 @@ export function firstTryCandidate(input: {
       stepUpAttemptMicroUsd: baseline.attemptMicroUsd,
       overheadMicroUsd,
       ladder,
-      chosenBy: sameFamily.length > 0 ? 'family' : 'newest',
+      chosenBy,
     };
   }
   return { none: true, reasonCode: 'BREAK_EVEN_TOO_HIGH' };
@@ -470,6 +480,10 @@ export function harnessFirstTry(input: {
   readonly overhead: HandoffOverhead;
   readonly nowMs: number;
 }): HarnessFirstTry {
+  // Owner correction 2026-10-08: a harness with no default of its own (Kilo, OpenCode) runs whichever provider the session
+  // runs, so its ladder is the session's model's, never the registry-wide fallback's (Sonnet 5.5): nothing to show from the registry alone.
+  const hasDefault = (input.registry.harnessDefaults ?? []).some((row) => row.harness === input.harness && registryModel(input.registry as ModelRegistry, row.baselineModelId) !== null);
+  if (!hasDefault) return { harness: input.harness, baselineModelId: input.registry.baselineModelId, on: false, reasonCode: 'BASELINE_NOT_ELIGIBLE', strongerIsPreview: false };
   const baselineModelId = routeBaseline(input.registry as ModelRegistry, input.harness);
   const reached = new Set((input.registry.harnessAccess ?? []).filter((row) => row.harness === input.harness).map((row) => row.provider));
   const eligible = input.registry.entries.filter((model) => reached.has(model.provider) && model.health !== 'unavailable' && lifecycleCheck(model, input.nowMs).usable);

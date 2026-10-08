@@ -11,7 +11,8 @@
  * Groups (this module): `slice` (route slice classification), `plan-slices`, `check-ranking`,
  * `repeated-failure`, `new-task`, `intent` (C01 to C04, C06 and C07), `security` (C51 and C49),
  * `worker-readiness` (the question the owned-worker launch asks), `subagent-risk` (the question a Claude Code
- * Agent launch asks, from the type class and the input size only) and `health-probe` (the circuit breaker's own
+ * Agent launch asks, from the type class and the input size only), `model-tier` (the model Jev picks among the
+ * eligible models of a baseline's provider, from the task's features) and `health-probe` (the circuit breaker's own
  * one-question probe while the circuit is half-open, driven with the conformance mock and an injected clock, in every
  * mode). The capability catalogue (C18 to C72) and the hot path through a real sidecar run from
  * `apps/sidecar/scripts/jev-features.mjs` and merge their rows into the same record.
@@ -22,6 +23,9 @@
  * recorded is numbers and codes: never a key, a request body or a response body.
  */
 import {
+  BUNDLED_MODEL_REGISTRY,
+  DEFAULT_TASK_VOLUME,
+  MODEL_TIER_SPEC_ID,
   SUBAGENT_RISK_SPEC_ID,
   WORKER_READINESS_ADVICE_SPEC_ID,
   adviseWorkerReadiness,
@@ -31,6 +35,7 @@ import {
   detectAmbiguity,
   detectScopeChange,
   injectionSuspicion,
+  judgeModelTier,
   judgeSubagentRisk,
   permissionRiskTriage,
   planSliceTimes,
@@ -38,6 +43,7 @@ import {
   rankPlanCandidates,
   shortlistTemplates,
   subagentRiskFeatures,
+  tierSignalsOf,
   suggestPlanSlices,
   triageTaskFamily,
   type DecideRequest,
@@ -58,7 +64,7 @@ import type { FetchLike } from './sdk-transport.js';
 export const FEATURE_SUITE_SCHEMA = 'jev-features-suite-1';
 
 /** The groups this module runs. */
-export const ENGINE_GROUPS = ['slice', 'plan-slices', 'check-ranking', 'repeated-failure', 'new-task', 'intent', 'security', 'worker-readiness', 'subagent-risk', 'health-probe'] as const;
+export const ENGINE_GROUPS = ['slice', 'plan-slices', 'check-ranking', 'repeated-failure', 'new-task', 'intent', 'security', 'worker-readiness', 'subagent-risk', 'model-tier', 'health-probe'] as const;
 export type EngineGroup = (typeof ENGINE_GROUPS)[number];
 
 /** How a row was measured: a fresh engine (no cache), the same engine again (cache), or never sent. */
@@ -745,6 +751,48 @@ function subagentRiskCases(waitMs: number): CaseDef[] {
   }));
 }
 
+/**
+ * The model tier: one Choice over the eligible models of a baseline's provider (generic labels, price order), from the
+ * task's content-free features. The probes are the title and the paths a task would carry; the case offers no task text, so
+ * none may be in a request whatever the egress setting, and a path never is (the judge sends no path; the unit tests cover the
+ * screened text span with egress approved).
+ */
+function modelTierCases(waitMs: number): CaseDef[] {
+  const shapes: { id: string; expected: string; baseline: string; hints: SliceTaskHints; risk?: 'low' | 'medium' | 'high' }[] = [
+    // The rules say baseline with two ordinary files and a check; Jev may raise to the nearest dearer rung, or keep it.
+    { id: 'model-tier-plain-claude', expected: 'baseline|step-up', baseline: 'claude-sonnet-5-5', hints: { title: 'Adjust the cart pagination offsets', paths: ['src/cart/page.ts', 'src/cart/list.ts'], checkIds: ['test'] }, risk: 'medium' },
+    { id: 'model-tier-plain-codex', expected: 'baseline|step-up', baseline: 'gpt-6.1-sol', hints: { title: 'Adjust the cart pagination offsets', paths: ['src/cart/page.ts', 'src/cart/list.ts'], checkIds: ['test'] }, risk: 'medium' },
+    // A migration is a step up by the rules; with two rungs above the baseline Jev may choose between them.
+    { id: 'model-tier-migration-codex', expected: 'step-up', baseline: 'gpt-6.1-sol', hints: { title: 'Migrate the ledger tables to the new schema', paths: ['db/migrations/0042.sql', 'src/ledger/schema.ts'], checkIds: ['test'] } },
+    // The rules settle read-only work: no request.
+    { id: 'model-tier-docs-claude', expected: 'step-down', baseline: 'claude-sonnet-5-5', hints: { title: 'Update the install guide', paths: ['docs/install.md'], checkIds: [] } },
+  ];
+  return shapes.map((shape) => ({
+    group: 'model-tier' as const,
+    id: shape.id,
+    expected: shape.expected,
+    probes: ['Adjust the cart pagination offsets', 'src/cart/page.ts', 'cart'],
+    async run(engine: DecisionEngine): Promise<CaseOutcome> {
+      const eligible = BUNDLED_MODEL_REGISTRY.entries;
+      const r = await judgeModelTier(engine, { signals: tierSignalsOf({ hints: shape.hints, ...(shape.risk === undefined ? {} : { risk: shape.risk }) }), eligible, baselineModelId: shape.baseline, volume: DEFAULT_TASK_VOLUME }, { workspaceId: WORKSPACE, evidenceRevision: REVISION, sessionId: 'features-session', deadlineMs: waitMs }, { assist: 'classify', record: true });
+      return {
+        spec: MODEL_TIER_SPEC_ID,
+        got: r.tier,
+        rulesGot: r.rulesTier,
+        jevGot: r.jevModelId === null ? null : r.jevModelId === r.baselineModelId ? 'baseline' : r.candidates.indexOf(r.jevModelId) > r.candidates.indexOf(r.baselineModelId) ? 'step-up' : 'step-down',
+        source: r.basis === 'tier-jev' ? 'jev' : 'rules',
+        reasonCode: r.reasonCodes.find((c) => c.startsWith('TIER_JEV_')) ?? r.reasonCodes[0] ?? 'TIER_NONE',
+        asked: r.asked,
+        answered: r.jevModelId !== null,
+        cacheHit: r.cacheHit,
+        confidence: r.confidence,
+        decisionId: r.decisionId,
+        detail: { candidates: r.candidates.length, textSent: r.textSent },
+      };
+    },
+  }));
+}
+
 /** The least step that carries the injected clock past the breaker's 30 s cool-down and the 30 s between two probes. */
 const PROBE_STEP_MS = 31_000;
 
@@ -844,7 +892,7 @@ function healthProbeCases(createProbeEngine: CreateProbeEngine | undefined): Cas
 
 /** Every engine-level case, in run order. The health-probe case builds its engine through `createProbeEngine` (see `FeatureSuiteOptions`). */
 export function engineCases(waitMs = 5000, createProbeEngine?: CreateProbeEngine): CaseDef[] {
-  return [...sliceCases(waitMs), ...planCases(), ...rankCases(waitMs), ...failureCases(waitMs), ...newTaskCases(waitMs), ...intentCases(waitMs), ...securityCases(waitMs), ...workerReadinessCases(waitMs), ...subagentRiskCases(waitMs), ...healthProbeCases(createProbeEngine)];
+  return [...sliceCases(waitMs), ...planCases(), ...rankCases(waitMs), ...failureCases(waitMs), ...newTaskCases(waitMs), ...intentCases(waitMs), ...securityCases(waitMs), ...workerReadinessCases(waitMs), ...subagentRiskCases(waitMs), ...modelTierCases(waitMs), ...healthProbeCases(createProbeEngine)];
 }
 
 // -------------------------------------------------------------------------------------- runner

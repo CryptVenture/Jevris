@@ -85,6 +85,13 @@ const CHECKS = [
   { id: 'unit-test', state: 'missing' },
 ];
 const READY_TASK = { title: 'Fix the date parser', paths: ['src/date/parse.ts', 'test/date/parse.test.ts'], checkIds: ['unit-tests', 'lint'] };
+// The model tier's input: a plain task on Claude Code's Sonnet 5.5, with every bundled model eligible.
+const TIER_INPUT = {
+  signals: core.tierSignalsOf({ hints: { title: 'Adjust the cart pagination', paths: ['src/cart/page.ts', 'src/cart/list.ts'], checkIds: ['test'] }, risk: 'medium' }),
+  eligible: core.BUNDLED_MODEL_REGISTRY.entries,
+  baselineModelId: 'claude-sonnet-5-5',
+  volume: core.DEFAULT_TASK_VOLUME,
+};
 const FAMILIES = [...core.TASK_FAMILIES].sort();
 const OPENS = core.OPEN_POINTS.map((p) => p.id);
 
@@ -95,6 +102,8 @@ function jevAnswer(id, q) {
   if (id === 'workerReady') return { noul: 0.77 };
   // The subagent-risk Choice (low, medium, high); the slice classifier's own `risk` is a Score.
   if (id === 'risk' && q.type === 'choice') return { choice: 'high', confidence: 0.85 };
+  // The model-tier Choice over generic labels: the nearest dearer rung (C of three).
+  if (id === 'model') return { choice: 'C', confidence: 0.85 };
   if (id === 'taskFamily') return { choice: `f${FAMILIES.indexOf('bugfix')}`, confidence: 0.9 };
   if (id.startsWith('material')) return { noul: OPENS[Number(id.slice('material'.length))] === 'edge-cases' ? 0.9 : 0.05 };
   return q.type === 'score' ? { score: 1 } : { noul: 0.5 };
@@ -157,6 +166,17 @@ const ADVISERS = [
       return { summary: r.decisionId, call: r.jevDecisionId };
     },
     rules: async (e) => (await core.judgeSubagentRisk(e, core.subagentRiskFeatures({ subagentType: 'Explore', toolInputBytes: 500, toolInputKeys: 3 }), { workspaceId: 'w-line', evidenceRevision: 'rev-1' }, { assist: 'classify' })).decisionId,
+    asked: /\(asked Jev, \d+ ms\)/,
+    cached: /\(cache hit, \d+ ms\)/,
+    notAsked: /\(Jev not asked, \d+ ms\)/,
+  },
+  {
+    spec: 'model-tier',
+    live: async (e) => {
+      const r = await core.judgeModelTier(e, TIER_INPUT, { workspaceId: 'w-line', evidenceRevision: 'rev-1' }, { assist: 'classify' });
+      return { summary: r.decisionId, call: r.jevDecisionId };
+    },
+    rules: async (e) => (await core.judgeModelTier(e, { ...TIER_INPUT, signals: core.tierSignalsOf({ hints: { paths: ['docs/guide.md'], checkIds: [] } }) }, { workspaceId: 'w-line', evidenceRevision: 'rev-1' }, { assist: 'classify' })).decisionId,
     asked: /\(asked Jev, \d+ ms\)/,
     cached: /\(cache hit, \d+ ms\)/,
     notAsked: /\(Jev not asked, \d+ ms\)/,

@@ -637,6 +637,28 @@ export const RoutePayloadSchema = S.object({
     latencyMs: S.nullable(Count),
     text: ShortText,
   }),
+  /**
+   * Owner decision 2026-10-08, tiered routing: how hard the work looks and which of the models available to this session
+   * it would run on, from the asking session's own model (any provider) and the models eligible here. Present when the
+   * request described its task. Advice only: a Claude Code hook cannot switch the main session's model, and nothing here
+   * does. `label` says what it is, always one of two things: a rules-based default, or Jev's suggestion from structured
+   * features; never a learned route and never a signed prior.
+   */
+  tier: S.object({
+    tier: S.enumOf(['step-down', 'baseline', 'step-up'] as const),
+    targetModel: ModelId,
+    baselineModel: ModelId,
+    basis: S.enumOf(['tier-rule', 'tier-jev'] as const),
+    label: text(300),
+    reasonCodes: S.array(Code, { maxItems: 16 }),
+    /** The models offered, cheapest first (the baseline's own provider). */
+    candidates: S.array(ModelId, { maxItems: 8 }),
+    asked: S.boolean(),
+    cacheHit: S.nullable(S.boolean()),
+    confidencePercent: S.nullable(S.integer({ minimum: 0, maximum: 100 })),
+    decisionId: S.nullable(Id),
+    text: ShortText,
+  }),
 });
 export type RoutePayload = S.Static<typeof RoutePayloadSchema>;
 

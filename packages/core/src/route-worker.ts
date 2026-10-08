@@ -43,6 +43,7 @@ import type { DecisionBudget } from './decision-budget.js';
 import { ENCODER_ID } from './decision-tokens.js';
 import type { CalibrationDecision } from './calibration-loader.js';
 import { decideFirstTry, firstTryNote, type FirstTryHistory, type FirstTryNote } from './first-try.js';
+import type { ModelTierDecision } from './model-tier.js';
 import { generationCostMicroUsd, registryModel } from './model-registry.js';
 import { nativeHarnessOf, qualifiedPublicPriors } from './public-priors.js';
 import { filterCandidates, observeModel, routeTask, type ModelObservation, type QualityEstimate, type RouteInput, type RouteSelection } from './router.js';
@@ -113,6 +114,13 @@ export interface ManagedWorkerInput {
    * signed in there, OQ-3). Absent: a pinned host never launches (ROUTE_HOST_NOT_CERTIFIED).
    */
   readonly hostRoute?: { readonly certified: boolean; readonly read?: ProviderConsentReader };
+  /**
+   * Tiered routing (owner decision 2026-10-08): the tier judged for this launch. A `step-up` runs its target as its
+   * own non-randomized route when nothing learned, pinned or signed selects a model for the slice (like an escalated run:
+   * observational, never a learned arm, never a signed prior), and the generation budget is reserved as for any launch.
+   * A `step-down` changes nothing here: the existing randomized first try is the only way a worker starts cheaper.
+   */
+  readonly tier?: ModelTierDecision;
 }
 
 export interface WorkerLearning {
@@ -338,6 +346,34 @@ export async function runManagedWorker(input: ManagedWorkerInput): Promise<Manag
   const pinnedEffort = learning !== null && sliceMode === 'pinned' ? (slicePolicy(learning.state, learning.sliceId).effort ?? null) : null;
   // After a demotion (an explicit advise) the baseline model stands: the release's floor does not re-select the candidate.
   const heldAtBaseline = learning !== null && ((sliceMode === 'advise' && activeVersion(learning.state).slices[learning.sliceId] !== undefined) || (sliceMode === 'auto' && learned === null));
+  /**
+   * Tiered routing: very hard work starts on the step-up rung. Learned, pinned and signed evidence for the slice wins
+   * (a route already chosen); this is the rules' default, labelled as such, and it is not randomized, so it never counts
+   * toward a learned arm. A rung that cannot launch leaves the baseline running as approved.
+   */
+  const tryTierStepUp = async (chosen: RouteSelection | null): Promise<(ManagedWorkerResult & { readonly learning?: WorkerLearningNote }) | null> => {
+    const tier = input.tier;
+    if (tier === undefined || tier.tier !== 'step-up' || tier.targetModelId === baselineOf || pinnedModel !== null || learned !== null || (chosen !== null && chosen.outcome !== 'keep-baseline')) return null;
+    const target = registryModel(input.route.registry, tier.targetModelId);
+    if (target === null || !filterCandidates(input.route.registry, input.route.policy).eligible.some((m) => m.modelId === target.modelId)) return null;
+    const blocked = limited(target.modelId);
+    if (blocked !== null) return noted({ launched: false, reasonCode: limitCode(blocked), selection: chosen }, note(null, blocked));
+    const retries = input.route.assumptions.retriesPerFailure ?? 1;
+    const reserve = Math.max(1, generationCostMicroUsd(target.tariff, input.route.volume) * (1 + retries));
+    const routed: RouteSelection = {
+      outcome: 'select',
+      modelId: target.modelId,
+      baselineModelId: baselineOf,
+      reasonCode: 'TIER_STEP_UP',
+      sliceId: learning?.sliceId ?? (calibration.eligible ? calibration.sliceId : 'tier'),
+      scored: [],
+      eliminated: [],
+      shadow: [],
+      saving: null,
+      registrySnapshotId: input.route.registry.snapshotId,
+    };
+    return noted(await launchAndSettle(input, routed, reserve, null), note(null));
+  };
   let selection: RouteSelection | null = null;
   if (pinnedModel !== null && filterCandidates(input.route.registry, input.route.policy).eligible.some((m) => m.modelId === pinnedModel)) {
     // A person pinned the slice to this model: it runs whenever the router's gates allow it.
@@ -368,6 +404,9 @@ export async function runManagedWorker(input: ManagedWorkerInput): Promise<Manag
   } else if (calibration.eligible) {
     selection = routeTask({ ...input.route, sliceId: calibration.sliceId, qualityFloor: calibration.qualityFloor });
   } else if (learning === null || mode !== 'bounded-auto') {
+    // No learning and no usable release: a step-up tier is still the rules' default for very hard work.
+    const stepped = learning === null && mode === 'bounded-auto' ? await tryTierStepUp(null) : null;
+    if (stepped !== null) return stepped;
     return noted({ launched: false, reasonCode: `CALIBRATION_${calibration.reasonCode}`, selection: null }, note(null));
   }
   if (mode !== 'bounded-auto') {
@@ -382,6 +421,8 @@ export async function runManagedWorker(input: ManagedWorkerInput): Promise<Manag
     const decisionId = input.record === undefined ? null : await input.record({ action, reasonCodes: [mode === 'observe' ? 'OBSERVE_MODE' : 'ADVISE_MODE', 'COUNTERFACTUAL', selection.reasonCode], mode });
     return noted({ launched: false, reasonCode: mode === 'observe' ? 'OBSERVE_MODE' : 'ADVISE_MODE', selection, decisionId }, note(null));
   }
+  const stepped = await tryTierStepUp(selection);
+  if (stepped !== null) return stepped;
   if (learning !== null) {
     // C16: narrow exploration among the models the router's gates leave eligible.
     const defaultModelId = selection?.modelId ?? input.route.policy.pins.modelPin ?? input.route.baselineModelId ?? input.route.registry.baselineModelId;

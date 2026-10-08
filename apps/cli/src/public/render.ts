@@ -355,6 +355,18 @@ function sliceLines(s: NonNullable<SurfacePayloads['route']['slice']>): string[]
   ];
 }
 
+/** The route's model tier: how hard the work looks and which available model it points at, labelled for what it is (advice only). */
+function tierLines(t: NonNullable<SurfacePayloads['route']['tier']>): string[] {
+  const move = t.tier === 'step-up' ? 'step up' : t.tier === 'step-down' ? 'step down' : 'stay on the baseline';
+  const how = t.asked ? `${t.cacheHit === true ? 'cache hit' : 'asked Jev'}${t.confidencePercent === null ? '' : `, confidence ${t.confidencePercent} percent`}` : 'Jev not asked';
+  return [
+    line('model tier', `${move}${t.targetModel === t.baselineModel ? '' : `: ${t.targetModel} (baseline ${t.baselineModel})`}`),
+    line('tier basis', `${t.label} (${how})`),
+    ...(t.candidates.length === 0 ? [] : [line('tier candidates', `${t.candidates.join(', ')} (cheapest first)`)]),
+    ...(t.decisionId === null ? [] : [line('tier decision', `${t.decisionId} (jevris explain ${t.decisionId})`)]),
+  ];
+}
+
 const PLAN_SLICE_NOTES: { readonly [code: string]: string } = {
   SLICE_NO_FEATURES: 'the task names no write scope, check or title to go on',
   SLICE_HIGH_RISK: 'a protected path or a high risk, so the approved baseline stays',
@@ -562,6 +574,7 @@ function body(result: SurfaceResult): string[] {
         line('reason', routeReasonLabel(p.main.reasonCode)),
         line('cost basis', costBasisText(p.main.costBasis, p.main.authMode)),
         ...(p.slice === undefined ? [] : sliceLines(p.slice)),
+        ...(p.tier === undefined ? [] : tierLines(p.tier)),
         ...(p.needs === undefined ? [] : p.needs.map((n) => line('to get advice, pass', n))),
         ...(p.main.serving === undefined || p.main.serving === null ? [] : servingLines(p.main.serving)),
         ...(p.main.consentedProviders === undefined ? [] : [line('providers considered', `${p.main.consentedProviders.length === 0 ? 'none' : p.main.consentedProviders.join(', ')} (others need consent: jevris consent provider)`)]),

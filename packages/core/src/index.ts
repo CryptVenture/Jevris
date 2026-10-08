@@ -90,5 +90,7 @@ export * from './check-relevance.js';
 export { checkRelevanceLines } from './check-relevance-explain.js';
 export * from './subagent-risk.js';
 export { subagentRiskLines } from './subagent-risk-explain.js';
+export * from './model-tier.js';
+export { modelTierLines } from './model-tier-explain.js';
 export * from './first-try.js';
 export * from './serving-view.js';
