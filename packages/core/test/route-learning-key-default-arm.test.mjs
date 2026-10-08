@@ -77,12 +77,17 @@ function allKeys() {
 test('a learning key names its own baseline: the model after the separator, nothing for a bare slice id', () => {
   assert.equal(core.keyBaselineOf(OLD_KEY), OLD_SOL);
   assert.equal(core.keyBaselineOf(NEW_KEY), NEW_SOL);
-  assert.equal(core.keyBaselineOf(SLICE), null, 'a bare slice id is the registry baseline; it names no model of its own');
+  assert.equal(core.keyBaselineOf(SLICE), null, 'a bare slice id is the pinned Opus 5.5 baseline; it names no model of its own');
+  assert.equal(core.BARE_KEY_BASELINE, OPUS);
   // It inverts learningSliceKey for every harness's baseline in the registry.
   for (const row of BUNDLED_MODEL_REGISTRY.harnessDefaults ?? []) {
-    const key = learningSliceKey(SLICE, row.baselineModelId, BUNDLED_MODEL_REGISTRY);
-    assert.equal(core.keyBaselineOf(key) ?? BUNDLED_MODEL_REGISTRY.baselineModelId, row.baselineModelId, `${row.harness} -> ${key}`);
+    const key = learningSliceKey(SLICE, row.baselineModelId);
+    assert.equal(core.keyBaselineOf(key) ?? core.BARE_KEY_BASELINE, row.baselineModelId, `${row.harness} -> ${key}`);
   }
+  // The bare key stays Opus 5.5 even though the registry baseline moved to Sonnet 5.5: old state is kept, and Claude Code learns afresh.
+  assert.equal(BUNDLED_MODEL_REGISTRY.baselineModelId, 'claude-sonnet-5-5');
+  assert.equal(learningSliceKey(SLICE, OPUS), SLICE);
+  assert.equal(learningSliceKey(SLICE, 'claude-sonnet-5-5'), `${SLICE}::claude-sonnet-5-5`);
   // A subagent key, and a model id that carries a colon of its own.
   assert.equal(core.keyBaselineOf(`subagent:explore::${OLD_SOL}`), OLD_SOL);
   assert.equal(core.keyBaselineOf(`${SLICE}::local:tag`), 'local:tag');
@@ -135,8 +140,8 @@ test('JEV-0055: a harness named for the view reads the key of its own baseline, 
   assert.equal(codex.sliceId, NEW_KEY);
   assert.equal(codex.economics.defaultArmId, NEW_SOL);
   const claude = explainSliceLearning(all, SLICE, undefined, { registry: BUNDLED_MODEL_REGISTRY, harness: 'claude' });
-  assert.equal(claude.sliceId, SLICE);
-  assert.equal(claude.economics.defaultArmId, OPUS);
+  assert.equal(claude.sliceId, `${SLICE}::claude-sonnet-5-5`, 'Claude Code learns afresh under its Sonnet 5.5 key');
+  assert.equal(claude.economics.defaultArmId, 'claude-sonnet-5-5');
   // A pin holds the slice on a model; the key's default arm is still the baseline its outcomes were measured against.
   const pinned = explainSliceLearning(pinSlice(all, OLD_KEY, LUNA, NOW), OLD_KEY);
   assert.equal(pinned.policy.mode, 'pinned');

@@ -1,4 +1,5 @@
-// Sonnet-first routing in the managed-worker route (owner decision 2026-09-30): a low-risk route
+// Cheaper-first routing in the managed-worker route (owner decision 2026-09-30; the baseline moved to
+// Sonnet 5.5 on 2026-10-08, so the first try is Haiku 5.5): a low-risk route
 // with no learned or pinned model starts on the baseline vendor's cheaper model, reserves the first
 // attempt AND the hand-off, and logs a randomized first-try or control assignment. Deterministic:
 // scripted random, a stub launch port, a temporary home, no network and no billing.
@@ -13,6 +14,7 @@ const NOW = '2026-09-30T00:00:00Z';
 const SLICE = 'bounded-edit';
 const OPUS = 'claude-opus-5-5';
 const SONNET = 'claude-sonnet-5-5';
+const HAIKU = 'claude-haiku-5-5';
 const ACCOUNT = 'acct-1';
 const REGISTRY = {
   ...BUNDLED_MODEL_REGISTRY,
@@ -58,26 +60,26 @@ async function route(t, { state = emptyLearningState({ workspaceId: 'ws-1', now:
   return { result, launches, queries };
 }
 
-test('a low-risk route with nothing learned starts on Sonnet 5.5, names the hand-off, and reserves both attempts', async (t) => {
+test('a low-risk route with nothing learned starts on Haiku 5.5, names the hand-off to Sonnet 5.5, and reserves both attempts', async (t) => {
   const { result, launches, queries } = await route(t);
   assert.equal(result.launched, true, JSON.stringify(result));
-  assert.equal(result.selection.modelId, SONNET);
+  assert.equal(result.selection.modelId, HAIKU);
   assert.equal(result.selection.reasonCode, 'FIRST_TRY');
-  assert.deepEqual(launches.map((l) => [l.model, l.effort]), [[SONNET, null]]);
-  assert.deepEqual(queries, [{ baselineModelId: OPUS, firstTryModelId: SONNET }]);
+  assert.deepEqual(launches.map((l) => [l.model, l.effort]), [[HAIKU, null]]);
+  assert.deepEqual(queries, [{ baselineModelId: SONNET, firstTryModelId: HAIKU }]);
   const ft = result.learning.firstTry;
-  assert.deepEqual([ft.arm, ft.reasonCode, ft.firstTryModelId, ft.baselineModelId, ft.stepUpModelIds[0], ft.verdictReason], ['first-try', 'FIRST_TRY', SONNET, OPUS, OPUS, 'DAY_1_PRIOR']);
+  assert.deepEqual([ft.arm, ft.reasonCode, ft.firstTryModelId, ft.baselineModelId, ft.stepUpModelIds[0], ft.verdictReason], ['first-try', 'FIRST_TRY', HAIKU, SONNET, SONNET, 'DAY_1_PRIOR']);
   assert.ok(Math.abs(ft.propensity - 0.9) < 1e-9);
-  assert.ok(Math.abs(ft.breakEven - 0.5) < 1e-9);
-  // Sonnet 1.2 USD + Opus 2.4 USD at this volume: the reservation is never less than both attempts.
-  assert.ok(launches[0].maxBudgetUsd >= 3.6 - 1e-9, `reserved ${String(launches[0].maxBudgetUsd)} USD`);
+  // Haiku 5.5 at the default size (400k input, which the price model reads as past its 100,000-token tier) is 0.3 USD, Sonnet 5.5 1.2 USD.
+  assert.ok(Math.abs(ft.breakEven - 0.25) < 1e-9, `break-even ${String(ft.breakEven)}`);
+  assert.ok(launches[0].maxBudgetUsd >= 1.5 - 1e-9, `reserved ${String(launches[0].maxBudgetUsd)} USD`);
 });
 
 test('the reservation must cover the hand-off: a budget that fits the first try alone refuses the launch', async (t) => {
-  const tight = await route(t, { limitMicroUsd: 3_000_000 });
+  const tight = await route(t, { limitMicroUsd: 1_200_000 });
   assert.equal(tight.result.launched, false);
   assert.deepEqual(tight.launches, []);
-  const roomy = await route(t, { limitMicroUsd: 4_000_000 });
+  const roomy = await route(t, { limitMicroUsd: 2_000_000 });
   assert.equal(roomy.result.launched, true, JSON.stringify(roomy.result));
 });
 
@@ -86,7 +88,7 @@ test('the control share runs the baseline first (the caller launches it) and is 
   assert.equal(result.launched, false);
   assert.deepEqual(launches, []);
   assert.equal(result.reasonCode, 'CALIBRATION_NO_RELEASE', 'the route itself launches nothing; the approved baseline runs');
-  assert.deepEqual([result.learning.firstTry.arm, result.learning.firstTry.reasonCode, result.learning.baselineModelId], ['control', 'FIRST_TRY_CONTROL', OPUS]);
+  assert.deepEqual([result.learning.firstTry.arm, result.learning.firstTry.reasonCode, result.learning.baselineModelId], ['control', 'FIRST_TRY_CONTROL', SONNET]);
   assert.ok(Math.abs(result.learning.firstTry.propensity - 0.1) < 1e-9);
 });
 
@@ -118,6 +120,6 @@ test('after a demotion the baseline runs first and the first try is only explore
   assert.equal(held.launches.length, 0);
   assert.equal(held.result.learning.firstTry.arm, 'control');
   const explored = await route(t, { history: demoted, random: seq(0.99, 0.05) });
-  assert.deepEqual(explored.launches.map((l) => l.model), [SONNET]);
+  assert.deepEqual(explored.launches.map((l) => l.model), [HAIKU]);
   assert.equal(explored.result.selection.reasonCode, 'FIRST_TRY_EXPLORED');
 });

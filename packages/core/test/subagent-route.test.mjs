@@ -9,13 +9,15 @@ const { adviseSubagentRoute, subagentSliceId, SUBAGENT_ROUTE_ABSTAIN_REASONS, CL
 // pinned-clock: before any bundled retirement date, so the propose path does not age.
 const NOW = Date.parse('2026-09-27T12:00:00Z');
 const SLICE = 'subagent:Explore';
+// Claude Code's baseline is Sonnet 5.5 (2026-10-08), so its subagent slices learn under the qualified key; the bare key still means an Opus 5.5 baseline.
+const KEY = `${SLICE}::claude-sonnet-5-5`;
 
 /** A learning state whose active version routes `slices` (hand-built: the policy is what the route reads). */
 function learning(slices) {
   const base = emptyLearningState({ workspaceId: 'ws-sub', now: '2026-09-27T00:00:00Z' });
   return { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-27T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: SLICE, slices, evidence: null }] };
 }
-const active = (modelId, extra = {}) => learning({ [SLICE]: { mode: 'auto', modelId, baselineModelId: 'claude-opus-5-5', baselineRate: 0.9, ...extra } });
+const active = (modelId, extra = {}) => learning({ [KEY]: { mode: 'auto', modelId, baselineModelId: 'claude-sonnet-5-5', baselineRate: 0.9, ...extra } });
 
 function input(extra = {}) {
   return {
@@ -90,6 +92,13 @@ test('subagent route, owner decision 2026-10-08: with no learned or signed evide
   assert.equal(reason({ ...none, risk: risk('low'), sessionModel: 'haiku' }), 'SAME_AS_SESSION');
   assert.equal(reason({ ...none, risk: risk('medium'), sessionModel: 'claude-haiku-5-5' }), 'NOT_CHEAPER', 'never to a model that costs more than the session');
   assert.equal(reason({ ...none, risk: risk('medium'), sessionModel: 'sonnet' }), 'SAME_AS_SESSION');
+  // The session id is resolved as Claude Code reports it: a `[1m]` variant is its base model, and no id reads as the baseline (Sonnet 5.5), never as "cheaper" by default.
+  assert.equal(reason({ ...none, risk: risk('medium'), sessionModel: null }), 'NOT_CHEAPER', 'an unknown session is the baseline, so Sonnet 5.5 is no cheaper');
+  assert.equal(adviseSubagentRoute(input({ ...none, risk: risk('low'), sessionModel: null })).modelId, 'claude-haiku-5-5');
+  assert.equal(reason({ ...none, risk: risk('medium'), sessionModel: 'claude-sonnet-5-5[1m]' }), 'NOT_CHEAPER');
+  assert.equal(reason({ ...none, risk: risk('low'), sessionModel: 'claude-haiku-5-5[1m]' }), 'NOT_CHEAPER');
+  assert.equal(adviseSubagentRoute(input({ ...none, risk: risk('low'), sessionModel: 'claude-sonnet-5-5[1m]' })).modelId, 'claude-haiku-5-5');
+  assert.equal(adviseSubagentRoute(input({ ...none, risk: risk('medium'), sessionModel: 'claude-opus-5-5[1m]' })).modelId, 'claude-sonnet-5-5');
   assert.equal(reason({ ...none, risk: risk('low'), unavailableModels: { 'claude-haiku-5-5': 'MODEL_GONE' } }), 'MODEL_UNAVAILABLE');
   assert.equal(reason({ ...none, risk: risk('low'), consentedProviders: [] }), 'PROVIDER_NOT_CONSENTED');
   // The default follows the registry: when Haiku 5.5 is retired the next usable haiku is what the alias means.
@@ -130,7 +139,7 @@ test('subagent route: every abstain reason, each paired with the one change that
   expect('NO_EVIDENCE', { learning: null });
   expect('NO_EVIDENCE', { learning: learning({}) });
   expect('NO_EVIDENCE', { learning: learning({ 'subagent:Plan': { mode: 'auto', modelId: 'claude-haiku-5-5', baselineModelId: null, baselineRate: null } }) });
-  expect('NO_EVIDENCE', { learning: learning({ [SLICE]: { mode: 'advise', modelId: null, baselineModelId: null, baselineRate: null } }) });
+  expect('NO_EVIDENCE', { learning: learning({ [KEY]: { mode: 'advise', modelId: null, baselineModelId: null, baselineRate: null } }) });
   expect('NOT_IN_REGISTRY', { learning: active('claude-mystery-9') });
   const retired = { ...BUNDLED_MODEL_REGISTRY, entries: BUNDLED_MODEL_REGISTRY.entries.map((e) => (e.modelId === 'claude-haiku-5-5' ? { ...e, lifecycle: { ...e.lifecycle, retiresOn: '2026-09-01T00:00:00Z' } } : e)) };
   expect('MODEL_RETIRED', { registry: retired });
@@ -157,6 +166,8 @@ test('subagent route: every abstain reason, each paired with the one change that
   expect('ACCESS_LIMITED', { accessLimits: [window], authMode: 'subscription' });
   assert.equal(adviseSubagentRoute(input({ accessLimits: [window], authMode: 'api-key' })).outcome, 'propose', 'a subscription window leaves the API key');
   assert.equal(adviseSubagentRoute(input({ accessLimits: [{ ...window, untilMs: NOW }], authMode: 'subscription' })).outcome, 'propose', 'an expired window pauses nothing');
+  // Learned against Opus 5.5 (the bare key, before the 2026-10-08 move) is not Claude Code's evidence now: it starts afresh.
+  expect('NO_EVIDENCE', { learning: learning({ [SLICE]: { mode: 'auto', modelId: 'claude-haiku-5-5', baselineModelId: 'claude-opus-5-5', baselineRate: 0.9 } }) });
   assert.deepEqual([...seen].sort(), [...SUBAGENT_ROUTE_ABSTAIN_REASONS].sort(), 'every declared abstain reason is exercised');
   // Pairs: the default input proposes; a learned arm at the model's default effort is routable.
   assert.equal(adviseSubagentRoute(input()).outcome, 'propose');
@@ -196,7 +207,7 @@ test('R20: each harness applies a subagent route its own way; Antigravity explai
   assert.notEqual(codexKey, SLICE);
   const codex = adviseSubagentRoute(input({ harness: 'codex', sessionModel: 'gpt-6.1-sol', learning: learning({ [codexKey]: { mode: 'auto', modelId: 'gpt-6-luna', baselineModelId: 'gpt-6.1-sol', baselineRate: 0.9 } }) }));
   assert.deepEqual([codex.outcome, codex.harness, codex.modelId, codex.harnessModel, codex.alias, codex.actuator.tool], ['propose', 'codex', 'gpt-6-luna', 'gpt-6-luna', null, 'spawn_agent']);
-  // A route learned on Claude Code's subagents (the bare key) is never proposed on Codex.
+  // A route learned on Claude Code's subagents is never proposed on Codex.
   assert.equal(reason({ harness: 'codex', sessionModel: 'gpt-6.1-sol' }), 'NO_EVIDENCE');
   // OpenCode and Kilo: the same learned route, spelled provider/model; the session spelling counts as the same model.
   for (const harness of ['opencode', 'kilocode']) {
@@ -220,7 +231,8 @@ test('R20: each harness applies a subagent route its own way; Antigravity explai
   assert.match(codexHigh.text, /learned effort is xhigh; the route sets the model only/);
   assert.equal(kiloLow.effortNotApplied, null);
   // One learning key per harness baseline, the one the advice reads (D records under it).
-  assert.deepEqual(['claude', 'codex', 'kilocode', 'opencode', 'antigravity'].map((h) => core.subagentLearningKey('Explore', h, BUNDLED_MODEL_REGISTRY)), [SLICE, codexKey, SLICE, SLICE, learningSliceKey(SLICE, 'gemini-3.8-flash', BUNDLED_MODEL_REGISTRY)]);
+  assert.deepEqual(['claude', 'codex', 'kilocode', 'opencode', 'antigravity'].map((h) => core.subagentLearningKey('Explore', h, BUNDLED_MODEL_REGISTRY)), [KEY, codexKey, KEY, KEY, learningSliceKey(SLICE, 'gemini-3.8-flash', BUNDLED_MODEL_REGISTRY)]);
+  assert.equal(learningSliceKey(SLICE, 'claude-opus-5-5', BUNDLED_MODEL_REGISTRY), SLICE, 'the bare key is pinned to Opus 5.5: what was learned against it stays where it is');
   assert.equal(core.subagentLearningKey('bad type/..', 'codex', BUNDLED_MODEL_REGISTRY), null);
   assert.deepEqual([...core.SUBAGENT_ROUTE_HARNESSES], ['claude', 'codex', 'kilocode', 'opencode']);
   // Antigravity: a proposal with no actuator, spelled as Antigravity names it.

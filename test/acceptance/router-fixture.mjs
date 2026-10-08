@@ -29,6 +29,10 @@ export async function registry(overrides = {}) {
   const { BUNDLED_MODEL_REGISTRY } = await load('core');
   return {
     ...BUNDLED_MODEL_REGISTRY,
+    // The stories are written against an Opus 5.5 baseline and evaluated qualities for Opus 5 and Sonnet 5.
+    // The bundled baseline moved to Sonnet 5.5 on 2026-10-08, so this administrator-style registry names its own.
+    baselineModelId: 'claude-opus-5-5',
+    harnessDefaults: BUNDLED_MODEL_REGISTRY.harnessDefaults.map((row) => (row.harness === 'claude' ? { ...row, baselineModelId: 'claude-opus-5-5' } : row)),
     entries: BUNDLED_MODEL_REGISTRY.entries.map(({ lifecycle: _lifecycle, ...entry }) => ({
       ...entry,
       accountEligibility: [{ accountId: ACCOUNT, eligible: true, checkedAt: '2026-09-22T00:00:00Z' }],

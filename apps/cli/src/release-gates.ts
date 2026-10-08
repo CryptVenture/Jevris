@@ -664,7 +664,7 @@ const NO_BASELINE_PRODUCT_PATH = 'C16 no baseline (1.2): a fresh workspace with 
 
 /**
  * §18.5 and §22.2 as amended (827fc87): with no seed, every workspace starts on the approved
- * default (Opus 5.5 at medium) and route learning moves it only through the owner-locked gate.
+ * default (Sonnet 5.5 on Claude Code, at its default effort; Opus 5.5 at medium before 2026-10-08) and route learning moves it only through the owner-locked gate.
  * These tests prove that gate: the locked thresholds, fast automatic demotion, pins, learning
  * off and capped exploration. Economics in use: cost and time per verified task against the
  * default, reported by explain and status, and reversion when a candidate does not improve.

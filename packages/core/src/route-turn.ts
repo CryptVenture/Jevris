@@ -145,7 +145,7 @@ export function routeTurn(input: RouteTurnInput): RouteTurnPayload {
   if (input.learning === null) return abstain('NO_PROMOTED_SLICE', 'No route learning in this workspace yet; the model stays as it is.');
   // OD-3 and R17: the session's current model is its baseline, and the slice learns under that key.
   const baseline = routeBaseline(input.registry, harness, current.modelId);
-  const key = learningSliceKey(input.sliceId, baseline, input.registry);
+  const key = learningSliceKey(input.sliceId, baseline);
   const policy = slicePolicy(input.learning, key);
   if (policy.mode !== 'auto' || policy.modelId === null) {
     return abstain(policy.mode === 'pinned' ? 'SLICE_PINNED' : 'NO_PROMOTED_SLICE', `Slice ${input.sliceId} has no promoted model against ${current.modelId}; the model stays as it is.`);

@@ -15,18 +15,19 @@ const orchestrator = await import('@jevris/orchestrator');
 const { jevrisPaths } = await import('@jevris/platform');
 const { surfacePayloadContract } = await import('@jevris/contracts');
 
-const SONNET = 'claude-sonnet-5-5';
-const OPUS = 'claude-opus-5-5';
+// Claude Code's baseline is Sonnet 5.5 and its first try Haiku 5.5 (owner decision 2026-10-08).
+const FIRST = 'claude-haiku-5-5';
+const BASE = 'claude-sonnet-5-5';
 const DECISION = 'd-00000000-0000-4000-8000-000000000b02';
 const NO_SIDECAR = { extraEnv: { JEVRIS_SIDECAR_AUTOSTART: '0' } };
 const ANTIGRAVITY_OFF = 'antigravity: off (no cheaper active model than gemini-3.8-flash, and its only stronger model is a preview, which is never started automatically)';
 
-const note = (arm) => ({ firstTry: { arm, propensity: arm === 'control' ? 0.1 : 0.9, firstTryModelId: SONNET, baselineModelId: OPUS, stepUpModelIds: [OPUS], breakEven: 0.5, breakEvenBasis: 'estimated', overheadMicroUsd: 1000 } });
+const note = (arm) => ({ firstTry: { arm, propensity: arm === 'control' ? 0.1 : 0.9, firstTryModelId: FIRST, baselineModelId: BASE, stepUpModelIds: [BASE], breakEven: 0.5, breakEvenBasis: 'estimated', overheadMicroUsd: 1000 } });
 const run = (leaseId, model, costUsd) => ({ leaseId, requestedModel: model, actualModel: model, costUsd, authMode: 'api-key', durationMs: 1000 });
 
 /** One finished task in the ledger: `pass` (first attempt passed) or `fail` (first attempt failed, no hand-off). */
 async function task(ws, id, { slice, arm = 'first-try', outcome = 'pass', costUsd }) {
-  const model = arm === 'control' ? OPUS : SONNET;
+  const model = arm === 'control' ? BASE : FIRST;
   await orchestrator.keepFirstTryRoute(ws, { taskId: id, sliceId: slice, run: { leaseId: `l-${id}`, requestedModel: model }, note: note(arm), nowMs: 1 });
   await orchestrator.recordFirstTryOutcome(ws, id, outcome === 'pass' ? 'verified-pass' : 'verified-fail', { run: run(`l-${id}`, model, costUsd), nowMs: 2 });
   if (outcome === 'fail') await orchestrator.closeUnhandled(ws, id, 3);
@@ -89,7 +90,7 @@ test('auto with no data: status says the ladder per harness with no slices, expl
   assert.equal(text.code, 0, text.stdout + text.stderr);
   assert.equal(
     statusLine(text.stdout),
-    `first-try slices: claude: ${SONNET} first, ${OPUS} baseline, no slices yet; codex: gpt-6-luna first, gpt-6.1-sol baseline, no slices yet; ${ANTIGRAVITY_OFF}`,
+    `first-try slices: claude: ${FIRST} first, ${BASE} baseline, no slices yet; codex: gpt-6-luna first, gpt-6.1-sol baseline, no slices yet; ${ANTIGRAVITY_OFF}`,
   );
   assert.equal(statusLine(reduced.stdout), statusLine(text.stdout));
   const json = box.jevris(['status'], { json: true });
@@ -98,7 +99,7 @@ test('auto with no data: status says the ladder per harness with no slices, expl
   assert.deepEqual(view, reducedJson.json.result.firstTry);
   assert.deepEqual([view.setting, view.unavailable, view.other], ['auto', null, { firstTry: 0, baselineFirst: 0, learning: 0 }]);
   const claude = view.harnesses.find((h) => h.harness === 'claude');
-  assert.deepEqual([claude.state, claude.firstTryModelId, claude.baselineModelId, claude.slices], ['on', SONNET, OPUS, { firstTry: 0, baselineFirst: 0, learning: 0 }]);
+  assert.deepEqual([claude.state, claude.firstTryModelId, claude.baselineModelId, claude.slices], ['on', FIRST, BASE, { firstTry: 0, baselineFirst: 0, learning: 0 }]);
   const agy = view.harnesses.find((h) => h.harness === 'antigravity');
   assert.deepEqual([agy.state, agy.reasonCode, agy.firstTryModelId, agy.strongerIsPreview], ['off', 'NO_CHEAPER_RUNG', null, true]);
   const client = await box.mcp();
@@ -134,7 +135,7 @@ test('a ledger with a slice in each verdict: status counts them, explain gives t
   // Status: one slice on the first try, one on the baseline, one still learning; the same in JSON and over MCP.
   const text = box.jevris(['status']);
   assert.equal(text.code, 0, text.stdout + text.stderr);
-  assert.match(statusLine(text.stdout), new RegExp(`claude: ${SONNET} first, ${OPUS} baseline, 1 on the first try, 1 on the baseline, 1 still learning; codex: gpt-6-luna first, gpt-6.1-sol baseline, no slices yet;`));
+  assert.match(statusLine(text.stdout), new RegExp(`claude: ${FIRST} first, ${BASE} baseline, 1 on the first try, 1 on the baseline, 1 still learning; codex: gpt-6-luna first, gpt-6.1-sol baseline, no slices yet;`));
   assert.ok(statusLine(text.stdout).endsWith(ANTIGRAVITY_OFF), statusLine(text.stdout));
   const json = box.jevris(['status'], { json: true });
   assert.equal(surfacePayloadContract('status').validate(json.json.result).ok, true);
@@ -149,7 +150,7 @@ test('a ledger with a slice in each verdict: status counts them, explain gives t
   const group = (slice) => box.jevris(['explain', DECISION, '--slice', slice], { json: true }).json.result.trace.firstTry.groups[0];
 
   const paying = group('issue-fix');
-  assert.deepEqual([paying.verdict, paying.reasonCode, paying.firstTryModelId, paying.baselineModelId], ['first-try', 'FIRST_TRY_WORTH_IT', SONNET, OPUS]);
+  assert.deepEqual([paying.verdict, paying.reasonCode, paying.firstTryModelId, paying.baselineModelId], ['first-try', 'FIRST_TRY_WORTH_IT', FIRST, BASE]);
   assert.deepEqual(paying.started, { firstTry: 5, control: 1, open: 0 });
   assert.deepEqual(paying.firstTry, { finished: 5, verified: 5, firstAttemptPass: 5, firstAttemptFail: 0, handedOff: 0 });
   assert.deepEqual(paying.control, { finished: 1, verified: 1 });
@@ -160,7 +161,7 @@ test('a ledger with a slice in each verdict: status counts them, explain gives t
   assert.equal(paying.thresholds.minFinishedToReinstate, 12);
   const payingText = explainOf('issue-fix');
   assert.match(payingText, /^first-try routing for slice issue-fix \(routing\.firstTry auto\):$/m);
-  assert.match(payingText, new RegExp(`^- ${SONNET} before ${OPUS}: first try \\(FIRST_TRY_WORTH_IT\\)$`, 'm'));
+  assert.match(payingText, new RegExp(`^- ${FIRST} before ${BASE}: first try \\(FIRST_TRY_WORTH_IT\\)$`, 'm'));
   assert.match(payingText, /^ {4}tasks: first try 5 started, 5 finished, 5 verified; 5 passed the check on the first attempt, 0 failed it, 0 handed up; control \(baseline first\) 1 started, 1 finished, 1 verified; 0 still open$/m);
   assert.match(payingText, /^ {4}break-even p\* = \(cS \+ h\) \/ \(cO \+ h\) = 0\.5000 \(estimated from list prices when the first task started\);/m);
   assert.match(payingText, /^ {4}cost per verified task: first try 20000 micro-USD \(\$0\.0200\), control 50000 micro-USD \(\$0\.0500\)$/m);
@@ -170,7 +171,7 @@ test('a ledger with a slice in each verdict: status counts them, explain gives t
   assert.equal(failing.verdict, 'baseline-first');
   assert.deepEqual(failing.firstTry, { finished: 5, verified: 0, firstAttemptPass: 0, firstAttemptFail: 5, handedOff: 0 });
   assert.ok(failing.pBelowBreakEven > 0.9, `P(success rate below p*) = ${failing.pBelowBreakEven}`);
-  assert.match(explainOf('failing-slice'), new RegExp(`^- ${SONNET} before ${OPUS}: baseline first \\(${failing.reasonCode}\\)$`, 'm'));
+  assert.match(explainOf('failing-slice'), new RegExp(`^- ${FIRST} before ${BASE}: baseline first \\(${failing.reasonCode}\\)$`, 'm'));
 
   const learning = group('learning-slice');
   assert.deepEqual([learning.verdict, learning.reasonCode, learning.firstTry.finished, learning.pBelowBreakEven], ['learning', 'DAY_1_PRIOR', 2, 0.125]);

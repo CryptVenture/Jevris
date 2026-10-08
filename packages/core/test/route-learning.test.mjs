@@ -69,7 +69,7 @@ const NOW = '2026-09-26T00:00:00Z';
 /** Registry checks (lifecycle, prices) run at the test's time, never the real clock: a bundled model's retirement date must not change a result. */
 const NOW_MS = Date.parse(NOW);
 const SLICE = 'bounded-edit';
-// Opus 5.5 is the registry baseline; Sonnet 5 is cheaper at list price.
+// Opus 5.5 is the baseline these tests learn against (the bare key, which stays pinned to it; the registry baseline moved to Sonnet 5.5 on 2026-10-08); Sonnet 5 is cheaper at list price.
 const BASE = 'claude-opus-5-5';
 const CAND = 'claude-sonnet-5';
 const ELIGIBLE = [BASE, CAND];
@@ -804,6 +804,7 @@ async function worker(t, { state, risk = 'low', random = () => 0.99, mode = 'bou
     loadCalibration,
     route: {
       registry: workerRegistry(),
+      baselineModelId: BASE, // Opus 5.5: these slices learn under the bare key, the one an Opus baseline keeps
       policy: { managedAllowlist: allowlist, allowedRegions: ['global'], requiredContextTokens: 0, requiredCapabilities: ['tools'], pins: { modelPin: null, effortPin: null }, riskFloorFamilies: null, accountId: ACCOUNT, nowMs: Date.parse(NOW) },
       volume: { inputTokens: 400_000, outputTokens: 40_000 },
       assumptions: { verificationMicroUsd: 200_000, reworkMicroUsd: 3_000_000, routingOverheadMicroUsd: 21_000 },

@@ -236,8 +236,8 @@ With --link or --unlink: 0 linked, unlinked or unchanged; 1 not linked (refused 
 one session could be meant); 2 usage error or no interactive terminal.
 
 Examples:
-  jevris route --model claude-opus-5-5
-  jevris route --model claude-opus-5-5 --pin claude-opus-5-5 --effort-pin high --json
+  jevris route --model claude-sonnet-5-5
+  jevris route --model claude-sonnet-5-5 --pin claude-opus-5-5 --effort-pin high --json
   jevris route --task fix-parser --slice bounded-edit
   jevris route --task fix-parser --path src/parser.ts --path test/parser.test.ts --check test
   jevris route --model anthropic/claude-opus-5-5 --harness opencode --auth-mode subscription
@@ -264,12 +264,12 @@ within its budget, the kill switch and certification. On a harness not certified
 worker.route (jevris certify), routing only advises: the approved model runs at its default
 effort.
 
-On day 1 each slice follows the baseline model, Opus 5.5 (claude-opus-5-5) at its default
-effort, medium. Version 1.2 ships no signed baseline release, and a baseline alone never
+On day 1 each slice follows the baseline model, Sonnet 5.5 (claude-sonnet-5-5) at its default
+effort, high. Version 1.2 ships no signed baseline release, and a baseline alone never
 switches a slice: a slice switches only after this workspace has at least 12 randomized,
 verified outcomes on both the candidate arm and the default arm. Every verified outcome
 updates the evidence, so a slice is activated, kept or demoted as the evidence says. An arm
-is a model at an effort level: learning tries Opus 5.5 at low, medium and high effort. Demotion back to the
+is a model at an effort level: learning tries Sonnet 5.5 at low and high effort. Demotion back to the
 baseline model at its default effort is fast. Every change makes a new policy version, so a
 reset, a pin or a rollback undoes it.
 
@@ -277,7 +277,7 @@ status     Each slice's mode (active, advice only, or pinned) and the version th
            signed baseline prior, the other workspaces' outcomes on this machine and the local
            outcomes, shown apart; the posterior; the published priors; any pending proposal;
            how often the chosen model agreed with the rules-only choice (rates, never a
-           saving); the Sonnet-first first-try and control tasks (cost per verified task,
+           saving); the cheaper-first first-try and control tasks (cost per verified task,
            an estimate when priced from usage; quality is never claimed); and the models
            found gone on this machine.
 off        Stops every switch and all exploration in this workspace: managed workers keep their
@@ -513,9 +513,11 @@ Options:
   --slice <id>        Also show that task slice's route learning: active, advice only or pinned,
                       the policy version, the signed baseline prior and the local outcomes
                       apart, and why (see jevris route learning status). Take the id from that
-                      list: a baseline other than Opus 5.5 learns under <slice>::<model>, for
-                      example bounded-edit::gpt-6.1-sol, and each key compares its arms with
-                      its own baseline
+                      list: a bare <slice> is Opus 5.5 (what was learned before Claude
+                      Code's baseline moved to Sonnet 5.5); any other baseline learns under
+                      <slice>::<model>, for example bounded-edit::claude-sonnet-5-5 or
+                      bounded-edit::gpt-6.1-sol, and each key compares its arms with its own
+                      baseline
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line (the command's contract)

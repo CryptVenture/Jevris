@@ -104,9 +104,11 @@ Options:
   --slice <id>        Also show that task slice's route learning: active, advice only or pinned,
                       the policy version, the signed baseline prior and the local outcomes
                       apart, and why (see jevris route learning status). Take the id from that
-                      list: a baseline other than Opus 5.5 learns under <slice>::<model>, for
-                      example bounded-edit::gpt-6.1-sol, and each key compares its arms with
-                      its own baseline
+                      list: a bare <slice> is Opus 5.5 (what was learned before Claude
+                      Code's baseline moved to Sonnet 5.5); any other baseline learns under
+                      <slice>::<model>, for example bounded-edit::claude-sonnet-5-5 or
+                      bounded-edit::gpt-6.1-sol, and each key compares its arms with its own
+                      baseline
   --home <dir>        Jevris home (default: JEVRIS_HOME, else your home directory)
   --workspace <dir>   Workspace (default: the repository containing the current directory)
   --json              Print one JSON result line (the command's contract)
@@ -182,8 +184,8 @@ With --link or --unlink: 0 linked, unlinked or unchanged; 1 not linked (refused 
 one session could be meant); 2 usage error or no interactive terminal.
 
 Examples:
-  jevris route --model claude-opus-5-5
-  jevris route --model claude-opus-5-5 --pin claude-opus-5-5 --effort-pin high --json
+  jevris route --model claude-sonnet-5-5
+  jevris route --model claude-sonnet-5-5 --pin claude-opus-5-5 --effort-pin high --json
   jevris route --task fix-parser --slice bounded-edit
   jevris route --task fix-parser --path src/parser.ts --path test/parser.test.ts --check test
   jevris route --model anthropic/claude-opus-5-5 --harness opencode --auth-mode subscription

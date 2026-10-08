@@ -57,9 +57,12 @@ async function home(t, { active = true } = {}) {
   if (active) {
     const base = core.emptyLearningState({ workspaceId: 'w-sub', now: '2026-09-27T00:00:00Z' });
     const slice = core.subagentSliceId('Explore');
-    const state = { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-27T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: slice, slices: { [slice]: { mode: 'auto', modelId: HAIKU, baselineModelId: 'claude-opus-5-5', baselineRate: 0.9 } }, evidence: null }] };
+    // Claude Code's baseline is Sonnet 5.5 (2026-10-08), so its subagent slice learns under the qualified key.
+    const key = core.subagentLearningKey('Explore', 'claude', core.BUNDLED_MODEL_REGISTRY);
+    assert.equal(key, `${slice}::claude-sonnet-5-5`);
+    const state = { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-27T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: key, slices: { [key]: { mode: 'auto', modelId: HAIKU, baselineModelId: 'claude-sonnet-5-5', baselineRate: 0.9 } }, evidence: null }] };
     assert.equal((await core.saveLearningState(dir, state)).ok, true);
-    assert.equal(core.slicePolicy(await core.loadLearningState({ home: dir, workspaceId: 'w-sub' }), slice).mode, 'auto', 'the fixture state loads as active');
+    assert.equal(core.slicePolicy(await core.loadLearningState({ home: dir, workspaceId: 'w-sub' }), key).mode, 'auto', 'the fixture state loads as active');
   }
   return dir;
 }
@@ -210,7 +213,7 @@ test('R51: an OpenCode subagent keeps the parent\'s gateway; applied only with r
   const slice = core.subagentSliceId('Plan');
   const key = core.subagentLearningKey('Plan', 'opencode', core.BUNDLED_MODEL_REGISTRY);
   const base = core.emptyLearningState({ workspaceId: 'w-sub', now: '2026-09-27T00:00:00Z' });
-  const state = { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-27T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: key, slices: { [key]: { mode: 'auto', modelId: 'glm-5.3', baselineModelId: 'claude-opus-5-5', baselineRate: 0.9 } }, evidence: null }] };
+  const state = { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-27T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: key, slices: { [key]: { mode: 'auto', modelId: 'glm-5.3', baselineModelId: 'claude-sonnet-5-5', baselineRate: 0.9 } }, evidence: null }] };
   assert.equal((await core.saveLearningState(dir, state)).ok, true);
   assert.ok(slice !== null);
   // OpenCode lists GLM-5.3 through OpenRouter (the offer keeps the spelling and its host).

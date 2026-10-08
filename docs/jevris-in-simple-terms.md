@@ -126,13 +126,13 @@ The one permission decision Jevris writes is on a certified Codex subagent route
 
 ### The main session: advice, and one turn at a time in Kilo and OpenCode
 
-For the session you are typing in, Jevris advises. `jevris route --model claude-opus-5-5` gives advice, and `applied` is always false. It never changes your session's model and always keeps a model you pinned. In Claude Code, Codex and Antigravity that is all it does.
+For the session you are typing in, Jevris advises. `jevris route --model claude-sonnet-5-5` gives advice, and `applied` is always false. It never changes your session's model and always keeps a model you pinned. In Claude Code, Codex and Antigravity that is all it does.
 
 In Kilo and OpenCode, with `routing.mainSession` at `plugin-bounded-auto` (the default) and the mode at `bounded-auto`, the plugin may run one turn on a routed model. It does so only for a session linked to a low-risk task, never on the session's first message or after you change the model yourself, and the next turn runs on the session's own model again. It needs `session.route`, which is certified only when its stub case passes on your installed binary (on macOS, the maintainer's run certified it for Kilo 7.8.1 and OpenCode 1.18.32). `jevris configure set routing.mainSession advice-only` turns it off. See [routing.md](routing.md#main-session-turns-on-kilo-and-opencode). Switching a model mid-session throws away the cached prompt, so advice counts that cost; without `--warm-prefix` the cost is unknown and the advice keeps your current model. See [routing.md](routing.md#route-advice).
 
 ### The default model
 
-The default and baseline in Claude Code is **Opus 5.5** (`claude-opus-5-5`) at **medium** effort: 1M tokens of context and 128K of output. The registry names a baseline for two more harnesses: GPT-6.1 Sol (`gpt-6.1-sol`) in Codex and Gemini 3.8 Flash (`gemini-3.8-flash`) in Antigravity, each at that harness's default effort. The bundled model registry (snapshot `multi-2026-10-08`) lists seven providers: Anthropic (Opus 5.5, Fable 5.1, Sonnet 5.5, Haiku 5.5, Opus 5 (legacy), Sonnet 5 (legacy), Haiku 4.5 (legacy)), OpenAI (GPT-6 Astra, Sol and Luna; GPT-6.1 Sol; GPT-5.6 Sol, Terra and Luna), Google (Gemini 3.8 Flash, Gemini 3.7 Flash, Gemini 3.1 Pro preview), xAI (Grok 4.7, Grok 4.6), Z.ai (GLM-5.3), Moonshot (Kimi K3) and DeepSeek (DeepSeek V4 Pro, DeepSeek V4.1 Flash).
+The default and baseline in Claude Code is **Sonnet 5.5** (`claude-sonnet-5-5`; it was Opus 5.5 until 8 October 2026): 1M tokens of context and 128K of output, default effort `high` in the registry (Claude Code starts it at `medium`). Opus 5.5 is the step up for very hard work and Haiku 5.5 the step down. Kilo and OpenCode, which run several providers, use the model your session is on, and only fall back to Sonnet 5.5 when they cannot tell. The registry names a baseline for two more harnesses: GPT-6.1 Sol (`gpt-6.1-sol`) in Codex and Gemini 3.8 Flash (`gemini-3.8-flash`) in Antigravity, each at that harness's default effort. The bundled model registry (snapshot `multi-2026-10-08`) lists seven providers: Anthropic (Opus 5.5, Fable 5.1, Sonnet 5.5, Haiku 5.5, Opus 5 (legacy), Sonnet 5 (legacy), Haiku 4.5 (legacy)), OpenAI (GPT-6 Astra, Sol and Luna; GPT-6.1 Sol; GPT-5.6 Sol, Terra and Luna), Google (Gemini 3.8 Flash, Gemini 3.7 Flash, Gemini 3.1 Pro preview), xAI (Grok 4.7, Grok 4.6), Z.ai (GLM-5.3), Moonshot (Kimi K3) and DeepSeek (DeepSeek V4 Pro, DeepSeek V4.1 Flash).
 
 **Models from other providers start unevaluated.** Routing, account eligibility and cost per task cover every provider in the registry, in each harness that reaches it: Claude Code for Anthropic, Codex for OpenAI, Antigravity for Google, and OpenCode and Kilo for any of them through a provider configuration. No signed result covers the 15 models from outside Anthropic, so:
 
@@ -147,11 +147,11 @@ An administrator can still replace the registry with their own file ([routing.md
 
 ### Route learning (owned workers only)
 
-Route learning decides, per workspace and per **slice** (a kind of task, such as `bounded-edit`, `test-fix` or `docs`), which model and effort an owned worker uses. An **arm** is one model at one effort level. By default it tries Opus 5.5 at low and high effort beside the default medium.
+Route learning decides, per workspace and per **slice** (a kind of task, such as `bounded-edit`, `test-fix` or `docs`), which model and effort an owned worker uses. An **arm** is one model at one effort level. On Claude Code it tries Sonnet 5.5 at low effort beside its default, high.
 
 How it learns, in plain terms:
 
-- **Day 1 is the default.** Version 1.2 ships no signed baseline (no seed run was done for it), so every slice starts on Opus 5.5 at medium.
+- **Day 1 is the default.** Version 1.2 ships no signed baseline (no seed run was done for it), so every slice starts on the harness's baseline (Sonnet 5.5 at its default effort on Claude Code). Claude Code started learning afresh when its baseline moved from Opus 5.5 on 8 October 2026; what was learned against Opus 5.5 is kept, not reused.
 - **Low-risk routes only.** Learning explores and switches only on routes a fixed rule classes as low risk. A task is low risk only when it has acceptance checks, writes at most 5 files inside the workspace, touches no protected path (auth, secrets, CI, deploy, migrations, lockfiles, git internals) and is not labelled `security`. A plan can mark a task riskier, never lower. Details: [routing.md](routing.md#risk-class).
 - **Outcomes come only from facts.** A verification receipt is a success or failure. A revert or retry turns an earlier pass into a failure. Stale, cancelled and usage-limited runs are counted but never labelled. A model's opinion is never a label.
 - **Each outcome updates a probability** (a Bayesian posterior) that an arm is as good as the default, within a margin of 0.075 of the verified success rate.

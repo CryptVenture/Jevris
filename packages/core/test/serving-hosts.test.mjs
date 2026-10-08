@@ -153,7 +153,7 @@ test('8c1f85d: route.turn keeps the session\'s host, keeps its spelling on an ef
 test('8c1f85d and R44: a subagent route keeps the session\'s host; an unreadable host is HOST_UNKNOWN, a model not seen there NOT_ON_SESSION_HOST', () => {
   const slices = (modelId) => {
     const base = emptyLearningState({ workspaceId: 'ws-sub', now: '2026-09-27T00:00:00Z' });
-    return { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-27T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: 'subagent:Explore', slices: { 'subagent:Explore': { mode: 'auto', modelId, baselineModelId: null, baselineRate: 0.9 } }, evidence: null }] };
+    return { ...base, versions: [...base.versions, { version: 1, parentVersion: 0, createdAt: '2026-09-27T01:00:00Z', reason: 'promotion', reasonCode: 'PROMOTED', sliceId: 'subagent:Explore', slices: { 'subagent:Explore::claude-sonnet-5-5': { mode: 'auto', modelId, baselineModelId: null, baselineRate: 0.9 } }, evidence: null }] };
   };
   const advise = (extra) => adviseSubagentRoute({ harness: 'opencode', subagentType: 'Explore', explicitModel: false, pins: { modelPin: null, effortPin: null }, registry: R, nowMs: NOW, unavailableModels: {}, signedPrior: null, consentedProviders: ['anthropic', 'google', 'moonshot', 'openai'], ...extra });
   const vertex = advise({ sessionModel: 'google-vertex/gemini-3.8-flash', learning: slices('gemini-3.7-flash'), locallyEligible: ['gemini-3.7-flash'] });

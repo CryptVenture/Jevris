@@ -541,15 +541,25 @@ export function sharedSliceOf(settings: Pick<LearningSettings, 'priorSlices'>, s
 export const LEARNING_KEY_SEPARATOR = '::';
 
 /**
- * R17 (owner decision OD-3): the key a slice learns under. Each route baseline learns apart, so a
- * slice routed from Claude Code (Opus 5.5), Codex (GPT-6.1 Sol) and Antigravity (Gemini 3.8 Flash),
- * or for tasks with different approved models, never demotes on BASELINE_CHANGED: every arm is
- * compared with its own route's default. The registry's own baseline keeps the bare slice id, so
- * existing learning state stays where it is; any other baseline is `<slice>::<baseline model>`.
- * A key already qualified, or one that would not be a valid id, is returned as given.
+ * The baseline a BARE learning key (a slice id with no `::`) means. Pinned, not read from the
+ * registry: the registry's own baseline moved from Opus 5.5 to Sonnet 5.5 (2026-10-08, Claude
+ * Code's baseline), and learning state is keyed by it. Pinning keeps every bare key meaning Opus
+ * 5.5, so what was learned against Opus stays where it is and is not read as Sonnet evidence;
+ * Claude Code now learns afresh under `<slice>::claude-sonnet-5-5`.
  */
-export function learningSliceKey(sliceId: string, baselineModelId: string, registry: Pick<ModelRegistry, 'baselineModelId'> = BUNDLED_MODEL_REGISTRY): string {
-  if (sliceId.includes(LEARNING_KEY_SEPARATOR) || baselineModelId === registry.baselineModelId) return sliceId;
+export const BARE_KEY_BASELINE = 'claude-opus-5-5';
+
+/**
+ * R17 (owner decision OD-3): the key a slice learns under. Each route baseline learns apart, so a
+ * slice routed from Claude Code (Sonnet 5.5), Codex (GPT-6.1 Sol) and Antigravity (Gemini 3.8
+ * Flash), or for tasks with different approved models, never demotes on BASELINE_CHANGED: every
+ * arm is compared with its own route's default. A route whose baseline is Opus 5.5
+ * (`BARE_KEY_BASELINE`) keeps the bare slice id, so state learned before the 2026-10-08 move stays
+ * where it is; any other baseline is `<slice>::<baseline model>`. A key already qualified, or one
+ * that would not be a valid id, is returned as given.
+ */
+export function learningSliceKey(sliceId: string, baselineModelId: string): string {
+  if (sliceId.includes(LEARNING_KEY_SEPARATOR) || baselineModelId === BARE_KEY_BASELINE) return sliceId;
   const key = `${sliceId}${LEARNING_KEY_SEPARATOR}${baselineModelId}`;
   return ID.test(key) ? key : sliceId;
 }
@@ -563,7 +573,7 @@ export function baseSliceOf(key: string): string {
 /**
  * JEV-0055: the baseline model a learning key was learned against, the inverse of
  * `learningSliceKey`: the model after the separator in `<slice>::<model>`. A bare slice id names
- * none (null): its baseline is the registry's own (Opus 5.5), so a caller falls back to that.
+ * none (null): its baseline is `BARE_KEY_BASELINE` (Opus 5.5), so a caller falls back to that.
  */
 export function keyBaselineOf(key: string): string | null {
   const at = key.indexOf(LEARNING_KEY_SEPARATOR);
@@ -2196,7 +2206,7 @@ const CROSS_VENDOR_WORDS = "API-equivalent dollars, an estimate (the models are 
 export function explainSliceLearning(state: LearningState, requestedSliceId: string, priors: readonly PublicPrior[] = BUNDLED_PUBLIC_PRIORS, options: { readonly defaultArmId?: string; readonly registry?: ModelRegistry; readonly harness?: string | null } = {}): SliceExplanation {
   // R17: with a harness, the slice as that harness's baseline learns it.
   const explainRegistry = options.registry ?? BUNDLED_MODEL_REGISTRY;
-  const sliceId = options.harness === undefined || options.harness === null ? requestedSliceId : learningSliceKey(requestedSliceId, routeBaseline(explainRegistry, options.harness), explainRegistry);
+  const sliceId = options.harness === undefined || options.harness === null ? requestedSliceId : learningSliceKey(requestedSliceId, routeBaseline(explainRegistry, options.harness));
   const policy = slicePolicy(state, sliceId);
   const active = activeVersion(state);
   const changed = [...state.versions].reverse().find((v) => v.sliceId === sliceId || v.sliceId === null) ?? null;
@@ -2236,8 +2246,8 @@ export function explainSliceLearning(state: LearningState, requestedSliceId: str
   if (local.length === 0) lines.push('No local outcomes yet.');
   // OD-3 and JEV-0055: a key's default arm is the baseline the key was learned against (named in
   // the key, whatever harness the view runs from), else the slice's reconciled baseline, else the
-  // harness's default, else the registry's.
-  const defaultArmId = options.defaultArmId ?? keyBaselineOf(sliceId) ?? baselineModelId ?? routeBaseline(options.registry ?? BUNDLED_MODEL_REGISTRY, options.harness ?? null);
+  // baseline a bare key means (BARE_KEY_BASELINE).
+  const defaultArmId = options.defaultArmId ?? keyBaselineOf(sliceId) ?? baselineModelId ?? BARE_KEY_BASELINE;
   const economics = sliceEconomics(state, sliceId, defaultArmId);
   if (local.length > 0) for (const a of economics.arms) lines.push(economicsLine(a, armLabelOf(defaultArmId, options.registry)));
   let guard: SliceExplanation['guard'] = null;
@@ -2717,7 +2727,7 @@ export async function learnFromOutcome(input: {
     // the bundled registry does not hold.
     const effortless = input.registry !== undefined && input.event.effort !== undefined && input.event.effort !== null && input.event.effort === defaultEffortOf(input.event.modelId, input.registry) ? { ...input.event, effort: null } : input.event;
     // R17: the outcome lands under its route's baseline, the key the route learned under.
-    const event = { ...effortless, sliceId: learningSliceKey(input.event.sliceId, input.baselineModelId, input.registry ?? BUNDLED_MODEL_REGISTRY) };
+    const event = { ...effortless, sliceId: learningSliceKey(input.event.sliceId, input.baselineModelId) };
     const recorded = recordRouteOutcome(state, event);
     if (!recorded.ok) return { recorded: false, reasonCode: recorded.reasonCode, regression: null, promotion: null, proposalId: null, version: activeVersion(state).version, saved: false };
     const withPrior = await attachMachinePrior(input.home, recorded.state);

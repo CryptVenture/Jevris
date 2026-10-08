@@ -241,6 +241,12 @@ export interface RouteEvaluationInput {
    * evidence (model-offer.ts). Absent, evidence from any harness on this machine counts (advice).
    */
   readonly harness?: string | null;
+  /**
+   * The harness whose default model is the route baseline when the session's own model is not
+   * (a new worker: `harness` stays unset there so the evaluation is not scoped to one harness).
+   * Absent, the baseline comes from `harness`, else the registry's.
+   */
+  readonly baselineHarness?: string | null;
   readonly authMode?: string | null;
   /**
    * R30, OD-4: the providers the route may send content to, from `providerConsentGate` (stored
@@ -345,7 +351,7 @@ export async function evaluateRoute(input: RouteEvaluationInput): Promise<RouteE
     qualities,
     qualityFloor: calibration.qualityFloor,
     // OD-3: the main session's current model is its approved model; otherwise the harness's default.
-    baselineModelId: input.role === 'main' && current !== null ? current : routeBaseline(input.registry, input.harness ?? null),
+    baselineModelId: input.role === 'main' && current !== null ? current : routeBaseline(input.registry, input.baselineHarness ?? input.harness ?? null),
   });
   let switchDecision: SwitchDecision | null = null;
   if (input.role === 'main' && selection.outcome === 'select' && current !== null && selection.modelId !== current && selection.saving !== null) {
@@ -629,7 +635,7 @@ export async function routeManagedWorker(
   };
   const access = await routeAccessPauses({ home: deps.home, registry, nowMs: now(), scopeOf: accessScopeOf });
   // R17: this baseline's own learning key, so routes from harnesses with other defaults never demote it.
-  const learningKey = learningSliceKey(sliceId, baselineModelId, registry);
+  const learningKey = learningSliceKey(sliceId, baselineModelId);
   const learningState = await routeLearningState({ request, gates, baselineModelId, learningKey, sliceId, registry, calibration, now: now(), home: deps.home, allowlist, settings, unavailable, locallyEligible, paused: access.paused });
   // Near a limit: hit within the workspace's nearLimitHours, in force or not; never explored.
   const nearLimitModelIds = learningState === null ? [] : (await routeAccessPauses({ home: deps.home, registry, nowMs: now(), nearMs: learningState.settings.nearLimitHours * 3_600_000, scopeOf: accessScopeOf })).nearLimitModelIds;

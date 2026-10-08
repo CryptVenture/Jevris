@@ -1,4 +1,4 @@
-// Sonnet-first routing where people look (owner decision 2026-09-30, visibility): the status,
+// Cheaper-first routing where people look (owner decision 2026-09-30, visibility): the status,
 // explain and cost-report views over the local first-try ledger. Each is table-driven over the
 // states a person can be in: setting off, baseline, auto with no data, auto with slices in each
 // verdict, and a harness with no first-try step. The views must agree with the router's own verdict
@@ -26,8 +26,9 @@ import {
 } from '../dist/index.js';
 import { tempDir } from './temp-dirs.mjs';
 
-const SONNET = 'claude-sonnet-5-5';
-const OPUS = 'claude-opus-5-5';
+// Claude Code's baseline is Sonnet 5.5 and its first try Haiku 5.5 (owner decision 2026-10-08).
+const BASE = 'claude-sonnet-5-5';
+const FIRST = 'claude-haiku-5-5';
 const statusContract = defineContract({ name: 'jevris-first-try-status-view', description: 'test', schema: FirstTryStatusSchema });
 const sliceContract = defineContract({ name: 'jevris-first-try-slice-view', description: 'test', schema: FirstTrySliceViewSchema });
 
@@ -41,7 +42,7 @@ function workspace() {
 }
 
 const note = (arm, extra = {}) => ({
-  firstTry: { arm, propensity: arm === 'control' ? 0.1 : 0.9, firstTryModelId: SONNET, baselineModelId: OPUS, stepUpModelIds: [OPUS], breakEven: 0.5, breakEvenBasis: 'estimated', overheadMicroUsd: 1000, ...extra },
+  firstTry: { arm, propensity: arm === 'control' ? 0.1 : 0.9, firstTryModelId: FIRST, baselineModelId: BASE, stepUpModelIds: [BASE], breakEven: 0.5, breakEvenBasis: 'estimated', overheadMicroUsd: 1000, ...extra },
 });
 const run = (leaseId, model, costUsd, extra = {}) => ({ leaseId, requestedModel: model, actualModel: model, costUsd, authMode: 'api-key', durationMs: 1000, ...extra });
 
@@ -50,7 +51,7 @@ const run = (leaseId, model, costUsd, extra = {}) => ({ leaseId, requestedModel:
  * handoff-pass (first attempt failed, handed off once, the hand-off passed). `costs` are USD per attempt.
  */
 async function task(ws, id, { slice = 'issue-fix', arm = 'first-try', outcome = 'pass', costs = [0.02, 0.05], extra } = {}) {
-  const model = arm === 'control' ? OPUS : SONNET;
+  const model = arm === 'control' ? BASE : FIRST;
   await keepFirstTryRoute(ws, { taskId: id, sliceId: slice, run: { leaseId: `l-${id}`, requestedModel: model }, note: note(arm, extra), nowMs: 1 });
   if (outcome === 'open') return;
   if (outcome === 'pass') {
@@ -62,9 +63,9 @@ async function task(ws, id, { slice = 'issue-fix', arm = 'first-try', outcome = 
     await closeUnhandled(ws, id, 3);
     return;
   }
-  await noteHandOff(ws, id, OPUS, 3);
+  await noteHandOff(ws, id, BASE, 3);
   await attachHandOffLease(ws, id, `h-${id}`);
-  await recordFirstTryOutcome(ws, id, 'verified-pass', { run: run(`h-${id}`, OPUS, costs[1]), nowMs: 4 });
+  await recordFirstTryOutcome(ws, id, 'verified-pass', { run: run(`h-${id}`, BASE, costs[1]), nowMs: 4 });
 }
 
 async function many(ws, prefix, n, options) {
@@ -93,7 +94,7 @@ test('status view, auto with no data: the ladder per harness with zero slices, a
   assert.equal(statusContract.validate(view).ok, true, JSON.stringify(statusContract.validate(view)));
   assert.equal(view.unavailable, null);
   const claude = harnessOf(view, 'claude');
-  assert.deepEqual([claude.state, claude.reasonCode, claude.baselineModelId, claude.firstTryModelId, claude.strongerIsPreview], ['on', null, OPUS, SONNET, false]);
+  assert.deepEqual([claude.state, claude.reasonCode, claude.baselineModelId, claude.firstTryModelId, claude.strongerIsPreview], ['on', null, BASE, FIRST, false]);
   const codex = harnessOf(view, 'codex');
   assert.deepEqual([codex.state, codex.firstTryModelId], ['on', 'gpt-6-luna']);
   const agy = harnessOf(view, 'antigravity');
@@ -115,9 +116,9 @@ test('status view, auto with learned slices: each slice is counted once under it
   assert.deepEqual(view.other, { firstTry: 0, baselineFirst: 0, learning: 0 });
 });
 
-test('status view: a slice whose baseline is no harness default is counted under other', async () => {
+test('status view: a slice whose baseline is no harness default (here Opus 5.5) is counted under other', async () => {
   const { home, ws } = workspace();
-  await keepFirstTryRoute(ws, { taskId: 'Z1', sliceId: 'odd', run: { leaseId: 'l-Z1', requestedModel: 'claude-haiku-4-5-20251001' }, note: { firstTry: { arm: 'first-try', propensity: 0.9, firstTryModelId: 'claude-haiku-4-5-20251001', baselineModelId: 'claude-sonnet-5-5', stepUpModelIds: ['claude-sonnet-5-5'], breakEven: 0.3, breakEvenBasis: 'estimated', overheadMicroUsd: 0 } }, nowMs: 1 });
+  await keepFirstTryRoute(ws, { taskId: 'Z1', sliceId: 'odd', run: { leaseId: 'l-Z1', requestedModel: 'claude-haiku-4-5-20251001' }, note: { firstTry: { arm: 'first-try', propensity: 0.9, firstTryModelId: 'claude-haiku-4-5-20251001', baselineModelId: 'claude-opus-5-5', stepUpModelIds: ['claude-opus-5-5'], breakEven: 0.3, breakEvenBasis: 'estimated', overheadMicroUsd: 0 } }, nowMs: 1 });
   const view = await firstTryStatusView({ home, ws, setting: 'auto' });
   assert.deepEqual(view.other, { firstTry: 0, baselineFirst: 0, learning: 1 });
   assert.deepEqual(harnessOf(view, 'claude').slices, { firstTry: 0, baselineFirst: 0, learning: 0 });
@@ -175,12 +176,12 @@ for (const [name, seed, verdict, reasonCode, lastChange, pBelow] of verdictTable
     assert.equal(sliceContract.validate(view).ok, true, JSON.stringify(sliceContract.validate(view)));
     const [g] = view.groups;
     assert.equal(view.groups.length, 1);
-    assert.deepEqual([g.verdict, g.reasonCode, g.baselineModelId, g.firstTryModelId], [verdict, reasonCode, OPUS, SONNET]);
+    assert.deepEqual([g.verdict, g.reasonCode, g.baselineModelId, g.firstTryModelId], [verdict, reasonCode, BASE, FIRST]);
     assert.deepEqual(g.lastChange, lastChange);
     // P(success rate < p*) under Beta(1 + pass, 1 + fail) at p* = 0.5: a closed form for these counts.
     assert.ok(Math.abs(g.pBelowBreakEven - pBelow) < 1e-9, `${String(g.pBelowBreakEven)} against ${String(pBelow)}`);
     // The same numbers the router's function reaches on the same history and settings.
-    const expected = firstTryVerdict({ history: firstTryHistory(ws, { sliceId: 'issue-fix', baselineModelId: OPUS, firstTryModelId: SONNET }), candidate: { breakEven: 0.5, overheadMicroUsd: 1000 }, settings: learningSettings({}) });
+    const expected = firstTryVerdict({ history: firstTryHistory(ws, { sliceId: 'issue-fix', baselineModelId: BASE, firstTryModelId: FIRST }), candidate: { breakEven: 0.5, overheadMicroUsd: 1000 }, settings: learningSettings({}) });
     assert.deepEqual([g.reasonCode, g.pBelowBreakEven, g.breakEven.value, g.breakEven.basis], [expected.reasonCode, expected.pBelowBreakEven, expected.breakEven, expected.breakEvenBasis]);
     assert.deepEqual(g.thresholds, { demoteAbove: 0.4, reinstateBelow: 0.1, minFinishedToReinstate: 12, antiFlapFloor: 5, margin: 0.075 });
   });
@@ -299,7 +300,7 @@ for (const [name, seed, expected] of costTable) {
 test('cost view: a subscription run is priced from usage at list price and labelled an estimate', async () => {
   const { ws } = workspace();
   const usage = { inputTokens: 10_000, outputTokens: 1_000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 };
-  for (const [id, arm, model] of [['A1', 'first-try', SONNET], ['C1', 'control', OPUS]]) {
+  for (const [id, arm, model] of [['A1', 'first-try', FIRST], ['C1', 'control', BASE]]) {
     await keepFirstTryRoute(ws, { taskId: id, sliceId: 'issue-fix', run: { leaseId: `l-${id}`, requestedModel: model }, note: note(arm), nowMs: 1 });
     await recordFirstTryOutcome(ws, id, 'verified-pass', { run: run(`l-${id}`, model, null, { authMode: 'subscription', usage }), nowMs: 2 });
   }
@@ -381,10 +382,10 @@ test('explain wrapper: a refusal, a not-found decision and a body that no longer
 test('the views read the ledger only: opening them again changes nothing in it', async () => {
   const { home, ws } = workspace();
   await many(ws, 'T', 3, { outcome: 'pass' });
-  const before = JSON.stringify(firstTryHistory(ws, { sliceId: 'issue-fix', baselineModelId: OPUS, firstTryModelId: SONNET }));
+  const before = JSON.stringify(firstTryHistory(ws, { sliceId: 'issue-fix', baselineModelId: BASE, firstTryModelId: FIRST }));
   await firstTryStatusView({ home, ws, setting: 'auto' });
   await firstTrySliceView({ ws, sliceId: 'issue-fix', setting: 'auto' });
   await firstTryCostView({ ws, setting: 'auto' });
-  assert.equal(JSON.stringify(firstTryHistory(ws, { sliceId: 'issue-fix', baselineModelId: OPUS, firstTryModelId: SONNET })), before);
+  assert.equal(JSON.stringify(firstTryHistory(ws, { sliceId: 'issue-fix', baselineModelId: BASE, firstTryModelId: FIRST })), before);
   assert.notEqual(before, JSON.stringify(EMPTY_FIRST_TRY_HISTORY));
 });

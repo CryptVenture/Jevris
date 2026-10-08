@@ -1,5 +1,5 @@
 // OD-3 (SPEC §8.1 amended): a route's baseline is the task's approved model when registered, else
-// the harness's default; Opus 5.5 stays the Claude Code default. R11 and R30: D's candidateScopes
+// the harness's default; Sonnet 5.5 is the Claude Code default (it was Opus 5.5 until 2026-10-08). R11 and R30: D's candidateScopes
 // leave out a model no harness reaches, and give the signed-in providers of OD-4's default.
 import test from 'node:test';
 import assert from 'node:assert/strict';
@@ -14,17 +14,26 @@ const { BUNDLED_MODEL_REGISTRY: R, routeBaseline, routeAccessGates, signedInProv
 const NOW = Date.parse('2026-09-28T00:00:00Z');
 
 test('OD-3: each harness has its baseline; an approved registered model wins; an unregistered one does not', () => {
-  assert.equal(routeBaseline(R, 'claude'), 'claude-opus-5-5');
+  assert.equal(routeBaseline(R, 'claude'), 'claude-sonnet-5-5');
   assert.equal(routeBaseline(R, 'codex'), 'gpt-6.1-sol');
   assert.equal(routeBaseline(R, 'antigravity'), 'gemini-3.8-flash');
-  assert.equal(routeBaseline(R, 'opencode'), 'claude-opus-5-5', 'OpenCode has no default of its own');
-  assert.equal(routeBaseline(R, null), 'claude-opus-5-5');
+  assert.equal(routeBaseline(R, 'opencode'), 'claude-sonnet-5-5', 'OpenCode has no default of its own: the registry fallback, used only when the session model is unknown');
+  assert.equal(routeBaseline(R, 'kilocode'), 'claude-sonnet-5-5', 'Kilo has no default of its own either');
+  assert.equal(routeBaseline(R, null), 'claude-sonnet-5-5');
+  // Kilo and OpenCode use the session's own model and provider: a registered non-Anthropic session
+  // model is its own baseline, and nothing falls back to the registry's Anthropic one.
+  for (const harness of ['opencode', 'kilocode']) {
+    assert.equal(routeBaseline(R, harness, 'gpt-6.1-sol'), 'gpt-6.1-sol', `${harness}: a GPT session keeps GPT as its baseline`);
+    assert.equal(routeBaseline(R, harness, 'gemini-3.8-flash'), 'gemini-3.8-flash', `${harness}: a Gemini session keeps Gemini as its baseline`);
+    assert.equal(routeBaseline(R, harness, 'claude-opus-5-5'), 'claude-opus-5-5', `${harness}: an Opus session is its own baseline`);
+    assert.equal(routeBaseline(R, harness, 'not-a-registered-model'), 'claude-sonnet-5-5', `${harness}: an unknown session model falls back to the registry baseline`);
+  }
   assert.equal(routeBaseline(R, 'codex', 'gpt-6-luna'), 'gpt-6-luna');
   assert.equal(routeBaseline(R, 'codex', 'gpt-6-sol'), 'gpt-6-sol', 'the superseded GPT-6 Sol is still a registered model a task may approve');
   assert.equal(routeBaseline(R, 'codex', 'gpt-5.2'), 'gpt-6.1-sol', 'a model outside the registry is not a baseline');
   // A default naming no registered model is skipped.
   const broken = { ...R, harnessDefaults: [{ harness: 'codex', baselineModelId: 'gpt-0' }] };
-  assert.equal(routeBaseline(broken, 'codex'), 'claude-opus-5-5');
+  assert.equal(routeBaseline(broken, 'codex'), 'claude-sonnet-5-5');
 });
 
 test('OD-3: an owned worker on Codex reconciles against GPT-6.1 Sol, on Antigravity against Gemini 3.8 Flash, and explain names that default', async (t) => {
@@ -39,15 +48,15 @@ test('OD-3: an owned worker on Codex reconciles against GPT-6.1 Sol, on Antigrav
   const agy = await route('antigravity', 'task-agy');
   assert.equal(agy.learning?.baselineModelId, 'gemini-3.8-flash', JSON.stringify(agy));
   const claude = await route('claude', 'task-claude');
-  assert.equal(claude.learning?.baselineModelId, 'claude-opus-5-5');
+  assert.equal(claude.learning?.baselineModelId, 'claude-sonnet-5-5');
   const approved = await route('codex', 'task-approved', { approvedModelId: 'gpt-6-luna' });
   assert.equal(approved.learning?.baselineModelId, 'gpt-6-luna');
   // Explain with no reconciled slice baseline names the harness's default as the default arm.
   const state = core.emptyLearningState({ workspaceId: 'w-none', now: new Date(NOW).toISOString() });
   const lines = (on) => explainSliceLearning(state, 'bounded-edit', [], { registry: R, harness: on }).lines.join('\n');
   assert.match(lines('codex'), /gpt-6\.1-sol/);
-  assert.doesNotMatch(lines('codex'), /claude-opus-5-5/);
-  assert.match(lines('claude'), /claude-opus-5-5/);
+  assert.doesNotMatch(lines('codex'), /claude-sonnet-5-5/);
+  assert.match(lines('claude'), /claude-sonnet-5-5/);
 });
 
 test('R11, R30: a null scope leaves the model out (no-harness); signed-in providers pass consent unless revoked; marked ones need a grant', () => {

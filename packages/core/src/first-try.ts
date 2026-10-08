@@ -37,8 +37,10 @@ export const FIRST_TRY_MAX_BREAK_EVEN = 0.75;
 
 /**
  * Model families that are the vendor's smallest tier (owner decision 2026-10-08, when Claude Haiku
- * 5.5 was added: the first try stays Sonnet-first). Such a rung is a first try only when no cheaper
- * rung of another family exists, so a newer Haiku does not displace the Sonnet rung.
+ * 5.5 was added). Such a rung is a first try only when no cheaper rung of another family exists, so
+ * a newer Haiku does not displace a Sonnet rung that is cheaper than the baseline. With Sonnet 5.5
+ * as Claude Code's baseline (owner decision 2026-10-08, later) no Sonnet rung is cheaper than the
+ * baseline, so Haiku 5.5 is the first try there; from an Opus 5.5 baseline Sonnet 5.5 still is.
  */
 export const FIRST_TRY_SMALLEST_TIER_FAMILIES: readonly string[] = Object.freeze(['haiku']);
 

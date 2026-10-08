@@ -52,7 +52,7 @@ story('US07', async ({ then, sandbox, evidence }) => {
 
   await then('The route abstains or preserves the approved baseline', () => {
     assert.deepEqual([unknown.launched, unknown.reasonCode], [false, 'CALIBRATION_SLICE_NOT_PERMITTED']);
-    assert.deepEqual([direct.outcome, direct.modelId, direct.reasonCode], ['keep-baseline', 'claude-opus-5-5', 'NO_CALIBRATION'], 'the registry baseline (Opus 5.5) is kept');
+    assert.deepEqual([direct.outcome, direct.modelId, direct.reasonCode], ['keep-baseline', 'claude-opus-5-5', 'NO_CALIBRATION'], 'the registry baseline (Opus 5.5 in this story\'s registry) is kept');
     assert.equal(surfaced.ok, true, JSON.stringify(surfaced));
     assert.equal(surfaced.body.worker.outcome, 'abstain');
     assert.equal(surfaced.body.applied, false);

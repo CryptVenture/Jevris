@@ -328,7 +328,7 @@ on.
 
 `routing.firstTry` (default `auto`) is Sonnet-first routing for owned workers. With `auto`, a
 low-risk task that has an approved acceptance check starts on a cheaper model of the baseline's
-own vendor (Sonnet 5.5 against Opus 5.5 on Claude Code) and is handed once to a stronger model
+own vendor (Haiku 5.5 against Sonnet 5.5 on Claude Code, whose baseline is Sonnet 5.5) and is handed once to a stronger model
 when its check fails; `baseline` runs the baseline first, as before. It changes which approved
 model runs first and never what Jevris may do: permissions, scopes, the kill switch, budgets and
 "only a passing check completes a task" are unchanged. It applies only while `mode` and

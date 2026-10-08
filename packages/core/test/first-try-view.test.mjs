@@ -87,12 +87,14 @@ test('the assignment still draws against the shares the views report (decideFirs
 });
 
 const harnessTable = [
-  ['claude', { on: true, first: 'claude-sonnet-5-5', baseline: 'claude-opus-5-5' }],
+  ['claude', { on: true, first: 'claude-haiku-5-5', baseline: 'claude-sonnet-5-5' }],
   ['codex', { on: true, first: 'gpt-6-luna', baseline: 'gpt-6.1-sol' }],
   ['antigravity', { on: false, reasonCode: 'NO_CHEAPER_RUNG', baseline: 'gemini-3.8-flash', strongerIsPreview: true }],
-  // Kilo and OpenCode have no default of their own: the registry's baseline, so the Claude ladder.
-  ['kilocode', { on: true, first: 'claude-sonnet-5-5', baseline: 'claude-opus-5-5' }],
-  ['opencode', { on: true, first: 'claude-sonnet-5-5', baseline: 'claude-opus-5-5' }],
+  // Kilo and OpenCode have no default of their own: the registry's fallback baseline (used when a
+  // session's own model is unknown), so the Claude ladder. A session on another provider's model
+  // takes that provider's ladder (the route's baseline is the session model, not this row).
+  ['kilocode', { on: true, first: 'claude-haiku-5-5', baseline: 'claude-sonnet-5-5' }],
+  ['opencode', { on: true, first: 'claude-haiku-5-5', baseline: 'claude-sonnet-5-5' }],
 ];
 for (const [harness, want] of harnessTable) {
   test(`harnessFirstTry: ${harness} from the real registry`, () => {
@@ -110,19 +112,25 @@ for (const [harness, want] of harnessTable) {
   });
 }
 
-test('harnessFirstTry: a retired or unavailable first-try model is not a rung, so the next cheaper active model is', () => {
+test('harnessFirstTry: a retired or unavailable first-try model is not a rung; with Sonnet 5.5 as the baseline nothing cheaper is left', () => {
   const retire = (modelId, patch) => ({ ...REGISTRY, entries: REGISTRY.entries.map((e) => (e.modelId === modelId ? { ...e, ...patch(e) } : e)) });
-  const retired = retire('claude-sonnet-5-5', (e) => ({ lifecycle: { ...e.lifecycle, status: 'retired' } }));
-  assert.equal(harnessFirstTry({ registry: retired, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW }).candidate.modelId, 'claude-haiku-5-5');
-  const unavailable = retire('claude-sonnet-5-5', () => ({ health: 'unavailable' }));
-  assert.equal(harnessFirstTry({ registry: unavailable, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW }).candidate.modelId, 'claude-haiku-5-5');
+  const retired = retire('claude-haiku-5-5', (e) => ({ lifecycle: { ...e.lifecycle, status: 'retired' } }));
+  const noRung = harnessFirstTry({ registry: retired, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW });
+  assert.deepEqual([noRung.on, noRung.reasonCode, noRung.baselineModelId], [false, 'NO_CHEAPER_RUNG', 'claude-sonnet-5-5']);
+  const unavailable = retire('claude-haiku-5-5', () => ({ health: 'unavailable' }));
+  assert.equal(harnessFirstTry({ registry: unavailable, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW }).on, false);
 });
 
-test('harnessFirstTry: Haiku 5.5 is the smallest tier, so while Sonnet 5.5 is cheaper than the baseline and active it never displaces it (owner decision 2026-10-08)', () => {
+test('harnessFirstTry: Haiku 5.5 is the smallest tier, the first try only because Sonnet 5.5 is the baseline; from an Opus 5.5 baseline Sonnet 5.5 is cheaper and displaces it (owner decisions 2026-10-08)', () => {
   const got = harnessFirstTry({ registry: REGISTRY, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW });
-  assert.equal(got.candidate.modelId, 'claude-sonnet-5-5');
-  assert.ok(got.candidate.ladder.some((rung) => rung.modelId === 'claude-haiku-5-5'), 'Haiku 5.5 is on the ladder, as the rung below');
-  assert.equal(got.candidate.stepUpModelIds[0], 'claude-opus-5-5');
+  assert.equal(got.candidate.modelId, 'claude-haiku-5-5');
+  assert.equal(got.candidate.stepUpModelIds[0], 'claude-sonnet-5-5');
+  assert.deepEqual([...got.candidate.stepUpModelIds].slice(0, 2), ['claude-sonnet-5-5', 'claude-opus-5-5']);
+  const opusDefault = { ...REGISTRY, harnessDefaults: REGISTRY.harnessDefaults.map((row) => (row.harness === 'claude' ? { ...row, baselineModelId: 'claude-opus-5-5' } : row)) };
+  const fromOpus = harnessFirstTry({ registry: opusDefault, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW });
+  assert.equal(fromOpus.candidate.modelId, 'claude-sonnet-5-5');
+  assert.ok(fromOpus.candidate.ladder.some((rung) => rung.modelId === 'claude-haiku-5-5'), 'Haiku 5.5 is on the ladder, as the rung below');
+  assert.equal(fromOpus.candidate.stepUpModelIds[0], 'claude-opus-5-5');
 });
 
 test('harnessFirstTry: with no preview above its baseline the harness says its stronger model is not a preview; a harness the registry does not reach is off with its baseline', () => {
@@ -130,5 +138,5 @@ test('harnessFirstTry: with no preview above its baseline the harness says its s
   const got = harnessFirstTry({ registry: noPreview, harness: 'antigravity', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW });
   assert.deepEqual([got.on, got.reasonCode, got.strongerIsPreview], [false, 'NO_CHEAPER_RUNG', false]);
   const unreached = harnessFirstTry({ registry: { ...REGISTRY, harnessAccess: [] }, harness: 'claude', volume: VOLUME, overhead: OVERHEAD, nowMs: NOW });
-  assert.deepEqual([unreached.on, unreached.reasonCode, unreached.baselineModelId], [false, 'BASELINE_NOT_ELIGIBLE', 'claude-opus-5-5']);
+  assert.deepEqual([unreached.on, unreached.reasonCode, unreached.baselineModelId], [false, 'BASELINE_NOT_ELIGIBLE', 'claude-sonnet-5-5']);
 });

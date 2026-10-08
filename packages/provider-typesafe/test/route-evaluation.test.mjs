@@ -35,8 +35,13 @@ const CLOCK = { now: () => T };
 /** A stand-in engine for the ops: no provider, only the pinned clock (and any recorder given). */
 const clocked = (extra = {}) => ({ decide: async () => ({ abstained: true }), lookup: async () => null, now: CLOCK.now, ...extra });
 
-/** The real bundled registry, account-checked for ACCOUNT. */
-const CHECKED_REGISTRY = { ...core.BUNDLED_MODEL_REGISTRY, entries: core.BUNDLED_MODEL_REGISTRY.entries.map((e) => ({ ...e, accountEligibility: [{ accountId: ACCOUNT, eligible: true, checkedAt: '2026-09-22T00:00:00Z' }] })) };
+/**
+ * The real bundled registry, account-checked for ACCOUNT. These cases were written against an Opus
+ * 5.5 baseline (the bundled one until 2026-10-08, when it moved to Sonnet 5.5), so the placed
+ * registry keeps it: an administrator's registry names its own baseline. The bundled baseline has its own cases below.
+ */
+const OPUS_BASELINE = { baselineModelId: 'claude-opus-5-5', harnessDefaults: core.BUNDLED_MODEL_REGISTRY.harnessDefaults.map((row) => (row.harness === 'claude' ? { ...row, baselineModelId: 'claude-opus-5-5' } : row)) };
+const CHECKED_REGISTRY = { ...core.BUNDLED_MODEL_REGISTRY, ...OPUS_BASELINE, entries: core.BUNDLED_MODEL_REGISTRY.entries.map((e) => ({ ...e, accountEligibility: [{ accountId: ACCOUNT, eligible: true, checkedAt: '2026-09-22T00:00:00Z' }] })) };
 
 /** A marked test home that trusts KEY_ID for calibration, with the account-checked bundled registry. */
 function home(t, { marker = true, registry = true } = {}) {
@@ -317,7 +322,8 @@ test('account eligibility from local evidence (DOMAINS 3f090fa): on a default in
   release(dir);
   const SONNET = 'claude-sonnet-5';
   const OPUS5 = 'claude-opus-5';
-  const registry = await core.loadModelRegistry({ home: dir });
+  // The bundled registry with the Opus 5.5 baseline these cases were written against (see OPUS_BASELINE).
+  const registry = { ...(await core.loadModelRegistry({ home: dir })), ...OPUS_BASELINE };
   assert.equal(registry.snapshotId, core.BUNDLED_MODEL_REGISTRY.snapshotId, 'the bundled registry: no account checks');
   const evaluate = async (harness, authMode) => (await core.evaluateRoute({ role: 'worker', home: dir, registry, trustedKeys: new Map([[KEY_ID, PUBLIC]]), killSwitchStopped: false, sliceId: SLICE, currentModel: null, pins: { modelPin: null, effortPin: null }, volume: BIG, nowMs: T, harness, authMode })).selection;
   // No evidence: every model fails the account gate, and the baseline stays (fail-closed).
@@ -358,7 +364,7 @@ test('account eligibility from local evidence (DOMAINS 3f090fa): on a default in
     launches.push(model);
     return { status: 'completed', requestedModel: model, actualModel: model, usage: { inputTokens: 1_000_000, outputTokens: 100_000, cacheReadInputTokens: 0, cacheCreationInputTokens: 0 }, costUsd: null };
   };
-  const request = (taskId, extra = {}) => ({ taskId, workspaceId: 'w-eligible', sliceId: SLICE, mode: 'bounded-auto', killSwitchStopped: () => false, launch, volume: BIG, ...extra });
+  const request = (taskId, extra = {}) => ({ taskId, workspaceId: 'w-eligible', sliceId: SLICE, approvedModelId: 'claude-opus-5-5', mode: 'bounded-auto', killSwitchStopped: () => false, launch, volume: BIG, ...extra });
   const routed = await engine.routeManagedWorker(request('task-claude', { harness: 'claude', authMode: 'subscription' }));
   assert.deepEqual([routed.launched, routed.selection?.modelId], [true, SONNET], JSON.stringify(routed));
   const unknown = await engine.routeManagedWorker(request('task-unknown'));
@@ -444,7 +450,12 @@ test('RTE-02, US11: the routing policy restricts before scoring; an invalid poli
   rmSync(policyFile);
   rmSync(join(jevrisPaths({ home: dir }).config, 'model-registry.json'));
   const unchecked = await route(dir, { currentModel: 'claude-opus-5', sliceId: SLICE, remaining: BIG });
-  assert.deepEqual([unchecked.worker.recommendedModel, unchecked.worker.reasonCode], ['claude-opus-5-5', 'NO_QUALIFIED_CANDIDATE'], 'the bundled baseline (Opus 5.5)');
+  assert.deepEqual([unchecked.worker.recommendedModel, unchecked.worker.reasonCode], ['claude-sonnet-5-5', 'NO_QUALIFIED_CANDIDATE'], 'the bundled baseline (Sonnet 5.5, Claude Code\'s default since 2026-10-08)');
+  // The worker evaluation names no harness for its eligibility, but the baseline is still the asking harness's default (it used to be the registry's, whatever the harness).
+  for (const [harness, baseline] of [['claude', 'claude-sonnet-5-5'], ['codex', 'gpt-6.1-sol'], ['antigravity', 'gemini-3.8-flash'], ['opencode', 'claude-sonnet-5-5']]) {
+    const asked = await route(dir, { currentModel: 'claude-opus-5', sliceId: SLICE, remaining: BIG, harness, authMode: 'api-key' });
+    assert.equal(asked.worker.recommendedModel, baseline, `${harness}: the worker baseline is that harness's default`);
+  }
 });
 
 test('the test calibration-key override needs JEVRIS_TEST=1 and the test-home marker; otherwise only shipped keys count', async (t) => {

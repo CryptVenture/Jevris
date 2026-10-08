@@ -413,6 +413,8 @@ function evaluationInput(ctx: SidecarOpContext, input: RouteRequest, registry: M
     // owned worker to whichever harness runs its provider (worker-auth.ts), so any harness on
     // this machine counts for it.
     ...(role === 'main' ? { harness: input.harness, authMode: input.authMode } : {}),
+    // The route baseline is still the asking harness's default (Sonnet 5.5 on Claude Code), not the registry's.
+    baselineHarness: input.harness,
     // MEDIUM 9 (B's security review): advice passes the same consent gate as actuation. The
     // session is signed in to its harness's own provider and its current model's; any other
     // provider needs its stored consent. Never taken from the request body.

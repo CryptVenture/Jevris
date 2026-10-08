@@ -30,7 +30,7 @@
  */
 import type { HarnessId, ModelRegistry, RoutePins, RoutingModel } from '@jevris/contracts';
 import { ROUTE_VARIANT_PATTERN } from '@jevris/contracts';
-import { harnessEffortToken, harnessModelId } from './harness-model-id.js';
+import { harnessEffortToken, harnessModelId, harnessModelRef } from './harness-model-id.js';
 import { sessionHost, sessionSignedInParties, spellTarget } from './session-host.js';
 import { hostTariffGuard } from './serving-tariff.js';
 import { accessPauseForSpelling, type AccessLimitEntry } from './access-limits.js';
@@ -136,12 +136,13 @@ export function subagentSliceId(subagentType: string): string | null {
  * R20 with R17: the learning key a subagent type's outcomes are recorded and read under on one
  * harness. Each harness learns under its own baseline (`routeBaseline(registry, harness, null)`),
  * so the key matches the one adviseSubagentRoute reads: the bare `subagent:<type>` where that
- * baseline is the registry's (Claude Code, Kilo, OpenCode today), else `subagent:<type>::<model>`
- * (Codex, Antigravity). Null when the type is not a safe slice key.
+ * baseline is Opus 5.5 (BARE_KEY_BASELINE; Claude Code until 2026-10-08), else
+ * `subagent:<type>::<model>` (Claude Code now `::claude-sonnet-5-5`, Kilo and OpenCode while they
+ * fall back to the registry baseline, Codex, Antigravity). Null when the type is not a safe slice key.
  */
 export function subagentLearningKey(subagentType: string, harness: string, registry: ModelRegistry): string | null {
   const sliceId = subagentSliceId(subagentType);
-  return sliceId === null ? null : learningSliceKey(sliceId, routeBaseline(registry, harness, null), registry);
+  return sliceId === null ? null : learningSliceKey(sliceId, routeBaseline(registry, harness, null));
 }
 
 /** A signed calibration release's selection for the subagent slice (the caller verified it). */
@@ -326,7 +327,7 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
     const eligibleAlias = input.locallyEligible ?? null;
     if (eligibleAlias !== null && !eligibleAlias.includes(model.modelId)) return abstain('NOT_ELIGIBLE_HERE', sliceId);
     // A risk default only ever goes to a cheaper model than the session runs.
-    if ((basis === 'risk-rule' || basis === 'risk-jev') && !cheaperThanSession(input.registry, model, input.sessionModel, input.nowMs)) return abstain('NOT_CHEAPER', sliceId);
+    if ((basis === 'risk-rule' || basis === 'risk-jev') && !cheaperThanSession(input.registry, model, input.sessionModel, input.nowMs, harness)) return abstain('NOT_CHEAPER', sliceId);
     harnessModel = alias;
   } else {
     // Scoped to this harness: it must spell the model (its access row or the model's own row),
@@ -438,15 +439,27 @@ function newestUsableOfFamily(registry: ModelRegistry, family: string, nowMs: nu
 }
 
 /**
- * Whether `target` lists a lower input price than the session's model. A session model that is not
- * in the registry (or is a bare alias of an unknown family) is not compared: the default route is
- * a cheaper model by construction, and an unknown session is read as the registry's baseline.
+ * Whether `target` lists a lower input price than the session's model. The session id is resolved
+ * as the harness reports it (`harnessModelRef`: a `[1m]` variant is its base model, a family alias
+ * is its newest usable model), and an unknown session (no id) is read as the harness's route
+ * baseline (Sonnet 5.5 on Claude Code), so a null or `[1m]` id never reads as "cheaper" by
+ * default. A session id that is not in the registry is not compared: the default route is a
+ * cheaper model by construction and Jevris cannot price what it does not know.
  */
-function cheaperThanSession(registry: ModelRegistry, target: RoutingModel, sessionModel: string | null, nowMs: number): boolean {
-  if (sessionModel === null) return true;
-  const alias = (CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(sessionModel) ? sessionModel : null;
-  const session = alias === null ? registryModel(registry, sessionModel) : newestUsableOfFamily(registry, alias, nowMs);
-  // The same model is SAME_AS_SESSION's to refuse, not this guard's.
-  if (session === null || session.modelId === target.modelId) return true;
+function cheaperThanSession(registry: ModelRegistry, target: RoutingModel, sessionModel: string | null, nowMs: number, harness: string): boolean {
+  const alias = sessionModel !== null && (CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(sessionModel) ? sessionModel : null;
+  let session: RoutingModel | null;
+  if (sessionModel === null) session = registryModel(registry, routeBaseline(registry, harness, null));
+  else if (alias !== null) session = newestUsableOfFamily(registry, alias, nowMs);
+  else {
+    const ref = harnessModelRef(registry, sessionModel, harness);
+    session = ref !== null && ref.registered ? registryModel(registry, ref.modelId) : null;
+  }
+  if (session === null) return true;
+  if (session.modelId === target.modelId) {
+    // The same model named exactly (by id or by alias) is SAME_AS_SESSION's to refuse. A session
+    // read as the same model another way (no id, so the baseline; a `[1m]` variant) is no cheaper.
+    return sessionModel !== null && (sessionModel === target.modelId || (alias !== null && alias === aliasOf(target.family)));
+  }
   return target.tariff.inputPerMillion < session.tariff.inputPerMillion;
 }

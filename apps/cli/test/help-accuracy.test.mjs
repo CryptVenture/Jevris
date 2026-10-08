@@ -73,8 +73,8 @@ test('the effort levels in the learning help are the ones route learning explore
   const box = await sandbox(t);
   const help = box.jevris(['route', 'learning', '--help']).stdout;
   const baseline = core.BUNDLED_MODEL_REGISTRY.baselineModelId;
-  const explored = [core.defaultEffortOf(baseline), ...core.learningSettings().effortArms];
-  const named = /learning tries Opus 5\.5 at ([a-z, ]+) effort/.exec(help.replace(/\n/g, ' '))?.[1]?.split(/, | and /) ?? [];
+  const explored = [...new Set([core.defaultEffortOf(baseline), ...core.learningSettings().effortArms])];
+  const named = /learning tries Sonnet 5\.5 at ([a-z, ]+) effort/.exec(help.replace(/\n/g, ' '))?.[1]?.split(/, | and /) ?? [];
   assert.deepEqual([...named].sort(), [...explored].sort(), help);
   assert.match(help, new RegExp(`\\(${baseline}\\) at its default\\s+effort, ${core.defaultEffortOf(baseline)}`));
 });

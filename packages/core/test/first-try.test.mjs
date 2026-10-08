@@ -43,15 +43,24 @@ function eligible(extra = {}) {
 const stats = (over) => ({ ...EMPTY_FIRST_TRY_STATS, ...over });
 const SETTLED = { nonInferiorityMargin: SETTINGS.nonInferiorityMargin, activateBelow: SETTINGS.activateBelow, deactivateAbove: SETTINGS.deactivateAbove, flapFloor: SETTINGS.flapFloor, minLocalPerArm: SETTINGS.minLocalPerArm };
 
-test('ladder: Claude Code starts on Sonnet 5.5 and hands off to Opus 5.5 (from the real registry)', () => {
+test('ladder: Claude Code baselines on Sonnet 5.5, starts on Haiku 5.5 and hands off to Sonnet 5.5, then Opus 5.5 (from the real registry)', () => {
   const baseline = routeBaseline(REGISTRY, 'claude', null);
-  assert.equal(baseline, 'claude-opus-5-5');
+  assert.equal(baseline, 'claude-sonnet-5-5');
   const c = firstTryCandidate({ eligible: eligible(), baselineModelId: baseline, volume: VOLUME, overhead: OVERHEAD });
   assert.equal('none' in c, false);
-  assert.equal(c.modelId, 'claude-sonnet-5-5');
-  assert.deepEqual([...c.stepUpModelIds], ['claude-opus-5-5', 'claude-fable-5-1']);
-  assert.ok(Math.abs(c.breakEven - 0.5) < 1e-9, `Sonnet costs half of Opus per attempt: ${c.breakEven}`);
-  assert.ok(!c.ladder.some((r) => r.modelId === 'claude-sonnet-5' && r.status !== 'legacy'), 'a legacy model is not an active rung');
+  // Owner decision 2026-10-08: Sonnet 5.5 is the baseline, so Haiku 5.5 is the only cheaper active rung of the vendor and is the first try.
+  assert.equal(c.modelId, 'claude-haiku-5-5');
+  assert.equal(c.baselineModelId, 'claude-sonnet-5-5');
+  assert.equal(c.chosenBy, 'newest', 'no cheaper rung shares the baseline family, and Haiku is the only one left');
+  assert.deepEqual([...c.stepUpModelIds], ['claude-sonnet-5-5', 'claude-opus-5-5', 'claude-fable-5-1']);
+  // Haiku 5.5 at this volume (150k input, past its 100,000-token tier) is 0.125 USD against Sonnet 5.5's 0.5 USD.
+  assert.ok(Math.abs(c.breakEven - 0.25) < 1e-9, `Haiku costs a quarter of Sonnet per attempt: ${c.breakEven}`);
+  assert.ok(!c.ladder.some((r) => r.modelId === 'claude-haiku-4-5-20251001' && r.status === 'active'), 'a legacy model is not an active rung');
+  // The earlier Opus 5.5 baseline (an approved model, or a pre-2026-10-08 route) still lands on Sonnet 5.5, with Haiku passed over.
+  const fromOpus = firstTryCandidate({ eligible: eligible(), baselineModelId: 'claude-opus-5-5', volume: VOLUME, overhead: OVERHEAD });
+  assert.equal(fromOpus.modelId, 'claude-sonnet-5-5');
+  assert.deepEqual([...fromOpus.stepUpModelIds], ['claude-opus-5-5', 'claude-fable-5-1']);
+  assert.ok(Math.abs(fromOpus.breakEven - 0.5) < 1e-9, `Sonnet costs half of Opus per attempt: ${fromOpus.breakEven}`);
 });
 
 test('ladder: Codex starts on GPT-6 Luna and hands off to its baseline GPT-6.1 Sol; Antigravity has no first try (no cheaper rung, preview above)', () => {

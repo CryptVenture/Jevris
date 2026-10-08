@@ -37,7 +37,7 @@ test('7be3c43: the snapshot holds the admitted providers, each entry sourced, un
   assert.deepEqual(R.entries.filter((e) => e.requiresProviderConsent === true).map((e) => e.modelId), ['kimi-k3', 'deepseek-v4-pro', 'deepseek-flash']);
   assert.deepEqual(R.entries.filter((e) => e.lifecycle?.status === 'preview').map((e) => e.modelId), ['gemini-3.1-pro-preview']);
   assert.deepEqual(R.harnessDefaults, [
-    { harness: 'claude', baselineModelId: 'claude-opus-5-5' },
+    { harness: 'claude', baselineModelId: 'claude-sonnet-5-5' },
     { harness: 'codex', baselineModelId: 'gpt-6.1-sol' },
     { harness: 'antigravity', baselineModelId: 'gemini-3.8-flash' },
   ]);
@@ -70,8 +70,8 @@ test('Claude Sonnet 5.5 (released 2026-09-28): the vendor pages\' price, limits,
   const sonnet5 = registryModel(R, 'claude-sonnet-5', 'anthropic');
   assert.deepEqual([sonnet5.lifecycle.status, sonnet5.lifecycle.retirementNotBefore, sonnet5.tariff.inputPerMillion, sonnet5.tariff.outputPerMillion], ['legacy', '2027-06-30T00:00:00Z', 2, 10]);
   assert.deepEqual(core.lifecycleCheck(sonnet5, NOW), { usable: true });
-  // The baseline and the Claude Code default stay Opus 5.5.
-  assert.equal(R.baselineModelId, 'claude-opus-5-5');
+  // The baseline and the Claude Code default are Sonnet 5.5 (they were Opus 5.5 until 2026-10-08).
+  assert.equal(R.baselineModelId, 'claude-sonnet-5-5');
 });
 
 test('Claude Haiku 5.5 (released 2026-10-07): the vendor pages\' price and its 100,000-token tier, limits, effort and lifecycle; Haiku 4.5 becomes legacy', () => {
@@ -106,8 +106,8 @@ test('Claude Haiku 5.5 (released 2026-10-07): the vendor pages\' price and its 1
   assert.deepEqual([haiku45.lifecycle.status, haiku45.lifecycle.retirementNotBefore, haiku45.tariff.inputPerMillion, haiku45.tariff.outputPerMillion, haiku45.tariff.tiers ?? null], ['legacy', '2026-10-15T00:00:00Z', 1, 5, null]);
   // No other Anthropic model has a long-context tier.
   assert.deepEqual(R.entries.filter((e) => e.provider === 'anthropic' && (e.tariff.tiers ?? []).length > 0).map((e) => e.modelId), ['claude-haiku-5-5']);
-  // The baseline and the Claude Code default stay Opus 5.5.
-  assert.equal(R.baselineModelId, 'claude-opus-5-5');
+  // The baseline and the Claude Code default are Sonnet 5.5 (they were Opus 5.5 until 2026-10-08).
+  assert.equal(R.baselineModelId, 'claude-sonnet-5-5');
 });
 
 test('R7: long-context tiers, an inclusive xAI threshold, the scheduled Gemini price and a promotion end', () => {

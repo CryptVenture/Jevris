@@ -16,8 +16,10 @@
  *   and Claude Code's model configuration. The research proposal
  *   (`.planning/research/v1.2-model-registry-proposal.json`) was the starting point; only facts
  *   the vendor pages confirmed are here.
- * - Claude Opus 5.5 (released 2026-09-22, $4/$20, cache read $0.20) is the Claude Code default
- *   and the approved baseline. Opus 5 stays as a legacy entry.
+ * - Claude Sonnet 5.5 is the Claude Code default and the registry's baseline (owner decision
+ *   2026-10-08; it was Claude Opus 5.5 until then). Claude Opus 5.5 (released 2026-09-22, $4/$20,
+ *   cache read $0.20) is the step up for very hard work. Opus 5 stays as a legacy entry. The
+ *   snapshot id is unchanged: the move changes defaults only, not one model fact.
  * - Claude Sonnet 5.5 (released 2026-09-28, $2/$10, cache read $0.20, the same prices as Sonnet 5)
  *   is the model Claude Code's `sonnet` alias resolves to on the Anthropic API. Sonnet 5 is now a
  *   legacy model, still available and not deprecated.
@@ -158,7 +160,7 @@ export const BUNDLED_MODEL_REGISTRY: ModelRegistry = Object.freeze({
   schemaVersion: '1.0',
   snapshotId: 'multi-2026-10-08',
   fetchedOn: SNAPSHOT_ON,
-  baselineModelId: 'claude-opus-5-5',
+  baselineModelId: 'claude-sonnet-5-5',
   entries: [
     claude({
       modelId: 'claude-opus-5-5', family: 'opus', displayName: 'Opus 5.5', contextTokens: MILLION, maxOutputTokens: 128_000,
@@ -217,12 +219,16 @@ export const BUNDLED_MODEL_REGISTRY: ModelRegistry = Object.freeze({
     ...MULTI_PROVIDER_HARNESS_ACCESS,
   ],
   // OD-3: a route's baseline is the task's approved model when registered, else its harness's
-  // default here. Opus 5.5 stays the Claude Code default (baselineModelId). OpenCode and Kilo run
-  // several providers and have no default of their own: they fall back to baselineModelId. Codex's
-  // default is GPT-6.1 Sol (it was GPT-6 Sol): each baseline learns under its own key
-  // (learningSliceKey), so the change starts Codex's learning arms and first-try history afresh.
+  // default here. Sonnet 5.5 is the Claude Code default and the registry-wide fallback
+  // (baselineModelId; it was Opus 5.5 until 2026-10-08). OpenCode and Kilo run several providers and
+  // have no default of their own: a main-session turn is routed against the session's own model and
+  // provider, and only a session model that is unknown or unregistered, or an owned worker with no
+  // approved model, falls back to baselineModelId. Codex's default is GPT-6.1 Sol (it was GPT-6
+  // Sol). Each baseline learns under its own key (learningSliceKey), so a change starts that
+  // harness's learning arms and first-try history afresh; the bare key stays pinned to Opus 5.5
+  // (BARE_KEY_BASELINE), so what was learned against Opus is kept and not read as Sonnet evidence.
   harnessDefaults: [
-    { harness: 'claude', baselineModelId: 'claude-opus-5-5' },
+    { harness: 'claude', baselineModelId: 'claude-sonnet-5-5' },
     { harness: 'codex', baselineModelId: 'gpt-6.1-sol' },
     { harness: 'antigravity', baselineModelId: 'gemini-3.8-flash' },
   ],
@@ -349,7 +355,7 @@ export function registryModel(registry: ModelRegistry, modelId: string, provider
  * OD-3 (SPEC §8.1 amended): the baseline a route compares against and learning reconciles to. It
  * is the task's approved model when the registry lists it, else the harness's default in
  * `harnessDefaults`, else the registry's `baselineModelId` (the Claude Code default, and the
- * fallback for OpenCode and Kilo, which run several providers). A default that names no
+ * fallback for OpenCode and Kilo, which run several providers and use the session's own model first). A default that names no
  * registered model is skipped.
  */
 export function routeBaseline(registry: ModelRegistry, harness?: string | null, approvedModelId?: string | null): string {
@@ -564,7 +570,10 @@ function tokens(value: number | undefined): number {
  * the input price (conservative: a missing cache price never makes a model look cheaper).
  */
 export function generationCostMicroUsd(tariffValue: Tariff, volume: TokenVolume): number {
-  // A long-context tier applies to the whole request once its input passes the threshold.
+  // A long-context tier applies to the whole request once its input passes the threshold. Known
+  // limit (DOMAINS, 2026-10-08): a task volume is a sum over many requests, not one prompt, so a
+  // 400,000-token default volume reads as one prompt past a 100,000-token tier (Haiku 5.5) and
+  // over-prices that attempt about five times. TokenVolume carries no per-request size to fix it.
   const promptTokens = tokens(volume.inputTokens) + tokens(volume.cacheReadTokens) + tokens(volume.cacheWriteTokens);
   // R7: an `inclusive` tier applies from its threshold (xAI "reaches 200k"); otherwise above it.
   const tier = [...(tariffValue.tiers ?? [])].reverse().find((t) => promptTokens > t.aboveInputTokens || (t.inclusive === true && promptTokens === t.aboveInputTokens));

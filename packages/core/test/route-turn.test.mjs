@@ -85,3 +85,29 @@ test('OD-4 and R17: another provider needs its consent; the session baseline pic
   const pinned = core.pinSlice(emptyLearningState({ workspaceId: 'w', now: new Date(NOW).toISOString() }), SLICE, 'claude-sonnet-5', new Date(NOW).toISOString(), null, R);
   assert.equal(turn({ learning: pinned }).reasonCode, 'SLICE_PINNED');
 });
+
+test('Kilo and OpenCode use the session\'s own model and provider as the baseline: a GPT or Gemini session never falls back to the registry\'s Claude Code default (2026-10-08)', () => {
+  assert.equal(R.baselineModelId, 'claude-sonnet-5-5', 'the registry-wide fallback moved to Sonnet 5.5; it is used only when the session model is unknown');
+  for (const harness of ['opencode', 'kilocode']) {
+    // A GPT session reads and writes only the key of its own model, never the Sonnet 5.5 key or the bare (Opus 5.5) key.
+    const gptKey = learningSliceKey(SLICE, 'gpt-6-sol', R);
+    assert.equal(gptKey, `${SLICE}::gpt-6-sol`);
+    const gpt = turn({ harness, current: { providerID: 'openai', modelID: 'gpt-6-sol' }, learning: promoted('gpt-6-luna', 'gpt-6-sol') });
+    assert.deepEqual([gpt.outcome, gpt.model], ['switch', { providerID: 'openai', modelID: 'gpt-6-luna' }], harness);
+    // Slices promoted for the Anthropic baselines (Sonnet 5.5 and the bare Opus 5.5 key) do not move a GPT session.
+    for (const baseline of ['claude-sonnet-5-5', 'claude-opus-5-5']) {
+      const other = turn({ harness, current: { providerID: 'openai', modelID: 'gpt-6-sol' }, learning: promoted('claude-haiku-5-5', baseline) });
+      assert.deepEqual([other.outcome, other.reasonCode], ['abstain', 'NO_PROMOTED_SLICE'], `${harness} ${baseline}`);
+    }
+    // A Gemini session likewise stays on Google's ladder.
+    const gemini = turn({ harness, current: { providerID: 'google', modelID: 'gemini-3.8-flash' }, learning: promoted('gemini-3.7-flash', 'gemini-3.8-flash') });
+    assert.deepEqual([gemini.outcome, gemini.model], ['switch', { providerID: 'google', modelID: 'gemini-3.7-flash' }], harness);
+    // A Sonnet 5.5 session is its own baseline too (the `::claude-sonnet-5-5` key), and an Opus 5.5 session keeps the bare key.
+    const sonnet = turn({ harness, current: { providerID: 'anthropic', modelID: 'claude-sonnet-5-5' }, learning: promoted('claude-haiku-5-5', 'claude-sonnet-5-5') });
+    assert.deepEqual([sonnet.outcome, sonnet.model], ['switch', { providerID: 'anthropic', modelID: 'claude-haiku-5-5' }], harness);
+    const opus = turn({ harness, current: { providerID: 'anthropic', modelID: 'claude-opus-5-5' }, learning: promoted('claude-sonnet-5-5', 'claude-opus-5-5') });
+    assert.deepEqual([opus.outcome, opus.model], ['switch', { providerID: 'anthropic', modelID: 'claude-sonnet-5-5' }], harness);
+    // A session model Jevris does not know is never read as the registry baseline: the turn abstains.
+    assert.equal(turn({ harness, current: { providerID: 'openai', modelID: 'gpt-0-unknown' } }).reasonCode, 'CURRENT_MODEL_UNREGISTERED', harness);
+  }
+});
