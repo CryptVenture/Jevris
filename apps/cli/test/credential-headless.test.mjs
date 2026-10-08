@@ -343,7 +343,8 @@ test('credential status on Windows refuses the opt-in source and keeps the Crede
     optInHost: { platform: 'win32' },
   });
   assert.equal(status.code, 0);
-  assert.match(status.text, /use the OS keystore on Windows/);
+  // Which rule refuses it depends on the host's path rules (a POSIX path is not absolute on a Windows host); that it is refused does not.
+  assert.match(status.text, /opt-in credential source was refused: (the opt-in source is for Linux|the path must be absolute)/);
   assert.match(status.text, /Windows Credential Manager did not accept/);
   assert.doesNotMatch(status.text, /JEVRIS_CREDENTIAL_FILE=/);
   neverEchoes(status.text);
