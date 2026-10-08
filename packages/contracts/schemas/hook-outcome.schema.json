@@ -136,6 +136,55 @@
                 "type": "null"
               }
             ]
+          },
+          "context": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 600,
+                "not": {
+                  "anyOf": [
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-ant-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])sk-(?:proj-)?[A-Za-z0-9_-]{16,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])github_pat_"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])xox[abprs]-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])glpat-"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9])npm_[A-Za-z0-9]{30,}"
+                    },
+                    {
+                      "pattern": "-----BEGIN [A-Z ]*PRIVATE KEY"
+                    },
+                    {
+                      "pattern": "(?:^|[^A-Za-z0-9_-])(?=[A-Za-z0-9_-]*[a-z])(?=[A-Za-z0-9_-]*[A-Z])(?=[A-Za-z0-9_-]*[0-9])[A-Za-z0-9_-]{32,}"
+                    }
+                  ]
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
