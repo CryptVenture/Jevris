@@ -26,8 +26,8 @@ function agentEvent(payload, { harness = 'claude', model = 'claude-opus-5-5' } =
   };
 }
 
-function ctx(home, envelope, { signal = new AbortController().signal, pins, traces = [] } = {}) {
-  const body = { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: 'rev-1', harnessVersion: '2.1.0', ...(pins === undefined ? {} : { pins }) };
+function ctx(home, envelope, { signal = new AbortController().signal, pins, traces = [], harnessVersion = '2.1.294' } = {}) {
+  const body = { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: 'rev-1', harnessVersion, ...(pins === undefined ? {} : { pins }) };
   return {
     op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: 'w-sub', root: home }, body, home, signal,
     deadline: { remainingMs: () => 2000, expired: () => false }, store: null, killSwitchStopped: false, engine: { now: () => NOW }, trace: (t) => traces.push(t),
@@ -255,4 +255,22 @@ test('F\'s 057e8553: a task tool model the adapter kept as bedrock-arn or unread
   const arn = await subscriber(certified).handle(ctx(dir, agentEvent({ subagentType: 'Explore' }, { model: 'bedrock-arn' }), { traces }));
   assert.deepEqual(arn.hookOutcome, { kind: 'observe' });
   assert.deepEqual(traces.filter((e) => e.event === 'subagent-route').map((e) => e.reasonCode), ['HOST_UNKNOWN']);
+});
+
+test('amended 2026-10-08: Claude Code 2.1.292 maps `haiku` to Haiku 4.5, so no alias is set; the person is told once per session, in plain words; 2.1.293 routes', async (t) => {
+  const dir = await home(t);
+  const traces = [];
+  const at = (harnessVersion, sessionId = 'sess-alias') => subscriber(certified).handle(ctx(dir, { ...agentEvent({ subagentType: 'Explore' }), sessionId }, { traces, harnessVersion }));
+  const old = await at('2.1.292');
+  assert.deepEqual(old.hookOutcome, { kind: 'explain', text: 'Claude Code 2.1.292 may map the haiku alias to an older model; update to 2.1.293 or later (or name the model by its id) so the alias means the current one.' });
+  assert.equal(old.reasonCode, 'ALIAS_VERSION_OLD');
+  // Said once for the session; the launch is still left alone.
+  assert.equal((await at('2.1.292')).hookOutcome.kind, 'observe');
+  assert.deepEqual(traces.filter((e) => e.event === 'subagent-route').map((e) => e.reasonCode), ['ALIAS_VERSION_OLD', 'ALIAS_VERSION_OLD']);
+  // An unknown version is not trusted for a gated model either.
+  assert.equal((await at(null, 'sess-unknown')).hookOutcome.kind, 'explain');
+  for (const version of ['2.1.293', '2.1.294']) {
+    const routed = await at(version, `sess-${version}`);
+    assert.deepEqual([routed.hookOutcome.kind, routed.hookOutcome.model], ['route', HAIKU], version);
+  }
 });

@@ -167,7 +167,7 @@ function agentEvent(payload, { model = 'claude-opus-5-5' } = {}) {
 }
 
 function ctx(home, envelope, { engine, mode, jevAssist, pins, traces = [], remainingMs = 2000 } = {}) {
-  const body = { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: 'rev-1', harnessVersion: '2.1.0', ...(pins === undefined ? {} : { pins }) };
+  const body = { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: 'rev-1', harnessVersion: '2.1.294', ...(pins === undefined ? {} : { pins }) };
   return {
     op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: 'w-risk', root: home }, body, home, signal: new AbortController().signal,
     deadline: { budgetMs: 900, remainingMs: () => remainingMs, expired: () => false }, store: null, killSwitchStopped: false, engine, trace: (e) => traces.push(e),
@@ -307,7 +307,7 @@ test('the gates still hold: an explicit model, a pin, a model found gone, the se
 test('the Claude Code alias proof is its own eligibility reason, only for harness claude, anthropic, an alias family and a certified hooks.route', () => {
   const registry = core.BUNDLED_MODEL_REGISTRY;
   const eligible = (harness, certified, extra = {}) =>
-    core.modelEligibility({ registry, accountId: null, offer: null, scope: { harness, authMode: null }, harnessAlias: { certified, nowMs: NOW }, ...extra }).filter((e) => e.eligible);
+    core.modelEligibility({ registry, accountId: null, offer: null, scope: { harness, authMode: null }, harnessAlias: { certified, nowMs: NOW, harnessVersion: '2.1.294' }, ...extra }).filter((e) => e.eligible);
   const claude = eligible('claude', true);
   assert.deepEqual(claude.map((e) => e.reasonCode), claude.map(() => 'HARNESS_ALIAS'));
   // Only the model each family alias means now: Haiku 5.5, Sonnet 5.5, Opus 5.5 and Fable 5.1, not Sonnet 5 or Haiku 4.5.
@@ -316,16 +316,24 @@ test('the Claude Code alias proof is its own eligibility reason, only for harnes
   for (const id of ['claude-sonnet-5', 'claude-haiku-4-5-20251001', 'claude-opus-5']) assert.equal(ids.includes(id), false, id);
   assert.ok(claude.every((e) => e.basis === 'harness-alias'));
   assert.deepEqual(eligible('claude', false), [], 'hooks.route not certified: no proof');
+  // Amended 2026-10-08: the alias proof needs a Claude Code version whose alias means the model (haiku 2.1.293, sonnet 2.1.284).
+  const at = (harnessVersion) => core.modelEligibility({ registry, accountId: null, offer: null, scope: { harness: 'claude', authMode: null }, harnessAlias: { certified: true, nowMs: NOW, harnessVersion } }).filter((e) => e.eligible).map((e) => e.modelId);
+  assert.equal(at('2.1.292').includes(HAIKU), false, '2.1.292 maps haiku to Haiku 4.5');
+  assert.equal(at('2.1.292').includes(SONNET), true);
+  for (const version of ['2.1.293', '2.1.294']) assert.equal(at(version).includes(HAIKU), true, version);
+  assert.deepEqual([at(null).includes(HAIKU), at(null).includes(SONNET), at(null).includes('claude-opus-5-5')], [false, false, true], 'an unknown version proves neither gated alias');
+  assert.equal(at('2.1.283').includes(SONNET), false);
+  assert.equal(at('2.1.292').includes('claude-opus-5-5'), true, 'a model with no table entry is unchanged');
   for (const harness of ['codex', 'kilocode', 'opencode', 'antigravity', null]) assert.deepEqual(eligible(harness, true), [], `${String(harness)} gets no alias proof`);
   assert.deepEqual(core.locallyEligibleModels(claude), ids);
   // The refusals win: found gone, and an administrator's account check.
   const gone = eligible('claude', true, { unavailable: { [HAIKU]: 'MODEL_GONE' } }).map((e) => e.modelId);
   assert.equal(gone.includes(HAIKU), false);
-  const admin = core.modelEligibility({ registry, accountId: 'acct', offer: null, scope: { harness: 'claude', authMode: null }, harnessAlias: { certified: true, nowMs: NOW } });
+  const admin = core.modelEligibility({ registry, accountId: 'acct', offer: null, scope: { harness: 'claude', authMode: null }, harnessAlias: { certified: true, nowMs: NOW, harnessVersion: '2.1.294' } });
   assert.ok(admin.every((e) => e.basis === 'account-check'), 'an administrator account check decides alone');
   // A retired model is no alias target.
   const retired = { ...registry, entries: registry.entries.map((e) => (e.modelId === HAIKU ? { ...e, lifecycle: { ...e.lifecycle, retiresOn: '2026-09-01T00:00:00Z' } } : e)) };
-  assert.equal(core.modelEligibility({ registry: retired, accountId: null, offer: null, scope: { harness: 'claude', authMode: null }, harnessAlias: { certified: true, nowMs: NOW } }).find((e) => e.modelId === HAIKU).eligible, false);
-  const lines = core.modelEligibilityLines(core.modelEligibility({ registry, accountId: null, offer: null, scope: { harness: 'claude', authMode: null }, harnessAlias: { certified: true, nowMs: NOW } }), { harness: 'claude', authMode: null });
+  assert.equal(core.modelEligibility({ registry: retired, accountId: null, offer: null, scope: { harness: 'claude', authMode: null }, harnessAlias: { certified: true, nowMs: NOW, harnessVersion: '2.1.294' } }).find((e) => e.modelId === HAIKU).eligible, false);
+  const lines = core.modelEligibilityLines(core.modelEligibility({ registry, accountId: null, offer: null, scope: { harness: 'claude', authMode: null }, harnessAlias: { certified: true, nowMs: NOW, harnessVersion: '2.1.294' } }), { harness: 'claude', authMode: null });
   assert.ok(lines.some((l) => /claude-haiku-5-5 is eligible for a subagent route: Claude Code's own family alias resolves to it.*\(HARNESS_ALIAS\)/.test(l)));
 });

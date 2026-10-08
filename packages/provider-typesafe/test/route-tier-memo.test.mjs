@@ -22,8 +22,11 @@ function home(t) {
   const dir = mkdtempSync(join(tmpdir(), 'jevris-tier-memo-'));
   core.clearSessionTierMemos();
   provider.setRouteCertification(null);
+  // Claude Code 2.1.294 (its haiku alias means Haiku 5.5 from 2.1.293): the sidecar's own record of the installed version.
+  provider.setHarnessVersionSource(() => '2.1.294');
   t.after(() => {
     provider.setRouteCertification(null);
+    provider.setHarnessVersionSource(null);
     core.clearSessionTierMemos();
     rmSync(dir, { recursive: true, force: true });
   });
@@ -78,10 +81,30 @@ test('the judged tier is kept for the session and the harness for ten minutes; t
   const event = (payload, k) => ({ schemaVersion: '1.0', harness: 'claude', nativeEventName: 'PreToolUse', kind: 'tool.proposed', sessionId: 'sess-memo', turnId: null, toolUseId: k, toolName: 'Agent', agentId: null, model: 'claude-sonnet-5-5', permissionMode: null, cwd: null, trigger: null, blocking: true, responseRequired: true, payload: { toolName: 'Agent', toolInputKeys: ['prompt', 'subagent_type'], ...payload }, dedupKey: sha(k) });
   const calls = [];
   const engine = { providerConfigured: false, now: () => now, decide: () => (calls.push('decide'), Promise.reject(new Error('no'))), recordAdvice: async () => ({ ok: false }) };
-  const ctx = (envelope) => ({ op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: WS, root: dir }, body: { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: 'rev-1', harnessVersion: '2.1.0' }, home: dir, signal: new AbortController().signal, deadline: fixedDeadline(900), store: null, killSwitchStopped: false, engine, trace() {}, mode: 'bounded-auto' });
+  const ctx = (envelope) => ({ op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: WS, root: dir }, body: { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: 'rev-1', harnessVersion: '2.1.294' }, home: dir, signal: new AbortController().signal, deadline: fixedDeadline(900), store: null, killSwitchStopped: false, engine, trace() {}, mode: 'bounded-auto' });
   const up = await subscriber.handle(ctx(event({ subagentType: 'general-purpose', toolInputBytes: 400 }, 'a1')));
   assert.deepEqual([up.hookOutcome.kind, up.hookOutcome.model, up.reasonCode], ['route', 'claude-opus-5-5', 'SUBAGENT_ROUTE_TIER_UP']);
   const down = await subscriber.handle(ctx(event({ subagentType: 'Explore', toolInputBytes: 400 }, 'a2')));
   assert.deepEqual([down.hookOutcome.kind, down.hookOutcome.model], ['route', 'claude-haiku-5-5']);
   assert.deepEqual(calls, []);
+});
+
+test('amended 2026-10-08: the alias proof reads the installed Claude Code version: Haiku 5.5 is a rung from 2.1.293, not on 2.1.292 or an unknown version', async (t) => {
+  const dir = home(t);
+  provider.setRouteCertification(async () => true);
+  const request = { currentModel: 'claude-sonnet-5-5', harness: 'claude', authMode: 'subscription', task: HARD };
+  const rungs = async (version) => {
+    provider.setHarnessVersionSource(() => version);
+    return (await route(dir, request)).tier?.candidates ?? [];
+  };
+  assert.ok((await rungs('2.1.294')).includes('claude-haiku-5-5'));
+  assert.ok((await rungs('2.1.293')).includes('claude-haiku-5-5'));
+  const old = await rungs('2.1.292');
+  assert.ok(!old.includes('claude-haiku-5-5'), '2.1.292: the haiku alias does not mean Haiku 5.5 here');
+  assert.ok(old.includes('claude-opus-5-5'), 'models with no table entry still count');
+  // An unknown version proves neither gated alias: no Sonnet 5.5 or Haiku 5.5 rung.
+  const unknown = await rungs(null);
+  assert.ok(!unknown.includes('claude-haiku-5-5') && !unknown.includes('claude-sonnet-5-5'));
+  // Sonnet 5.5 is a rung from 2.1.284.
+  assert.ok((await rungs('2.1.284')).includes('claude-sonnet-5-5'));
 });

@@ -37,7 +37,7 @@ function agentEvent(payload, { harness = 'claude', model = 'claude-sonnet-5-5', 
 }
 
 function ctx(dir, envelope, { mode = 'bounded-auto', traces = [], engine } = {}) {
-  const body = { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: 'rev-1', harnessVersion: '2.1.0' };
+  const body = { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: 'rev-1', harnessVersion: '2.1.294' };
   return {
     op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: WS, root: dir }, body, home: dir, signal: new AbortController().signal,
     deadline: { budgetMs: 900, remainingMs: () => 2000, expired: () => false }, store: null, killSwitchStopped: false, engine, trace: (e) => traces.push(e), mode,

@@ -519,7 +519,7 @@ export async function runDoctorCommand(input: DoctorCommandInput, write: (text: 
   // owned workers use, what routing may choose there; every model with --harness.
   const scopes = rows.filter((row) => row.installed).flatMap((row) => {
     const view = auth.views.find((item) => item.harness === AUTH_HARNESS[row.harness]);
-    return view === undefined ? [] : [{ harness: row.harness, authMode: view.mode, ...(row.harness === 'claude' ? { aliasCertified: row.certifiedFeatures.includes('hooks.route') } : {}) }];
+    return view === undefined ? [] : [{ harness: row.harness, authMode: view.mode, ...(row.harness === 'claude' ? { aliasCertified: row.certifiedFeatures.includes('hooks.route'), harnessVersion: row.version } : {}) }];
   });
   lines.push(...(await eligibilityDoctorLines(input.home, scopes, input.harness !== undefined)));
   if (auth.settingsProblem !== null) lines.push(`workers.json: ${auth.settingsProblem}; owned workers are refused until it is fixed`);

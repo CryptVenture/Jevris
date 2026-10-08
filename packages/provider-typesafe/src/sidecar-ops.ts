@@ -664,7 +664,7 @@ async function routeTier(ctx: SidecarOpContext, input: RouteRequest, registry: M
     // Claude Code's own family alias counts as local evidence once hooks.route is certified for the installed version
     // (HARNESS_ALIAS, owner decision 2026-10-08): so the tier is produced on a default install, with no model run first. Only the
     // tier and the subagent route ask for the proof; the main route evaluation never does.
-    const alias = input.harness === 'claude' ? { certified: await routeAliasCertified(ctx, nowMs), nowMs } : undefined;
+    const alias = input.harness === 'claude' ? { certified: await routeAliasCertified(ctx, nowMs), nowMs, harnessVersion: installedClaudeVersion(ctx) } : undefined;
     const eligible = await tierEligibleModels(evaluationInput(ctx, input, registry, new Map(), 'main', nowMs), alias);
     if (eligible === null) return null;
     const mode = ctx.mode ?? 'observe';
@@ -704,6 +704,16 @@ export function setHarnessVersionSource(source: ((home: string, harness: string)
 let routeCertificationOverride: ((home: string, nowMs: number) => Promise<boolean>) | null = null;
 export function setRouteCertification(check: ((home: string, nowMs: number) => Promise<boolean>) | null): void {
   routeCertificationOverride = check;
+}
+
+/** The installed Claude Code version from the host ledger (the sidecar's own record), or null when unknown. */
+function installedClaudeVersion(ctx: SidecarOpContext): string | null {
+  try {
+    const version = harnessVersionSourceOf === null ? null : harnessVersionSourceOf(ctx.home, 'claude');
+    return typeof version === 'string' && version.length > 0 ? version : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

@@ -100,6 +100,12 @@ export interface TriggerHandlerInput {
    * the subagent route for the HARNESS_ALIAS proof (hooks.route certified). Absent: not certified.
    */
   readonly certified?: (featureId: string) => Promise<boolean>;
+  /**
+   * The installed version of this event's harness, the same one `certified` is judged against (the event body's, else the host
+   * ledger's), or null when unknown. A Claude Code family alias means a newer model only from a version, so the subagent route
+   * and the tier read it (amended 2026-10-08). Absent: unknown.
+   */
+  readonly harnessVersion?: string | null;
 }
 
 export type TriggerHandler = (input: TriggerHandlerInput) => Promise<HookProposal | null> | HookProposal | null;
@@ -328,13 +334,14 @@ export function createDecisionSubscriber(options: SubscriberOptions = {}): Sidec
     const harnessVersion = typeof body['harnessVersion'] === 'string' ? body['harnessVersion'] : null;
     const platform = (globalThis as { process?: { platform?: string } }).process?.platform ?? '';
     const operatingSystem = options.operatingSystem ?? (['darwin', 'linux', 'win32'].includes(platform) ? (platform as OperatingSystem) : null);
+    const installedVersion = harnessVersion ?? options.harnessVersionOf?.(ctx.home, event.harness) ?? null;
     const certifiedHere = async (featureId: string): Promise<boolean> =>
-      (await isCertified(certifications, ctx.home, { harness: event.harness, harnessVersion: harnessVersion ?? options.harnessVersionOf?.(ctx.home, event.harness) ?? null, operatingSystem, featureId, nowMs })).certified;
+      (await isCertified(certifications, ctx.home, { harness: event.harness, harnessVersion: installedVersion, operatingSystem, featureId, nowMs })).certified;
     if (trigger !== null) {
       for (const handler of list) {
         if (ctx.deadline.expired()) break;
         try {
-          const proposal = await handler({ ctx, envelope: built.envelope, event, trigger, engine, queues, revision: atRevision, currentRevision, stillUseful, certified: certifiedHere, ...(classified.trigger !== null && classified.failure !== undefined ? { failure: classified.failure } : {}) });
+          const proposal = await handler({ ctx, envelope: built.envelope, event, trigger, engine, queues, revision: atRevision, currentRevision, stillUseful, certified: certifiedHere, harnessVersion: installedVersion, ...(classified.trigger !== null && classified.failure !== undefined ? { failure: classified.failure } : {}) });
           if (proposal !== null) proposals.push(proposal);
         } catch {
           // A failing handler never blocks the hook; it contributes nothing.

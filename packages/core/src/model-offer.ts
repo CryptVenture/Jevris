@@ -351,12 +351,18 @@ export interface EligibilityScope {
 export interface HarnessAliasProof {
   readonly certified: boolean;
   readonly nowMs: number;
+  /**
+   * The installed Claude Code version (the sidecar's own record), or null when unknown. A family alias means a newer model only
+   * from a version (`CLAUDE_CODE_ALIAS_SINCE`, amended 2026-10-08), so an unknown or older one does not prove the alias.
+   */
+  readonly harnessVersion: string | null;
 }
 
 /**
  * Whether Claude Code's family alias (haiku, sonnet, opus, fable) currently means `model`: harness
  * `claude`, provider `anthropic`, the model is the newest usable release of an alias family, the
- * model itself is usable, and the installed Claude Code is certified for hooks.route. Every refusal
+ * model itself is usable, the installed Claude Code is certified for hooks.route, and that version is recent enough for
+ * the alias to mean this model (amended 2026-10-08). Every refusal
  * in `modelEligibility` (gone, not accessible, an account check) is decided before this is asked.
  */
 export function harnessAliasHolds(registry: Pick<ModelRegistry, 'entries'>, model: ModelRegistry['entries'][number], scope: EligibilityScope, proof: HarnessAliasProof | undefined): boolean {
@@ -364,7 +370,7 @@ export function harnessAliasHolds(registry: Pick<ModelRegistry, 'entries'>, mode
   if (scope.harness !== 'claude' || model.provider !== 'anthropic') return false;
   if (!(CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(model.family)) return false;
   if (!lifecycleCheck(model, proof.nowMs).usable) return false;
-  return aliasMeansModel(registry as ModelRegistry, model, proof.nowMs);
+  return aliasMeansModel(registry as ModelRegistry, model, proof.nowMs, proof.harnessVersion);
 }
 
 /**

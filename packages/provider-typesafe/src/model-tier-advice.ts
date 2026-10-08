@@ -29,7 +29,7 @@
  * The line is advice: it says nothing was changed, never claims Jevris switched anything, and carries no prompt, no title, no
  * path and no failure text, only model names, a fixed phrase and codes. At most 500 characters.
  */
-import { UNKNOWN_SESSION_ID, MODEL_TIER_SPEC_ID, CLAUDE_CODE_SUBAGENT_ALIASES, SLICE_VERBS, aliasMeansModel, buildTierLadder, harnessHasDefault, loadModelRegistry, readPins, readSessionTier, registryModel, routeBaseline, rulesTier, tierSignalsOf, type SessionTierMemo, type SliceRisk, type SliceVerb, type TierLadder, type TierSignals } from '@jevris/core';
+import { UNKNOWN_SESSION_ID, MODEL_TIER_SPEC_ID, CLAUDE_CODE_SUBAGENT_ALIASES, SLICE_VERBS, aliasMeansModel, aliasNeedsClaudeCode, aliasNewestOfFamily, aliasVersionOldText, buildTierLadder, harnessHasDefault, loadModelRegistry, readPins, readSessionTier, registryModel, routeBaseline, rulesTier, tierSignalsOf, type SessionTierMemo, type SliceRisk, type SliceVerb, type TierLadder, type TierSignals } from '@jevris/core';
 import { modeAllows, type ModelRegistry } from '@jevris/contracts';
 import type { HookProposal, TriggerHandler, TriggerHandlerInput } from './sidecar-subscribers.js';
 import { adviceIgnored, openAdvice } from './advice-adherence.js';
@@ -68,6 +68,8 @@ export interface TierLineInput {
   readonly switchCommand: string | null;
   /** The family alias a Claude Code subagent call takes (`opus`), or null. */
   readonly subagentAlias: string | null;
+  /** Claude Code only: why no alias is named when the installed version maps it to an older model (plain words), or null/absent. */
+  readonly subagentAliasNote?: string | null;
 }
 
 const UP_WHY: Readonly<Record<string, string>> = {
@@ -86,7 +88,8 @@ const DOWN_WHY: Readonly<Record<string, string>> = { TIER_READ_ONLY_WORK: 'read-
 export function modelTierLine(i: TierLineInput): { readonly person: string; readonly model: string } {
   const how = i.switchCommand === null ? '' : ` (${i.switchCommand})`;
   const sub = i.subagentAlias === null ? '' : `, or give the hard part to a subagent with model: ${i.subagentAlias}`;
-  const tail = ' Advice only; nothing was changed.';
+  const aliasNote = i.subagentAlias === null && i.subagentAliasNote != null ? ` ${i.subagentAliasNote}` : '';
+  const tail = `${aliasNote} Advice only; nothing was changed.`;
   let body: string;
   if (i.direction === 'down') {
     const why = i.reasons.map((r) => DOWN_WHY[r]).find((w) => w !== undefined);
@@ -109,18 +112,34 @@ export function modelTierLine(i: TierLineInput): { readonly person: string; read
  * Claude Code: `/model <alias>` when the family alias means this model today, else `/model <id>`. Codex: `/model` (its picker).
  * Kilo, OpenCode and Antigravity: no command is documented here, so none is named (the model name alone).
  */
-export function switchCommandFor(harness: string, registry: ModelRegistry, modelId: string, nowMs: number): string | null {
+export function switchCommandFor(harness: string, registry: ModelRegistry, modelId: string, nowMs: number, claudeCodeVersion: string | null = null): string | null {
   if (harness === 'codex') return '/model';
   if (harness !== 'claude') return null;
-  const alias = claudeAlias(registry, modelId, nowMs);
+  const alias = claudeAlias(registry, modelId, nowMs, claudeCodeVersion);
   return `/model ${alias ?? modelId}`;
 }
 
-/** The family alias Claude Code's own `model` argument and `/model` take for a model, only when it means that model today. */
-export function claudeAlias(registry: ModelRegistry, modelId: string, nowMs: number): string | null {
+/**
+ * The plain note for a tier line when the target's family alias is gated by a Claude Code version the installed one does not
+ * meet: what the alias would map to and what to do. Null when the alias is not gated, is fine, or the model has no alias.
+ */
+function subagentAliasNoteFor(registry: ModelRegistry, modelId: string, nowMs: number, claudeCodeVersion: string | null): string | null {
   const model = registryModel(registry, modelId);
   if (model === null || model.provider !== 'anthropic' || !(CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(model.family)) return null;
-  return aliasMeansModel(registry, model, nowMs) ? model.family : null;
+  const since = aliasNeedsClaudeCode(model, claudeCodeVersion);
+  if (since === null || !aliasNewestOfFamily(registry, model, nowMs)) return null;
+  return aliasVersionOldText(model.family, claudeCodeVersion, since);
+}
+
+/**
+ * The family alias Claude Code's own `model` argument and `/model` take for a model, only when it means that model today on the
+ * installed Claude Code (amended 2026-10-08: a family alias means a newer model only from a version, `CLAUDE_CODE_ALIAS_SINCE`;
+ * an unknown version is not enough for such a model, so the command names the model id instead).
+ */
+export function claudeAlias(registry: ModelRegistry, modelId: string, nowMs: number, claudeCodeVersion: string | null = null): string | null {
+  const model = registryModel(registry, modelId);
+  if (model === null || model.provider !== 'anthropic' || !(CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(model.family)) return null;
+  return aliasMeansModel(registry, model, nowMs, claudeCodeVersion) ? model.family : null;
 }
 
 // ------------------------------------------------------------------------------------------------------------- signals
@@ -302,7 +321,7 @@ export function createModelTierHandler(options: ModelTierHandlerOptions = {}): T
     // The session's own model: what the harness names on this event, else the sidecar's record of the session.
     const sessionModel = modelLabel(input.event.model) ?? modelLabel(body['sessionModel']);
     const authMode = body['authMode'] === 'api-key' || body['authMode'] === 'subscription' ? body['authMode'] : null;
-    const session = await sessionEligible(input, registry, sessionModel, { nowMs, authMode, consentedProviders: sessionConsent(input, registry, sessionModel), aliasCertified: await aliasCertifiedFor(input) });
+    const session = await sessionEligible(input, registry, sessionModel, { nowMs, authMode, consentedProviders: sessionConsent(input, registry, sessionModel), aliasCertified: await aliasCertifiedFor(input), harnessVersion: input.harnessVersion ?? null });
     if (session === null) return silent('TIER_LINE_NO_LADDER');
     const ladder = buildTierLadder({ eligible: session.eligible, baselineModelId: session.baselineModelId, volume: session.volume });
     if ('none' in ladder) return silent('TIER_LINE_NO_LADDER');
@@ -321,8 +340,9 @@ export function createModelTierHandler(options: ModelTierHandlerOptions = {}): T
       attempts: judged.source === 'failure' ? (judged.signals?.failedAttempts ?? null) : null,
       baselineName: name(ladder.baselineModelId),
       targetName: name(targetId),
-      switchCommand: switchCommandFor(harness, registry, targetId, nowMs),
-      subagentAlias: direction === 'up' && harness === 'claude' ? claudeAlias(registry, targetId, nowMs) : null,
+      switchCommand: switchCommandFor(harness, registry, targetId, nowMs, input.harnessVersion ?? null),
+      subagentAlias: direction === 'up' && harness === 'claude' ? claudeAlias(registry, targetId, nowMs, input.harnessVersion ?? null) : null,
+      subagentAliasNote: direction === 'up' && harness === 'claude' ? subagentAliasNoteFor(registry, targetId, nowMs, input.harnessVersion ?? null) : null,
     });
     const show = modeAllows(mode, 'show-advice');
     const decisionId = await recordLine(input, {

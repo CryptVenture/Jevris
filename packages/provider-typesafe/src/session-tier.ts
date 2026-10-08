@@ -21,6 +21,8 @@ export interface SessionEligibleUse {
   readonly authMode: 'api-key' | 'subscription' | null;
   readonly consentedProviders: readonly string[];
   readonly aliasCertified: boolean;
+  /** The installed Claude Code version (null when unknown): a family alias counts as eligible only from the version it means the model. */
+  readonly harnessVersion: string | null;
 }
 
 /** What the sign-in and consent gates need of one event: the consented providers for the session's model. */
@@ -58,7 +60,7 @@ export async function sessionEligible(
         authMode: use.authMode,
         consentedProviders: use.consentedProviders,
       },
-      harness === 'claude' ? { certified: use.aliasCertified, nowMs: use.nowMs } : undefined,
+      harness === 'claude' ? { certified: use.aliasCertified, nowMs: use.nowMs, harnessVersion: use.harnessVersion } : undefined,
     );
     if (eligible === null) return null;
     return { baselineModelId: baseline, eligible: eligible.eligible, volume: eligible.settings.defaultTaskVolume };

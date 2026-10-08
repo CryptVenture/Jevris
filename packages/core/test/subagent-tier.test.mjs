@@ -27,6 +27,7 @@ const risk = (level, subagentClass = 'read-only', source = 'rules') => ({ level,
 function input(over = {}) {
   return {
     harness: 'claude',
+    harnessVersion: '2.1.294',
     subagentType: 'Explore',
     explicitModel: false,
     sessionModel: 'claude-sonnet-5-5',
@@ -178,7 +179,7 @@ test('Antigravity: the route is advice text only (no actuator), on the provider-
 
 test('prompt and description text never reach the tier route: only the declared fields are read', () => {
   const tier = subagentTierOf(ladderFor('claude-sonnet-5-5'), memo());
-  const allowed = new Set(['harness', 'subagentType', 'explicitModel', 'sessionModel', 'pins', 'registry', 'nowMs', 'unavailableModels', 'learning', 'signedPrior', 'consentedProviders', 'locallyEligible', 'accessLimits', 'authMode', 'risk', 'tier']);
+  const allowed = new Set(['harness', 'subagentType', 'explicitModel', 'sessionModel', 'pins', 'registry', 'nowMs', 'unavailableModels', 'learning', 'signedPrior', 'consentedProviders', 'locallyEligible', 'accessLimits', 'authMode', 'harnessVersion', 'risk', 'tier']);
   const guarded = new Proxy({ ...input({ subagentType: 'general-purpose', tier, risk: risk('high', 'general-purpose') }), prompt: 'SECRET PROMPT', description: 'SECRET', toolInput: { prompt: 'SECRET' } }, {
     get(target, key) {
       if (typeof key === 'string' && !allowed.has(key)) throw new Error(`read ${key}`);

@@ -49,7 +49,7 @@ const prompt = (opts = {}) => event('task.requested', { ...opts, payload: { prom
 
 function ctx(dir, envelope, { mode = 'bounded-auto', traces = [], engine, extra = {}, adherence, killSwitchStopped = false, showsExplain } = {}) {
   // A new revision per event: the trigger filter coalesces events of one session at one revision.
-  const body = { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: `rev-${n}`, harnessVersion: '2.1.0', task: { objective: PROMPT }, ...(showsExplain === undefined ? {} : { showsExplain }), ...extra };
+  const body = { envelope, deliveryKey: `k-${envelope.dedupKey.slice(0, 8)}`, revision: `rev-${n}`, harnessVersion: '2.1.294', task: { objective: PROMPT }, ...(showsExplain === undefined ? {} : { showsExplain }), ...extra };
   return {
     op: 'event', client: 'hook', scopes: ['observe'], workspace: { id: WS, root: dir }, body, home: dir, signal: new AbortController().signal,
     deadline: { budgetMs: 900, remainingMs: () => 2000, expired: () => false }, store: null, killSwitchStopped, engine, trace: (e) => traces.push(e), mode, jevAssist: 'classify',
@@ -108,6 +108,10 @@ test('modelTierLine: fixed templates over names, a command and codes: hard, repe
   assert.equal(provider.modelTierLine(base).person, 'Jevris: this looks hard (PROTECTED_AUTH): consider switching to Opus 5.5 (/model opus), or give the hard part to a subagent with model: opus. Advice only; nothing was changed.');
   assert.equal(provider.modelTierLine(base).model, `Jevris: this looks hard (PROTECTED_AUTH): consider switching to Opus 5.5 (/model opus), or give the hard part to a subagent with model: opus. Advice only; nothing was changed.${MODEL_NOTE}`);
   assert.equal(provider.modelTierLine({ ...base, reasons: ['TIER_MIGRATION'], switchCommand: null, subagentAlias: null }).person, 'Jevris: this looks hard (a migration): consider switching to Opus 5.5. Advice only; nothing was changed.');
+  // Amended 2026-10-08: with no alias to name (the installed Claude Code maps it to an older model) the line says so, plainly.
+  const note = 'Claude Code 2.1.292 may map the haiku alias to an older model; update to 2.1.293 or later (or name the model by its id) so the alias means the current one.';
+  assert.equal(provider.modelTierLine({ ...base, targetName: 'Haiku 5.5', switchCommand: '/model claude-haiku-5-5', subagentAlias: null, subagentAliasNote: note }).person, `Jevris: this looks hard (PROTECTED_AUTH): consider switching to Haiku 5.5 (/model claude-haiku-5-5). ${note} Advice only; nothing was changed.`);
+  assert.equal(provider.modelTierLine({ ...base, subagentAliasNote: note }).person, provider.modelTierLine(base).person, 'with an alias named, no note');
   // A lockfile is never the reason named.
   assert.match(provider.modelTierLine({ ...base, protectedClasses: ['PROTECTED_LOCKFILE', 'PROTECTED_CI'] }).person, /\(PROTECTED_CI\)/);
   assert.equal(provider.modelTierLine({ ...base, reasons: ['TIER_REPEATED_FAILURE'], attempts: 3, subagentAlias: null }).person, 'Jevris: Sonnet 5.5 has failed this 3 times (not environmental): consider switching to Opus 5.5 (/model opus). Advice only; nothing was changed.');
@@ -121,9 +125,14 @@ test('modelTierLine: fixed templates over names, a command and codes: hard, repe
 
 test('switchCommandFor: Claude Code /model <alias> only where the alias means the model, else its id; Codex /model; Kilo, OpenCode and Antigravity name no command', async (t) => {
   const registry = await core.loadModelRegistry({ home: home(t) });
-  assert.equal(provider.switchCommandFor('claude', registry, 'claude-opus-5-5', NOW), '/model opus');
-  assert.equal(provider.switchCommandFor('claude', registry, 'claude-haiku-5-5', NOW), '/model haiku');
-  assert.equal(provider.switchCommandFor('claude', registry, 'claude-sonnet-5', NOW), '/model claude-sonnet-5', 'an older Sonnet is not what the alias means: its id');
+  assert.equal(provider.switchCommandFor('claude', registry, 'claude-opus-5-5', NOW, '2.1.294'), '/model opus');
+  assert.equal(provider.switchCommandFor('claude', registry, 'claude-haiku-5-5', NOW, '2.1.294'), '/model haiku');
+  assert.equal(provider.switchCommandFor('claude', registry, 'claude-sonnet-5', NOW, '2.1.294'), '/model claude-sonnet-5', 'an older Sonnet is not what the alias means: its id');
+  // Amended 2026-10-08: on a Claude Code older than 2.1.293 (or of unknown version) `haiku` is Haiku 4.5, so the command names the id.
+  assert.equal(provider.switchCommandFor('claude', registry, 'claude-haiku-5-5', NOW, '2.1.292'), '/model claude-haiku-5-5');
+  assert.equal(provider.switchCommandFor('claude', registry, 'claude-haiku-5-5', NOW), '/model claude-haiku-5-5');
+  assert.equal(provider.switchCommandFor('claude', registry, 'claude-haiku-5-5', NOW, '2.1.293'), '/model haiku');
+  assert.equal(provider.switchCommandFor('claude', registry, 'claude-opus-5-5', NOW, null), '/model opus', 'opus has no version gate');
   assert.equal(provider.switchCommandFor('codex', registry, 'gpt-6-astra', NOW), '/model');
   for (const harness of ['kilocode', 'opencode', 'antigravity']) assert.equal(provider.switchCommandFor(harness, registry, 'gpt-6-astra', NOW), null, harness);
   assert.equal(provider.claudeAlias(registry, 'gpt-6-astra', NOW), null);

@@ -44,7 +44,7 @@
  *   An id the registry does not know is listed as unregistered and never used.
  */
 import { readFile } from 'node:fs/promises';
-import { MODEL_REGISTRY_REFUSALS, ModelRegistryContract, SERVING_HOSTS, hostMakerOf, type ModelRegistry, type RoutingModel, type Tariff } from '@jevris/contracts';
+import { MODEL_REGISTRY_REFUSALS, ModelRegistryContract, SERVING_HOSTS, compareSemver, hostMakerOf, type ModelRegistry, type RoutingModel, type Tariff } from '@jevris/contracts';
 import { jevrisPaths } from '@jevris/platform';
 import { join } from 'node:path';
 import { MULTI_PROVIDER_ENTRIES, MULTI_PROVIDER_HARNESS_ACCESS, MULTI_REGISTRY_SOURCES } from './registry-multi.js';
@@ -432,12 +432,58 @@ export const CLAUDE_CODE_SUBAGENT_ALIASES = Object.freeze(['haiku', 'sonnet', 'o
 export type ClaudeCodeSubagentAlias = (typeof CLAUDE_CODE_SUBAGENT_ALIASES)[number];
 
 /**
- * Whether Claude Code's family alias can only mean `model` (routing design R25, K1). The alias
- * resolves to the family's current model, so `model` must be the newest usable registry entry of
- * its family. A family entry with no release date cannot be ordered, so the alias is not trusted
- * either. Shared by the subagent route and the HARNESS_ALIAS eligibility proof.
+ * Owner-observed 2026-10-08, from Claude Code's model-config docs (https://code.claude.com/docs/en/model-config, fetched
+ * 2026-10-08): on the Anthropic API, and on subscription sign-ins (which connect through it), a family alias means a newer model
+ * only from this Claude Code version ("Use v2.1.293 or later with Haiku 5.5"; `sonnet` means Sonnet 5.5 from v2.1.284). Before
+ * it the alias still means the older model (live: Claude Code 2.1.292 with `model: haiku` ran claude-haiku-4-5-20251001). On
+ * Bedrock, Google Cloud, Foundry and Claude Platform on AWS the aliases can still mean older models, and a user's
+ * ANTHROPIC_DEFAULT_<FAMILY>_MODEL pin changes them; Jevris never reads either, so it claims no more than this table.
+ * A model absent from the table keeps the plain "newest of its family" rule.
  */
-export function aliasMeansModel(registry: ModelRegistry, model: RoutingModel, nowMs: number): boolean {
+export const CLAUDE_CODE_ALIAS_SINCE: Readonly<Record<string, string>> = Object.freeze({
+  'claude-sonnet-5-5': '2.1.284',
+  'claude-haiku-5-5': '2.1.293',
+});
+
+const VERSION_IN = /(?:^|[^0-9.])(\d{1,6})\.(\d{1,6})\.(\d{1,6})(?![0-9])/;
+
+/** The `x.y.z` of an installed-version string (it may carry a suffix such as "(Claude Code)"), or null when there is none. */
+export function claudeCodeVersionOf(version: string | null | undefined): string | null {
+  if (typeof version !== 'string' || version.length > 128) return null;
+  const found = VERSION_IN.exec(version);
+  return found === null ? null : `${found[1]}.${found[2]}.${found[3]}`;
+}
+
+/**
+ * The Claude Code version a family alias needs before it means `model`, when the installed version is below it or unknown;
+ * null when the alias is not version-gated for this model or the installed version is known and recent enough. An unknown or
+ * unparseable version is conservative: a gated model's alias is then not trusted.
+ */
+export function aliasNeedsClaudeCode(model: RoutingModel, installedVersion: string | null | undefined): string | null {
+  const since = CLAUDE_CODE_ALIAS_SINCE[model.modelId];
+  if (since === undefined) return null;
+  const installed = claudeCodeVersionOf(installedVersion);
+  if (installed === null) return since;
+  const order = compareSemver(installed, since);
+  return order !== null && order >= 0 ? null : since;
+}
+
+/**
+ * The plain sentence for a family alias that does not yet mean the registry's newest model on the installed Claude Code:
+ * what the alias maps to, and what to do. Fixed template over a family name, versions and codes; no model text.
+ */
+export function aliasVersionOldText(alias: string, installedVersion: string | null | undefined, since: string): string {
+  const installed = claudeCodeVersionOf(installedVersion);
+  const shown = (installed ?? '').length > 0 ? `Claude Code ${installed}` : 'This Claude Code (its version is not known)';
+  return `${shown} may map the ${alias} alias to an older model; update to ${since} or later (or name the model by its id) so the alias means the current one.`;
+}
+
+/**
+ * Whether `model` is the newest usable registry entry of its family (routing design R25, K1), the model the family alias
+ * resolves to once Claude Code is recent enough. A family entry with no release date cannot be ordered, so the alias is not
+ * trusted either.
+ */
+export function aliasNewestOfFamily(registry: ModelRegistry, model: RoutingModel, nowMs: number): boolean {
   const released = (m: RoutingModel): number | null => {
     const day = m.lifecycle?.releasedOn ?? null;
     return day === null ? null : Date.parse(day);
@@ -451,6 +497,31 @@ export function aliasMeansModel(registry: ModelRegistry, model: RoutingModel, no
     if (at === null || at >= own) return false;
   }
   return true;
+}
+
+/**
+ * Whether Claude Code's family alias can only mean `model` (routing design R25, K1; amended 2026-10-08): `model` is the newest
+ * usable registry entry of its family AND, for a model in `CLAUDE_CODE_ALIAS_SINCE`, the installed Claude Code is known and at
+ * least the version from which the alias means it. Shared by the subagent route, the HARNESS_ALIAS eligibility proof and the
+ * `/model` command the tier line names. `claudeCodeVersion` is the installed version, or null when unknown.
+ */
+export function aliasMeansModel(registry: ModelRegistry, model: RoutingModel, nowMs: number, claudeCodeVersion: string | null): boolean {
+  return aliasNewestOfFamily(registry, model, nowMs) && aliasNeedsClaudeCode(model, claudeCodeVersion) === null;
+}
+
+/**
+ * The family aliases that, on the installed Claude Code, still mean an older model than the registry's newest of the family:
+ * one row per gated newest model whose alias is not yet trustworthy, with the version it needs. Plain text for `doctor`.
+ */
+export function claudeAliasGaps(registry: ModelRegistry, nowMs: number, claudeCodeVersion: string | null): readonly { readonly alias: string; readonly modelId: string; readonly since: string }[] {
+  const rows: { alias: string; modelId: string; since: string }[] = [];
+  for (const model of registry.entries) {
+    if (model.provider !== 'anthropic' || !(CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(model.family)) continue;
+    if (!lifecycleCheck(model, nowMs).usable || !aliasNewestOfFamily(registry, model, nowMs)) continue;
+    const since = aliasNeedsClaudeCode(model, claudeCodeVersion);
+    if (since !== null) rows.push({ alias: model.family, modelId: model.modelId, since });
+  }
+  return rows;
 }
 
 /** A model's lifecycle at one time, for the release gate and registry:check (A composes these, not copies). */

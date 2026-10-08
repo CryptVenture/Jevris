@@ -223,6 +223,19 @@ export async function evidenceAdvice(input: TriggerHandlerInput): Promise<HookPr
   return { hookOutcome: { kind: 'explain', text: `Jevris: before escalating, get ${result.artifact.id}: ${result.artifact.description}${where}.` }, reasonCode: result.reasonCode };
 }
 
+/** Sessions already told that the installed Claude Code maps a family alias to an older model (bounded; said once per session). */
+const ALIAS_VERSION_TOLD = new Set<string>();
+function aliasVersionNoticeFirst(workspaceId: string, sessionId: string): boolean {
+  const key = `${workspaceId}\n${sessionId}`;
+  if (ALIAS_VERSION_TOLD.has(key)) return false;
+  ALIAS_VERSION_TOLD.add(key);
+  if (ALIAS_VERSION_TOLD.size > 256) {
+    const first = ALIAS_VERSION_TOLD.values().next();
+    if (first.done !== true) ALIAS_VERSION_TOLD.delete(first.value);
+  }
+  return true;
+}
+
 /**
  * Subagent routing (owner decisions 2026-09-27, DOMAINS 9ce2ba5, and 2026-10-08, which reverses its
  * abstain-only line for Claude Code). A PreToolUse(Agent/Task) event gets a route proposal `{ model }`
@@ -274,6 +287,7 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
   // and sign-in from local evidence (listed by the harness or run here).
   // Owner decision 2026-10-08 (amends 3f090fa for Claude Code only): Claude Code's own family alias
   // counts as local evidence once hooks.route is certified for the installed version.
+  const harnessVersion = input.harnessVersion ?? null;
   const aliasCertified = input.event.harness === 'claude' && input.certified !== undefined ? await input.certified(ROUTE_FEATURE).catch(() => false) : false;
   const locallyEligible = await locallyEligibleFor({
     home: input.ctx.home,
@@ -281,7 +295,7 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
     accountId: null,
     unavailable: gone,
     scope: { harness: input.event.harness, authMode },
-    ...(input.event.harness === 'claude' ? { harnessAlias: { certified: aliasCertified, nowMs } } : {}),
+    ...(input.event.harness === 'claude' ? { harnessAlias: { certified: aliasCertified, nowMs, harnessVersion } } : {}),
   }).catch(() => []);
   // A signed calibration release for the subagent slice is the other evidence (routeTask's selection).
   let signedPrior: { readonly modelId: string; readonly releaseId: string } | null = null;
@@ -326,6 +340,8 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
     // Access limits R73 (design E5); a missing or unreadable record gives none (fail-open).
     accessLimits: (await readAccessLimits(input.ctx.home).catch(() => ({ entries: [] }))).entries,
     authMode,
+    // Amended 2026-10-08: a family alias means a newer model only from a Claude Code version; the sidecar's own record of it.
+    harnessVersion,
     // Serving hosts R51: the child keeps the parent's host, a gateway included. Seen spellings from
     // the model offer; host consent from B's reader; route.host from the sidecar (B's 76c5d764),
     // never the plugin: the sidecar replaces any claim on the event body.
@@ -340,7 +356,7 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
   if (advice.outcome === 'abstain' && advice.reasonCode === 'NO_EVIDENCE') {
     // Owner decisions 2026-10-08 (step 2b, every harness): the session's tier ladder over the models eligible here, and the
     // session's tier memo (no Jev call on this hook). Null where no ladder exists (no local evidence): dormant there.
-    const tier = await subagentTierFor(input, registry, sessionModel, { nowMs, authMode, consentedProviders, aliasCertified });
+    const tier = await subagentTierFor(input, registry, sessionModel, { nowMs, authMode, consentedProviders, aliasCertified, harnessVersion });
     const rulesLevel = rulesSubagentRisk(features);
     const at = (level: 'low' | 'medium' | 'high', source: 'rules' | 'jev' = 'rules'): ReturnType<typeof adviseSubagentRoute> => adviseSubagentRoute({ ...route, tier, risk: { level, source, subagentClass: features.subagentClass } });
     // A write-capable launch of a session whose own work the tier rule judged very hard goes up with no Jev question;
@@ -357,7 +373,13 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
   }
   // 43cb54c: a learned effort that is worked out but not applied (Codex) is named in the trace too.
   input.ctx.trace({ event: 'subagent-route', reasonCode: advice.reasonCode, ...(advice.outcome === 'propose' && advice.effortNotApplied !== null ? { effortNotApplied: advice.effortNotApplied } : {}) });
-  if (advice.outcome !== 'propose') return (note('abstained', advice.reasonCode), null);
+  if (advice.outcome !== 'propose') {
+    note('abstained', advice.reasonCode);
+    // Amended 2026-10-08: on a Claude Code too old for the alias no alias is set; the person is told once per session, in plain words.
+    return advice.reasonCode === 'ALIAS_VERSION_OLD' && advice.text !== undefined && aliasVersionNoticeFirst(input.envelope.workspaceId, input.envelope.sessionId)
+      ? { hookOutcome: { kind: 'explain', text: advice.text }, reasonCode: advice.reasonCode, commit: () => true }
+      : null;
+  }
   note('proposed', advice.reasonCode, advice.modelId);
   // No consuming effect, but the subscriber still refuses the answer when its slice has ended.
   // Claude Code's route carries the registry id (its adapter spells the alias). Elsewhere it
@@ -393,7 +415,7 @@ async function subagentTierFor(
   input: TriggerHandlerInput,
   registry: NonNullable<Awaited<ReturnType<typeof loadModelRegistry>>>,
   sessionModel: string | null,
-  use: { readonly nowMs: number; readonly authMode: 'api-key' | 'subscription' | null; readonly consentedProviders: readonly string[]; readonly aliasCertified: boolean },
+  use: { readonly nowMs: number; readonly authMode: 'api-key' | 'subscription' | null; readonly consentedProviders: readonly string[]; readonly aliasCertified: boolean; readonly harnessVersion: string | null },
 ): Promise<SubagentTierInput | null> {
   try {
     const harness = input.event.harness;

@@ -22,6 +22,8 @@ const active = (modelId, extra = {}) => learning({ [KEY]: { mode: 'auto', modelI
 function input(extra = {}) {
   return {
     harness: 'claude',
+    // Claude Code 2.1.294: its haiku and sonnet aliases mean Haiku 5.5 and Sonnet 5.5 (from 2.1.293 and 2.1.284).
+    harnessVersion: '2.1.294',
     subagentType: 'Explore',
     explicitModel: false,
     sessionModel: 'claude-opus-5-5',
@@ -158,6 +160,10 @@ test('subagent route: every abstain reason, each paired with the one change that
   expect('NO_ALIAS', { registry: withFamily('mythos'), learning: active('claude-mythos-1') });
   // R25, K1: `opus` resolves to the family's current model, Opus 5.5, so a route to Opus 5 abstains.
   expect('ALIAS_NOT_NEWEST', { learning: active('claude-opus-5'), sessionModel: 'claude-sonnet-5' });
+  // Amended 2026-10-08: on a Claude Code older than the version from which `haiku` means Haiku 5.5 (2.1.293), or of unknown version, the alias still means an older model.
+  expect('ALIAS_VERSION_OLD', { harnessVersion: '2.1.292' });
+  expect('ALIAS_VERSION_OLD', { harnessVersion: null });
+  expect('ALIAS_VERSION_OLD', { harnessVersion: undefined });
   expect('EFFORT_NOT_ROUTABLE', { learning: active('claude-opus-5-5', { effort: 'low' }), sessionModel: 'claude-sonnet-5' });
   expect('SAME_AS_SESSION', { sessionModel: 'claude-haiku-5-5' });
   expect('SAME_AS_SESSION', { sessionModel: 'haiku' });
@@ -185,7 +191,7 @@ test('subagent route: every abstain reason, each paired with the one change that
 
 test('subagent route: no prompt text is ever read; only the declared fields decide', () => {
   // A Proxy input throws on any field the function is not declared to read (prompt, description, toolInput...).
-  const allowed = new Set(['harness', 'subagentType', 'explicitModel', 'sessionModel', 'pins', 'registry', 'nowMs', 'unavailableModels', 'learning', 'signedPrior', 'consentedProviders', 'locallyEligible', 'accessLimits', 'authMode', 'risk', 'tier']);
+  const allowed = new Set(['harness', 'subagentType', 'explicitModel', 'sessionModel', 'pins', 'registry', 'nowMs', 'unavailableModels', 'learning', 'signedPrior', 'consentedProviders', 'locallyEligible', 'accessLimits', 'authMode', 'harnessVersion', 'risk', 'tier']);
   const guarded = new Proxy({ ...input(), prompt: 'SECRET PROMPT', description: 'SECRET', toolInput: { prompt: 'SECRET' } }, {
     get(target, key) {
       if (typeof key === 'string' && !allowed.has(key)) throw new Error(`read ${key}`);
@@ -239,4 +245,50 @@ test('R20: each harness applies a subagent route its own way; Antigravity explai
   const agyKey = learningSliceKey(SLICE, 'gemini-3.8-flash', BUNDLED_MODEL_REGISTRY);
   const agy = adviseSubagentRoute(input({ harness: 'antigravity', sessionModel: null, learning: learning({ [agyKey]: { mode: 'auto', modelId: 'gemini-3.7-flash', baselineModelId: 'gemini-3.8-flash', baselineRate: 0.9 } }) }));
   assert.deepEqual([agy.outcome, agy.actuator], ['propose', null]);
+});
+
+test('subagent route, amended 2026-10-08: a family alias means a newer model only from the Claude Code version that maps it (haiku 2.1.293, sonnet 2.1.284)', () => {
+  const { CLAUDE_CODE_ALIAS_SINCE, aliasMeansModel, aliasNeedsClaudeCode, claudeCodeVersionOf, aliasVersionOldText, claudeAliasGaps } = core;
+  assert.deepEqual({ ...CLAUDE_CODE_ALIAS_SINCE }, { 'claude-sonnet-5-5': '2.1.284', 'claude-haiku-5-5': '2.1.293' });
+  const model = (id) => BUNDLED_MODEL_REGISTRY.entries.find((e) => e.modelId === id);
+  const means = (id, version) => aliasMeansModel(BUNDLED_MODEL_REGISTRY, model(id), NOW, version);
+  // Haiku: below, at and above 2.1.293, and a version that is not known.
+  assert.deepEqual(['2.1.292', '2.1.293', '2.1.294', '2.2.0', '3.0.0', '2.0.999'].map((v) => means('claude-haiku-5-5', v)), [false, true, true, true, true, false]);
+  assert.deepEqual([null, undefined, '', 'unknown', 'v2'].map((v) => means('claude-haiku-5-5', v)), [false, false, false, false, false]);
+  // Sonnet: from 2.1.284.
+  assert.deepEqual(['2.1.283', '2.1.284', '2.1.285', '2.1.292'].map((v) => means('claude-sonnet-5-5', v)), [false, true, true, true]);
+  // A model with no table entry keeps today's rule, whatever the version (Opus 5.5 is the newest Opus).
+  assert.deepEqual([null, '2.1.0', '2.1.294'].map((v) => means('claude-opus-5-5', v)), [true, true, true]);
+  // The newest-of-family rule still applies on a recent version: Opus 5 is not the newest Opus.
+  assert.equal(means('claude-opus-5', '2.1.294'), false);
+  // The installed version may carry a suffix; the x.y.z is what counts.
+  assert.equal(claudeCodeVersionOf('2.1.293 (Claude Code)'), '2.1.293');
+  assert.equal(claudeCodeVersionOf('claude 2.1.292'), '2.1.292');
+  assert.equal(claudeCodeVersionOf('nonsense'), null);
+  assert.equal(means('claude-haiku-5-5', '2.1.293 (Claude Code)'), true);
+  assert.equal(aliasNeedsClaudeCode(model('claude-haiku-5-5'), '2.1.292'), '2.1.293');
+  assert.equal(aliasNeedsClaudeCode(model('claude-haiku-5-5'), '2.1.293'), null);
+  assert.equal(aliasNeedsClaudeCode(model('claude-opus-5-5'), null), null);
+  // The route: haiku abstains on 2.1.292 with the plain sentence, and routes on 2.1.293 and 2.1.294; the alias is never set below.
+  const old = adviseSubagentRoute(input({ harnessVersion: '2.1.292' }));
+  assert.deepEqual([old.outcome, old.reasonCode, old.sliceId], ['abstain', 'ALIAS_VERSION_OLD', SLICE]);
+  assert.equal(old.text, 'Claude Code 2.1.292 may map the haiku alias to an older model; update to 2.1.293 or later (or name the model by its id) so the alias means the current one.');
+  assert.equal(old.text, aliasVersionOldText('haiku', '2.1.292', '2.1.293'));
+  for (const harnessVersion of ['2.1.293', '2.1.294']) {
+    const advice = adviseSubagentRoute(input({ harnessVersion }));
+    assert.deepEqual([advice.outcome, advice.alias, advice.harnessModel], ['propose', 'haiku', 'haiku'], harnessVersion);
+  }
+  // An unknown version is conservative for a gated model, and the sentence says so.
+  assert.match(adviseSubagentRoute(input({ harnessVersion: null })).text, /^This Claude Code \(its version is not known\) may map the haiku alias/);
+  // Sonnet routes on 2.1.292 (since 2.1.284) and abstains before it; opus and fable are not gated.
+  const sonnet = (harnessVersion) => adviseSubagentRoute(input({ learning: active('claude-sonnet-5-5'), sessionModel: 'claude-opus-5-5', harnessVersion }));
+  assert.deepEqual([sonnet('2.1.292').outcome, sonnet('2.1.283').reasonCode, sonnet(null).reasonCode], ['propose', 'ALIAS_VERSION_OLD', 'ALIAS_VERSION_OLD']);
+  assert.equal(adviseSubagentRoute(input({ learning: active('claude-opus-5-5'), sessionModel: 'claude-sonnet-5', harnessVersion: null })).outcome, 'propose', 'opus has no table entry');
+  assert.equal(adviseSubagentRoute(input({ learning: active('claude-fable-5-1'), harnessVersion: null })).outcome, 'propose', 'fable has no table entry');
+  // The version is not read on other harnesses: Kilo spells the model id, no alias.
+  assert.equal(adviseSubagentRoute(input({ harness: 'opencode', sessionModel: 'anthropic/claude-opus-5-5', locallyEligible: ['claude-haiku-5-5'], harnessVersion: null })).outcome, 'propose');
+  // Doctor's gaps: which newest models the installed Claude Code does not yet map its alias to.
+  assert.deepEqual(claudeAliasGaps(BUNDLED_MODEL_REGISTRY, NOW, '2.1.292').map((g) => [g.alias, g.modelId, g.since]), [['haiku', 'claude-haiku-5-5', '2.1.293']]);
+  assert.deepEqual(claudeAliasGaps(BUNDLED_MODEL_REGISTRY, NOW, '2.1.294'), []);
+  assert.deepEqual(claudeAliasGaps(BUNDLED_MODEL_REGISTRY, NOW, null).map((g) => g.alias).sort(), ['haiku', 'sonnet']);
 });

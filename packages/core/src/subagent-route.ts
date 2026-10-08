@@ -20,7 +20,7 @@
  * step-up rung, only when the shared tier rule judged the session's own work step-up (a fresh memo). The route is "rules-based
  * default, not a learned route, not a signed prior" (basis `tier-rule-up`). Evidence still wins, and every gate below still
  * applies (pin, explicit model, consent, eligibility on this harness, lifecycle, availability, access limits, hosts,
- * `SAME_AS_SESSION`, `ALIAS_NOT_NEWEST`). A harness with no local evidence of the rungs has no ladder: dormant there.
+ * `SAME_AS_SESSION`, `ALIAS_NOT_NEWEST`, and `ALIAS_VERSION_OLD`: amended 2026-10-08, a family alias means a newer model only from a Claude Code version). A harness with no local evidence of the rungs has no ladder: dormant there.
  *
  * Pure: no I/O, no clock read, and no prompt text. The inputs are the subagent type, whether the
  * tool input already names a model, the session's model, pins, the registry, the models found
@@ -44,7 +44,7 @@ import { hostTariffGuard } from './serving-tariff.js';
 import { accessPauseForSpelling, type AccessLimitEntry } from './access-limits.js';
 import type { SeenSpelling } from './model-offer.js';
 import type { ModelUnavailableReason } from './model-availability.js';
-import { CLAUDE_CODE_SUBAGENT_ALIASES, aliasMeansModel, lifecycleCheck, registryModel, routeBaseline, type ClaudeCodeSubagentAlias } from './model-registry.js';
+import { CLAUDE_CODE_SUBAGENT_ALIASES, aliasNeedsClaudeCode, aliasVersionOldText, aliasNewestOfFamily, lifecycleCheck, registryModel, routeBaseline, type ClaudeCodeSubagentAlias } from './model-registry.js';
 import type { SubagentClass, SubagentRiskLevel, SubagentRiskSource } from './subagent-risk.js';
 import type { SubagentTierInput } from './subagent-tier.js';
 import { blockedDownstream, hostConsent, signedInDefaultAllowed, type ProviderConsentReader } from './provider-consent-gate.js';
@@ -119,6 +119,7 @@ export const SUBAGENT_ROUTE_ABSTAIN_REASONS = [
   'NOT_ON_SESSION_HOST',
   'NO_ALIAS',
   'ALIAS_NOT_NEWEST',
+  'ALIAS_VERSION_OLD',
   'EFFORT_NOT_ROUTABLE',
   'SAME_AS_SESSION',
   'ACCESS_LIMITED',
@@ -200,6 +201,12 @@ export interface SubagentRouteInput {
   /** The session's sign-in (`api-key` or `subscription`); absent or null: unknown, which matches both. */
   readonly authMode?: string | null;
   /**
+   * Claude Code only (amended 2026-10-08): the installed version, from the sidecar's own record. A family alias means a newer
+   * model only from a version (`CLAUDE_CODE_ALIAS_SINCE`), so an older, unknown or absent version abstains (ALIAS_VERSION_OLD)
+   * for a model in that table. Ignored on every other harness.
+   */
+  readonly harnessVersion?: string | null;
+  /**
    * Serving hosts R51: B's stored-consent reader, for a pinned serving host's own consent and the
    * hosts it forwards to (makers are judged by `consentedProviders`). Absent: no pinned host is
    * used, and a gateway session reads as an unknown host (phase 1).
@@ -277,7 +284,13 @@ export type SubagentRouteAdvice =
        */
       readonly adviceContext: string | null;
     }
-  | { readonly outcome: 'abstain'; readonly reasonCode: SubagentRouteAbstainReason; readonly sliceId: string | null };
+  | {
+      readonly outcome: 'abstain';
+      readonly reasonCode: SubagentRouteAbstainReason;
+      readonly sliceId: string | null;
+      /** ALIAS_VERSION_OLD only: the plain sentence saying what the installed Claude Code does with the alias and what to do. */
+      readonly text?: string;
+    };
 
 function aliasOf(family: string): ClaudeCodeSubagentAlias | null {
   return (CLAUDE_CODE_SUBAGENT_ALIASES as readonly string[]).includes(family) ? (family as ClaudeCodeSubagentAlias) : null;
@@ -357,7 +370,10 @@ export function adviseSubagentRoute(input: SubagentRouteInput): SubagentRouteAdv
   if (actuator?.carries === 'alias') {
     alias = aliasOf(model.family);
     if (alias === null) return abstain('NO_ALIAS', sliceId);
-    if (!aliasMeansModel(input.registry, model, input.nowMs)) return abstain('ALIAS_NOT_NEWEST', sliceId);
+    if (!aliasNewestOfFamily(input.registry, model, input.nowMs)) return abstain('ALIAS_NOT_NEWEST', sliceId);
+    // Amended 2026-10-08: on an older Claude Code (or one whose version is unknown) the alias still means an older model.
+    const needs = aliasNeedsClaudeCode(model, input.harnessVersion ?? null);
+    if (needs !== null) return { outcome: 'abstain', reasonCode: 'ALIAS_VERSION_OLD', sliceId, text: aliasVersionOldText(alias, input.harnessVersion ?? null, needs) };
     // Owner decision 2026-10-08 (amends DOMAINS 3f090fa): no path skips the eligibility rule. For
     // Claude Code the list carries the HARNESS_ALIAS proof; null (an administrator's account check
     // decides, or the caller has none) is not checked here, as on the other harnesses.
