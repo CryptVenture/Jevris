@@ -423,6 +423,12 @@ test('C68 does not rule out a sound candidate on a git read that fails once (int
     assert.deepEqual(labels(once), { edit: 'applies-in-scope', stale: 'does-not-apply', outside: 'writes-outside-scope' });
     assert.equal(git(f.repo, 'worktree', 'list').trim().split('\n').length, 1, 'every speculative worktree was removed');
     assert.equal(git(f.repo, 'branch', '--list', 'jevris/*').trim(), '');
+    // The removal itself can be denied for a moment too (the intermittent Windows CI failure "every speculative worktree was
+    // removed"): `git worktree remove` answers not ok once, and a status read of a restored tree answers not ok once more.
+    const denied = ok(await f.advise('C68', input, { git: flakyGit((args, _cwd, nth) => (args[0] === 'worktree' && nth === 1) || (args[0] === 'status' && nth === 4)) }));
+    assert.equal(denied.recommendation, 'edit');
+    assert.equal(git(f.repo, 'worktree', 'list').trim().split('\n').length, 1, 'a removal denied once is tried again');
+    assert.equal(git(f.repo, 'branch', '--list', 'jevris/*').trim(), '');
     // A scope git can never report is unknown: not a violation, and never a viable candidate.
     const never = ok(await f.advise('C68', input, { git: flakyGit((args) => args[0] === 'status') }));
     assert.equal(never.recommendation, 'none');

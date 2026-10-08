@@ -704,6 +704,8 @@ const EXTERNAL_EFFECT = /\b(curl|wget|npm\s+(install|publish)|pip\s+install|git\
 /** How often a candidate that does not come out clean is evaluated afresh before that verdict stands. */
 const C68_ATTEMPTS = 3;
 const C68_RETRY_PAUSE_MS = 40;
+/** Why a removal of a restored speculative worktree can fail for a moment (Windows briefly denies a read or a delete). */
+const C68_TRANSIENT_REMOVAL: ReadonlySet<string> = new Set(['DIRTY', 'STATUS_UNKNOWN', 'GIT_FAILED']);
 const C68: CapabilityDefinition = {
   id: 'C68',
   title: 'Safe speculative evaluation',
@@ -742,7 +744,15 @@ const C68: CapabilityDefinition = {
             await cx.git.run(['clean', '-fdq'], wt.path);
             if (applied && scope.ok) break;
           }
-          const removed = await removeWorktree(cx.ws, wt.id, true);
+          // The tree was restored above, so a worktree that reads dirty or unknown, or whose removal git fails, a moment later is the same
+          // transient Windows denial as a failed read: it is tried again on a restored tree before it is left behind.
+          let removed = await removeWorktree(cx.ws, wt.id, true, { git: cx.git });
+          for (let attempt = 1; attempt < C68_ATTEMPTS && !removed.removed && C68_TRANSIENT_REMOVAL.has(removed.reasonCode ?? ''); attempt += 1) {
+            await new Promise<void>((resolve) => setTimeout(resolve, C68_RETRY_PAUSE_MS * attempt));
+            await cx.git.run(['checkout', '--', '.'], wt.path);
+            await cx.git.run(['clean', '-fdq'], wt.path);
+            removed = await removeWorktree(cx.ws, wt.id, true, { git: cx.git });
+          }
           const reason = !applied ? 'does-not-apply' : scope.unknown ? 'scope-unknown' : scope.ok ? 'applies-in-scope' : 'writes-outside-scope';
           return { id: c.id, applies: applied, reason, changed: scope.changed.length, violations: scope.violations.length, removed: removed.removed };
         } finally {
