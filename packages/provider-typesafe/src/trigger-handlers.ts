@@ -375,8 +375,8 @@ export async function subagentRouteAdvice(input: TriggerHandlerInput): Promise<H
   input.ctx.trace({ event: 'subagent-route', reasonCode: advice.reasonCode, ...(advice.outcome === 'propose' && advice.effortNotApplied !== null ? { effortNotApplied: advice.effortNotApplied } : {}) });
   if (advice.outcome !== 'propose') {
     note('abstained', advice.reasonCode);
-    // Amended 2026-10-08: on a Claude Code too old for the alias no alias is set; the person is told once per session, in plain words.
-    return advice.reasonCode === 'ALIAS_VERSION_OLD' && advice.text !== undefined && aliasVersionNoticeFirst(input.envelope.workspaceId, input.envelope.sessionId)
+    // Amended 2026-10-08: on a Claude Code too old for the alias no alias is set; the person is told once per session, in plain words. An UNKNOWN version stays silent: not knowing is not a reason to say "update".
+    return advice.reasonCode === 'ALIAS_VERSION_OLD' && advice.text !== undefined && typeof input.harnessVersion === 'string' && input.harnessVersion.length > 0 && aliasVersionNoticeFirst(input.envelope.workspaceId, input.envelope.sessionId)
       ? { hookOutcome: { kind: 'explain', text: advice.text }, reasonCode: advice.reasonCode, commit: () => true }
       : null;
   }

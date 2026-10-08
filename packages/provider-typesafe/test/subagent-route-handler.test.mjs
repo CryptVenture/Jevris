@@ -267,8 +267,8 @@ test('amended 2026-10-08: Claude Code 2.1.292 maps `haiku` to Haiku 4.5, so no a
   // Said once for the session; the launch is still left alone.
   assert.equal((await at('2.1.292')).hookOutcome.kind, 'observe');
   assert.deepEqual(traces.filter((e) => e.event === 'subagent-route').map((e) => e.reasonCode), ['ALIAS_VERSION_OLD', 'ALIAS_VERSION_OLD']);
-  // An unknown version is not trusted for a gated model either.
-  assert.equal((await at(null, 'sess-unknown')).hookOutcome.kind, 'explain');
+  // An unknown version is not trusted for a gated model either, but it is not worth a message: not knowing is not a reason to say "update".
+  assert.equal((await at(null, 'sess-unknown')).hookOutcome.kind, 'observe');
   for (const version of ['2.1.293', '2.1.294']) {
     const routed = await at(version, `sess-${version}`);
     assert.deepEqual([routed.hookOutcome.kind, routed.hookOutcome.model], ['route', HAIKU], version);
