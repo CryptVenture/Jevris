@@ -97,7 +97,7 @@
     "docs:platform": "node scripts/docs.mjs platform"
   },
   "dependencies": {
-    "@napi-rs/keyring": "2.1.0",
+    "@napi-rs/keyring": "2.1.1",
     "@typesafe-ai/sdk": "0.6.0",
     "better-sqlite3": "13.0.3"
   },
