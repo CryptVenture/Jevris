@@ -62,11 +62,22 @@ export interface LiveCertificationPorts {
   readonly versionOf?: (home: string, harness: HarnessId) => string | null;
   /** The installed package root (for `bin/jevris.mjs certify`); null in an unusual layout. */
   readonly root?: () => string | null;
+  /**
+   * Reads the installed version of these harnesses again into the host ledger (default `@jevris/cli/version-refresh`). The ledger is
+   * what the certification gate, the alias rule and status read when a hook carries no version (Claude Code's does not), and it was
+   * only as new as the last install, doctor or certify.
+   */
+  readonly refreshVersions?: (home: string, harnesses: readonly LiveHarness[]) => Promise<unknown>;
 }
 
 async function defaultRecord(home: string, event: Parameters<NonNullable<LiveCertificationPorts['record']>>[1]): Promise<unknown> {
   const module = await import('@jevris/cli/live-evidence');
   return module.recordLiveEvent(home, event);
+}
+
+async function defaultRefreshVersions(home: string, harnesses: readonly LiveHarness[]): Promise<unknown> {
+  const module = await import('@jevris/cli/version-refresh');
+  return module.refreshInstalledVersions({ home, harnesses });
 }
 
 async function defaultReverify(options: Parameters<NonNullable<LiveCertificationPorts['reverify']>>[0]): Promise<unknown> {
@@ -116,7 +127,16 @@ export async function reverifyHarnesses(home: string, harnesses: readonly LiveHa
     const root = ports.root !== undefined ? ports.root() : null;
     if (root === null) return false;
     const versions: Partial<Record<LiveHarness, string>> = {};
-    for (const harness of harnesses ?? LIVE_HARNESSES) {
+    const list = harnesses ?? LIVE_HARNESSES;
+    // A harness Jevris already knows is re-read first, unless the event itself named its version: it may have updated since install.
+    const known: LiveHarness[] = [];
+    for (const harness of list) {
+      const named = supplied[harness];
+      if (typeof named === 'string' && VERSION.test(named)) continue;
+      if ((await versionFor(ports, home, harness, undefined)) !== null) known.push(harness);
+    }
+    if (known.length > 0) await Promise.resolve((ports.refreshVersions ?? defaultRefreshVersions)(home, known)).catch(() => undefined);
+    for (const harness of list) {
       const version = await versionFor(ports, home, harness, supplied[harness]);
       if (version !== null) versions[harness] = version;
     }

@@ -51,6 +51,10 @@
       "types": "./dist/reverify.d.ts",
       "default": "./dist/reverify.js"
     },
+    "./version-refresh": {
+      "types": "./dist/version-refresh.d.ts",
+      "default": "./dist/version-refresh.js"
+    },
     "./live-evidence": {
       "types": "./dist/live-evidence.d.ts",
       "default": "./dist/live-evidence.js"

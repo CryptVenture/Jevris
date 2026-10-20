@@ -73,6 +73,36 @@ test('a re-check names only harnesses with a known version, and never throws (HC
   assert.deepEqual(asked, [{ home: '/h', root: '/pkg', installed: ['claude', 'codex'], versions: { claude: '2.1.280', codex: '0.130.0' } }]);
 });
 
+test('the re-check reads versions that were just refreshed: a harness that updated itself is judged on what runs now; a version the event names is not probed (HCF)', async () => {
+  const ledger = { claude: '2.1.295', codex: '0.160.0' };
+  const versionOf = (_home, harness) => ledger[harness] ?? null;
+  const asked = [];
+  const refreshed = [];
+  const reverify = async (options) => asked.push({ installed: options.installed, versions: options.versions });
+  const refreshVersions = async (_home, harnesses) => {
+    refreshed.push([...harnesses]);
+    if (harnesses.includes('claude')) ledger.claude = '2.1.304';
+  };
+  // At start: every harness with a known version is re-read first, so the re-check sees 2.1.304 and not the install-time 2.1.295.
+  assert.equal(await reverifyHarnesses('/h', undefined, { reverify, versionOf, root: () => '/pkg', refreshVersions }), true);
+  assert.deepEqual(refreshed, [['claude', 'codex']], 'only harnesses the ledger already knows');
+  assert.deepEqual(asked, [{ installed: ['claude', 'codex'], versions: { claude: '2.1.304', codex: '0.160.0' } }]);
+  // A SessionStart whose payload names its version is not probed for that harness, and the named version wins.
+  ledger.claude = '2.1.295';
+  refreshed.length = 0;
+  asked.length = 0;
+  assert.equal(await reverifyHarnesses('/h', ['claude'], { reverify, versionOf, root: () => '/pkg', refreshVersions }, { claude: '2.2.0' }), true);
+  assert.deepEqual(refreshed, []);
+  assert.deepEqual(asked, [{ installed: ['claude'], versions: { claude: '2.2.0' } }]);
+  // A harness with no version in the ledger is not probed (it was never installed by Jevris); a refresh that fails changes nothing and is no error.
+  refreshed.length = 0;
+  asked.length = 0;
+  assert.equal(await reverifyHarnesses('/h', ['kilocode'], { reverify, versionOf, root: () => '/pkg', refreshVersions }), false);
+  assert.deepEqual(refreshed, []);
+  assert.equal(await reverifyHarnesses('/h', ['codex'], { reverify, versionOf, root: () => '/pkg', refreshVersions: async () => { throw new Error('boom'); } }), true);
+  assert.deepEqual(asked, [{ installed: ['codex'], versions: { codex: '0.160.0' } }], 'the old version stands');
+});
+
 function tempHome() {
   return realpathSync(mkdtempSync(join(tmpdir(), 'b-live-')));
 }
