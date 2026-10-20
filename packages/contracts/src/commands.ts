@@ -144,8 +144,41 @@ export const StatusLatencySchema = S.object({
   slowSubscribers: S.array(S.object({ name: SubscriberName, count: Count, maxMs: Count }), { maxItems: 8 }),
   /** Times a circuit breaker opened. */
   breakerOpens: Count,
+},
+{
+  /** Hook events the sidecar answered in the window (the denominator the misses above are read against). Absent when the counters do not say. */
+  eventsAnswered: Count,
+  /** The hook misses per harness (the harness that ran the hook), most first: deadline misses and sidecar misses. Absent when there were none. */
+  hookMissesByHarness: S.array(S.object({ harness: HarnessIdSchema, deadline: Count, sidecar: Count }), { maxItems: 5 }),
 });
 export type StatusLatency = S.Static<typeof StatusLatencySchema>;
+
+/** An installed harness version as the host ledger records it (`2.1.304`, optionally with a pre-release or build suffix). */
+const InstalledVersion = S.string({ pattern: '^\\d+\\.\\d+\\.\\d+(?:[-+][0-9A-Za-z.-]{1,32})?$' });
+
+/**
+ * Where subagent routing stands for one harness, so "Jevris seems to do nothing" can be answered from `status` alone: whether the
+ * harness's `hooks.route` certification covers its installed version now (the case that lets Jevris set a subagent's model for one
+ * call; `certificationReasonCode` is the coverage code when it does not: `NO_RECORD`, `VERSION_OUT_OF_RANGE`, `EXPIRED`,
+ * `FEATURE_NOT_CERTIFIED`, `HARNESS_VERSION_UNKNOWN`), and what this workspace's subagent launches of the last `days` days got:
+ * `routed` had their model set for that call, `advised` got advice only, `leftAlone` stayed on the session's model for the reasons
+ * listed (most first), `unknown` had no note. Counts and codes only. `version` is null when the host ledger has none (the harness is
+ * not installed here, or no session of it has been seen).
+ */
+export const SubagentRoutingStatusSchema = S.object({
+  harness: HarnessIdSchema,
+  version: S.nullable(InstalledVersion),
+  certified: S.boolean(),
+  certificationReasonCode: S.nullable(Code),
+  days: S.integer({ minimum: 1, maximum: 90 }),
+  launches: Count,
+  routed: Count,
+  advised: Count,
+  leftAlone: Count,
+  unknown: Count,
+  reasons: S.array(S.object({ code: Code, count: Count }), { maxItems: 8 }),
+});
+export type SubagentRoutingStatus = S.Static<typeof SubagentRoutingStatusSchema>;
 
 /**
  * One harness's main-session mode and turn switching, as status shows it (OD-8). Serving hosts
@@ -349,6 +382,11 @@ export const StatusPayloadSchema = S.object(
      * risk and the budget are per turn and not shown here. Absent or null when not known.
      */
     mainSessions: S.nullable(S.array(MainSessionStatusSchema, { maxItems: 5 })),
+    /**
+     * Per harness, whether Jevris can set a subagent's model for one call here (its `hooks.route` certification) and what this
+     * workspace's last seven days of subagent launches got, by outcome and reason. Absent or null when the sidecar cannot answer.
+     */
+    subagentRouting: S.nullable(S.array(SubagentRoutingStatusSchema, { maxItems: 5 })),
     /**
      * Owner decision 2026-09-30: the effective `verification.backgroundAtStop` (off unless a person
      * turned it on): whether a main-session Stop queues the missing approved checks. Absent when unknown.

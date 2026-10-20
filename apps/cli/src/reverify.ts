@@ -7,8 +7,10 @@
  *   feature this Jevris certifies (worker.route, models.list), so an upgrade never needs a certify
  *   by hand.
  * - The check is `jevris certify` itself: a throwaway profile and no model call.
- * - It runs at most once per version, or per demotion. An exclusive marker file decides this,
- *   so doctor, sidecar start and SessionStart can all ask at once.
+ * - A record that has run out (30 days) while the version has not changed is re-checked too, once
+ *   per expiry: until then every actuator it covered is quiet, and nothing else renews it.
+ * - It runs at most once per version, per demotion, or per expiry. An exclusive marker file decides
+ *   this, so doctor, sidecar start and SessionStart can all ask at once.
  * - It never runs in a test run without JEVRIS_LIVE_HARNESS=1, nor under a HOME (or Jevris
  *   home) that is not the account's, where a harness could reach for a keychain that is not
  *   there.
@@ -19,6 +21,7 @@
  */
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
 import { basename, dirname, join, resolve } from 'node:path';
+import { certificationCovers } from '@jevris/contracts';
 import { jevrisPaths } from '@jevris/platform';
 import { CERTIFICATION_FEATURES, coveringCertification, loadCertifications, type CertificationFeature, type CertificationLoad } from './certification-store.js';
 import { LAUNCHER, type GlobalHarness } from './global-harness.js';
@@ -31,7 +34,7 @@ export const REVERIFY_DIR = 'reverify';
 /** A check still marked running after this long died without writing its result. */
 export const REVERIFY_STALE_MS = 30 * 60 * 1000;
 
-export type ReverifyReason = 'out-of-range' | 'demoted' | 'new-feature';
+export type ReverifyReason = 'out-of-range' | 'demoted' | 'new-feature' | 'expired';
 
 /**
  * Features added after the first records: a covering record without them is re-checked once.
@@ -97,10 +100,15 @@ export function reverifyDir(home: string): string {
   return join(jevrisPaths({ home }).data, REVERIFY_DIR);
 }
 
-const MARKER_NAME = /^(claude|kilocode|codex|opencode|antigravity)-(darwin|linux|win32)-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,32})?)(?:-d(\d{1,16})|(-f))?\.json$/;
+const MARKER_NAME = /^(claude|kilocode|codex|opencode|antigravity)-(darwin|linux|win32)-(\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]{1,32})?)(?:-d(\d{1,16})|(-f)|-x(\d{1,16}))?\.json$/;
 
-function markerName(harness: GlobalHarness, os: string, version: string, demotedAtMs: number | null, newFeature = false): string {
-  return `${harness}-${os}-${version}${demotedAtMs === null ? (newFeature ? '-f' : '') : `-d${demotedAtMs}`}.json`;
+/**
+ * The marker for one check: per version, plus the instant of the demotion (`-d`), the new feature (`-f`) or the record's expiry
+ * (`-x`, so each expiry of the same version is its own check and an earlier one never stands in for it).
+ */
+function markerName(harness: GlobalHarness, os: string, version: string, demotedAtMs: number | null, newFeature = false, expiredAtMs: number | null = null): string {
+  const tail = demotedAtMs !== null ? `-d${demotedAtMs}` : expiredAtMs !== null ? `-x${expiredAtMs}` : newFeature ? '-f' : '';
+  return `${harness}-${os}-${version}${tail}.json`;
 }
 
 /** True when `path` is a marker file directly inside this home's reverify folder. */
@@ -125,7 +133,7 @@ export async function finishReverify(home: string, marker: string, ok: boolean, 
   const match = MARKER_NAME.exec(basename(marker));
   const body: Marker = {
     status: ok ? 'passed' : 'failed',
-    reason: before?.reason ?? (match?.[4] !== undefined ? 'demoted' : match?.[5] !== undefined ? 'new-feature' : 'out-of-range'),
+    reason: before?.reason ?? (match?.[4] !== undefined ? 'demoted' : match?.[5] !== undefined ? 'new-feature' : match?.[6] !== undefined ? 'expired' : 'out-of-range'),
     version: before?.version ?? match?.[3] ?? '',
     startedAtMs: before?.startedAtMs ?? Date.now(),
     finishedAtMs: Date.now(),
@@ -153,6 +161,21 @@ function latestDemotion(load: CertificationLoad, harness: GlobalHarness): Demoti
 }
 
 /**
+ * When a record of this harness would cover this version and OS but has run out: the latest instant (ms) such a record expired at, else
+ * null. `certificationCovers` checks the version, the OS and the dates before it looks at a feature, so `EXPIRED` means exactly that.
+ */
+function expiredCoverage(load: CertificationLoad, harness: GlobalHarness, version: string, platform: string, nowMs: number): number | null {
+  let latest: number | null = null;
+  for (const item of load.records) {
+    if (item.record.harness !== harness) continue;
+    const check = certificationCovers(item.record, { harness, harnessVersion: version, operatingSystem: platform, nowMs, featureId: CERTIFICATION_FEATURES[0] as CertificationFeature });
+    const expiresAt = Date.parse(item.record.expiresAt);
+    if (!check.ok && check.reasonCode === 'EXPIRED' && Number.isFinite(expiresAt) && (latest === null || expiresAt > latest)) latest = expiresAt;
+  }
+  return latest;
+}
+
+/**
  * For each installed harness with a known version: nothing when a record covers it; otherwise,
  * when an earlier record exists (the version moved out of its range) or a live event demoted a
  * feature, the background check, started at most once. Never throws.
@@ -174,9 +197,11 @@ export async function maybeReverify(options: ReverifyOptions): Promise<ReverifyS
     // A covering record written before a feature existed: re-checked once, so the upgrade certifies it.
     const lacking = covering !== null && demotion === null && newerFeaturesFor(harness).some((featureId) => !covering.record.features.some((item) => item.featureId === featureId));
     if (covered && demotion === null && !lacking) continue;
-    const reason: ReverifyReason = !covered ? 'out-of-range' : demotion !== null ? 'demoted' : 'new-feature';
+    // A record that would cover this version but ran out: its own check per expiry, so a version that stays the same is renewed again.
+    const expiredAt = covered ? null : expiredCoverage(load, harness, version, platform, nowMs);
+    const reason: ReverifyReason = !covered ? (expiredAt !== null ? 'expired' : 'out-of-range') : demotion !== null ? 'demoted' : 'new-feature';
     const dir = reverifyDir(options.home);
-    const marker = join(dir, markerName(harness, platform, version, demotion === null ? null : demotion.atMs, reason === 'new-feature'));
+    const marker = join(dir, markerName(harness, platform, version, demotion === null ? null : demotion.atMs, reason === 'new-feature', expiredAt));
     const existing = await readMarker(marker);
     if (existing !== null) {
       const stale = existing.status === 'running' && nowMs - existing.startedAtMs > REVERIFY_STALE_MS;

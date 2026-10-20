@@ -26,7 +26,7 @@
  * - the kill switch is not stopped, and no budget in the workspace is exhausted.
  * The 12 local outcomes on the slice are C's route-learning rule, applied on top of this gate.
  */
-import { MAIN_SESSION_MODES, TURN_HARNESSES, type MainSessionMode } from '@jevris/contracts';
+import { MAIN_SESSION_MODES, TURN_HARNESSES, type HarnessId, type MainSessionMode } from '@jevris/contracts';
 import { linkSession, sessionLinkFor } from '@jevris/store';
 import { realpathSync } from 'node:fs';
 import { isAbsolute, relative, sep } from 'node:path';
@@ -100,7 +100,7 @@ export interface MainSessionView {
  * and the harness's session.route certification current, checked in that order (the reason codes
  * are the turn gate's). A link, the task's risk and the budget are per turn and not decided here.
  */
-export function mainSessionView(configured: unknown, harness: string, facts: { readonly certified: boolean; readonly killSwitchStopped: boolean | undefined }): MainSessionView {
+export function mainSessionView(configured: unknown, harness: string, facts: { readonly certified: boolean; readonly killSwitchStopped: boolean | undefined; readonly seen?: boolean }): MainSessionView {
   const advise = (mode: MainSessionMode, reasonCode: string): MainSessionView => ({ mode, turnSwitching: 'advice-only', reasonCode });
   if (!(MAIN_SESSION_MODES as readonly unknown[]).includes(configured)) return advise('advice-only', 'CONFIG_UNREADABLE');
   const setting = configured as MainSessionMode;
@@ -109,6 +109,8 @@ export function mainSessionView(configured: unknown, harness: string, facts: { r
   if (setting !== 'plugin-bounded-auto') return advise(mode, 'MAIN_SESSION_ADVICE_ONLY');
   if (!turnHarness) return advise(mode, 'HARNESS_ADVICE_ONLY');
   if (facts.killSwitchStopped !== false) return advise(mode, 'KILL_SWITCH');
+  // A harness the host ledger has no version for (not installed here, or no session seen) has nothing to certify: not an uncertified one.
+  if (facts.seen === false) return advise(mode, 'HARNESS_NOT_SEEN');
   if (facts.certified !== true) return advise(mode, 'TURN_ROUTE_UNCERTIFIED');
   return { mode, turnSwitching: 'possible', reasonCode: null };
 }
@@ -321,6 +323,25 @@ async function routeFeatureCertified(input: RouteCertificationInput, featureId: 
 /** Whether the harness's session.route certify case covers its installed version, this OS and now (OD-8). Never throws. */
 export async function turnRouteCertified(input: RouteCertificationInput): Promise<boolean> {
   return routeFeatureCertified(input, TURN_ROUTE_FEATURE);
+}
+
+/** The certify case that lets Jevris set a subagent's model for one call (every harness; Codex's is unsupported today). */
+export const SUBAGENT_ROUTE_FEATURE = 'hooks.route';
+
+/**
+ * Whether the harness's `hooks.route` case covers its installed version, this OS and now, and why not: the coverage code
+ * (`NO_RECORD`, `VERSION_OUT_OF_RANGE`, `EXPIRED`, `FEATURE_NOT_CERTIFIED`, `HARNESS_VERSION_UNKNOWN`) for status, which says in plain words
+ * why a subagent's model is never set. Never throws.
+ */
+export async function subagentRouteCertification(input: RouteCertificationInput): Promise<{ readonly certified: boolean; readonly reasonCode: string | null }> {
+  const answer = await isCertified({
+    home: input.home,
+    harness: input.harness as HarnessId,
+    featureId: SUBAGENT_ROUTE_FEATURE,
+    nowMs: input.nowMs,
+    ...(input.harnessVersion === undefined ? {} : { harnessVersion: input.harnessVersion }),
+  });
+  return { certified: answer.certified, reasonCode: answer.reasonCode };
 }
 
 /**

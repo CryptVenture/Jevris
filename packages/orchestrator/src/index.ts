@@ -127,7 +127,7 @@ export type { Upgrade } from './capabilities/delivery.js';
 export { capabilityOps } from './ops/capability-ops.js';
 export { hasTestHomeMarker, runsFromInstalledRuntime, scriptedWorkerPort, TEST_HOME_MARKER, TEST_HOME_MARKER_SCHEMA, testWorkerPortStatus, TEST_WORKER_SCHEMA } from './orchestration/test-worker.js';
 export type { TestWorkerGateOptions, TestWorkerPortStatus } from './orchestration/test-worker.js';
-export { HOST_ROUTE_FEATURE, OWNED_WORKTREE_WORKSPACES_MAX, SESSION_NOT_LINKED, TURN_ROUTE_FEATURE, approvedScopeFor, hostRouteCertified, linkPlannedSession, mainSessionView, ownedSessionTask, ownedWorktreeWorkspaces, turnRouteCertified } from './orchestration/approved-scope.js';
+export { HOST_ROUTE_FEATURE, OWNED_WORKTREE_WORKSPACES_MAX, SESSION_NOT_LINKED, SUBAGENT_ROUTE_FEATURE, TURN_ROUTE_FEATURE, approvedScopeFor, hostRouteCertified, linkPlannedSession, mainSessionView, ownedSessionTask, ownedWorktreeWorkspaces, subagentRouteCertification, turnRouteCertified } from './orchestration/approved-scope.js';
 export { cleanRunSpelling, resolveRunSpelling } from './orchestration/model-spelling.js';
 export { ACCESS_BLOCKED_COLLECTION, OVERLOAD_RETRIES_MAX, OVERLOAD_RETRY_BASE_MS, accessCertified, accessHarnessOf, accessPausedModels, accessReason, launchAccessCheck, launchFingerprint, limitCooldownHoursOf, overloadRetryAt, runAccessScope, wireSignalOf } from './orchestration/access-limits.js';
 export type { AccessBlockedRow, AccessCertificationFeature, LaunchAccessCheck, RunAccessResult } from './orchestration/access-limits.js';

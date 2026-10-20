@@ -797,6 +797,11 @@ test('mainSessionView: the per-harness half of the turn gate, pure, for status (
   const view = (mode, harness, facts = on) => Object.values(mainSessionView(mode, harness, facts));
   assert.deepEqual(view('plugin-bounded-auto', 'kilocode'), ['plugin-bounded-auto', 'possible', null]);
   assert.deepEqual(view('plugin-bounded-auto', 'opencode', { certified: false, killSwitchStopped: false }), ['plugin-bounded-auto', 'advice-only', 'TURN_ROUTE_UNCERTIFIED']);
+  // A harness with no recorded version has nothing to certify; the kill switch still comes first, and a harness that is not a turn harness keeps its own reason.
+  assert.deepEqual(view('plugin-bounded-auto', 'opencode', { certified: false, killSwitchStopped: false, seen: false }), ['plugin-bounded-auto', 'advice-only', 'HARNESS_NOT_SEEN']);
+  assert.deepEqual(view('plugin-bounded-auto', 'opencode', { certified: false, killSwitchStopped: true, seen: false }), ['plugin-bounded-auto', 'advice-only', 'KILL_SWITCH']);
+  assert.deepEqual(view('plugin-bounded-auto', 'claude', { certified: false, killSwitchStopped: false, seen: false }), ['advice-only', 'advice-only', 'HARNESS_ADVICE_ONLY']);
+  assert.deepEqual(view('plugin-bounded-auto', 'kilocode', { certified: true, killSwitchStopped: false, seen: true }), ['plugin-bounded-auto', 'possible', null]);
   assert.deepEqual(view('plugin-bounded-auto', 'opencode', { certified: true, killSwitchStopped: true }), ['plugin-bounded-auto', 'advice-only', 'KILL_SWITCH']);
   assert.deepEqual(view('plugin-bounded-auto', 'opencode', { certified: true, killSwitchStopped: undefined }), ['plugin-bounded-auto', 'advice-only', 'KILL_SWITCH'], 'an unknown kill switch is not clear');
   assert.deepEqual(view('advice-only', 'kilocode'), ['advice-only', 'advice-only', 'MAIN_SESSION_ADVICE_ONLY']);

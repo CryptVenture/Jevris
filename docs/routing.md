@@ -237,7 +237,7 @@ A route keeps the session's host. A host is the service that receives the reques
 
 A same-maker route through the maker's own API is switched under the harness's `session.route` certify case, as before. A route that changes host, or goes through a gateway or inference host, is advice only until the harness's `route.host` certify case also passes ([Models served by several hosts](#models-served-by-several-hosts)).
 
-A named model switches the turn only when the mode is `plugin-bounded-auto`, the task's approved scope has the turn gate open and the task is low-risk. The gate is open when the session is linked to that task: an owned worker's session, linked from the moment its harness first names the session id, or a session you linked from a terminal with `jevris route --task <id> --link`, or with `jevris handoff import <capsule.json> --link` when you continue a handed-off task (undo either with `jevris route --unlink`; `jevris status` lists the links, including those of your owned workers' worktrees, marked `worker`, up to 16). A session that only happens to run beside one active task gets advice, `SESSION_NOT_LINKED`. The gate also needs the harness's `session.route` certify case passes, the kill switch allows it and no budget is exhausted. Otherwise the answer is advice, with the reason it was not switched (for example `MAIN_SESSION_ADVICE_ONLY`, `TURN_ROUTE_UNCERTIFIED` or `RISK_NOT_LOW`), and you can switch yourself. Claude Code, Codex and Antigravity main sessions stay advice only.
+A harness the host ledger has no version for (not installed here, or no session of it seen yet) shows `HARNESS_NOT_SEEN` instead of an uncertified turn route, because there is nothing to certify. A named model switches the turn only when the mode is `plugin-bounded-auto`, the task's approved scope has the turn gate open and the task is low-risk. The gate is open when the session is linked to that task: an owned worker's session, linked from the moment its harness first names the session id, or a session you linked from a terminal with `jevris route --task <id> --link`, or with `jevris handoff import <capsule.json> --link` when you continue a handed-off task (undo either with `jevris route --unlink`; `jevris status` lists the links, including those of your owned workers' worktrees, marked `worker`, up to 16). A session that only happens to run beside one active task gets advice, `SESSION_NOT_LINKED`. The gate also needs the harness's `session.route` certify case passes, the kill switch allows it and no budget is exhausted. Otherwise the answer is advice, with the reason it was not switched (for example `MAIN_SESSION_ADVICE_ONLY`, `TURN_ROUTE_UNCERTIFIED` or `RISK_NOT_LOW`), and you can switch yourself. Claude Code, Codex and Antigravity main sessions stay advice only.
 
 **A tier step up keeps every one of those conditions except "the task is low-risk"**: work that needs a stronger model is not low risk (a protected path, a migration), so asking for it would make a step up impossible. The mode, the harness's `session.route` certification, the kill switch, the budget, **the link to the task**, the pin, consent, the model's eligibility on this harness, serving hosts (`route.host`) and access limits all still apply. A step down keeps the low-risk condition as it is today.
 
@@ -300,6 +300,18 @@ On Claude Code, low risk goes to the provider's cheapest rung (Haiku 5.5 today),
 On Kilo and OpenCode a subagent route keeps the parent session's host in the same way as a main-session turn, and abstains with `NOT_ON_SESSION_HOST` or `HOST_UNKNOWN` where it cannot. That includes a session on a gateway.
 
 Each harness's slice learns against that harness's baseline, so a route learned on Claude Code's subagents is never proposed on Codex. A route is applied only after that harness's `hooks.route` certify case passes. Until then it is shown as text (on Claude Code, as above). On Kilo and OpenCode it is also never written to a provider that the project's own config redefines ([security.md](security.md#routing-authority)).
+
+### Seeing what subagent routing did
+
+`jevris status` (and `jevris_status`) says, per harness, whether a subagent's model can be set for one call here and what the last seven days of this workspace's launches got:
+
+```text
+subagent routing claude 2.1.304: on (hooks.route certified); a launch that qualifies gets its model set for that one call
+  last 7 days: 12 launches: 2 had their model set for that call, 1 got advice only, 8 left on the session's model (EXPLICIT_MODEL 5, RISK_HIGH 3), 1 with no record of what was decided
+  most common reason, EXPLICIT_MODEL: the launch named its own model, which Jevris never overrides
+```
+
+`off, hooks.route is not certified (EXPIRED: ...)` names the one thing to fix (`jevris certify --harness all`); a record that expires is also renewed in the background at the next session start. When the launches are all `EXPLICIT_MODEL`, an orchestrating agent is naming each subagent's model and there is nothing for Jevris to route; when they are `RISK_HIGH`, they are write-capable or custom agent types, which stay on the session's model unless Jev lowers them at the floors above. See [troubleshooting.md](troubleshooting.md#jevris-seems-to-do-nothing).
 
 ## Model tiers
 

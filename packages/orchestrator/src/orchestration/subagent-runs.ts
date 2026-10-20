@@ -302,6 +302,57 @@ export interface SubagentSummary {
   readonly types: readonly SubagentTypeSummary[];
 }
 
+/** Reasons listed per harness in the routing view (most launches first). */
+const ROUTING_REASONS_MAX = 8;
+
+/**
+ * What the launches of one harness got (the status view "subagent routing"): of the subagents this workspace started in a window,
+ * how many had their model set for that one call (`routed`: C's note was rendered), how many only got advice (`advised`: explained
+ * as text or context, or proposed while the mode shows nothing), how many were left on the session's model with Jevris's reason
+ * (`leftAlone`, by reason code), and how many had no note at all (`unknown`: the launch came before Jevris, or the note was lost).
+ * Counts and codes only; a harness whose subagent model no route can set has none of these (`not-applicable`).
+ */
+export interface SubagentRoutingCounts {
+  readonly harness: string;
+  readonly launches: number;
+  readonly routed: number;
+  readonly advised: number;
+  readonly leftAlone: number;
+  readonly unknown: number;
+  readonly reasons: readonly { readonly code: string; readonly count: number }[];
+}
+
+/** Per harness, the routing counts of this workspace's subagent runs recorded at or after `sinceMs`; harnesses that saw none are absent. */
+export function subagentRoutingCounts(ws: WorkspaceServices, sinceMs: number): readonly SubagentRoutingCounts[] {
+  const by = new Map<string, { launches: number; routed: number; advised: number; leftAlone: number; unknown: number; reasons: Map<string, number> }>();
+  for (const r of subagentRuns(ws)) {
+    if (r.atMs < sinceMs || r.route === 'not-applicable') continue;
+    const held = by.get(r.harness) ?? { launches: 0, routed: 0, advised: 0, leftAlone: 0, unknown: 0, reasons: new Map<string, number>() };
+    held.launches += 1;
+    if (r.route === null) held.unknown += 1;
+    else if (r.route.outcome === 'rendered') held.routed += 1;
+    else if (r.route.outcome === 'abstained') {
+      held.leftAlone += 1;
+      held.reasons.set(r.route.reasonCode, (held.reasons.get(r.route.reasonCode) ?? 0) + 1);
+    } else held.advised += 1;
+    by.set(r.harness, held);
+  }
+  return [...by.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([harness, held]) => ({
+      harness,
+      launches: held.launches,
+      routed: held.routed,
+      advised: held.advised,
+      leftAlone: held.leftAlone,
+      unknown: held.unknown,
+      reasons: [...held.reasons.entries()]
+        .sort(([ac, an], [bc, bn]) => bn - an || ac.localeCompare(bc))
+        .slice(0, ROUTING_REASONS_MAX)
+        .map(([code, count]) => ({ code, count })),
+    }));
+}
+
 /** The workspace's subagent runs as counts and times (P13; nothing here is a learning signal). */
 export function subagentSummary(ws: WorkspaceServices): SubagentSummary {
   const rows = subagentRuns(ws);

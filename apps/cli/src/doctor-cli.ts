@@ -1,7 +1,7 @@
 import { readdir, readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { jevrisPaths, packsDir } from '@jevris/platform';
-import { COMMAND_EXIT_CODES } from '@jevris/contracts';
+import { COMMAND_EXIT_CODES, certificationCovers } from '@jevris/contracts';
 import { layerIssues, modeMigrationNotice, readEffectiveConfig, readWorkerAuthSettings, testWorkerPortStatus, VENDOR_KEY_VARS, workerAuthMode } from '@jevris/orchestrator';
 import { providerOverrideDiagnostic } from '@jevris/provider-typesafe';
 import { CERTIFY_ALL, formatDoctor, runDoctor, type DoctorExplain } from './doctor.js';
@@ -111,8 +111,8 @@ export interface HarnessDoctorRow {
   readonly coverage: { readonly range: string; readonly lastVerified: string | null; readonly verifiedAt: string } | null;
   /** Features the covering record lists as not certified (a failed check or a live demotion). */
   readonly uncertified: readonly { readonly featureId: string; readonly reasonCode: string }[];
-  /** The newest record for this harness when none covers this version (it moved out of range). */
-  readonly previous: { readonly range: string; readonly lastVerified: string | null; readonly verifiedAt: string } | null;
+  /** The newest record for this harness when none covers this version (it moved out of range, or ran out: `expiredOn` is the day it did while the version is inside its range). */
+  readonly previous: { readonly range: string; readonly lastVerified: string | null; readonly verifiedAt: string; readonly expiredOn: string | null } | null;
   /** The background re-check for this version (reverify.ts), when one applies. */
   readonly reverify: ReverifyState | null;
   /** Owned-worker runs whose first-use check passed at this version (live evidence). */
@@ -197,6 +197,12 @@ function harnessRows(
     const record = covering.find((item) => item !== null) ?? null;
     const own = load.records.filter((item) => item.record.harness === harness).sort((a, b) => b.record.certifiedAt.localeCompare(a.record.certifiedAt));
     const newest = own[0];
+    // A record that would cover this version and OS but has run out: the day it did, else null.
+    const expiredOn = (item: CertificationLoad['records'][number]): string | null => {
+      if (version === null) return null;
+      const check = certificationCovers(item.record, { harness, harnessVersion: version, operatingSystem: platform, nowMs, featureId: CERTIFICATION_FEATURES[0] as CertificationFeature });
+      return !check.ok && check.reasonCode === 'EXPIRED' ? item.record.expiresAt.slice(0, 10) : null;
+    };
     const summary = (item: CertificationLoad['records'][number]) => ({ range: rangeText(item.record.harnessVersionRange), lastVerified: verifiedVersion(item.record.id, harness), verifiedAt: item.record.certifiedAt.slice(0, 10) });
     return {
       harness,
@@ -210,7 +216,7 @@ function harnessRows(
       upgrade: smoke.older.includes(harness),
       coverage: record === null || record === undefined ? null : summary(record),
       uncertified: record === null || record === undefined ? [] : record.record.features.filter((item) => item.status !== 'certified').map((item) => ({ featureId: item.featureId, reasonCode: item.reasonCode ?? 'NOT_CERTIFIED' })),
-      previous: (record === null || record === undefined) && newest !== undefined ? summary(newest) : null,
+      previous: (record === null || record === undefined) && newest !== undefined ? { ...summary(newest), expiredOn: expiredOn(newest) } : null,
       reverify: reverify.find((item) => item.harness === harness && item.version === version) ?? null,
       workerRuns: version === null ? 0 : (evidence.counts[harness]?.[version]?.['worker.route']?.conforming ?? 0),
     };
@@ -278,12 +284,14 @@ function certificationText(row: HarnessDoctorRow): string {
   if (!row.installed) return `Jevris is not installed there; to add it: jevris install --harness ${LAUNCHER[row.harness]}`;
   if (row.previous !== null) {
     const was = `the record covers ${row.previous.range} (last verified ${lastVerifiedText(row.previous)})`;
-    if (rechecking(row)) return `not covered yet: ${row.version} is outside ${was}; ${RECHECKING}`;
+    // A record that ran out while the version stayed inside its range is not an out-of-range version: say which it is.
+    const why = row.previous.expiredOn === null ? `${row.version} is outside ${was}` : `${row.version} is inside the range the record covers (${row.previous.range}), but the record expired on ${row.previous.expiredOn} (last verified ${lastVerifiedText(row.previous)})`;
+    if (rechecking(row)) return `not covered yet: ${why}; ${RECHECKING}`;
     if (row.reverify?.state === 'failed') {
       const failed = row.reverify.failed.map((item) => `${item.featureId} (${item.reasonCode})`).join(', ');
       return `not covered: the background re-check of ${row.version} failed${failed.length > 0 ? ` for ${failed}` : ` (${row.reverify.detail})`}; fix: ${row.certifyCommand}`;
     }
-    return `not covered: ${row.version} is outside ${was}${row.reverify?.state === 'refused' ? ` (${row.reverify.detail})` : ''}; fix: ${row.certifyCommand}`;
+    return `not covered: ${why}${row.reverify?.state === 'refused' ? ` (${row.reverify.detail})` : ''}; fix: ${row.certifyCommand}`;
   }
   return `not certified: no signed record covers this version on this host; fix: ${row.certifyCommand}`;
 }

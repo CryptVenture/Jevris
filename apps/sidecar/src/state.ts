@@ -12,7 +12,7 @@ import type {
   SidecarWorkspace,
 } from '@jevris/contracts';
 import { createDeadline, isAbsoluteOnAnyPlatform, monotonicClock, type JevrisPaths } from '@jevris/platform';
-import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, firstTryOf, firstTryStatusView, firstTryWorkspaceOf, jevAssistOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, turnRouteCertified, turnTierSignals } from '@jevris/orchestrator';
+import { ACCESS_BLOCKED_COLLECTION, FAIL_CLOSED_MODE, backgroundAtStopOf, firstTryOf, firstTryStatusView, firstTryWorkspaceOf, jevAssistOf, machineJevBudget, workspaceJevBudget, modeMigrationNotice, activeVerificationRuns, layerIssues, type EffectiveConfig, approvedScopeFor, openLedger, resumeAccessBlocked, type AccessBlockedRow, getTask, harnessVersionOf, listTasks, mainSessionView, openWorkspace, ownedWorktreeWorkspaces, hostRouteCertified, readEffectiveConfig, reminderSummary, rootIdentityId, statusStopReport, subagentRouteCertification, subagentRoutingCounts, turnRouteCertified, turnTierSignals, type SubagentRoutingCounts } from '@jevris/orchestrator';
 import { BUILTIN_OP_NAMES, bodyRecord, ok, refuse, type LoadedOps } from './ops.js';
 import { ANSWER_EVENT_KINDS, PROTOCOL, jevrisPackage, loadedRuntimeBuild } from './protocol.js';
 import { renderedSubscribers } from './outcome-rank.js';
@@ -96,6 +96,9 @@ function effectiveModeFor(home: string, workspaceRoot: string | null): Mode {
     return FAIL_CLOSED_MODE;
   }
 }
+
+/** The days of subagent launches status reports (the same window as the latency counters). */
+const SUBAGENT_ROUTING_DAYS = 7;
 
 /**
  * The person's own half of source-egress consent for a workspace (`privacy.sourceEgress`, JEV-0079). If the resolver throws it
@@ -1327,6 +1330,8 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
       // the next row replaces them with the full views when the contract accepts those.
       ['mainSessions', withoutHostFields(mainSessions)],
       ['mainSessions', mainSessions],
+      // Where subagent routing stands per harness (its hooks.route certification) and what the last seven days of launches got.
+      ['subagentRouting', await subagentRoutingOf(ctx)],
       // Access limits R79 (design section 11): the machine's access pauses in force.
       // The newKeyClears booleans (C2 d0ff6bf0, E's contract) replace the view when the contract
       // carries them; otherwise the view without them stays.
@@ -1482,6 +1487,55 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
    * `routing.mainSession`, the harness's session.route certification for its recorded version
    * (false when no version is recorded), and the kill switch. Null when nothing can be read.
    */
+  /**
+   * Per harness, whether Jevris can set a subagent's model for one call here (its `hooks.route` certification for the installed
+   * version, with the coverage code when not) and what this workspace's last seven days of subagent launches got, by outcome and
+   * reason. A harness appears when the host ledger has a version for it or it launched a subagent here. Antigravity has no hook that
+   * can set a subagent's model, which is its own code rather than a certification gap. Codes and counts only; null when it fails.
+   */
+  async function subagentRoutingOf(ctx: SidecarOpContext): Promise<unknown> {
+    try {
+      const nowMs = Date.now();
+      let counts: readonly SubagentRoutingCounts[] = [];
+      if (ctx.workspace.root !== null && ctx.workspace.id !== 'global') {
+        try {
+          const ws = openWorkspace({ home: ctx.home, workspaceRoot: ctx.workspace.root, ...(WORKSPACE_ID.test(ctx.workspace.id) ? { workspaceId: ctx.workspace.id } : {}), store: ctx.store });
+          counts = subagentRoutingCounts(ws, nowMs - SUBAGENT_ROUTING_DAYS * 86_400_000);
+        } catch {
+          counts = [];
+        }
+      }
+      const views = [];
+      for (const harness of HARNESS_IDS) {
+        let version: string | null = null;
+        try {
+          version = harnessVersionOf(ctx.home, harness);
+        } catch {
+          version = null;
+        }
+        const seen = counts.find((c) => c.harness === harness);
+        if (version === null && seen === undefined) continue;
+        const cert = harness === 'antigravity' ? { certified: false, reasonCode: 'NO_SUBAGENT_ACTUATOR' } : await subagentRouteCertification({ home: ctx.home, harness, nowMs, harnessVersion: version });
+        views.push({
+          harness,
+          version,
+          certified: cert.certified,
+          certificationReasonCode: cert.certified ? null : cert.reasonCode,
+          days: SUBAGENT_ROUTING_DAYS,
+          launches: seen?.launches ?? 0,
+          routed: seen?.routed ?? 0,
+          advised: seen?.advised ?? 0,
+          leftAlone: seen?.leftAlone ?? 0,
+          unknown: seen?.unknown ?? 0,
+          reasons: seen?.reasons.map((r) => ({ code: r.code, count: r.count })) ?? [],
+        });
+      }
+      return views;
+    } catch {
+      return null;
+    }
+  }
+
   async function mainSessionsOf(ctx: SidecarOpContext): Promise<unknown> {
     try {
       const configured: unknown = effectiveConfigOf(ctx)?.routing.mainSession;
@@ -1495,7 +1549,7 @@ export async function openRuntimeState(input: RuntimeStateInput): Promise<Runtim
           version = null;
         }
         const certified = version !== null && isTurnHarness(harness) ? await turnCertified(harness, version) : false;
-        views.push({ harness, ...mainSessionView(configured, harness, { certified, killSwitchStopped: ctx.killSwitchStopped }), ...sessionHostView(ctx, registry, harness) });
+        views.push({ harness, ...mainSessionView(configured, harness, { certified, killSwitchStopped: ctx.killSwitchStopped, seen: version !== null }), ...sessionHostView(ctx, registry, harness) });
       }
       return views;
     } catch {

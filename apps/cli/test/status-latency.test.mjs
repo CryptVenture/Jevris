@@ -47,11 +47,18 @@ test('latencySummary totals hook misses, late answers, slow subscribers and brea
       { name: 'security', count: 1, maxMs: 910 },
     ],
     breakerOpens: 1,
+    eventsAnswered: 50,
+    hookMissesByHarness: [
+      { harness: 'claude', deadline: 3, sidecar: 3 },
+      { harness: 'codex', deadline: 1, sidecar: 0 },
+    ],
   });
   assert.equal(c.StatusLatencySchema !== undefined, true);
   assert.equal(c.surfacePayloadContract('status').validate(statusWith(summary)).ok, true);
   assert.deepEqual(latencyLines(summary), [
     'latency (last 7 days, target 900 ms): 4 hook deadline misses, 3 hooks the sidecar did not answer, 2 late sidecar answers',
+    'hook calls: the sidecar answered 50; the 7 misses above are about 12.3% of hook calls',
+    'hook misses by harness: claude 3 deadline, 3 sidecar; codex 1 deadline',
     'slow subscribers: restore 4 misses (max 1400 ms), security 1 miss (max 910 ms)',
     'circuit breaker opened: 1 time',
   ]);
@@ -202,6 +209,39 @@ test('status tells the misses of a sidecar that was starting from the ones it wa
   assert.equal(mixed?.hookSidecarStarting, 24);
   assert.deepEqual(latencyLines(mixed), [
     'latency (last 7 days, target 900 ms): 0 hook deadline misses, 27 hooks the sidecar did not answer (24 while it was starting, which is expected after an idle exit or a reinstall; 3 for other reasons), 0 late sidecar answers',
+    'hook misses by harness: claude 0 deadline, 3 sidecar',
   ]);
   assert.equal(c.surfacePayloadContract('status').validate(statusWith(mixed)).ok, true);
+});
+
+test('a real week: most misses on one harness show as that harness, with their share of all hook calls', () => {
+  // The shape of a real machine: nearly every deadline miss is OpenCode's, Claude Code's are a handful of sidecar starts.
+  const summary = latencySummary({
+    days: 7,
+    sinceMs: 0,
+    targetMs: 900,
+    counters: [
+      row('hook', 'opencode', 'DEADLINE', 133, 1617),
+      row('hook', 'opencode', 'HOOK_WATCHDOG', 34, 1703),
+      row('hook', 'claude', 'SIDECAR_STARTING', 3, 7),
+      row('hook', 'opencode', 'SHIM_DROPPED', 500),
+      row('hook', 'not-a-harness', 'DEADLINE', 9),
+      row('sidecar-op', 'event', 'answered', 40_000, 400),
+      row('sidecar-op', 'event', 'answered', 26_000, 400),
+      row('sidecar-op', 'status', 'answered', 5),
+    ],
+  });
+  assert.equal(summary?.eventsAnswered, 66_000, 'only the event op counts');
+  assert.deepEqual(summary?.hookMissesByHarness, [{ harness: 'opencode', deadline: 167, sidecar: 0 }], 'an unknown harness name and the expected starts are left out');
+  assert.deepEqual(latencyLines(summary), [
+    'latency (last 7 days, target 900 ms): 176 hook deadline misses, 3 hooks the sidecar did not answer (all while it was starting, which is expected after an idle exit or a reinstall), 0 late sidecar answers',
+    'hook calls: the sidecar answered 66,000; the 179 misses above are about 0.3% of hook calls',
+    'hook misses by harness: opencode 167 deadline',
+  ]);
+  assert.equal(c.surfacePayloadContract('status').validate(statusWith(summary)).ok, true);
+  // No event counts (an older sidecar's rows): no share line, no error.
+  const bare = latencySummary({ days: 7, sinceMs: 0, targetMs: 900, counters: [row('hook', 'claude', 'DEADLINE', 2)] });
+  assert.equal(bare?.eventsAnswered, undefined);
+  assert.deepEqual(latencyLines(bare).filter((l) => l.startsWith('hook calls')), []);
+  assert.equal(c.surfacePayloadContract('status').validate(statusWith({ ...summary, hookMissesByHarness: [{ harness: 'opencode', deadline: -1, sidecar: 0 }] })).ok, false);
 });

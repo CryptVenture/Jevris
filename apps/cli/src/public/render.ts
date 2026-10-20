@@ -3,7 +3,7 @@
  * lines. No colour, no symbols that carry meaning alone, stable wording for screen readers.
  */
 import { accessUsageLines, untimedClearTextFor } from '@jevris/core';
-import { jevBudgetText, servingHostOf, type ModeSource, type PlanSliceSuggestion, type RouteServing, type SurfaceOperation, type SurfacePayloads, type SurfaceResult } from '@jevris/contracts';
+import { jevBudgetText, modeAllows, servingHostOf, type Mode, type ModeSource, type PlanSliceSuggestion, type RouteServing, type SurfaceOperation, type SurfacePayloads, type SurfaceResult } from '@jevris/contracts';
 import { backgroundVerifyAtStopText } from '../background-verify-line.js';
 import { firstTrySliceLines, firstTryStatusLine } from '../first-try-lines.js';
 import { reminderLine } from '../learning-report.js';
@@ -251,6 +251,7 @@ const MAIN_SESSION_REASON_TEXT: Readonly<Record<string, string>> = {
   HARNESS_ADVICE_ONLY: 'this harness takes advice only',
   KILL_SWITCH: 'the kill switch is on or unknown',
   TURN_ROUTE_UNCERTIFIED: 'turn switching is not certified for this harness; run jevris certify',
+  HARNESS_NOT_SEEN: 'no version of this harness is recorded here (it is not installed, or no session of it has been seen), so there is nothing to certify',
   CONFIG_UNREADABLE: 'the routing.mainSession setting could not be read',
   HOST_UNKNOWN: ROUTE_REASON_TEXT['HOST_UNKNOWN'] as string,
   NOT_ON_SESSION_HOST: ROUTE_REASON_TEXT['NOT_ON_SESSION_HOST'] as string,
@@ -273,6 +274,58 @@ function sessionHostWords(v: NonNullable<SurfacePayloads['status']['mainSessions
 export function mainSessionsLines(views: NonNullable<SurfacePayloads['status']['mainSessions']>): string[] {
   if (views.length === 0) return ['main sessions: unknown'];
   return views.map((v) => `main session ${v.harness}: ${v.mode}, ${sessionHostWords(v)}${v.turnSwitching === 'possible' ? 'turns may be switched (each turn still needs a linked session, low risk and budget)' : `advice only${mainSessionReason(v.reasonCode)}`}`);
+}
+
+/** Why `hooks.route` does not cover a harness here, in words (the coverage codes of the certification check). */
+const SUBAGENT_CERT_TEXT: Readonly<Record<string, string>> = {
+  NO_RECORD: 'no signed certification record covers this harness here',
+  VERSION_OUT_OF_RANGE: 'the installed version is outside the range its record covers',
+  EXPIRED: 'its signed certification record has expired',
+  FEATURE_NOT_CERTIFIED: 'the subagent route case did not pass when it was certified',
+  HARNESS_VERSION_UNKNOWN: 'no installed version is recorded yet',
+  CERTIFICATIONS_UNAVAILABLE: 'the certification records could not be read',
+  NO_SUBAGENT_ACTUATOR: 'this harness has no hook that can set a subagent\'s model',
+};
+
+/** What it means that a subagent launch was left on the session's model, for the reasons that come up most. */
+const SUBAGENT_LEFT_TEXT: Readonly<Record<string, string>> = {
+  EXPLICIT_MODEL: 'the launch named its own model, which Jevris never overrides',
+  RISK_HIGH: 'the launch was judged too risky for a cheaper model (a write-capable or custom agent type is high unless Jev lowers it)',
+  NO_EVIDENCE: 'no cheaper model is known to be available here yet (a model has to be listed by the harness or have run on it)',
+  NOT_CHEAPER: 'no model below the session\'s is available for this launch',
+  SAME_AS_SESSION: 'the launch already runs the model Jevris would pick',
+  MODEL_PINNED: 'a model is pinned, and Jevris never changes a pinned model',
+  PINNED: 'a model is pinned, and Jevris never changes a pinned model',
+  NOT_ELIGIBLE_HERE: 'the model it would pick has not been seen working on this harness and sign-in',
+  ALIAS_VERSION_OLD: 'the installed Claude Code does not yet map that model family alias to the current model',
+};
+
+/**
+ * Per harness, whether Jevris can set a subagent's model for one call and what this workspace's recent launches got, so a person can
+ * tell "nothing to route" from "routing is off here" without running doctor. Quiet about a harness that is neither installed nor used.
+ */
+export function subagentRoutingLines(views: NonNullable<SurfacePayloads['status']['subagentRouting']>, mode: Mode): string[] {
+  const lines: string[] = [];
+  for (const v of views) {
+    const head = `subagent routing ${v.harness}${v.version === null ? '' : ` ${v.version}`}`;
+    if (!v.certified) {
+      const why = v.certificationReasonCode === null ? 'not certified' : (SUBAGENT_CERT_TEXT[v.certificationReasonCode] ?? v.certificationReasonCode);
+      const fix = v.certificationReasonCode === 'NO_SUBAGENT_ACTUATOR' ? '; advice text only' : v.certificationReasonCode === 'HARNESS_VERSION_UNKNOWN' ? '; start a session or run jevris doctor' : '; fix: jevris certify --harness all (no model call)';
+      lines.push(`${head}: off, hooks.route is not certified (${v.certificationReasonCode ?? 'NOT_CERTIFIED'}: ${why}), so a subagent keeps the model it is given${fix}`);
+    } else {
+      const acts = modeAllows(mode, 'actuate') ? 'a launch that qualifies gets its model set for that one call' : modeAllows(mode, 'show-advice') ? `advice only in mode ${mode}` : `recording only in mode ${mode}`;
+      lines.push(`${head}: on (hooks.route certified); ${acts}`);
+    }
+    if (v.launches === 0) {
+      lines.push(`  last ${v.days} days: no subagent launches seen in this workspace`);
+      continue;
+    }
+    const left = v.leftAlone === 0 ? '' : `, ${v.leftAlone} left on the session's model (${v.reasons.slice(0, 4).map((r) => `${r.code} ${r.count}`).join(', ')}${v.reasons.length > 4 ? ', …' : ''})`;
+    lines.push(`  last ${v.days} days: ${v.launches === 1 ? '1 launch' : `${v.launches} launches`}: ${v.routed} had their model set for that call, ${v.advised} got advice only${left}${v.unknown === 0 ? '' : `, ${v.unknown} with no record of what was decided`}`);
+    const top = v.reasons[0];
+    if (top !== undefined && SUBAGENT_LEFT_TEXT[top.code] !== undefined) lines.push(`  most common reason, ${top.code}: ${SUBAGENT_LEFT_TEXT[top.code]}`);
+  }
+  return lines;
 }
 
 const JEV_DISABLED_FOR: Readonly<Record<string, string>> = { BILLING: 'billing', ACCOUNT: 'the account', AUTH: 'its API key' };
@@ -531,6 +584,7 @@ function body(result: SurfaceResult): string[] {
       if (p.modelRegistry !== undefined && p.modelRegistry !== null) lines.push(modelRegistryLine(p.modelRegistry));
       if (p.sessionLinks !== undefined && p.sessionLinks !== null) lines.push(sessionLinksLine(p.sessionLinks));
       if (p.mainSessions !== undefined && p.mainSessions !== null) lines.push(...mainSessionsLines(p.mainSessions));
+      if (p.subagentRouting !== undefined && p.subagentRouting !== null) lines.push(...subagentRoutingLines(p.subagentRouting, p.jevrisMode));
       if (p.backgroundVerifyAtStop !== undefined) lines.push(line('background verify at stop', backgroundVerifyAtStopText(p.backgroundVerifyAtStop, p.jevrisMode, 'a main-session Stop queues the missing approved checks')));
       if (p.firstTryRouting !== undefined) lines.push(line('first-try routing', p.firstTryRouting === 'auto' ? 'auto (a low-risk owned task starts on a cheaper model and is handed once to a stronger one if its check fails; estimates only)' : 'baseline (the baseline model runs first)'));
       if (p.firstTry !== undefined) lines.push(firstTryStatusLine(p.firstTry));

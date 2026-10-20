@@ -15,7 +15,7 @@ import { WORKER_HELP } from './harness-cli-stubs.mjs';
 
 const { certifyHarness, formatCertify, runCertifyCommand } = await import('../dist/certification.js');
 const { loadCertifications, coveringCertification } = await import('../dist/certification-store.js');
-const { maybeReverify, reverifyDir } = await import('../dist/reverify.js');
+const { finishReverify, maybeReverify, reverifyDir } = await import('../dist/reverify.js');
 const { recordLiveEvent, readLiveEvidence } = await import('../dist/live-evidence.js');
 const { runDoctorCommand } = await import('../dist/doctor-cli.js');
 const { doctorLineSeverity } = await import('../dist/doctor-severity.js');
@@ -104,6 +104,70 @@ test('a version outside the range starts exactly one background check, however m
   assert.equal(seam.jobs.length, 1);
   assert.match(line, /not covered yet: 2\.2\.1 is outside the record covers >=2\.1\.282 <2\.2\.0 \(last verified 2\.1\.282, .*\); re-checking in the background, no model call$/);
   assert.equal(doctorLineSeverity(line), 'info');
+});
+
+test('an expired record is re-checked in the background once per expiry, however long the version stays the same (JEV: every actuator went quiet after 30 days)', async (t) => {
+  const home = tempHome(t);
+  await installed(home);
+  const DAY = 86_400_000;
+  const T0 = Date.parse('2026-09-01T00:00:00Z');
+  await certify(home, '2.1.282', {}, T0);
+  const seam = counter();
+  const ask = (nowMs) => maybeReverify({ home, root, installed: ['claude'], versions: { claude: '2.1.282' }, nowMs, start: seam.start, guard: seam.guard });
+  // Inside its 30 days the record covers the version: nothing to do.
+  assert.deepEqual(await ask(T0 + 10 * DAY), []);
+  assert.equal(seam.jobs.length, 0);
+  // First expiry: the version has not changed, but no record covers it now. One re-check, however many callers ask.
+  const first = await Promise.all([ask(T0 + 31 * DAY), ask(T0 + 31 * DAY), ask(T0 + 31 * DAY)]);
+  assert.equal(seam.jobs.length, 1);
+  assert.equal(seam.jobs[0].reason, 'expired');
+  assert.deepEqual(first.flat().map((item) => item.state).sort(), ['running', 'running', 'started']);
+  assert.equal((await ask(T0 + 31 * DAY + 60_000)).every((item) => item.state === 'running'), true, 'asking again a minute later starts nothing new');
+  assert.equal(seam.jobs.length, 1);
+  // The check passes and writes a fresh record at that time, as `jevris certify --reverify` does.
+  assert.equal(await finishReverify(home, seam.jobs[0].marker, true, []), true);
+  await certify(home, '2.1.282', {}, T0 + 33 * DAY);
+  assert.deepEqual(await ask(T0 + 40 * DAY), [], 'covered again');
+  // Second expiry of the same version: the old marker must not stand in for a check that has not run.
+  const second = await ask(T0 + 64 * DAY);
+  assert.equal(seam.jobs.length, 2, 'a second check for the second expiry');
+  assert.equal(seam.jobs[1].reason, 'expired');
+  assert.notEqual(seam.jobs[1].marker, seam.jobs[0].marker);
+  assert.deepEqual(second.map((item) => item.state), ['started']);
+  // The marker name is one `finishReverify` and the certify command recognise, and it keeps the reason.
+  assert.equal(await finishReverify(home, seam.jobs[1].marker, true, []), true);
+  assert.equal(JSON.parse(readFileSync(seam.jobs[1].marker, 'utf8')).reason, 'expired');
+});
+
+test('doctor says an expired record expired (the version is inside its range), and that it is re-checking; a refused check names the fix', async (t) => {
+  const home = tempHome(t);
+  await installed(home);
+  await certify(home, '2.1.282', {}, Date.now() - 31 * 86_400_000);
+  const seam = counter();
+  const line = await doctor(home, '2.1.290', { reverifyStart: seam.start, reverifyGuard: seam.guard });
+  assert.match(line, /not covered yet: 2\.1\.290 is inside the range the record covers \(>=2\.1\.282 <2\.2\.0\), but the record expired on \d{4}-\d{2}-\d{2} \(last verified 2\.1\.282, .*\); re-checking in the background, no model call$/);
+  assert.equal(doctorLineSeverity(line), 'info');
+  assert.equal(seam.jobs.length, 1);
+  assert.equal(seam.jobs[0].reason, 'expired');
+  // Not allowed to re-check here (a test run, a foreign HOME): the same words, and the one command that fixes it.
+  const home2 = tempHome(t);
+  await installed(home2);
+  await certify(home2, '2.1.282', {}, Date.now() - 31 * 86_400_000);
+  const refused = await doctor(home2, '2.1.290', {});
+  assert.match(refused, /not covered: 2\.1\.290 is inside the range the record covers \(>=2\.1\.282 <2\.2\.0\), but the record expired on .*\(not re-checked: test run\); fix: jevris certify --harness claude$/);
+  assert.equal(doctorLineSeverity(refused), 'action');
+});
+
+test('a record that is out of range AND expired is a version problem, not an expiry: no expiry marker', async (t) => {
+  const home = tempHome(t);
+  await installed(home);
+  const T0 = Date.parse('2026-09-01T00:00:00Z');
+  await certify(home, '2.1.282', {}, T0);
+  const seam = counter();
+  await maybeReverify({ home, root, installed: ['claude'], versions: { claude: '2.2.1' }, nowMs: T0 + 40 * 86_400_000, start: seam.start, guard: seam.guard });
+  assert.equal(seam.jobs.length, 1);
+  assert.equal(seam.jobs[0].reason, 'out-of-range');
+  assert.match(seam.jobs[0].marker, /claude-[a-z0-9]+-2\.2\.1\.json$/);
 });
 
 test('never in a test run or under a foreign HOME unless a caller allows it: the default guard refuses and doctor names the fix', async (t) => {

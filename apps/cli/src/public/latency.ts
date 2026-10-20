@@ -3,7 +3,7 @@
  * `latency.counters` answers daily rows; status shows their totals against the semantic target.
  * Only counts, milliseconds and names travel; never event content.
  */
-import type { StatusLatency } from '@jevris/contracts';
+import { HARNESS_IDS, type HarnessId, type StatusLatency } from '@jevris/contracts';
 
 /** The days of counters status reads. */
 export const STATUS_LATENCY_DAYS = 7;
@@ -51,6 +51,8 @@ export function latencySummary(answer: unknown): StatusLatency | null {
   let hookSidecarStarting = 0;
   let lateSidecarAnswers = 0;
   let breakerOpens = 0;
+  let eventsAnswered = 0;
+  const byHarness = new Map<string, { deadline: number; sidecar: number }>();
   const subscribers = new Map<string, { count: number; maxMs: number }>();
   for (const row of a.counters.slice(0, MAX_ROWS) as unknown[]) {
     if (typeof row !== 'object' || row === null) continue;
@@ -58,13 +60,20 @@ export function latencySummary(answer: unknown): StatusLatency | null {
     const n = count(r.count);
     if (n === null || typeof r.metric !== 'string' || typeof r.name !== 'string') continue;
     if (r.scope === 'hook') {
-      if (HOOK_DEADLINE_CODES.has(r.metric)) hookDeadlineMisses = add(hookDeadlineMisses, n);
-      else if (sidecarMiss(r.metric)) {
+      const own = (HARNESS_IDS as readonly string[]).includes(r.name) ? (byHarness.get(r.name) ?? { deadline: 0, sidecar: 0 }) : null;
+      if (HOOK_DEADLINE_CODES.has(r.metric)) {
+        hookDeadlineMisses = add(hookDeadlineMisses, n);
+        if (own !== null) byHarness.set(r.name, { ...own, deadline: add(own.deadline, n) });
+      } else if (sidecarMiss(r.metric)) {
         hookSidecarMisses = add(hookSidecarMisses, n);
         if (r.metric === SIDECAR_STARTING) hookSidecarStarting = add(hookSidecarStarting, n);
+        // The by-harness split leaves out the expected misses of a sidecar that was starting: the line above says those.
+        if (own !== null && r.metric !== SIDECAR_STARTING) byHarness.set(r.name, { ...own, sidecar: add(own.sidecar, n) });
       }
     } else if (r.scope === 'sidecar-op' && r.metric === 'LATE_ANSWER') {
       lateSidecarAnswers = add(lateSidecarAnswers, n);
+    } else if (r.scope === 'sidecar-op' && r.name === 'event' && r.metric === 'answered') {
+      eventsAnswered = add(eventsAnswered, n);
     } else if (r.scope === 'subscriber' && SUBSCRIBER_NAME.test(r.name)) {
       const held = subscribers.get(r.name) ?? { count: 0, maxMs: 0 };
       subscribers.set(r.name, { count: add(held.count, n), maxMs: Math.max(held.maxMs, count(r.maxMs) ?? 0) });
@@ -77,7 +86,12 @@ export function latencySummary(answer: unknown): StatusLatency | null {
     .sort(([an, a1], [bn, b1]) => b1.count - a1.count || (an < bn ? -1 : an > bn ? 1 : 0))
     .slice(0, MAX_SLOW)
     .map(([name, held]) => ({ name, count: held.count, maxMs: held.maxMs }));
-  return { days, targetMs, hookDeadlineMisses, hookSidecarMisses, hookSidecarStarting, lateSidecarAnswers, slowSubscribers, breakerOpens };
+  const hookMissesByHarness = [...byHarness.entries()]
+    .filter(([, held]) => held.deadline + held.sidecar > 0)
+    .sort(([an, a1], [bn, b1]) => b1.deadline + b1.sidecar - (a1.deadline + a1.sidecar) || (an < bn ? -1 : an > bn ? 1 : 0))
+    .slice(0, 5)
+    .map(([harness, held]) => ({ harness: harness as HarnessId, deadline: held.deadline, sidecar: held.sidecar }));
+  return { days, targetMs, hookDeadlineMisses, hookSidecarMisses, hookSidecarStarting, lateSidecarAnswers, slowSubscribers, breakerOpens, ...(eventsAnswered > 0 ? { eventsAnswered } : {}), ...(hookMissesByHarness.length > 0 ? { hookMissesByHarness } : {}) };
 }
 
 function times(n: number, one: string, many: string): string {
@@ -106,6 +120,15 @@ export function latencyLines(latency: StatusLatency | null | undefined): string[
   const lines = [
     `${head}: ${times(latency.hookDeadlineMisses, 'hook deadline miss', 'hook deadline misses')}, ${times(latency.hookSidecarMisses, 'hook the sidecar did not answer', 'hooks the sidecar did not answer')}${startingNote(latency)}, ${times(latency.lateSidecarAnswers, 'late sidecar answer', 'late sidecar answers')}`,
   ];
+  // The denominator: of every hook call the sidecar answered or the hook gave up on, the share that missed (an estimate: a late answer is in both).
+  const hookMisses = latency.hookDeadlineMisses + latency.hookSidecarMisses;
+  if (latency.eventsAnswered !== undefined && hookMisses > 0) {
+    const share = (hookMisses / (latency.eventsAnswered + hookMisses)) * 100;
+    lines.push(`hook calls: the sidecar answered ${latency.eventsAnswered.toLocaleString('en-US')}; the ${times(hookMisses, 'miss', 'misses')} above are about ${share < 0.1 ? 'under 0.1' : share.toFixed(1)}% of hook calls`);
+  }
+  if (latency.hookMissesByHarness !== undefined && latency.hookMissesByHarness.length > 0) {
+    lines.push(`hook misses by harness: ${latency.hookMissesByHarness.map((h) => `${h.harness} ${h.deadline} deadline${h.sidecar > 0 ? `, ${h.sidecar} sidecar` : ''}`).join('; ')}`);
+  }
   if (latency.slowSubscribers.length > 0) {
     lines.push(`slow subscribers: ${latency.slowSubscribers.map((s) => `${s.name} ${times(s.count, 'miss', 'misses')} (max ${s.maxMs} ms)`).join(', ')}`);
   }
