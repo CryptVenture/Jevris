@@ -32,7 +32,8 @@ export function summaryFor(op: SurfaceOperation, payload: unknown, mode: 'full' 
     case 'status': {
       const p = payload as SurfacePayloads['status'];
       const stop = p.killSwitch === 'stopped' ? ' The kill switch is stopped.' : '';
-      return `Jevris is in ${p.jevrisMode} mode; decision health is ${p.decisionHealth}${tail}.${stop}`;
+      const routing = p.subagentRouting === undefined || p.subagentRouting === null ? '' : subagentRoutingSummary(p.subagentRouting, p.jevrisMode);
+      return `Jevris is in ${p.jevrisMode} mode; decision health is ${p.decisionHealth}${tail}.${stop}${routing === '' ? '' : ` ${routing}`}`;
     }
     case 'explain': {
       const p = payload as SurfacePayloads['explain'];
@@ -299,6 +300,20 @@ const SUBAGENT_LEFT_TEXT: Readonly<Record<string, string>> = {
   NOT_ELIGIBLE_HERE: 'the model it would pick has not been seen working on this harness and sign-in',
   ALIAS_VERSION_OLD: 'the installed Claude Code does not yet map that model family alias to the current model',
 };
+
+/**
+ * The routing state in the status summary sentence, the first thing an agent or a person reads: one clause per harness, on or off (with
+ * the code when off), so "advice only" for the main session is not read as "Jevris does nothing". Empty when no harness is listed.
+ */
+export function subagentRoutingSummary(views: NonNullable<SurfacePayloads['status']['subagentRouting']>, mode: Mode): string {
+  if (views.length === 0) return '';
+  const parts = views.map((v) => {
+    if (!v.certified) return `${v.harness} off (${v.certificationReasonCode ?? 'NOT_CERTIFIED'})`;
+    if (!modeAllows(mode, 'actuate')) return `${v.harness} on, advice only in ${mode} mode`;
+    return `${v.harness} on${v.launches > 0 ? ` (${v.routed} of ${v.launches} launches routed in ${v.days} days)` : ''}`;
+  });
+  return `Subagent routing: ${parts.join(', ')}.`;
+}
 
 /**
  * Per harness, whether Jevris can set a subagent's model for one call and what this workspace's recent launches got, so a person can

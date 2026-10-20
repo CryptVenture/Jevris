@@ -311,7 +311,7 @@ subagent routing claude 2.1.304: on (hooks.route certified); a launch that quali
   most common reason, EXPLICIT_MODEL: the launch named its own model, which Jevris never overrides
 ```
 
-`off, hooks.route is not certified (EXPIRED: ...)` names the one thing to fix (`jevris certify --harness all`); a record that expires is also renewed in the background at the next session start. When the launches are all `EXPLICIT_MODEL`, an orchestrating agent is naming each subagent's model and there is nothing for Jevris to route; when they are `RISK_HIGH`, they are write-capable or custom agent types, which stay on the session's model unless Jev lowers them at the floors above. See [troubleshooting.md](troubleshooting.md#jevris-seems-to-do-nothing).
+The same state opens the summary sentence of `jevris status` and of the `jevris_status` result (`Subagent routing: claude on (2 of 12 launches routed in 7 days), opencode off (EXPIRED).`), which is what an agent asked "is Jevris doing anything?" leads with. `off, hooks.route is not certified (EXPIRED: ...)` names the one thing to fix (`jevris certify --harness all`); a record that expires is also renewed in the background at the next session start. When the launches are all `EXPLICIT_MODEL`, an orchestrating agent is naming each subagent's model and there is nothing for Jevris to route; when they are `RISK_HIGH`, they are write-capable or custom agent types, which stay on the session's model unless Jev lowers them at the floors above. See [troubleshooting.md](troubleshooting.md#jevris-seems-to-do-nothing).
 
 ## Model tiers
 

@@ -297,7 +297,7 @@ Jevris learns the installed version from the harness's own `--version`, because 
 
 ## Jevris seems to do nothing
 
-`jevris status` answers this without anything else. Read these lines in order:
+`jevris status` answers this without anything else, and its first sentence already says, per harness, whether subagent routing is on or off (`Subagent routing: claude on (0 of 12 launches routed in 7 days), opencode off (EXPIRED).`). Read these lines in order:
 
 1. `mode:` must be `bounded-auto` for Jevris to set a model. In `advise` it only advises, in `observe` it only records, and `off` does nothing (`jevris configure set mode bounded-auto`, at a terminal).
 2. `subagent routing <harness> <version>:` says `on` or `off`. `off, hooks.route is not certified (CODE: ...)` is the reason nothing is ever routed there: `NO_RECORD` (never certified on this machine), `VERSION_OUT_OF_RANGE` (the harness updated past what its record covers), `EXPIRED` (the 30-day record ran out) or `FEATURE_NOT_CERTIFIED` (the case did not pass). Run `jevris doctor` for the detail and `jevris certify --harness all` to fix it (no model call). A background re-check normally renews a record by itself at the next session start.

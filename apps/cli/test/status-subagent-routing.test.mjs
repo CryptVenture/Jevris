@@ -4,7 +4,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-const { subagentRoutingLines } = await import('../dist/public/render.js');
+const { subagentRoutingLines, subagentRoutingSummary, summaryFor } = await import('../dist/public/render.js');
 const { StatusPayloadSchema, surfacePayloadContract } = await import('../../../packages/contracts/dist/index.js');
 
 const view = (over = {}) => ({ harness: 'claude', version: '2.1.304', certified: true, certificationReasonCode: null, days: 7, launches: 0, routed: 0, advised: 0, leftAlone: 0, unknown: 0, reasons: [], ...over });
@@ -61,4 +61,17 @@ test('an unknown reason code is shown as itself, and the contract accepts the vi
   assert.equal(valid([{ ...ok, version: 'latest' }]).ok, false, 'a version that is not x.y.z');
   assert.equal(valid([{ ...ok, launches: -1 }]).ok, false);
   assert.equal(valid([{ ...ok, extra: 1 }]).ok, false, 'no free-form field');
+});
+
+test('the summary sentence says it too, so a status that is healthy and routing nothing is not read as "Jevris does nothing"', () => {
+  const views = [view({ launches: 12, routed: 2 }), view({ harness: 'opencode', version: '1.18.34', certified: false, certificationReasonCode: 'EXPIRED' }), view({ harness: 'antigravity', version: '1.2.14', certified: false, certificationReasonCode: 'NO_SUBAGENT_ACTUATOR' })];
+  assert.equal(subagentRoutingSummary(views, 'bounded-auto'), 'Subagent routing: claude on (2 of 12 launches routed in 7 days), opencode off (EXPIRED), antigravity off (NO_SUBAGENT_ACTUATOR).');
+  assert.equal(subagentRoutingSummary([view()], 'bounded-auto'), 'Subagent routing: claude on.', 'no launches: no count');
+  assert.equal(subagentRoutingSummary([view({ launches: 3 })], 'advise'), 'Subagent routing: claude on, advice only in advise mode.');
+  assert.equal(subagentRoutingSummary([], 'bounded-auto'), '');
+  const payload = (subagentRouting) => ({ jevrisMode: 'bounded-auto', killSwitch: 'clear', decisionHealth: 'healthy', ...(subagentRouting === undefined ? {} : { subagentRouting }) });
+  assert.equal(summaryFor('status', payload(views), 'full'), 'Jevris is in bounded-auto mode; decision health is healthy. Subagent routing: claude on (2 of 12 launches routed in 7 days), opencode off (EXPIRED), antigravity off (NO_SUBAGENT_ACTUATOR).');
+  // An older sidecar (no field), a null and an empty list leave the sentence as it was.
+  for (const none of [undefined, null, []]) assert.equal(summaryFor('status', payload(none), 'full'), 'Jevris is in bounded-auto mode; decision health is healthy.');
+  assert.ok(summaryFor('status', payload(views), 'full').length < 500, 'within the summary bound');
 });
