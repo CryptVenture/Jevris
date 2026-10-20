@@ -31,11 +31,14 @@ test('not certified: it says routing is off, why in words, and the one command t
     ['EXPIRED', /its signed certification record has expired/],
     ['FEATURE_NOT_CERTIFIED', /the subagent route case did not pass when it was certified/],
   ];
+  const rerunnable = new Set(['NO_RECORD', 'VERSION_OUT_OF_RANGE', 'EXPIRED']);
   for (const [code, why] of cases) {
     const [head, count] = subagentRoutingLines([view({ certified: false, certificationReasonCode: code, launches: 4, leftAlone: 4, reasons: [{ code: 'NO_EVIDENCE', count: 4 }] })], 'bounded-auto');
     assert.match(head, /^subagent routing claude 2\.1\.304: off, hooks\.route is not certified \(/, code);
     assert.match(head, why, code);
-    assert.match(head, /so a subagent keeps the model it is given; fix: jevris certify --harness all \(no model call\)$/, code);
+    // A missing, out-of-range or expired record is fixed by certifying; a case that ran and failed is not fixed by running it again.
+    if (rerunnable.has(code)) assert.match(head, /so a subagent keeps the model it is given; fix: jevris certify --harness all \(no model call\)$/, code);
+    else assert.match(head, /so a subagent keeps the model it is given; jevris doctor says which case failed and why$/, code);
     assert.match(count, /4 launches: 0 had their model set for that call, 0 got advice only, 4 left on the session's model \(NO_EVIDENCE 4\)/, code);
   }
   // No installed version recorded yet: certify is not the fix, a session or doctor is.

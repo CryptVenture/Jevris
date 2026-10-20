@@ -325,7 +325,15 @@ export function subagentRoutingLines(views: NonNullable<SurfacePayloads['status'
     const head = `subagent routing ${v.harness}${v.version === null ? '' : ` ${v.version}`}`;
     if (!v.certified) {
       const why = v.certificationReasonCode === null ? 'not certified' : (SUBAGENT_CERT_TEXT[v.certificationReasonCode] ?? v.certificationReasonCode);
-      const fix = v.certificationReasonCode === 'NO_SUBAGENT_ACTUATOR' ? '; advice text only' : v.certificationReasonCode === 'HARNESS_VERSION_UNKNOWN' ? '; start a session or run jevris doctor' : '; fix: jevris certify --harness all (no model call)';
+      // A case that ran and did not pass is not fixed by running it again: doctor names which case failed and why. A missing, out-of-range or expired record is.
+      const fix =
+        v.certificationReasonCode === 'NO_SUBAGENT_ACTUATOR'
+          ? '; advice text only'
+          : v.certificationReasonCode === 'HARNESS_VERSION_UNKNOWN'
+            ? '; start a session or run jevris doctor'
+            : v.certificationReasonCode === 'FEATURE_NOT_CERTIFIED'
+              ? '; jevris doctor says which case failed and why'
+              : '; fix: jevris certify --harness all (no model call)';
       lines.push(`${head}: off, hooks.route is not certified (${v.certificationReasonCode ?? 'NOT_CERTIFIED'}: ${why}), so a subagent keeps the model it is given${fix}`);
     } else {
       const acts = modeAllows(mode, 'actuate') ? 'a launch that qualifies gets its model set for that one call' : modeAllows(mode, 'show-advice') ? `advice only in mode ${mode}` : `recording only in mode ${mode}`;
