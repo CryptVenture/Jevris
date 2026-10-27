@@ -17,6 +17,6 @@
     "@jevris/platform": "*",
     "@jevris/contracts": "*",
     "@jevris/core": "*",
-    "@typesafe-ai/sdk": "0.6.0"
+    "@typesafe-ai/sdk": "0.7.0"
   }
 }
