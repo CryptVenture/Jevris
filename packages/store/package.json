@@ -11,6 +11,6 @@
   },
   "dependencies": {
     "@jevris/platform": "*",
-    "better-sqlite3": "13.0.3"
+    "better-sqlite3": "13.1.1"
   }
 }
